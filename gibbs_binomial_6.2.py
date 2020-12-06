@@ -3,48 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm, uniform, multivariate_normal
 from scipy.spatial import distance_matrix, distance
+from utilities import simple_kernel_matrix, simple_kernel, simple_kernel_vector_matrix, sample_U
 import pathlib
 import time
 
 
 read_path = pathlib.Path()
-
-
-def simple_kernel(varphi, X_i, X_j):
-    """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
-    sum = 0
-    D = np.shape(X_i)[0]
-    for d in range(D):
-        sum += pow((X_i[d] - X_j[d]), 2)
-    sum *= varphi
-    C_ij = np.exp(-1. * sum)
-    return C_ij
-
-
-def simple_kernel_matrix(X_1, X_2, varphi, s):
-    """ Generate Gaussian kernel matrix efficiently using scipy's distance matrix function.
-
-    :param X: are the features drawn from feature space.
-    :param varphi: is the length scale common to all dimensions and classes.
-    :param s: is the vertical scale common to all classes.
-    """
-    D = distance_matrix(X_1, X_2)
-    return np.multiply(s, np.exp(-1. * varphi * pow(D, 2)))
-
-
-def simple_kernel_vector_matrix(x_new, X, varphi, s):
-    """
-    :param X: are the objects drawn from feature space.
-    :param x_new: is the new object drawn from the feature space.
-    :param varphi: is the length scale common to all dimensions and classes.
-    :param s: is the vertical scale common to all classes.
-    :return: the C_new vector.
-    """
-    N = np.shape(X)[0]
-    X_new = np.tile(x_new, (N, 1))
-    # This is probably horribly inefficient
-    D = distance.cdist(X_new, X)[0]
-    return np.multiply(s, np.exp(-1. * varphi * pow(D, 2)))
 
 
 def log_heaviside_probit_likelihood(u, t, G):
@@ -170,7 +134,7 @@ def vector_predict_gibbs(varphi, s, sigma, X_test, X_train, Y_samples):
 
 def predict_gibbs(varphi, s, sigma, X_test, X_train, Y_samples, scalar=None):
     if not scalar:
-        predictive_multinomial_distributions =  vector_predict_gibbs(varphi, s, sigma, X_test, X_train, Y_samples)
+        predictive_multinomial_distributions = vector_predict_gibbs(varphi, s, sigma, X_test, X_train, Y_samples)
     else:
         N_test = np.shape(X_test)[0]
         predictive_multinomial_distributions = []
@@ -178,18 +142,6 @@ def predict_gibbs(varphi, s, sigma, X_test, X_train, Y_samples, scalar=None):
             predictive_multinomial_distributions.append(
                 scalar_predict_gibbs(varphi, s, sigma, X_test[i], X_train, Y_samples))
     return predictive_multinomial_distributions
-
-
-def sample_U(K, same_across_classes=None):
-    if not same_across_classes:
-        u = norm.rvs(0, 1, 1)
-        U = np.multiply(u, np.ones((K, K)))
-    else:
-        # This might be a better option as there is no restriction on u across classes since it is just a random sample
-        # What effect will it have?
-        u = norm.rvs(0, 1, K)
-        U = np.tile(u, (K, 1))
-    return U
 
 
 def multidimensional_expectation_wrt_u(ms, n_samples):

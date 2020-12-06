@@ -1,6 +1,24 @@
 """Utility functions."""
 import numpy as np
-from scipy.stats import norm, uniform, multivariate_normal
+from scipy.stats import norm, uniform, multivariate_normal, expon
+
+
+def samples_varphi(psi, n_samples):
+    """Tensor version of sample_varphi"""
+    scale = 1./psi
+    varphi_samples = expon.rvs(scale=scale, size=((n_samples, np.shape(psi)[0], np.shape(psi)[1])))
+    return varphi_samples
+
+
+def sample_varphi(psi):
+    """In the 2005 paper, psi is a rate parameter. The justification for this is that we know that with a totally
+    uninformative prior (sigma=tau=0) then the posterior mean of Q(psi) is psi_tilde = 1./ varphi_tilde.
+    Therefore, taking an expectation over the prior on varphi varphi ~ Exp(psi_tilde), we would expect to obtain
+    varphi_tilde = 1./ psi_tilde, which we get if psi_tilde is a rate."""
+    # Sample independently over the M covariance kernel hyperparameters for each class
+    scale = 1. / psi
+    varphi_sample = expon.rvs(scale=scale)
+    return varphi_sample
 
 
 def sample_U(K, different_across_classes=None):
@@ -75,7 +93,9 @@ def function_u2(difference, vector_difference, U, t_n, K):
     :param t_n: is the np.argmax(m_n), the class chosen by the latent variable for that object n
     """
     function_eval = function_u1_alt(difference, U, t_n)
-    normal_pdf = norm.pdf(vector_difference, 1)
+    # Take the sample U as a vector (K, )
+    u = U[:, 0]
+    normal_pdf = norm.pdf(u - vector_difference, loc=0, scale=1)
     # Find the elementwise product of these two vectors which returns a (K, ) array
     return np.multiply(normal_pdf, function_eval)
 
@@ -92,29 +112,11 @@ def function_u3(difference, vector_difference, U, t_n, K):
     :param t_n: is the np.argmax(m_n), the class chosen by the latent variable for that object n
     """
     function_eval = function_u1_alt(difference, U, t_n)
-
-    # Take the sample in vector form (K, )
+    # Take the sample U as a vector (K, )
     u = U[:, 0]
     normal_cdf = norm.cdf(u - vector_difference, 1)
     # Find the elementwise product of these two vectors which returns a (K, ) array
     return np.multiply(function_eval, normal_cdf)
-
-
-# #Testing
-# K = 3
-# m_n = np.array([-1, 0, 1])
-# difference = matrix_of_differences(m_n)
-# print(difference)
-# U = sample_U(K)
-# print(U)
-# print(function_u1(difference, U))
-# t_n = np.argmax(m_n)
-# print(t_n)
-# print(function_u1_alt(difference, U, np.argmax(t_n)))
-# vector_difference = difference[:, t_n]
-# print(vector_difference)
-# print(function_u2(difference, vector_difference, U, t_n, K))
-# print(function_u3(difference, vector_difference, U, t_n, K))
 
 
 def expectation_p_m(function, m_n, n_samples):

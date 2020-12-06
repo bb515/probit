@@ -2,76 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm, uniform, multivariate_normal
-
-
-def get_C_ij(varphi, D, k, X_i, X_j):
-    """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
-    sum = 0
-    for d in range(D):
-        sum += varphi[k, d] * pow((X_i[d] - X_j[d]), 2)
-    C_ij = np.exp(-1. * sum)
-    return C_ij
-
-
-def kernel_matrix(X, varphi):
-    """Generate Gaussian kernel matrices as a numpy array.
-
-    This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
-    quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
-
-    e.g.
-    for k in range(K):
-        Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
-
-    :param X: (N, D) dimensional numpy.ndarray which holds the feature vectors.
-    :param varphi: (K, D) dimensional numpy.ndarray which holds the
-        covariance hyperparameters.
-    :returns Cs: A (K, N, N) array of K (N, N) covariance matrices.
-    """
-    Cs = []
-    K = np.shape(varphi)[0] # length of the classes
-    N = np.shape(X)[0]
-    D = np.shape(X)[1]
-    # The general covariance function has a different length scale for each dimension.
-    for k in range(K):
-        # for each x_i
-        C = -1.* np.ones((N, N))
-        for i in range(N):
-            for j in range(N):
-                C[i, j] = get_C_ij(varphi, D, k, X[i], X[j])
-        Cs.append(C)
-
-    return Cs
-
-
-def kernel_vector_matrix(x_new, X, varphi):
-    """Generate Gaussian kernel matrices as a numpy array.
-
-    This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
-    quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
-
-    e.g.
-    for k in range(K):
-        Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
-
-    :param x_new: (1, D) dimensional numpy.ndarray of the new feature vector.
-    :param X: (N, D) dimensional numpy.ndarray which holds the data feature vectors.
-    :param varphi: (K, D) dimensional numpy.ndarray which holds the
-        covariance hyperparameters.
-    :returns Cs: A (K, N, N) array of K (N, N) covariance matrices.
-    """
-    Cs_new = []
-    K = np.shape(varphi)[0] # length of the classes
-    N = np.shape(X)[0]
-    D = np.shape(X)[1]
-    # The general covariance function has a different length scale for each dimension.
-    for k in range(K):
-        C_new = -1.* np.ones(N)
-        for i in range(N):
-            C_ij = get_C_ij(varphi, D, k, X[i], x_new[0])
-            C_new[i] = get_C_ij(varphi, D, k, X[i], x_new[0])
-        Cs_new.append(C_new)
-    return Cs_new
+from utilities import kernel, kernel_matrix, kernel_vector_matrix
 
 
 def log_heaviside_probit_likelihood(u, t, G):
@@ -150,7 +81,7 @@ def predict_gibbs(varphi, sigmas, X, x_new, Y_samples):
         m = -1. * np.ones(K)
         for k, y_k in enumerate(Y.T):
             mean_k = y_k.T @ sigmas[k] @ Cs_new[k]
-            var_k = get_C_ij(varphi, D, k, x_new[0], x_new[0]) - Cs_new[k].T @ sigmas[k] @ Cs_new[k]
+            var_k = kernel(varphi, D, k, x_new[0], x_new[0]) - Cs_new[k].T @ sigmas[k] @ Cs_new[k]
             m[k] = norm.rvs(loc=mean_k , scale=var_k)
         # Take an expectation wrt the rv u
         # TODO: How do we know that 1000 samples is enough to converge? Do some empirical testing.
