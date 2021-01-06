@@ -1,16 +1,18 @@
 import numpy as np
 from scipy.spatial import distance_matrix, distance
+from abc import ABC, abstractmethod
 
 
 class Kernel(ABC):
     """
-    Base class for kernels.
+    Base class for kernels. TODO: cythonise these functions.
 
     All kernels must define an init method, which may or may not inherit Kernel as a parent class using `super()`.
     All kernels that inherit Kernel define a number of methods that return the kernel value, a vector of kernel values
     (a vector of covariances), or a covariance matrix of kernel values.
     """
 
+    @abstractmethod
     def __init__(self, varphi, s=None):
         """
         Create an :class:`Kernel` object.
@@ -61,7 +63,7 @@ class Kernel(ABC):
             s = np.float64(s)
         else:
             raise TypeError(
-                "Type of bond_stiffness and critical_stretch is not supported "
+                "Type of varphi is not supported "
                 "(expected {} or {}, got {})".format(
                     float, np.ndarray, type(bond_stiffness)))
         self.K = K
@@ -79,13 +81,13 @@ class Kernel(ABC):
         """
 
 
-    @abstractmethod
-    def kernel_vector(self):
-        """
-        Return the kernel vector given an input matrix and input vectors
-
-        This method should be implemented in every concrete integrator.
-        """
+    # @abstractmethod
+    # def kernel_vector(self):
+    #     """
+    #     Return the kernel vector given an input matrix and input vectors
+    #
+    #     This method should be implemented in every concrete integrator.
+    #     """
 
 
     @abstractmethod
@@ -97,9 +99,9 @@ class Kernel(ABC):
         """
 
 
-class binary(Kernel):
+class Binary(Kernel):
     """
-    Inherits the Kernel ABC
+    A binary kernel class. Inherits the Kernel ABC
     """
     def __init__(self, *args, **kwargs):
         """
@@ -147,9 +149,9 @@ class binary(Kernel):
         return np.multiply(self.s, np.exp(-1. * self.varphi * pow(D, 2)))
 
 
-class multivariate(Kernel):
+class Multivariate(Kernel):
     """
-    A general kernel class. Inherits the Kernel ABC
+    A multivariate kernel class. Inherits the Kernel ABC
     """
 
     def __init__(self, *args, **kwargs):

@@ -2,6 +2,21 @@
 import numpy as np
 from scipy.stats import norm, uniform, multivariate_normal, expon
 
+# Likelihoods
+
+def log_heaviside_probit_likelihood(u, t, G):
+    """The log(p(t|u)) when t=1 indicates inclass and t=0 indicates outclass."""
+    v_sample = np.dot(G, u)
+    ones = np.ones(len(v_sample))
+    phi = norm.cdf(v_sample)
+    one_minus_phi = np.subtract(ones, phi)
+    log_one_minus_phi = np.log(one_minus_phi)
+    log_phi = np.log(phi)
+    log_likelihood = (np.dot(t, log_phi)
+                      + np.dot(np.subtract(ones, t), log_one_minus_phi))
+    return log_likelihood
+
+# VB
 
 def samples_varphi(psi, n_samples):
     """Tensor version of sample_varphi"""
