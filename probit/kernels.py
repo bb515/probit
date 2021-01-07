@@ -13,7 +13,7 @@ class Kernel(ABC):
     """
 
     @abstractmethod
-    def __init__(self, varphi, s=None):
+    def __init__(self, varphi, s):
         """
         Create an :class:`Kernel` object.
 
@@ -26,48 +26,40 @@ class Kernel(ABC):
         """
         if ((type(varphi) is list) or
                 (type(varphi) is np.ndarray)):
-            if s:
-                if np.shape(varphi) != np.shape(s):
-                    raise ValueError(
-                        "The shape of varphi must be equal to the shape "
-                        "of s (expected {}, got {})".format(
-                            np.shape(varphi),
-                            np.shape(s)))
+            if np.shape(varphi) == (1,):
+                # e.g. [[1]]
+                K = 1
+                M = 1
+            elif np.shape(varphi) == ():
+                # e.g. [1]
+                K = 1
+                M = 1
+            elif np.shape(varphi[0]) == (1,):
+                # e.g. [[1],[2],[3]]
+                K = np.shape(varphi)[0]
+                M = 1
+            elif np.shape(varphi[0]) == ():
+                # e.g. [1, 2, 3]
+                K = 1
+                M = np.shape(varphi)[0]
             else:
-                if np.shape(varphi) == (1,):
-                    # e.g. [[1]]
-                    K = 1
-                    D = 1
-                elif np.shape(varphi) == ():
-                    # e.g. [1]
-                    K = 1
-                    D = 1
-                elif np.shape(varphi[0]) == (1,):
-                    # e.g. [[1],[2],[3]]
-                    K = np.shape(varphi)[0]
-                    D = 1
-                elif np.shape(varphi[0]) == ():
-                    # e.g. [1, 2, 3]
-                    K = 1
-                    D = np.shape(varphi)[0]
-                else:
-                    # e.g. [[1, 2], [3, 4], [5, 6]]
-                    K = np.shape(varphi)[0]
-                    D = np.shape(varphi)[1]
+                # e.g. [[1, 2], [3, 4], [5, 6]]
+                K = np.shape(varphi)[0]
+                M = np.shape(varphi)[1]
         elif ((type(varphi) is float) or
                   (type(varphi) is np.float64)):
             # e.g. 1
             K = 1
-            D = 1
+            M = 1
             varphi = np.float64(varphi)
             s = np.float64(s)
         else:
             raise TypeError(
                 "Type of varphi is not supported "
                 "(expected {} or {}, got {})".format(
-                    float, np.ndarray, type(bond_stiffness)))
+                    float, np.ndarray, type(varphi)))
         self.K = K
-        self.D = D
+        self.M = M
         self.varphi = varphi
         self.s = s
 
@@ -99,39 +91,36 @@ class Kernel(ABC):
         """
 
 
-class Binary(Kernel):
+class SEIsoBinomial(Kernel):
     """
     A binary kernel class. Inherits the Kernel ABC
     """
     def __init__(self, *args, **kwargs):
         """
-        Create an :class:`EulerCL` integrator object.
+        Create an :class:`IsoBinomial` kernel object.
 
-        :returns: An :class:`EulerCL` object
+        :returns: An :class:`IsoBinomial` object
         """
         super().__init__(*args, **kwargs)
         if self.K != 1:
-            raise ValueError('K wrong for simple kernel (expected {}, got {})'.format(1, K))
-        if self.D != 1:
-            raise ValueError('D wrong for simple kernel (expected {}, got {})'.format(1, D))
-        if self.s == None:
-            raise TypeError('You must supply an s for the simple kernel (expected {}, got {})'.format(float, type(s)))
+            raise ValueError('K wrong for binary kernel (expected {}, got {})'.format(1, self.K))
+        if self.M != 1:
+            raise ValueError('M wrong for binary kernel (expected {}, got {})'.format(1, self.M))
+        if self.s is None:
+            raise TypeError(
+                'You must supply an s for the simple kernel (expected {}, got {})'.format(float, type(self.s)))
 
     def kernel(self, X_i, X_j):
         """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
-        sum = 0
-        for d in range(self.D):
-            sum += pow((X_i[d] - X_j[d]), 2)
-        sum *= self.varphi
-        C_ij = np.exp(-1. * sum)
-        return C_ij
+        return self.s * np.exp(-1. * self.varphi * distance.sqeuclidean(X_i, X_j))
 
-    def kernel_matrix(self, X):
+    def kernel_matrix(self, X1, X2):
         """ Generate Gaussian kernel matrix efficiently using scipy's distance matrix function.
 
-        :param X: are the datum.
+        :param X1: are the datum.
+        :param X2: usually the same as X1 are the datum.
         """
-        distance_mat = distance_matrix(X, X)
+        distance_mat = distance_matrix(X1, X2)
         return np.multiply(self.s, np.exp(-1. * self.varphi * pow(distance_mat, 2)))
 
     def kernel_vector_matrix(self, x_new, X):
@@ -149,9 +138,9 @@ class Binary(Kernel):
         return np.multiply(self.s, np.exp(-1. * self.varphi * pow(D, 2)))
 
 
-class Multivariate(Kernel):
+class SEARDMultinomial(Kernel):
     """
-    A multivariate kernel class. Inherits the Kernel ABC
+    A square exponential (SE) automatic relevance detection (ARD) multinomial kernel class. Inherits the Kernel ABC.
     """
 
     def __init__(self, *args, **kwargs):
@@ -162,23 +151,21 @@ class Multivariate(Kernel):
         """
         super().__init__(*args, **kwargs)
         if self.K <= 1:
-            raise ValueError('K wrong for simple kernel (expected {}, got {})'.format('more than 1', K))
-        if self.D <= 1:
-            raise ValueError('D wrong for simple kernel (expected {}, got {})'.format('more than 1', D))
-        if self.s != None:
-            raise TypeError('You must not supply an s for the general kernel (expected {}, got {})'.format(
-                None, type(s)))
+            raise ValueError('K wrong for simple kernel (expected {}, got {})'.format('more than 1', self.K))
+        if self.M <= 1:
+            raise ValueError('M wrong for simple kernel (expected {}, got {})'.format('more than 1', self.M))
+        if self.s is None:
+            raise TypeError('You must supply an s for the general kernel (expected {}, got {})'.format(
+                float, type(self.s)))
+        # In the ARD case (see 2005 paper)
+        self.D = self.M
 
     def kernel(self, k, X_i, X_j):
-        """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
-        sum = 0
-        for d in range(self.D):
-            sum += self.varphi[k, d] * pow((X_i[d] - X_j[d]), 2)
-        C_ij = np.exp(-1. * sum)
-        return C_ij
+        """Get the ij'th element of C_k, given the X_i and X_j, k."""
+        return self.s * np.exp(-1. * np.sum([self.varphi[k, d] * np.power(
+            (X_i[d] - X_j[d]), 2) for d in range(self.D)]))
 
-
-    def kernel_matrix(self, X):
+    def kernel_matrix(self, X1, X2):
         """Generate Gaussian kernel matrices as a numpy array.
 
         This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
@@ -188,25 +175,24 @@ class Multivariate(Kernel):
         for k in range(K):
             Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
 
-        :param X: (N, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param X1: (N1, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param X2: (N2, D) dimensional numpy.ndarray which holds the feature vectors.
         :param varphi: (K, D) dimensional numpy.ndarray which holds the
             covariance hyperparameters.
-        :returns Cs: A (K, N, N) array of K (N, N) covariance matrices.
+        :returns Cs: A (K, N1, N2) array of K (N1, N2) covariance matrices.
         """
         Cs = []
-        K = self.K
-        N = np.shape(X)[0]
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
         # The general covariance function has a different length scale for each dimension.
-        for k in range(K):
+        for k in range(self.K):
             # for each x_i
-            C = -1.* np.ones((N, N))
-            for i in range(N):
-                for j in range(N):
-                    C[i, j] = self.kernel(k, X[i], X[j])
+            C = -1. * np.ones((N1, N2))
+            for i in range(N1):
+                for j in range(N2):
+                    C[i, j] = self.kernel(k, X1[i], X2[j])
             Cs.append(C)
-
         return Cs
-
 
     def kernel_vector_matrix(self, x_new, X):
         """Generate Gaussian kernel matrices as a numpy array.

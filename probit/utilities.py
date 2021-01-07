@@ -53,8 +53,7 @@ def sample_U(K, different_across_classes=None):
 def matrix_of_differences(m_n):
     """ Get a matrix of differences of the vector m."""
     # Find matrix of coefficients
-    K  = np.shape(m_n)[0]
-    I = np.eye(K)
+    K = np.shape(m_n)[0]
     Lambda = np.tile(m_n, (K, 1))
     Lambda_T = Lambda.T
     # antisymmetric matrix of differences, the rows contain the elements of the product of interest

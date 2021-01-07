@@ -1,4 +1,5 @@
-from utilities import (
+"""Test file for miscellaneous tests for VB."""
+from ..utilities import (
     matrix_of_differences, function_u1, function_u2, function_u3, function_u1_alt, sample_U, sample_varphi,
     samples_varphi)
 import numpy as np
@@ -87,19 +88,24 @@ def test_matrix_of_differences():
     t_n = np.argmax(m_n)
     actual_vector_difference = actual_MOD[:, t_n]
     expected_vector_difference = np.array([-2, -1, 0])
-    assert np.all(actual_vector_difference, expected_vector_difference)
+    assert np.allclose(actual_vector_difference, expected_vector_difference)
 
 
 def test_function_u1_sum_to_one():
+    # TODO: this currently doesn't work
     K = 3
     m_n = np.array([-1, 0, 1])
     difference = matrix_of_differences(m_n)
+    print(difference)
     U = sample_U(K)
+    print(U)
     f1 = function_u1(difference, U)
-    assert np.close(np.sum(f1), 1.0)
+    print(f1)
+    assert np.allclose(np.sum(f1), 1.0)
 
 
 def test_functions_sum_to_one():
+    # TODO: this currently doesn't work
     K = 3
     m_n = np.array([-1, 0, 1])
     difference = matrix_of_differences(m_n)
@@ -109,8 +115,8 @@ def test_functions_sum_to_one():
     vector_difference = difference[:, t_n]
     f2 = function_u2(difference, vector_difference, U, t_n, K)
     f3 = function_u3(difference, vector_difference, U, t_n, K)
-    assert np.close(np.sum(f1), 1.0)
-    assert np.close(np.sum(f2), 1.0)
-    assert np.close(np.sum(f3), 1.0)
+    assert np.allclose(np.sum(f1), 1.0)
+    assert np.allclose(np.sum(f2), 1.0)
+    assert np.allclose(np.sum(f3), 1.0)
 
-test_samples_varphi()
+# test_samples_varphi()

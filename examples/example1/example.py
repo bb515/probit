@@ -3,9 +3,7 @@ import argparse
 import cProfile
 from io import StringIO
 import numpy as np
-import pathlib
-from probit import GibbsClassifier
-from probit.kernels import Binary
+from probit.samplers import GibbsBinomial
 from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
 from mpi4py import MPI
@@ -32,15 +30,18 @@ def main():
     N_total = N*K
     # Dimension of the data
     D = 2
-    # Uniform quadrant dataset - linearly seperable
-    X0 = np.random.rand(N, D) # AGD slightly cleaner code here
-    X1 = np.ones((N, D)) + np.random.rand(N, D)
-    offset = np.array([0, 1])
-    offsets = np.tile(offset, (N, 1))
-    t0 = np.zeros(len(X0))
-    t1 = np.ones(len(X1))
+
 
     if rank == 0:
+        # Uniform quadrant dataset - linearly seperable
+        X0 = np.random.rand(N, D)  # AGD slightly cleaner code here
+        X1 = np.ones((N, D)) + np.random.rand(N, D)
+        offset = np.array([0, 1])
+        offsets = np.tile(offset, (N, 1))
+        t0 = np.zeros(len(X0))
+        t1 = np.ones(len(X1))
+        # Need to broadcast data to each dimension.
+
         plt.scatter(X0[:, 0], X0[:, 1], color='b', label=r"$t=0$")
         plt.scatter(X1[:, 0], X1[:, 1], color='r', label=r"$t=1$")
         plt.legend()
@@ -62,9 +63,7 @@ def main():
     X = Xt[:, :3]
     t = Xt[:, -1]
 
-    # Don't actually need a kernel but we'll see what the equivalent is.
-    kernel = Binary(varphi=1.0)
-    gibbs_classifier = GibbsClassifier(kernel, X, t, binomial=1)
+    gibbs_classifier = GibbsBinomial(X, t)
 
     # Sample beta from prior
     beta = multivariate_normal.rvs(mean=[0, 0, 0], cov=np.eye(3))
