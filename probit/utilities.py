@@ -34,7 +34,7 @@ def sample_varphi(psi):
     return varphi_sample
 
 
-def sample_U(K, different_across_classes=None):
+def sample_U(K, different_across_classes=None):  # TODO: May have been SS
     if not different_across_classes:
         # Will this induce an unwanted link between the y_nk across k? What effect will it have?
         u = norm.rvs(0, 1, 1)
@@ -62,10 +62,9 @@ def sample_Us(K, n_samples, different_across_classes=None):
     return Us
 
 
-def matrix_of_differences(m_n):
+def matrix_of_differences(m_n, K):  # TODO: changed this, VB will need changing
     """ Get a matrix of differences of the vector m."""
     # Find matrix of coefficients
-    K = np.shape(m_n)[0]
     Lambda = np.tile(m_n, (K, 1))
     Lambda_T = Lambda.T
     # antisymmetric matrix of differences, the rows contain the elements of the product of interest

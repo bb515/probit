@@ -115,6 +115,8 @@ venv.bak/
 
 # Scratch files
 scratch.py
+refactoring.txt
+refactoring
 
 # Spyder project settings
 .spyderproject
@@ -141,6 +143,5 @@ dmypy.json
 *.c
 
 # Ben's files
-examples/example4/
-examples/example3/
+refactoring.txt
 post_processing/

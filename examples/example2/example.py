@@ -59,7 +59,7 @@ def main():
     kernel = SEIsoBinomial(varphi=1.0, s=1.0)
     gibbs_classifier = GibbsMultinomialGP(X, t, kernel)
     steps_burn = 100
-    steps = 15
+    steps = 1000
     M_0 = np.zeros((N, K))
     # Burn in
     M_samples, Y_samples = gibbs_classifier.sample(M_0, steps_burn)

@@ -4,8 +4,7 @@ import pathlib
 import numpy as np
 from scipy.stats import norm, multivariate_normal
 from tqdm import trange
-from .utilities import sample_U
-# from .utilities import log_heaviside_probit_likelihood
+from .utilities import sample_U, sample_Us, matrix_of_differences
 
 
 class Sampler(ABC):
@@ -158,33 +157,24 @@ class GibbsMultinomialGP(Sampler):
     def expectation_wrt_u(self, m, n_samples):
         """
         Calculate distribution over classes.
-
+        TODO: is m actually (K, 1) or is it (K, )
         :arg m: is an (K, 1) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
         :type m: :class:`numpy.ndarray`
         """
-        # Find matrix of coefficients
-        Lambda = np.tile(m, (self.K, 1))
-        Lambda_T = Lambda.T
-        # Symmetric matrix of differences
-        differences = Lambda - Lambda_T
+        # Find antisymmetric matrix of differences
+        difference = matrix_of_differences(m, self.K)
         # Take samples
         samples = []
         Us = sample_Us(self.K, n_samples, different_across_classes=True)
-        random_variables = []
-        for i in range(n_samples):
-            # Sample normal random variate
-            U = sample_U(self.K, different_across_classes=True)
-            Us.append(U)
-
-            random_variables = np.add(U, differences)
-            cum_dists = norm.cdf(random_variables, loc=0, scale=1)
-            # Employ a log-transform to do stable multiplication, may not be necessary but it's safe/un-costly
-            log_cum_dists = np.log(cum_dists)
-            np.fill_diagonal(log_cum_dists, 0)
-            log_sample = np.sum(log_cum_dists, axis=0)
-            samples.append(np.exp(log_sample))
-
-        distribution_over_classes = 1 / n_samples * np.sum(samples, axis=0)
+        random_variables = np.add(difference, Us)
+        cum_dists = norm.cdf(random_variables, loc=0, scale=1)
+        log_cum_dists = np.log(cum_dists)
+        log_cum_dists[:, range(self.K), range(self.K)] = 0
+        # axis 0 is the n_samples samples, axis 2 is then the row index, which is the product of cdfs of interest
+        log_samples = np.sum(log_cum_dists, axis=2)
+        samples = np.exp(log_samples)
+        # axis 0 is the n_samples samples, which is the monte-carlo sum of interest
+        distribution_over_classes = 1. / n_samples * np.sum(samples, axis=0)
         return distribution_over_classes
 
     def multidimensional_expectation_wrt_u(self, ms, n_samples):
@@ -198,6 +188,8 @@ class GibbsMultinomialGP(Sampler):
 
         :returns: Distribution over classes
         """
+        # Find antisymmetric matrix of differences
+        difference = matrix_of_differences(ms, self.K)
         # Find matrix of coefficients
         N_test = np.shape(ms)[0]
         ms = ms.reshape((N_test, 1, self.K))
