@@ -2,7 +2,6 @@
 import numpy as np
 from scipy.stats import norm, uniform, multivariate_normal, expon
 
-# Likelihoods
 
 def log_heaviside_probit_likelihood(u, t, G):
     """The log(p(t|u)) when t=1 indicates inclass and t=0 indicates outclass."""
@@ -16,7 +15,6 @@ def log_heaviside_probit_likelihood(u, t, G):
                       + np.dot(np.subtract(ones, t), log_one_minus_phi))
     return log_likelihood
 
-# VB
 
 def samples_varphi(psi, n_samples):
     """Tensor version of sample_varphi"""
@@ -48,6 +46,20 @@ def sample_U(K, different_across_classes=None):
         # Needs to be the same across rows, as we sum over the rows
         U = U.T
     return U
+
+
+def sample_Us(K, n_samples, different_across_classes=None):
+    if not different_across_classes:
+        # Will this induce an unwanted link between the y_nk across k? What effect will it have?
+        us = norm.rvs(0, 1, (n_samples, 1, 1))
+        ones = np.ones((n_samples, K, K))
+        Us = np.multiply(us, ones)
+    else:
+        # This might be a better option as the sample u across classes shouldn't be correlated, does it matter though?
+        us = norm.rvs(0, 1, (n_samples, K, 1))
+        # Needs to be the same across rows, as we sum over the rows
+        Us = np.tile(us, (1, 1, K))
+    return Us
 
 
 def matrix_of_differences(m_n):

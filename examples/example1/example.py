@@ -112,6 +112,8 @@ def main():
 
         Z = np.zeros((N * N))
         for i, x_new in enumerate(X_new):
+            z = gibbs_classifier.predict(beta_samples, x_new)
+            print(np.sum(z))
             Z[i] = gibbs_classifier.predict(beta_samples, x_new)
 
         Z = np.reshape(Z, (N, N))

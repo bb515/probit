@@ -163,28 +163,27 @@ class GibbsMultinomialGP(Sampler):
         :type m: :class:`numpy.ndarray`
         """
         # Find matrix of coefficients
-        I = np.eye(self.K)
         Lambda = np.tile(m, (self.K, 1))
         Lambda_T = Lambda.T
         # Symmetric matrix of differences
         differences = Lambda - Lambda_T
         # Take samples
         samples = []
+        Us = sample_Us(self.K, n_samples, different_across_classes=True)
+        random_variables = []
         for i in range(n_samples):
             # Sample normal random variate
-            u = norm.rvs(0, 1, self.K)
-            U = np.tile(u, (self.K, 1))
-            # TODO: Alternatively?
-            # u = norm.rvs(0, 1, 1)
-            # U = np.multiply(u, np.ones((K, K)))
-            ones = np.ones((self.K, self.K))
-            # TODO: consider doing a log-transform to do stable multiplication
-            random_variables = np.add(U, differences)
-            np.fill_diagonal(random_variables, 1)
-            sample = np.prod(random_variables, axis=0)
-            samples.append(sample)
+            U = sample_U(self.K, different_across_classes=True)
+            Us.append(U)
 
-        # TODO: check that this sum is correct
+            random_variables = np.add(U, differences)
+            cum_dists = norm.cdf(random_variables, loc=0, scale=1)
+            # Employ a log-transform to do stable multiplication, may not be necessary but it's safe/un-costly
+            log_cum_dists = np.log(cum_dists)
+            np.fill_diagonal(log_cum_dists, 0)
+            log_sample = np.sum(log_cum_dists, axis=0)
+            samples.append(np.exp(log_sample))
+
         distribution_over_classes = 1 / n_samples * np.sum(samples, axis=0)
         return distribution_over_classes
 
@@ -200,26 +199,22 @@ class GibbsMultinomialGP(Sampler):
         :returns: Distribution over classes
         """
         # Find matrix of coefficients
-        K = np.shape(ms)[1]
-        I = np.eye(K)
         N_test = np.shape(ms)[0]
-        ms = ms.reshape((N_test, 1, K))
-        print(np.shape(ms), 'shape_ms')
+        ms = ms.reshape((N_test, 1, self.K))
+        #print(np.shape(ms), 'shape_ms')
         # Lambdas is an (n_test, K, K) stack of Lambda matrices
         Lambdas = np.tile(ms, (1, K, 1))
-        print(np.shape(Lambdas), 'shape Lambdas')
+        #print(np.shape(Lambdas), 'shape Lambdas')
         Lambdas_T = Lambdas.transpose((0, 2, 1))
-        print(np.shape(Lambdas_T), 'shape LambdasT')
+        #print(np.shape(Lambdas_T), 'shape LambdasT')
         # Symmetric matrices of differences
         differences = np.subtract(Lambdas_T, Lambdas)
         # Take samples
         sampless = []
         for i in range(n_samples):
-            # U is (K, K)
-            U = sample_U(K)
-            # assume its okay to use the same random variable over all of these data points.
-            # Us is (N_test, K, K)
-            Us = np.tile(U, (N_test, 1, 1))
+            # Assume its okay to use the same random variable across all classes and over all of the data points
+            U = sample_U(self.K, different_across_classes=None)  # (K, K)
+            Us = np.tile(U, (N_test, 1, 1))  # (N_test, K, K)
             random_variables = np.add(Us, differences)
             cum_dists = norm.cdf(random_variables, loc=0, scale=1)
             log_cum_dists = np.log(cum_dists)
@@ -255,14 +250,13 @@ class GibbsMultinomialGP(Sampler):
         intermediate_matrix = self.sigma @ Cs_new  #  (N_train, N_test)
         # Assertion that Cs_new is (N, N_test)
         assert (np.shape(Cs_new) == (np.shape(self.X_train)[0], np.shape(X_test)[0]))
-        K = np.shape(Y_samples[0])[1]
         n_posterior_samples = np.shape(Y_samples)[0]
         # Sample pmf over classes
         distribution_samples = []
         # For each sample
         for Y in Y_samples:
             # Initiate m with null values
-            ms = -1. * np.ones((N_test, K))
+            ms = -1. * np.ones((N_test, self.K))
             for k, y_k in enumerate(Y.T):
                 # (1, N_test)
                 # TODO: this could be expensive.
@@ -286,9 +280,7 @@ class GibbsMultinomialGP(Sampler):
         :return:
         """
         x_test = np.array([x_test])
-        #X_new = np.append(self.X_train, x_test, axis=0)
         Cs_new = self.kernel.kernel_vector_matrix(x_test, self.X_train)
-        #Cs_new = simple_kernel_vector_matrix(x_new, X, varphi, s)
         n_posterior_samples = np.shape(Y_samples)[0]
         # Sample pmf over classes
         distribution_over_classes_samples = []
@@ -302,7 +294,7 @@ class GibbsMultinomialGP(Sampler):
             # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
             distribution_over_classes_samples.append(self.expectation_wrt_u(m, n_samples))
         monte_carlo_estimate = (1. / n_posterior_samples) * np.sum(distribution_over_classes_samples, axis=0)
-        # TODO: Could also get a variance from the MC estimate
+        # TODO: Could also get a variance from the MC estimate?
         return monte_carlo_estimate
 
 
