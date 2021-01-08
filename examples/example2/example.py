@@ -59,7 +59,7 @@ def main():
     kernel = SEIso(varphi=1.0, s=1.0)
     gibbs_classifier = GibbsMultinomialGP(X, t, kernel)
     steps_burn = 100
-    steps = 15
+    steps = 100
     M_0 = np.zeros((N, K))
     # Burn in
     M_samples, Y_samples = gibbs_classifier.sample(M_0, steps_burn)
@@ -91,11 +91,6 @@ def main():
     xx, yy = np.meshgrid(x, y)
     X_new = np.dstack((xx, yy))
     X_new = X_new.reshape((N * N, D))
-    Z = np.zeros((N * N, K))
-    # for i, x_new in enumerate(X_new):
-    #     z = gibbs_classifier.predict(Y_samples, x_new, n_samples=200)
-    #     print(z)
-    #     Z[i, :] = z
     Z = gibbs_classifier.predict_vector(Y_samples, X_new, n_samples=200)
     Z = np.reshape(Z, (N, N, K))
     Z = np.moveaxis(Z, 2, 0)

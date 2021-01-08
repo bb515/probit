@@ -125,7 +125,7 @@ class SEIso(Kernel):
 
     def kernel_vector_matrix(self, x_new, X):
         """
-        :param X: are the objects drawn from feature space.
+        :param X: are the data.
         :param x_new: is the new object drawn from the feature space.
         :param varphi: is the length scale common to all dimensions and classes.
         :param s: is the vertical scale common to all classes.
@@ -136,6 +136,14 @@ class SEIso(Kernel):
         # This is probably horribly inefficient
         D = distance.cdist(X_new, X)[0]
         return np.multiply(self.s, np.exp(-1. * self.varphi * pow(D, 2)))
+
+    def kernel_matrix_matrix(self, X_new, X):
+        """
+
+        :param X_new: vector of new objects drawn from feature space
+        :param X: are the data.
+        :return: the C_news vectors, one C_new for each object.
+        """
 
 
 class SEARDMultinomial(Kernel):

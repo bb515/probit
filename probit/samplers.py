@@ -118,7 +118,6 @@ class GibbsMultinomialGP(Sampler):
         :type M_0: :class:`np.ndarray`.
         :arg :class:`numpy.ndarray` init: The initial location of the sampler in parameter space.
         :arg :class:`numpy.ndarray` steps: The number of steps in the sampler.
-        :param varphi: (K, D) np.array for TODO: need this?
 
         :return: Gibbs samples. The acceptance rate for Gibbs is 1.
         """
@@ -157,8 +156,7 @@ class GibbsMultinomialGP(Sampler):
     def expectation_wrt_u(self, m, n_samples):
         """
         Calculate distribution over classes.
-        TODO: is m actually (K, 1) or is it (K, )
-        :arg m: is an (K, 1) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
+        :arg m: is an (K, ) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
         :type m: :class:`numpy.ndarray`
         """
         # Find antisymmetric matrix of differences
@@ -175,7 +173,7 @@ class GibbsMultinomialGP(Sampler):
         # axis 0 is the n_samples samples, which is the monte-carlo sum of interest
         return 1. / n_samples * np.sum(samples, axis=0)
 
-    def multidimensional_expectation_wrt_u(self, ms, n_samples):
+    def vector_expectation_wrt_u(self, ms, n_samples):
         """
         Calculate distribution over classes for multiple m at the same time.
 
@@ -202,7 +200,6 @@ class GibbsMultinomialGP(Sampler):
         log_samples = np.sum(log_cum_dists, axis=3)
         samples = np.exp(log_samples)
         # axis 1 is the n_samples samples, which is the monte-carlo sum of interest
-        # TODO: this code is not tested.
         return 1. / n_samples * np.sum(samples, axis=1)
 
     def predict_vector(self, Y_samples, X_test, n_samples=1000):
@@ -211,17 +208,18 @@ class GibbsMultinomialGP(Sampler):
 
         :arg Y_samples:
         :arg X_test:
+        :param n_samples: The number of samples in the monte carlo estimate.
         :return: A monte carlo estimate of the class probabilities.
         """
         # X_new = np.append(X_test, self.X_train, axis=0)
         N_test = np.shape(X_test)[0]
-        # TODO: The problem is here. I want to get (N_test, N_train, N_test), i think
-        Cs_new = self.kernel.kernel_matrix(self.X_train, X_test)  # (N_train, N_test)
-        cs_new = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
-        intermediate_matrix = self.sigma @ Cs_new  # (N_train, N_test)
-        #intermediate_matrix_2 = Cs_new.T @ intermediate_matrix
-        # Assertion that Cs_new is (N, N_test)
-        assert (np.shape(Cs_new) == (np.shape(self.X_train)[0], np.shape(X_test)[0]))
+        # Cs_news[:, i] is Cs_new for X_test[i]
+        Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N_train, N_test)
+        cs_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
+        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
+        intermediate_vectors = self.sigma @ Cs_news  # (N_train, N_test)
+        intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(0)  # (N_test, )
+        print(np.shape(intermediate_scalars), 'shape')
         n_posterior_samples = np.shape(Y_samples)[0]
         # Sample pmf over classes
         distribution_over_classes_sampless = []
@@ -229,19 +227,14 @@ class GibbsMultinomialGP(Sampler):
         for Y in Y_samples:
             # Initiate m with null values
             ms = -1. * np.ones((N_test, self.K))
-            for k, y_k in enumerate(Y.T):  # (1, N_test)
-                # TODO: this could be expensive.
-                mean_k = y_k.T @ intermediate_matrix
-                # var_k = cs_new - intermediate_matrix_2
-                # ms = norm.rvs(loc=mean_k, scale=var_k)
-                for i in range(N_test):
-                    var_ki = cs_new[i] - np.dot(Cs_new.T[i], intermediate_matrix.T[i])
-                    ms[i, k] = norm.rvs(loc=mean_k[i], scale=var_ki)
+            for k, y_k in enumerate(Y.T):
+                mean_k = intermediate_vectors.T @ y_k  # (N_test, )
+                var_k = cs_news - intermediate_scalars  # (N_test, )
+                ms[:, k] = norm.rvs(loc=mean_k, scale=var_k)
             # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
-            distribution_over_classes_sampless.append(self.multidimensional_expectation_wrt_u(ms, n_samples))
-        monte_carlo_estimates = (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
-        # TODO: Could also get a variance from the MC estimate
-        return monte_carlo_estimates
+            distribution_over_classes_sampless.append(self.vector_expectation_wrt_u(ms, n_samples))
+        # TODO: Could also get a variance from the MC estimate.
+        return (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
 
     def predict(self, Y_samples, x_test, n_samples=1000):
         """
@@ -250,12 +243,12 @@ class GibbsMultinomialGP(Sampler):
         :param Y_samples: The Gibbs samples of the latent variable Y.
         :param x_test: The new data point.
         :param n_samples: The number of samples in the monte carlo estimate.
-        :return:
+        :return: A monte carlo estimate of the class probabilities.
         """
         x_test = np.array([x_test])
         Cs_new = self.kernel.kernel_vector_matrix(x_test, self.X_train)  # (N_train, N_test)
-        intermediate_matrix = self.sigma @ Cs_new  # (N_train, N_test)
-        intermediate_matrix_2 = Cs_new.T @ intermediate_matrix
+        intermediate_vector = self.sigma @ Cs_new  # (N_train, N_test)
+        intermediate_scalar = Cs_new.T @ intermediate_matrix
         n_posterior_samples = np.shape(Y_samples)[0]
         # Sample pmf over classes
         distribution_over_classes_samples = []
@@ -263,13 +256,12 @@ class GibbsMultinomialGP(Sampler):
         for Y in Y_samples:
             m = -1. * np.ones(self.K)  # Initiate m with null values
             for k, y_k in enumerate(Y.T):
-                mean_k = y_k.T @ intermediate_matrix
-                var_k = self.kernel.kernel(x_test[0], x_test[0]) - intermediate_matrix_2  # TODO: deal with k
+                mean_k = y_k.T @ intermediate_vector  # (1, )
+                var_k = self.kernel.kernel(x_test[0], x_test[0]) - intermediate_scalar  # (1, ) TODO: deal with varphi_k
                 m[k] = norm.rvs(loc=mean_k, scale=var_k)
             # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
             distribution_over_classes_samples.append(self.expectation_wrt_u(m, n_samples))
         monte_carlo_estimate = (1. / n_posterior_samples) * np.sum(distribution_over_classes_samples, axis=0)
-        # TODO: Could also get a variance from the MC estimate?
         return monte_carlo_estimate
 
 

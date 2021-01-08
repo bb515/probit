@@ -85,12 +85,12 @@ def matrix_of_differencess(m_ns, K, N_test):
         and i is the index of the test object.
     :type m_ns: :class:`numpy.ndarray`
     """
-    # Find matrix of coefficients
+    # Find the matrix of coefficients
     m_ns = m_ns.reshape((N_test, K, 1))
     # Lambdas is an (n_test, K, K) stack of Lambda matrices
     # Tile along the rows, as they are the elements of interest
-    Lambdas = np.tile(m_ns, (1, 1, K))
-    Lambda_Ts = Lambdas.transpose((0, 2, 1))
+    Lambda_Ts = np.tile(m_ns, (1, 1, K))
+    Lambdas = Lambda_Ts.transpose((0, 2, 1))
     # antisymmetric matrix of differences, the rows contain the elements of the product of interest
     return np.subtract(Lambda_Ts, Lambdas)  # (N_test, K, K)
 
