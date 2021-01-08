@@ -19,8 +19,8 @@ class Kernel(ABC):
 
         This method should be implemented in every concrete kernel.
 
-        :arg :class:`numpy.ndarray` varphi: The kernel lengthscale hyperparameters as an (K, D) numpy array.
-        :arg :class:`numpy.ndarray` or None s: The kernel scale hyperparameters as an (K, D) numpy array.
+        :arg :class:`numpy.ndarray` varphi: The kernel lengthscale hyperparameters as an (N, M) numpy array.
+        :arg :class: float s: The kernel scale hyperparameters as a numpy array.
 
         :returns: A :class:`Kernel` object
         """
@@ -28,28 +28,28 @@ class Kernel(ABC):
                 (type(varphi) is np.ndarray)):
             if np.shape(varphi) == (1,):
                 # e.g. [[1]]
-                K = 1
+                N = 1
                 M = 1
             elif np.shape(varphi) == ():
                 # e.g. [1]
-                K = 1
+                N = 1
                 M = 1
             elif np.shape(varphi[0]) == (1,):
                 # e.g. [[1],[2],[3]]
-                K = np.shape(varphi)[0]
+                N = np.shape(varphi)[0]
                 M = 1
             elif np.shape(varphi[0]) == ():
                 # e.g. [1, 2, 3]
-                K = 1
+                N = 1
                 M = np.shape(varphi)[0]
             else:
                 # e.g. [[1, 2], [3, 4], [5, 6]]
-                K = np.shape(varphi)[0]
+                N = np.shape(varphi)[0]
                 M = np.shape(varphi)[1]
         elif ((type(varphi) is float) or
                   (type(varphi) is np.float64)):
             # e.g. 1
-            K = 1
+            N = 1
             M = 1
             varphi = np.float64(varphi)
             s = np.float64(s)
@@ -58,7 +58,7 @@ class Kernel(ABC):
                 "Type of varphi is not supported "
                 "(expected {} or {}, got {})".format(
                     float, np.ndarray, type(varphi)))
-        self.K = K
+        self.N = N
         self.M = M
         self.varphi = varphi
         self.s = s
@@ -91,9 +91,9 @@ class Kernel(ABC):
         """
 
 
-class SEIsoBinomial(Kernel):
+class SEIso(Kernel):
     """
-    A binary kernel class. Inherits the Kernel ABC
+    An isometric kernel class. Inherits the Kernel ABC
     """
     def __init__(self, *args, **kwargs):
         """
@@ -102,7 +102,7 @@ class SEIsoBinomial(Kernel):
         :returns: An :class:`IsoBinomial` object
         """
         super().__init__(*args, **kwargs)
-        if self.K != 1:
+        if self.N != 1:
             raise ValueError('K wrong for binary kernel (expected {}, got {})'.format(1, self.K))
         if self.M != 1:
             raise ValueError('M wrong for binary kernel (expected {}, got {})'.format(1, self.M))
@@ -150,7 +150,7 @@ class SEARDMultinomial(Kernel):
         :returns: An :class:`EulerCL` object
         """
         super().__init__(*args, **kwargs)
-        if self.K <= 1:
+        if self.N <= 1:
             raise ValueError('K wrong for simple kernel (expected {}, got {})'.format('more than 1', self.K))
         if self.M <= 1:
             raise ValueError('M wrong for simple kernel (expected {}, got {})'.format('more than 1', self.M))
@@ -159,8 +159,10 @@ class SEARDMultinomial(Kernel):
                 float, type(self.s)))
         # In the ARD case (see 2005 paper)
         self.D = self.M
+        # In the one (D, ) hyperparameter for each class case (see 2005 paper)
+        self.K = self.N
 
-    def kernel(self, k, X_i, X_j):
+    def kernel(self, k, X_i, X_j):  # TODO: How does this extra argument effect the code? Probably extra outer loops
         """Get the ij'th element of C_k, given the X_i and X_j, k."""
         return self.s * np.exp(-1. * np.sum([self.varphi[k, d] * np.power(
             (X_i[d] - X_j[d]), 2) for d in range(self.D)]))
@@ -195,7 +197,8 @@ class SEARDMultinomial(Kernel):
         return Cs
 
     def kernel_vector_matrix(self, x_new, X):
-        """Generate Gaussian kernel matrices as a numpy array.
+        """
+        Generate Gaussian kernel matrices as a numpy array.
 
         This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
         quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.

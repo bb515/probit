@@ -63,13 +63,36 @@ def sample_Us(K, n_samples, different_across_classes=None):
 
 
 def matrix_of_differences(m_n, K):  # TODO: changed this, VB will need changing
-    """ Get a matrix of differences of the vector m."""
+    """
+    Get a matrix of differences of the vector m.
+
+    :arg m: is an (K, 1) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
+    :type m: :class:`numpy.ndarray`
+    """
     # Find matrix of coefficients
     Lambda = np.tile(m_n, (K, 1))
     Lambda_T = Lambda.T
     # antisymmetric matrix of differences, the rows contain the elements of the product of interest
     difference = Lambda_T - Lambda
     return difference
+
+
+def matrix_of_differencess(m_ns, K, N_test):
+    """
+    Get an array of matrix of differences of the vectors m_ns.
+
+    :arg m_ns: An (N_test, K) array filled with m_k^{new_i, s} where s is the sample, k is the class indicator
+        and i is the index of the test object.
+    :type m_ns: :class:`numpy.ndarray`
+    """
+    # Find matrix of coefficients
+    m_ns = m_ns.reshape((N_test, K, 1))
+    # Lambdas is an (n_test, K, K) stack of Lambda matrices
+    # Tile along the rows, as they are the elements of interest
+    Lambdas = np.tile(m_ns, (1, 1, K))
+    Lambda_Ts = Lambdas.transpose((0, 2, 1))
+    # antisymmetric matrix of differences, the rows contain the elements of the product of interest
+    return np.subtract(Lambda_Ts, Lambdas)  # (N_test, K, K)
 
 
 def function_u1(difference, U):

@@ -6,7 +6,7 @@ from pstats import Stats, SortKey
 
 import numpy as np
 from probit.samplers import GibbsMultinomialGP
-from probit.kernels import SEIsoBinomial
+from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 
 def main():
@@ -56,10 +56,10 @@ def main():
     t = Xt[:, -1]
 
     # This is the kernel for a GP prior for the multi-class problem
-    kernel = SEIsoBinomial(varphi=1.0, s=1.0)
+    kernel = SEIso(varphi=1.0, s=1.0)
     gibbs_classifier = GibbsMultinomialGP(X, t, kernel)
     steps_burn = 100
-    steps = 1000
+    steps = 15
     M_0 = np.zeros((N, K))
     # Burn in
     M_samples, Y_samples = gibbs_classifier.sample(M_0, steps_burn)
@@ -92,10 +92,11 @@ def main():
     X_new = np.dstack((xx, yy))
     X_new = X_new.reshape((N * N, D))
     Z = np.zeros((N * N, K))
-    for i, x_new in enumerate(X_new):
-        z = gibbs_classifier.predict(Y_samples, x_new, n_samples=200)
-        print(z)
-        Z[i, :] = z
+    # for i, x_new in enumerate(X_new):
+    #     z = gibbs_classifier.predict(Y_samples, x_new, n_samples=200)
+    #     print(z)
+    #     Z[i, :] = z
+    Z = gibbs_classifier.predict_vector(Y_samples, X_new, n_samples=200)
     Z = np.reshape(Z, (N, N, K))
     Z = np.moveaxis(Z, 2, 0)
     for k in range(K):
