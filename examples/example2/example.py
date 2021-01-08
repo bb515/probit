@@ -95,7 +95,7 @@ def main():
     Z = np.reshape(Z, (N, N, K))
     Z = np.moveaxis(Z, 2, 0)
     for k in range(K):
-        fig, axs = plt.subplots(1, figsize=(6, 6))
+        *_ = plt.subplots(1, figsize=(6, 6))
         plt.scatter(X0[:, 0], X0[:, 1], color='b', label=r"$t=0$", zorder=10)
         plt.scatter(X1[:, 0], X1[:, 1], color='r', label=r"$t=1$", zorder=10)
         plt.scatter(X2[:, 0], X2[:, 1], color='g', label=r"$t=2$", zorder=10)
