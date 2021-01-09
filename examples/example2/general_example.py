@@ -3,10 +3,9 @@ import argparse
 import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
-
 import numpy as np
 from probit.samplers import GibbsMultinomialGP
-from probit.kernels import SEIso
+from probit.kernels import SEARDMultinomial
 import matplotlib.pyplot as plt
 
 def main():
@@ -55,8 +54,14 @@ def main():
     X = Xt[:, :D]
     t = Xt[:, -1]
 
-    # This is the kernel for a GP prior for the multi-class problem
-    kernel = SEIso(varphi=1.0, s=1.0)
+    # This is the general kernel for a GP prior for the multi-class problem
+    varphi = np.array([
+        [1.0, 0.05],
+        [1.0, 0.05],
+        [1.0, 0.05]
+    ])
+    s = 1.0
+    kernel = SEARDMultinomial(varphi, s)
     gibbs_classifier = GibbsMultinomialGP(X, t, kernel)
     steps_burn = 100
     steps = 100

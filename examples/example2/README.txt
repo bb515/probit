@@ -1,3 +1,7 @@
+example.py is for the GP hyperparameter, varphi is a single constant across all classes. The .png files are for this example.
+general_example.py is for the GP hyperparameters, varphi is a (K, D) array, one for each class for each dimension of the data.
+
+
 number of gibbs samples = 15 
 	Samping monte carlo random variables one at a time over a for-loop
 
@@ -5,7 +9,7 @@ number of gibbs samples = 15
 	   Ordered by: cumulative time
 	   List reduced from 2084 to 104 due to restriction <0.05>
 	   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-	      400    1.199    0.003  307.396    0.768 /home/ben/multivariate_regression_GP_gibbs/probit/samplers.py:270(predict)
+	      400    1.199    0.003  307.396    0.768 /home/ben/multivar`iate_regression_GP_gibbs/probit/samplers.py:270(predict)
 	     6000   16.118    0.003  304.171    0.051 /home/ben/multivariate_regression_GP_gibbs/probit/samplers.py:158(expectation_wrt_u)
 	  1200000   55.262    0.000  153.209    0.000 /home/ben/anaconda3/lib/python3.7/site-packages/scipy/stats/_distn_infrastructure.py:1777(cdf)
 	  1200000    3.882    0.000  114.949    0.000 /home/ben/multivariate_regression_GP_gibbs/probit/utilities.py:37(sample_U)

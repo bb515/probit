@@ -102,6 +102,7 @@ class SEIso(Kernel):
         :returns: An :class:`IsoBinomial` object
         """
         super().__init__(*args, **kwargs)
+        self.general_kernel = False
         if self.N != 1:
             raise ValueError('K wrong for binary kernel (expected {}, got {})'.format(1, self.K))
         if self.M != 1:
@@ -158,6 +159,7 @@ class SEARDMultinomial(Kernel):
         :returns: An :class:`EulerCL` object
         """
         super().__init__(*args, **kwargs)
+        self.general_kernel = True
         if self.N <= 1:
             raise ValueError('K wrong for simple kernel (expected {}, got {})'.format('more than 1', self.K))
         if self.M <= 1:
@@ -233,3 +235,20 @@ class SEARDMultinomial(Kernel):
         return Cs_new
 
 
+class InvalidKernel(Exception):
+    """An invalid kernel has been passed to `Sampler`"""
+
+    def __init__(self, kernel):
+        """
+        Construct the exception.
+
+        :arg kernel: The object pass to :class:`Sampler` as the kernel
+            argument.
+        :rtype: :class:`InvalidKernel`
+        """
+        message = (
+            f"{kernel} is not an instance of"
+            "probit.kernels.Kernel"
+        )
+
+        super().__init__(message)

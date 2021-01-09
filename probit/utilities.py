@@ -188,6 +188,3 @@ def expectation_p_m(function, m_n, n_samples):
 
     distribution_over_classes = 1 / n_samples * np.sum(samples, axis=0)
     return(distribution_over_classes)
-
-
-

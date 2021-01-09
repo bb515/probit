@@ -1,65 +1,114 @@
-from .kernels import Kernel
+from abc import ABC, abstractmethod
+from .kernels import Kernel, InvalidKernel
+import pathlib
 import numpy as np
 from scipy.stats import norm, uniform, multivariate_normal, expon
+from tqdm import trange
 from .utilities import (
-    sample_U, function_u3, function_u2, sample_varphi, samples_varphi)
+    sample_Us, sample_U, function_u3, function_u2, sample_varphi, samples_varphi,
+    matrix_of_differences, matrix_of_differencess)
 
 
-class VariationBayesClassifier(object):
+class Estimator(ABC):
     """
-    A Variational Bayes classifier.
+    Base class for variational Bayes estimators. This class allows users to define a classification problem,
+    get predictions using a approximate Bayesian inference.
 
-    This class allows users to define a classification problem, get predictions
-    using approximate Bayesian inference.
-
-    For this a Gaussian Process :class:`probit.kernels.Kernel` is required.
-
-    The :meth:`VariationalBayesClassifier.` can be used to converge to the posterior.
-    The :meth:`VariationalBayes.predict` can be  used to make predictions.
-    The :meth: `VariationalBayes.log_likelihood` can be used to get the log likelihood of VB approximation
-        given the hyperparameters.
+    All estimators must define an init method, which may or may not inherit Sampler as a parent class using
+        `super()`.
+    All estimators that inherit Estimator define a number of methods that return the posterior estimates.
+    All estimators must define a estimate method that can be used to estimate (converge to) the posterior.
+    All estimators must define a _estimate_initiate method that is used to initiate estimate.
+    All estimators must define an predict method can be  used to make predictions given test data.
     """
 
-    def __init__(self, kernel, X, t, binomial=0, write_path=None):
+    @abstractmethod
+    def __init__(self, X_train, t_train, kernel, write_path=None):
         """
-        Create a :class:`GibbsClassifier` object.
-        :arg kernel: The kernel to use, see
-            :mod:`probit.kernels` for options .
-        :arg X: The data vector.
-        :type X: :class:`numpy.ndarray`
-        :param t: The target vector.
-        :type t: :class:`numpy.ndarray`
+        Create an :class:`Sampler` object.
+
+        This method should be implemented in every concrete sampler.
+
+        :arg X_train: The data vector.
+        :type X_train: :class:`numpy.ndarray`
+        :param t_train: The target vector.
+        :type t_train: :class:`numpy.ndarray`
+        :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.
+        :arg str write_path: Write path for outputs.
+
+        :returns: A :class:`Estimator` object
         """
-        if not isinstance(kernel, Kernel):
+        if not (isinstance(kernel, Kernel)):
             raise InvalidKernel(kernel)
         else:
             self.kernel = kernel
-
-        # If no write path was provided, assign it as None so that arrays are not written
-        # otherwise, ensure write_path is a Path object
         if write_path is None:
             self.write_path = None
         else:
             self.write_path = pathlib.Path(write_path)
-
-        self.X = X
-        self.X_T = X.T
-        # self.cov = np.linalg.inv(self.X_T @ self.X)
-        self.N = np.shape(X)[0]
-        self.I = np.eye(N)
-        self.mean_0 = np.zeros(N)
-
-        if np.all(np.mod(t, 1) == 0):
-            t = t.astype(int)
+        self.D = np.shape(X_train)[1]
+        self.N = np.shape(X_train)[0]
+        self.X_train = X_train  # (N, D)
+        self.X_train_T = X_train.T
+        self.IN = np.eye(self.N)
+        self.mean_0 = np.zeros(self.N)
+        if np.all(np.mod(t_train, 1) == 0):
+            t_train = t_train.astype(int)
         else:
-            raise ValueError("t must contain only integer values (got {})".format(t))
+            raise ValueError("t must contain only integer values (got {})".format(t_train))
+        if np.all(t_train >= 0):
+            self.K = int(np.max(t_train) + 1)  # the number of classes
+        else:
+            raise ValueError("t must contain only positive integer values (got {})").format(t_train)
+        self.t_train = t_train
 
-        # Binomial probit regression
-        if binomial:
-            if np.all(t in [0, 1]):
-                self.binomial = 1
-            else:
-                raise ValueError("In the binomial case, t must contain only 1s and/or 0s (got {})".format(t))
+    @abstractmethod
+    def _estimate_initiate(self):
+        """
+        Initialise the sampler.
+
+        This method should be implemented in every concrete sampler.
+        """
+
+    @abstractmethod
+    def estimate(self):
+        """
+        Return the samples
+
+        This method should be implemented in every concrete sampler.
+        """
+
+    @abstractmethod
+    def predict(self):
+        """
+        Return the samples
+
+        This method should be implemented in every concrete sampler.
+        """
+
+
+class VariationBayesMultinomialGP(Estimator):
+    """
+    A Variational Bayes classifier. Inherits the Estimator ABC
+
+    This class allows users to define a classification problem, get predictions
+    using approximate Bayesian inference.
+
+    For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
+
+    Multinomial Probit regression using Gibbs sampling with GP priors. 
+    """
+    def __init__(self, *args, **kwargs):
+        """
+        Create an :class:`Gibbs_GP` sampler object.
+
+        :returns: An :class:`Gibbs_GP` object.
+        """
+        super().__init__(*args, **kwargs)
+        self.I = np.eye(self.K)
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        self.sigma = np.linalg.inv(np.eye(self.N) + self.C)
+        self.cov = self.C @ self.sigma
 
     def ws_general_unnormalised(self, psi_tilde, n_samples, M_tilde):
         """
@@ -168,22 +217,3 @@ class VariationBayesClassifier(object):
         # Take monte carlo estimate
         K = np.shape(m_tilde)[0]
         return None
-
-
-class InvalidKernel(Exception):
-    """An invalid kernel has been passed to `GibbsClassifier`"""
-
-    def __init__(self, kernel):
-        """
-        Construct the exception.
-
-        :arg kernel: The object pass to :class:`GibbsClassifier` as the kernel
-            argument.
-        :rtype: :class:`InvalidKernel`
-        """
-        message = (
-            f"{kernel} is not an instance of"
-            "probit.kernels.Kernel"
-        )
-
-        super().__init__(message)
