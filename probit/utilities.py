@@ -77,19 +77,19 @@ def matrix_of_differences(m_n, K):  # TODO: changed this, VB will need changing
     return difference
 
 
-def matrix_of_differencess(m_ns, K, N_test):
+def matrix_of_differencess(M, K, N_test):
     """
     Get an array of matrix of differences of the vectors m_ns.
 
-    :arg m_ns: An (N_test, K) array filled with m_k^{new_i, s} where s is the sample, k is the class indicator
-        and i is the index of the test object.
-    :type m_ns: :class:`numpy.ndarray`
+    :arg M: An (N_test, K) array filled with e.g. m_k^{new_i, s} where s is the sample, k is the class indicator
+        and i is the index of the test object. Or in the VB implementation, this function  is used for M_tilde (N, K).
+    :type M: :class:`numpy.ndarray`
     """
     # Find the matrix of coefficients
-    m_ns = m_ns.reshape((N_test, K, 1))
+    M = M.reshape((N_test, K, 1))
     # Lambdas is an (n_test, K, K) stack of Lambda matrices
     # Tile along the rows, as they are the elements of interest
-    Lambda_Ts = np.tile(m_ns, (1, 1, K))
+    Lambda_Ts = np.tile(M, (1, 1, K))
     Lambdas = Lambda_Ts.transpose((0, 2, 1))
     # antisymmetric matrix of differences, the rows contain the elements of the product of interest
     return np.subtract(Lambda_Ts, Lambdas)  # (N_test, K, K)
@@ -111,8 +111,14 @@ def function_u1(difference, U):
     return function_eval
 
 
-def function_u1_alt(difference, U, t_n):
+def function_u1_alt(differences, Us, t_n):
     """
+    Evaluate a vector of function values, where the arguments and returns are as follows.
+
+    :arg differences: The (N, K, K) matrices of differences e.g. of M (N, K)
+    :arg Us: The samples of u.
+    :arg t:
+
     The multinomial probit likelihood for a new datapoint given the latent variables
     is the expectation of this function. This is for the kth class. It could be vectorised over k, but I will
     leave that until code refactoring.
@@ -130,8 +136,18 @@ def function_u1_alt(difference, U, t_n):
     return function_eval
 
 
+def vector_function_u1_alt(differences, Us, t, K, grid):
+    """
+    The multinomial probit likelihood for a new datapoint given the latent variables
+    is the expectation of this function. This is for the kth class. It is vectorised over k.
+    """
+    # This is now in estimators.py
+    return None
+
+
 def function_u2(difference, vector_difference, U, t_n, K):
-    """Function evaluation of sample U.
+    """
+    Function evaluation of sample U.
 
     This is the numerator of the rightmost term of equation (5).
 
@@ -144,6 +160,25 @@ def function_u2(difference, vector_difference, U, t_n, K):
     # Take the sample U as a vector (K, )
     u = U[:, 0]
     normal_pdf = norm.pdf(u - vector_difference, loc=0, scale=1)
+    # Find the elementwise product of these two vectors which returns a (K, ) array
+    return np.multiply(normal_pdf, function_eval)
+
+
+def vector_function_u2(differences, vector_differences, Us, t, K):
+    """
+    Evaluate a vector of function values, where the arguments and returns are as follows.
+
+    This is integrand of the Lebesgue integral of the numerator of the rightmost term of 2005 Page 8 Eq.(5).
+
+    :param: difference is the matrix_of_differencess(u_n)
+    :param: vector difference
+    :param U: is the random variable (K, K) and constant across elemnents
+    :param t_n: is the np.argmax(m_n), the class chosen by the latent variable for that object n
+    """
+    function_eval = vector_function_u1_alt(differences, Us, t)
+    # Take the sample U as a vector (K, )
+    U = Us[ ] # TODO
+    normal_pdf = norm.pdf(U - vector_differences, loc=0, scale=1)
     # Find the elementwise product of these two vectors which returns a (K, ) array
     return np.multiply(normal_pdf, function_eval)
 
@@ -171,6 +206,8 @@ def expectation_p_m(function, m_n, n_samples):
     """
     m is an (K, ) np.ndarray filled with m_k^{new, s} where s is the sample, and k is the class indicator.
 
+    TODO: I think this has been superseded.
+
     function is a numpy function. e,g, function_u1(difference, U) which is the numerator of eq () and
     function_u2(difference, U) which is the denominator of eq ()
     """
@@ -187,4 +224,4 @@ def expectation_p_m(function, m_n, n_samples):
         samples.append(function_eval)
 
     distribution_over_classes = 1 / n_samples * np.sum(samples, axis=0)
-    return(distribution_over_classes)
+    return distribution_over_classes

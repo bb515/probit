@@ -96,8 +96,8 @@ class GibbsMultinomialGP(Sampler):
         super().__init__(*args, **kwargs)
         self.I = np.eye(self.K)  # Q: this eye is different to np.eye(K). Why use of both? Is this even used?
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        self.sigma = np.linalg.inv(np.eye(self.N) + self.C)
-        self.cov = self.C @ self.sigma
+        self.Sigma = np.linalg.inv(np.eye(self.N) + self.C)
+        self.cov = self.C @ self.Sigma
 
     def _sample_initiate(self, M_0):
         """Initialise variables for the sample method."""
@@ -201,6 +201,7 @@ class GibbsMultinomialGP(Sampler):
         random_variables = np.add(Us, differencess)
         cum_dists = norm.cdf(random_variables, loc=0, scale=1)
         log_cum_dists = np.log(cum_dists)
+        # Fill diagonals with 0
         log_cum_dists[:, :, range(self.K), range(self.K)] = 0
         # axis 0 is the N_samples samples,
         # axis 1 is the n_samples samples, axis 3 is then the row index, which is the product of cdfs of interest
@@ -222,7 +223,7 @@ class GibbsMultinomialGP(Sampler):
         """
         cs_new = np.diag(self.kernel.kernel(X_test[0], X_test[0]))  # (1, )
         Cs_new = self.kernel.kernel_vector_matrix(X_test, self.X_train)
-        intermediate_vector = self.sigma @ Cs_new  # (N_train, N_test)
+        intermediate_vector = self.Sigma @ Cs_new  # (N_train, N_test)
         intermediate_scalar = Cs_new.T @ intermediate_vector
         n_posterior_samples = np.shape(Y_samples)[0]
         # Sample pmf over classes
@@ -254,7 +255,7 @@ class GibbsMultinomialGP(Sampler):
         # TODO: this is a bottleneck
         cs_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = self.sigma @ Cs_news  # (N_train, N_test)
+        intermediate_vectors = self.Sigma @ Cs_news  # (N_train, N_test)
         intermediate_vectors_T = intermediate_vectors.T
         intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(0)  # (N_test, )
         n_posterior_samples = np.shape(Y_samples)[0]
@@ -293,7 +294,7 @@ class GibbsMultinomialGP(Sampler):
         # TODO: this is a bottleneck
         cs_news = [np.diag(self.kernel.kernel_matrix(X_test, X_test)[k]) for k in range(self.K)]  # (K, N_test, )
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = self.sigma @ Cs_news  # (K, N_train, N_test)
+        intermediate_vectors = self.Sigma @ Cs_news  # (K, N_train, N_test)
         intermediate_vectors_T = np.transpose(intermediate_vectors, (0, 2, 1))
         intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(1)  # (K, N_test, )
         n_posterior_samples = np.shape(Y_samples)[0]
