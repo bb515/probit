@@ -7,7 +7,7 @@ from probit.utilities import log_heaviside_probit_likelihood
 
 read_path = pathlib.Path()
 
-## Superseded, but contain useful information.
+## Superseded, but may contain useful information.
 # def kernel(varphi, k, X_i, X_j):
 #     """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
 #     sum = 0
