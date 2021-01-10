@@ -2,11 +2,10 @@ from abc import ABC, abstractmethod
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
-from scipy.stats import norm, uniform, multivariate_normal, expon
+from scipy.stats import norm, multivariate_normal
 from tqdm import trange
 from .utilities import (
-    sample_Us, sample_U, function_u3, function_u2, sample_varphi, samples_varphi,
-    matrix_of_differences, matrix_of_differencess)
+    sample_Us, sample_varphis, matrix_of_differencess)
 
 
 class Estimator(ABC):
@@ -23,7 +22,7 @@ class Estimator(ABC):
     """
 
     @abstractmethod
-    def __init__(self, X_train, t_train, kernel, sigma, tau, write_path=None):
+    def __init__(self, X_train, t_train, kernel, write_path=None):
         """
         Create an :class:`Sampler` object.
 
@@ -34,9 +33,6 @@ class Estimator(ABC):
         :param t_train: (N, ) The target vector.
         :type t_train: :class:`numpy.ndarray`
         :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.
-        :arg sigma: The (K, ) (location/ scale) hyper-hyper-parameters that define psi prior.
-            Not to be confused with `Sigma`, which is a covariance matrix.
-        :arg tau: The (K, ) (location/ scale) hyper-hyper-parameters that define psi prior.
         :arg str write_path: Write path for outputs.
 
         :returns: A :class:`Estimator` object
@@ -53,10 +49,16 @@ class Estimator(ABC):
         self.N = np.shape(X_train)[0]
         self.X_train = X_train
         self.X_train_T = X_train.T
-        self.IN = np.eye(self.N)
         self.mean_0 = np.zeros(self.N)
-        self.sigma = sigma
-        self.tau = tau
+        if self.kernel.general_kernel:
+            sigma = np.reshape(self.kernel.sigma, (self.K, 1))
+            tau = np.reshape(self.kernel.tau, (self.K, 1))
+
+            self.sigma = np.tile(sigma, (1, self.D))  # (K, D)
+            self.tau = np.tile(tau, (1, self.D))  # (K, D)
+        else:
+            self.sigma = self.kernel.sigma
+            self.tau = self.kernel.tau
         self.grid = np.ogrid[0, self.N]
         if np.all(np.mod(t_train, 1) == 0):
             t_train = t_train.astype(int)
@@ -111,47 +113,206 @@ class VariationBayesMultinomialGP(Estimator):
         :returns: An :class:`Gibbs_GP` object.
         """
         super().__init__(*args, **kwargs)
-        self.I = np.eye(self.K)
         self.IN = np.eye(self.N)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.Sigma = np.linalg.inv(self.IN + self.C)
         self.cov = self.C @ self.Sigma
 
-    def _ws_general_unnormalised(self, psi_tilde, n_samples, M_tilde):
+    def _estimate_initiate(self):
         """
-        Return the w values of the sample.
+        Initialise the sampler.
 
-        2005 Page _ Eq.(_)
-        TODO
-        :arg psi_tilde: Posterior mean estimate of psi
-        :arg M_tilde: ?
+        This method should be implemented in every concrete sampler.
         """
-        # Draw from varphi
-        varphi_samples = samples_varphi(psi_tilde)
-        for varphi_sample in varphi_samples:
-            self.kernel.varphi = varphi_sample
-            Cs = self.kernel.kernel_matrix(self.X)
-            M_tilde = m_tilde[K]
-            for i, C in enumerate(Cs):
-                normal_pdf = multivariate_normal.pdf(M_tilde[i], mean=self.mean_0, cov=C)
-        return normal_pdf
 
-    def _phi_tilde(self, varphi):
-        # TODO: Deal with varphi_k.
-        return np.divide(np.add(self.sigma, 1), np.add(self.tau, varphi))
-
-    def _varphi_tilde(self, varphi_samples, n_samples=1000):
+    def estimate(self, M_0, steps, first_step=1):
         """
-        Return the posterior mean estimate of varphi via importance sampling.
+        Return the samples
 
-        2005 Page 9 Eq.(9)
+        This method should be implemented in every concrete sampler.
         """
-        sum = 0
-        n_samples = np.shape(varphi_samples)[0]
-        for i in range(n_samples):
-            varphi_sample = varphi_samples[i]
-            sum += varphi_sample * w(varphi_sample)
-        return sum
+        M_tilde, varphi_tilde, psi_tilde = self._estimate_initiate(M_0)
+        for _ in trange(first_step, first_step + steps,
+                        desc="GP priors Sampler Progress", unit="samples"):
+            Y_tilde = self._Y_tilde(M_tilde)
+            M_tilde, Sigma_tilde, C_tilde = self._M_tilde(Y_tilde, varphi_tilde)
+            varphi_tilde = self._varphi_tilde(M_tilde, psi_tilde, n_samples=500)
+            psi_tilde = self._psi_tilde(varphi_tilde)
+        return M_tilde, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde
+
+    def _predict_vector_generalised(self, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde, X_test, n_samples=1000):
+        """
+        Make variational Bayes prediction over classes of X_test given the posterior samples.
+
+        This is the general case where there are hyperparameters varphi (K, D)
+            for all dimensions and classes.
+
+        :param Sigma_tilde:
+        :param C_tilde:
+        :param Y_tilde: The posterior mean estimate of the latent variable Y.
+        :param varphi_tilde:
+        :param X_test: The new data points, array like (N_test, D).
+        :param n_samples: The number of samples in the Monte Carlo estimate.
+        :return: A Monte Carlo estimate of the class probabilities.
+        """
+        # X_new = np.append(X_test, self.X_train, axis=0)
+        N_test = np.shape(X_test)[0]
+        # Update the kernel with new varphi  # TODO: test this.
+        self.kernel.varphi = varphi_tilde
+        # Cs_news[:, i] is Cs_new for X_test[i]
+        Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (K, N, N_test)
+        # TODO: this is a bottleneck
+        cs_news = [np.diag(self.kernel.kernel_matrix(X_test, X_test)[k]) for k in range(self.K)]  # (K, N_test, )
+        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
+        intermediate_vectors = Sigma_tilde @ Cs_news  # (K, N, N_test)
+        intermediate_vectors_T = np.transpose(intermediate_vectors, (0, 2, 1))  # (K, N_test, N)
+
+        intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(1)  # (K, N_test, )
+
+        # calculate M_tilde_new
+        Y_tilde_T = np.transpose(Y_tilde)  # (K, N)
+        # TODO: might be able to vectorise without the transpose
+        M_tilde_new = np.empty((N_test, self.K))
+        sigma_squared_tilde_new = np.empty((N_test, self.K))
+        for k, y_k in enumerate(Y_tilde_T):
+            M_tilde_new[:, k] = intermediate_vectors_T[k] @ y_k
+            sigma_squared_tilde_new[:, k] = cs_news[k] - intermediate_scalars[k]
+        # Take an expectation wrt to the rv u, use n_samples=1000 draws from p(u)
+        return self._vector_expectation_wrt_u(M_tilde_new, sigma_squared_tilde_new, n_samples)
+        M_tilde_new = Y_tilde_T @ intermediate_vectors  # (K, N) * (K, N, N_test)  # not sure correct.
+        M_tilde_new = intermediate_vectors_T @ Y_tilde_T  #  (K, N_test, N) * (N, K) = (K, N_test, K)
+        # Sample pmf over classes
+        distribution_over_classes_sampless = []
+
+        Y_T = np.reshape(Y.T, (self.K, self.N, 1))
+        M_new_tilde_T = np.matmul(intermediate_vectors_T, Y_T)
+        M_new_tilde_T = np.reshape(M_new_tilde_T, (self.K, N_test))
+        var_new_tilde = np.subtract(cs_news, intermediate_scalars)
+        M = norm.rvs(loc=M_new_tilde_T.T, scale=var_new_tilde.T)
+
+
+        for Y in Y_samples:
+            # Initiate m with null values
+            ms = np.empty((N_test, self.K))
+            for k, y_k in enumerate(Y.T):
+                mean_k = intermediate_vectors_T[k] @ y_k  # (N_test, )
+                var_k = cs_news[k] - intermediate_scalars[k]  # (N_test, )
+                ms[:, k] = norm.rvs(loc=mean_k, scale=var_k)
+            # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
+            # TODO: How do we know that 1000 samples is enough to converge?
+            #  Goes with root n_samples but depends on the estimator variance
+            distribution_over_classes_sampless.append(self._vector_expectation_wrt_u(ms, n_samples))
+        # TODO: Could also get a variance from the MC estimate.
+        return (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
+
+    def _predict_vector(self, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde, X_test, n_samples=1000):
+        """
+        Make variational Bayes prediction over classes of X_test given the posterior samples.
+
+        :param Sigma_tilde:
+        :param C_tilde:
+        :param Y_tilde: The posterior mean estimate of the latent variable Y.
+        :param varphi_tilde:
+        :param X_test: The new data points, array like (N_test, D).
+        :param n_samples: The number of samples in the Monte Carlo estimate.
+        :return: A Monte Carlo estimate of the class probabilities.
+        """
+        # X_new = np.append(X_test, self.X_train, axis=0)
+        N_test = np.shape(X_test)[0]
+        # Update the kernel with new varphi  # TODO: test this.
+        self.kernel.varphi = varphi_tilde
+        # Cs_news[:, i] is Cs_new for X_test[i]
+        Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N_train, N_test)
+        # TODO: this is a bottleneck
+        cs_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
+        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
+        intermediate_vectors = self.Sigma @ Cs_news  # (N_train, N_test)
+        intermediate_vectors_T = intermediate_vectors.T
+        intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(0)  # (N_test, )
+        # Sample pmf over classes
+        distribution_over_classes_sampless = []
+
+        # calculate M_tilde_new
+        Y_tilde_T = np.transpose(Y_tilde)  # (K, N)
+
+        M_tilde_new = Y_tilde_T @ Sigma_tilde @ Cs_news
+
+
+        for Y in Y_samples:
+            # Initiate m with null values
+            ms = -1. * np.ones((N_test, self.K))
+            for k, y_k in enumerate(Y.T):
+                mean_k = intermediate_vectors_T @ y_k  # (N_test, )
+                var_k = cs_news - intermediate_scalars  # (N_test, )
+                ms[:, k] = norm.rvs(loc=mean_k, scale=var_k)
+            # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
+            # TODO: How do we know that 1000 samples is enough to converge?
+            #  Goes with root n_samples but depends on the estimator variance
+            distribution_over_classes_sampless.append(self._vector_expectation_wrt_u(ms, n_samples))
+        # TODO: Could also get a variance from the MC estimate.
+        return (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
+
+    def predict(self):
+        """
+        Return the samples
+
+        This method should be implemented in every concrete sampler.
+        """
+
+    def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=500):
+        """
+        Return the w values of the sample on 2005 Page 9 Eq.(7).
+
+        :arg psi_tilde: Posterior mean estimate of psi.
+        :arg M_tilde: Posterior mean estimate of M_tilde.
+        :arg int n_samples: The number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
+        """
+        # Vector draw from varphi
+        varphis = sample_varphis(psi_tilde, n_samples, general=self.kernel.general_kernel)  # (n_samples, K, D) in general, (n_samples, ) for ISO case. Depend on the shape of psi_tilde.
+        Cs_samples = self.kernel.kernel_matrices(self.X, varphis)  # (n_samples, K, N, N) in general, (n_samples, N, N) for ISO case. Depend on the shape of psi_tilde.
+        # Transpose M_tilde to become (n_samples, K, N) multivariate normal between m_k (N, ) and Cs_k over all samples
+        M_tilde_T = np.transpose(M_tilde)  # (K, N)
+        # TODO: begrudgingly using a nested for loop here, as I don't see the alternative,
+        #  maybe I can calculate this by hand.
+        ws = np.empty((n_samples, self.K))
+        if self.kernel.general_kernel:
+            for i in range(n_samples):
+                    for k in range(self.K):
+                        w_i_k = multivariate_normal.rvs(M_tilde_T[k], cov=Cs_samples[i, k])
+                        # Add sample to the unnormalised w vectors
+                        ws[i, k] = w_i_k
+            # Normalise the w vectors
+            denominator = np.sum(ws, axis=0)  # (K, )
+            ws = np.divide(ws, denominator)  # (n_samples, K)
+            ws = np.reshape(ws, (n_samples, self.K, 1))  # (n_samples, K, 1)
+            ws = np.tile(ws, (1, 1, self.D))  # (n_samples, K, D)
+        else:
+            for i in range(n_samples):
+                for k in range(self.K):
+                    w_i_k = multivariate_normal.rvs(M_tilde_T[k], cov=Cs_samples[i])
+                    # Add sample to the unnormalised w vectors
+                    ws[i, k, :] = w_i_k
+            # Normalise the w vectors
+            denominator = np.sum(ws, axis=0)  # (K, )
+            ws = np.divide(ws, denominator)  # (n_samples, K)
+            # Since all length scale parameters are the same, these should be close within some tolerance
+            # TODO: set the tolerance.
+            assert np.allclose(ws, ws[0])
+            # Take only one axis, since there is only one varphi
+            ws = ws[:, 0]  # (n_samples, )
+        element_prod = np.multiply(ws, varphis)
+        return np.sum(element_prod, axis=0)
+
+    def _psi_tilde(self, varphi_tilde):
+        if self.kernel.general_kernel:
+            sigma = np.reshape(self.sigma, (self.K, 1))
+            tau = np.reshape(self.tau, (self.K, 1))
+
+            sigma = np.tile(self.sigma, (1, self.D))  # (K, D)
+            tau = np.tile(self.tau, (1, self.D))  # (K, D)
+
+        else:
+            return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
 
     def _M_tilde(self, Y_tilde, varphi_tilde):
         """
@@ -166,15 +327,15 @@ class VariationBayesMultinomialGP(Estimator):
         """
         # Update the varphi with new values
         self.kernel.varphi = varphi_tilde
-        # calculate updated C and sigma
+        # Calculate updated C and sigma
         # TODO: Do I want to update these in the class scope?
         C_tilde = self.kernel.kernel_matrix(self.X_train)  # (N, N)
-        sigma_tilde = np.linalg.inv(self.IN + C_tilde)  # (N, N)
-        return C_tilde @ sigma_tilde @ Y_tilde  # (N, K)
+        Sigma_tilde = np.linalg.inv(self.IN + C_tilde)  # (N, N)
+        return C_tilde @ Sigma_tilde @ Y_tilde, Sigma_tilde, C_tilde  # (N, K)
 
     def _Y_tilde(self, M_tilde):
         """
-        Calculate Y_tilde elements as defined on page 8 of the paper.
+        Calculate Y_tilde elements 2005 Page 8 Eq.(5).
 
         :arg M_tilde: The posterior expectations for M (N, K).
         :type M_tilde: :class:`numpy.ndarray`
@@ -183,11 +344,9 @@ class VariationBayesMultinomialGP(Estimator):
         """
         # The max of the GP vector m_k is t_n
         t = np.argmax(M_tilde, axis=1)
-        # TODO: There is no need to do these sequentially. Do them at the same time.
-        numerator_expectation = self._vector_expectation_p_m(function_u2, M_tilde, t, n_samples=1000)
-        denominator_expectation = self._vector_expectation_p_m(function_u3, M_tilde, t, n_samples=1000)
+        negative_P = self._negative_P(M_tilde, t, n_samples=1000)
         # Eq.(5)
-        Y_tilde = M_tilde - np.divide(numerator_expectation, denominator_expectation)
+        Y_tilde = np.subtract(M_tilde, negative_P)
         # Eq.(6)
         # This part of the differences sum must be 0, since sum is over j \neq i
         Y_tilde[self.grid, t] = M_tilde[self.grid, t]
@@ -195,52 +354,22 @@ class VariationBayesMultinomialGP(Estimator):
         Y_tilde[self.grid, t] = M_tilde[self.grid, t] - diff_sum
         return Y_tilde
 
-    def _scalar_Y_tilde(self, M_tilde):
+    def _negative_P(self, M_tilde, t, n_samples=1000):
         """
-        Calculate Y_tilde elements as defined on page 8 of the paper.
+        Estimate the rightmost term of 2005 Page 8 Eq.(5), a ratio of Monte Carlo estimates of the expectation of a
+            functions of M wrt to the distribution p.
 
         :arg M_tilde: The posterior expectations for M (N, K).
-        :type M_tilde: :class:`numpy.ndarray`
-            2005 Page _ Eq.(_)
-        :return: Y_tilde (N, K) containing \tilde(y)_{nk} values.
-        """
-        Y_tilde = -1. * np.ones((self.N, self.K))
-        # Not vectorised.
-        for i in range(self.N):
-            m_tilde_n = M_tilde[i, :]
-            t_n = np.argmax(m_tilde_n)
-            expectation_3 = self._expectation_p_m(function_u3, m_tilde_n, t_n, n_samples=1000)
-            expectation_2 = self._expectation_p_m(function_u2, m_tilde_n, t_n, n_samples=1000)
-            # Equation 5
-            y_tilde_n = m_tilde_n - np.divide(expectation_2, expectation_3)
-            # Equation 6 follows
-            # This part of the differences sum must be 0, since sum is over j \neq i
-            y_tilde_n[t_n] = m_tilde_n[t_n]
-            diff_sum = np.sum(y_tilde_n - m_tilde_n)
-            y_tilde_n[t_n] = m_tilde_n[t_n] - diff_sum
-            Y_tilde[i, :] = y_tilde_n
-        return Y_tilde
-
-    def _vector_expectation_p_m_1_alt(self, M, n_samples=1000):
-        """
-        Calculate the Monte Carlo estimate of the expectation of a function of
-            the M over the distribution p.
-
-        numerator of 2005 Page 8 Eq.(5)
-
-        :arg vector_function: is a function that outputs a vector value, (e.g. function_u2 which is the
-            numerator of Eq.(5);
-            or function_u3 which is the denominator of Eq.(5)) for options see probit.utilities.
-        :arg M: An (N, K) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
         :arg n_samples: The number of samples to take.
         """
-        t = np.argmax(M, axis=1)
         # Find antisymmetric matrix of differences
-        differences = matrix_of_differencess(M, self.K, self.N)  # (N, K, K) we will product across axis 2 (rows)
+        differences = matrix_of_differencess(M_tilde, self.K, self.N)  # (N, K, K) we will product across axis 2 (rows)
         vector_differences = differences[self.grid, :, t]  # (N, K)
+        vector_differencess = np.tile(vector_differences, (n_samples, 1, 1))  # (n_samples, N, K)
+        vector_differencess = np.moveaxis(vector_differencess, 1, 0)  # (N, n_samples, K)
         differencess = np.tile(differences, (n_samples, 1, 1, 1))  # (n_samples, N, K, K)
         differencess = np.moveaxis(differencess, 1, 0)  # (N, n_samples, K, K)
-        # Assume its okay to use the same random variables over all of the data points
+        # Assume it's okay to use the same samples of U over all of the data points
         Us = sample_Us(self.K, n_samples, different_across_classes=True)  # (n_samples, K, K)
         random_variables = np.add(Us, differencess)
         cum_dists = norm.cdf(random_variables, loc=0, scale=1)
@@ -252,133 +381,18 @@ class VariationBayesMultinomialGP(Estimator):
         # Sum across the elements of the log product of interest (rows, so axis=3)
         log_samples = np.sum(log_cum_dists, axis=3)  # (n_samples, N, K)
         samples = np.exp(log_samples)
-        ## TODO: from last time, make sure the dimensions of normal_pdfs and
-        ## samples match for the elementwise multiplication
-        # TODO tomorow: Tidy up function evaluation code, move anything that is reused into utilities.
-        # Code for the non general case if possibly, although I think it is simpler than the Gibbs example.
-        # Try on ordered data.
-
-        # Take the sample U as a vector (N, K)
-        # TODO: make sure that we are making the us constant that need to be. and taking the correct Us
-        # TODO: from below equation 6 etc. \phi
-        us = Us[:, :, 0]  # (N, K)
+        # Take the samples us as matrices (n_samples, N, K)
+        us = Us[:, :, 0]  # (n_samples, K)
         assert us[0, 1] == us[0, 2]
         assert us[0, 0] == us[0, 1]
-        normal_pdfs = norm.pdf(us - vector_differences, loc=0, scale=1)  # (N, K)
-        # Find the elementwise product of these two vectors which returns a (N, K) array
-        return np.multiply(normal_pdfs, )
-        # axis 1 is the n_samples samples, which is the monte-carlo sum of interest
-        return 1. / n_samples * np.sum(samples, axis=1)
-
-    def _vector_expectation_p_m_2(self, M, n_samples=1000):
-        """
-        Calculate the Monte Carlo estimate of the expectation of a function of
-            the M over the distribution p.
-
-        This is the numerator of the rightmost term of 2005 Page 8 equation (5).
-
-        :arg M: An (N, K) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
-        :arg n_samples: The number of samples to take.
-        """
-        function_eval = function_u1_alt(difference, U, t_n)
-        # Take the sample U as a vector (K, )
-        u = U[:, 0]
-        normal_pdf = norm.pdf(u - vector_difference, loc=0, scale=1)
-        # Find the elementwise product of these two vectors which returns a (K, ) array
-        return np.multiply(normal_pdf, function_eval)
-
-    def _vector_expectation_p_m_3(self, M, n_samples=1000):
-        """
-        Calculate the Monte Carlo estimate of the expectation of a function of
-            the M over the distribution p.
-
-        denominator of 2005 Page 8 Eq.(5)
-
-        :arg vector_function: is a function that outputs a vector value, (e.g. function_u2 which is the
-            numerator of Eq.(5);
-            or function_u3 which is the denominator of Eq.(5)) for options see probit.utilities.
-        :arg M: An (N, K) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
-        :arg n_samples: The number of samples to take.
-        """
-        # Find antisymmetric matrix of differences
-        differences = matrix_of_differencess(M, self.K, self.N)  # (N, K, K) we will product across axis 2 (rows)
-        differencess = np.tile(differences, (n_samples, 1, 1, 1))  # (n_samples, N, K, K)
-        differencess = np.moveaxis(differencess, 1, 0)  # (N, n_samples, K, K)
-        # Assume its okay to use the same random variables over all of the data points
-        Us = sample_Us(self.K, n_samples, different_across_classes=True)  # (n_samples, K, K)
-        random_variables = np.add(Us, differencess)
-        cum_dists = norm.cdf(random_variables, loc=0, scale=1)
-        log_cum_dists = np.log(cum_dists)
-        # sum is over j \neq k
-        log_cum_dists[:, :, range(self.K), range(self.K)] = 0
-        t = np.argmax(M, axis=1)
-        # sum is over j \neq tn=i
-        log_cum_dists[self.grid, :, :, t] = 0  # TODO: Test it.
-        # Sum across the elements of the log product of interest (rows, so axis=3)
-        log_samples = np.sum(log_cum_dists, axis=3)
-        samples = np.exp(log_samples)
-        # axis 1 is the n_samples samples, which is the monte-carlo sum of interest
-        return 1. / n_samples * np.sum(samples, axis=1)
-
-    def _expectation_p_m(self, function, m_n, n_samples=1000):
-        """
-        Calculate the Monte Carlo estimate of the expectation of a function of
-            the m_n, over the distribution p.
-
-        e.g. 2005 Page 8 Eq.(5), 2005 Page _ Eq.(_)
-
-        :arg function:i is a function, (e.g. function_u1(difference, U) which is the numerator of Eq.(5); or
-            function_u2(difference, U) which is the denominator of Eq.(5)) for options see probit.utilities.
-        :arg m_n: An (K, ) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
-        :arg n_samples: The number of samples to take.
-        """
-        # Factored out calculations
-        difference = matrix_of_differences(m_n)
-        t_n = np.argmax(m_n)
-        vector_difference = difference[:, t_n]
-        K = len(m_n)
-        # Take samples
-        samples = []
-        for i in range(n_samples):
-            U = sample_U(K, different_across_classes=1)
-            function_eval = function(difference, vector_difference, U, t_n, K)
-            samples.append(function_eval)
-
-        distribution_over_classes = 1 / n_samples * np.sum(samples, axis=0)
-        return(distribution_over_classes)
-
-    def expn_u_M_tilde(self, M_tilde, n_samples):
-        """
-        Return a sample estimate of a function of the r.v. u ~ N(0, 1)
-
-        2005 Page _ Eq.(_)
-
-        :param M_tilde: M_tilde,
-        """
-
-        def function(u, M_tilde):
-            norm.pdf(u, loc=M)
-
-        sum = 0
-        for i in range(n_samples):
-            sum += function(u, M_tilde)
-        return sum / n_samples
-
-    def M(self, sigma, Y_tilde):
-        """
-        Q(M) where Y_tilde is the expectation of Y with respect to the posterior
-        component over Y.
-
-        2005 Page _ Eq.(_)
-        """
-        M_tilde = sigma @ Y_tilde
-        # The approximate posterior component Q(M) is a product of normal distributions over the classes
-        # But how do I translate this function into code? Must need to take an expectation wrt to it
-        return M_tilde
-
-    def expn_M(self, sigma, m_tilde, n_samples):
-        # Draw samples from the random variable, M ~ Q(M)
-        # Use M to calculate f(M)
-        # Take monte carlo estimate
-        K = np.shape(m_tilde)[0]
-        return None
+        # Assume it's okay to use the same samples of U over all of the data points
+        diff = np.add(us, vector_differences)
+        normal_pdfs = norm.pdf(diff, loc=0, scale=1)  # (n_samples, N, K)
+        normal_cdfs = norm.cdf(diff, loc=0, scale=1)  # (n_samples, N, K)
+        # Find the elementwise product of these two samples of matrices
+        element_prod_pdf = np.multiply(normal_pdfs, samples)
+        element_prod_cdf = np.multiple(normal_cdfs, samples)
+        # axis 0 is the n_samples samples, which is the monte-carlo sum of interest
+        element_prod_pdf = 1. / n_samples * np.sum(element_prod_pdf, axis=0)
+        element_prod_cdf = 1. / n_samples * np.sum(element_prod_cdf, axis=0)
+        return np.divde(element_prod_pdf, element_prod_cdf)  # (N, K)

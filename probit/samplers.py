@@ -143,6 +143,8 @@ class GibbsMultinomialGP(Sampler):
             # Calculate statistics, then sample other conditional
             # Empty M_T (K, N) matrix to collect m_k samples over
             M_T = -1. * np.ones((self.K, self.N))
+            # TODO: Explore if this needs a regularisation trick (Covariance matrices are poorly conditioned)
+            # TODO: Explore if this can be vectorised.
             if self.kernel.general_kernel:
                 for k in range(self.K):
                     mean = self.cov[k] @ Y.T[k]
@@ -219,11 +221,11 @@ class GibbsMultinomialGP(Sampler):
         :param Y_samples: The Gibbs samples of the latent variable Y.
         :param X_test: The new data point, array like (1, D).
         :param n_samples: The number of samples in the monte carlo estimate.
-        :return: A monte carlo estimate of the class probabilities.
+        :return: A Monte Carlo estimate of the class probabilities.
         """
         cs_new = np.diag(self.kernel.kernel(X_test[0], X_test[0]))  # (1, )
         Cs_new = self.kernel.kernel_vector_matrix(X_test, self.X_train)
-        intermediate_vector = self.Sigma @ Cs_new  # (N_train, N_test)
+        intermediate_vector = self.Sigma @ Cs_new  # (N, N_test)
         intermediate_scalar = Cs_new.T @ intermediate_vector
         n_posterior_samples = np.shape(Y_samples)[0]
         # Sample pmf over classes
@@ -246,16 +248,15 @@ class GibbsMultinomialGP(Sampler):
         :param Y_samples: The Gibbs samples of the latent variable Y.
         :param X_test: The new data points, array like (N_test, D).
         :param n_samples: The number of samples in the monte carlo estimate.
-        :return: A monte carlo estimate of the class probabilities.
+        :return: A Monte Carlo estimate of the class probabilities.
         """
-        # X_new = np.append(X_test, self.X_train, axis=0)
         N_test = np.shape(X_test)[0]
         # Cs_news[:, i] is Cs_new for X_test[i]
-        Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N_train, N_test)
+        Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
         # TODO: this is a bottleneck
         cs_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = self.Sigma @ Cs_news  # (N_train, N_test)
+        intermediate_vectors = self.Sigma @ Cs_news  # (N, N_test)
         intermediate_vectors_T = intermediate_vectors.T
         intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(0)  # (N_test, )
         n_posterior_samples = np.shape(Y_samples)[0]
@@ -279,7 +280,7 @@ class GibbsMultinomialGP(Sampler):
         """
         Make gibbs prediction over classes of X_test given the posterior samples.
 
-        This is the general case where there is hyperparameters varphi (K, D)
+        This is the general case where there are hyperparameters varphi (K, D)
             for all dimensions and classes.
 
         :param Y_samples: The Gibbs samples of the latent variable Y.
@@ -290,27 +291,28 @@ class GibbsMultinomialGP(Sampler):
         # X_new = np.append(X_test, self.X_train, axis=0)
         N_test = np.shape(X_test)[0]
         # Cs_news[:, i] is Cs_new for X_test[i]
-        Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (K, N_train, N_test)
+        Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (K, N, N_test)
         # TODO: this is a bottleneck
         cs_news = [np.diag(self.kernel.kernel_matrix(X_test, X_test)[k]) for k in range(self.K)]  # (K, N_test, )
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = self.Sigma @ Cs_news  # (K, N_train, N_test)
+        intermediate_vectors = self.Sigma @ Cs_news  # (K, N, N_test)
         intermediate_vectors_T = np.transpose(intermediate_vectors, (0, 2, 1))
         intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(1)  # (K, N_test, )
         n_posterior_samples = np.shape(Y_samples)[0]
+        # TODO: Is there a way to do this without transposing and reshaping?
+        Y_samples_T = np.transpose(Y_samples, (0, 2, 1)) #  (n_posterior_samples, K, N)
+        Y_samples_T = np.reshape(Y_samples_T, (n_posterior_samples, self.K, self.N, 1))
         # Sample pmf over classes
         distribution_over_classes_sampless = []
-        for Y in Y_samples:
-            # Initiate m with null values
-            ms = -1. * np.ones((N_test, self.K))
-            for k, y_k in enumerate(Y.T):
-                mean_k = intermediate_vectors_T[k] @ y_k  # (N_test, )
-                var_k = cs_news[k] - intermediate_scalars[k]  # (N_test, )
-                ms[:, k] = norm.rvs(loc=mean_k, scale=var_k)
+        for Y_T in Y_samples_T:
+            M_new_tilde_T = np.matmul(intermediate_vectors_T, Y_T)
+            M_new_tilde_T = np.reshape(M_new_tilde_T, (self.K, N_test))
+            var_new_tilde = np.subtract(cs_news, intermediate_scalars)
+            M = norm.rvs(loc=M_new_tilde_T.T, scale=var_new_tilde.T)
             # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
             # TODO: How do we know that 1000 samples is enough to converge?
             #  Goes with root n_samples but depends on the estimator variance
-            distribution_over_classes_sampless.append(self._vector_expectation_wrt_u(ms, n_samples))
+            distribution_over_classes_sampless.append(self._vector_expectation_wrt_u(M, n_samples))
         # TODO: Could also get a variance from the MC estimate.
         return (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
 

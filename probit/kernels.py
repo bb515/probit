@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.spatial import distance_matrix, distance
+from scipy.stats import expon
 from abc import ABC, abstractmethod
 
 
@@ -13,7 +14,7 @@ class Kernel(ABC):
     """
 
     @abstractmethod
-    def __init__(self, varphi, s):
+    def __init__(self, varphi, s, sigma=None, tau=None):
         """
         Create an :class:`Kernel` object.
 
@@ -21,6 +22,12 @@ class Kernel(ABC):
 
         :arg :class:`numpy.ndarray` varphi: The kernel lengthscale hyperparameters as an (N, M) numpy array.
         :arg :class: float s: The kernel scale hyperparameters as a numpy array.
+        :arg sigma: The (K, ) array or float or None (location/ scale) hyper-hyper-parameters that define psi prior.
+            Not to be confused with `Sigma`, which is a covariance matrix. Default None.
+        :type sigma: float or None or :class:`numpy.ndarray`
+        :arg tau: The (K, ) array or float or None (location/ scale) hyper-hyper-parameters that define psi prior.
+            Default None.
+        :type tau: float or None or :class:`numpy.ndarray`.
 
         :returns: A :class:`Kernel` object
         """
@@ -62,7 +69,18 @@ class Kernel(ABC):
         self.M = M
         self.varphi = varphi
         self.s = s
-
+        if sigma:
+            if (type(tau) is float) or (type(tau) is np.float64):
+                self.sigma = sigma
+                self.tau = tau
+            else:
+                raise TypeError(
+                    "If a sigma hyperhyperparameter is provided, then a tau hyperhyperparameter must be provided"
+                    " (expected {}, got {})".format(float, type(tau))
+                )
+        else:
+            self.sigma = None
+            self.tau = None
 
     @abstractmethod
     def kernel(self):
@@ -72,7 +90,6 @@ class Kernel(ABC):
         This method should be implemented in every concrete integrator.
         """
 
-
     # @abstractmethod
     # def kernel_vector(self):
     #     """
@@ -80,7 +97,6 @@ class Kernel(ABC):
     #
     #     This method should be implemented in every concrete integrator.
     #     """
-
 
     @abstractmethod
     def kernel_matrix(self):
