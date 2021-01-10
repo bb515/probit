@@ -86,12 +86,32 @@ def matrix_of_differencess(M, K, N_test):
     :arg M: An (N_test, K) array filled with e.g. m_k^{new_i, s} where s is the sample, k is the class indicator
         and i is the index of the test object. Or in the VB implementation, this function  is used for M_tilde (N, K).
     :type M: :class:`numpy.ndarray`
+    :arg K: The number of classes.
+    :arg N_test: The number of test objects.
     """
-    # Find the matrix of coefficients
     M = M.reshape((N_test, K, 1))
-    # Lambdas is an (n_test, K, K) stack of Lambda matrices
+    # Lambdas is an (N_test, K, K) stack of Lambda matrices
     # Tile along the rows, as they are the elements of interest
     Lambda_Ts = np.tile(M, (1, 1, K))
     Lambdas = Lambda_Ts.transpose((0, 2, 1))
     # antisymmetric matrix of differences, the rows contain the elements of the product of interest
     return np.subtract(Lambda_Ts, Lambdas)  # (N_test, K, K)
+
+
+def matrix_of_valuess(nu, K, N_test):
+    """
+    Get an array of matrix of values of the vectors M.
+
+    :param nu: An (N_test, K) array filled with nu_tilde_k^{new_i} where  k is the class indicator
+        and i is the index of the test object.
+    :param K: The number of classes.
+    :param N_test: The number of test objects.
+
+    :return: (N_test, K, K) Matrix of rows of nu_tilde_k^{new_i}, where the rows(=axis 2) contain identical values.
+    """
+    nu = nu.reshape((N_test, K, 1))
+    # Lambdas is an (N_test, K, K) stack of Lambda matrices
+    # Tile along the rows, as they are the elements of interest
+    Lambdas_Ts = np.tile(nu, (1, 1, K))
+    return Lambdas_Ts  # (N_test, K, K)
+

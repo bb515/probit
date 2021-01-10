@@ -116,8 +116,8 @@ class GibbsMultinomialGP(Sampler):
 
         :param M_0: (N, K) numpy.ndarray of the initial location of the sampler.
         :type M_0: :class:`np.ndarray`.
-        :arg :class:`numpy.ndarray` init: The initial location of the sampler in parameter space.
-        :arg :class:`numpy.ndarray` steps: The number of steps in the sampler.
+        :arg int steps: The number of steps in the sampler.
+        :arg int first_step: The first step. Useful for burn in algorithms.
 
         :return: Gibbs samples. The acceptance rate for Gibbs is 1.
         """
@@ -189,7 +189,7 @@ class GibbsMultinomialGP(Sampler):
         :arg ms: An (N_test, K) array filled with m_k^{new_i, s} where s is the sample, k is the class indicator
         and i is the index of the test object.
         :type ms: :class:`numpy.ndarray`
-        :arg int nsamples: Number of samples to take in the monte carlo estimate.
+        :arg int n_samples: Number of samples to take in the monte carlo estimate.
 
         :returns: Distribution over classes
         """
@@ -205,7 +205,7 @@ class GibbsMultinomialGP(Sampler):
         log_cum_dists = np.log(cum_dists)
         # Fill diagonals with 0
         log_cum_dists[:, :, range(self.K), range(self.K)] = 0
-        # axis 0 is the N_samples samples,
+        # axis 0 is the N_test objects,
         # axis 1 is the n_samples samples, axis 3 is then the row index, which is the product of cdfs of interest
         log_samples = np.sum(log_cum_dists, axis=3)
         samples = np.exp(log_samples)
@@ -308,11 +308,11 @@ class GibbsMultinomialGP(Sampler):
             M_new_tilde_T = np.matmul(intermediate_vectors_T, Y_T)
             M_new_tilde_T = np.reshape(M_new_tilde_T, (self.K, N_test))
             var_new_tilde = np.subtract(cs_news, intermediate_scalars)
-            M = norm.rvs(loc=M_new_tilde_T.T, scale=var_new_tilde.T)
+            M_new = norm.rvs(loc=M_new_tilde_T.T, scale=var_new_tilde.T)
             # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
             # TODO: How do we know that 1000 samples is enough to converge?
             #  Goes with root n_samples but depends on the estimator variance
-            distribution_over_classes_sampless.append(self._vector_expectation_wrt_u(M, n_samples))
+            distribution_over_classes_sampless.append(self._vector_expectation_wrt_u(M_new, n_samples))
         # TODO: Could also get a variance from the MC estimate.
         return (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
 

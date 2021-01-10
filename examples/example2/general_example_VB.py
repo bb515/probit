@@ -4,8 +4,8 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
-from probit.samplers import GibbsMultinomialGP
-from probit.kernels import SEIso
+from probit.estimators import VariationBayesMultinomialGP
+from probit.kernels import SEARDMultinomial
 import matplotlib.pyplot as plt
 
 def main():
@@ -22,6 +22,7 @@ def main():
     K = 3
     # Datapoints per class
     N = 50
+    N_total = N * K
     # Dimension of the data
     D = 2
 
@@ -54,22 +55,26 @@ def main():
     X = Xt[:, :D]
     t = Xt[:, -1]
 
-    # This is the kernel for a GP prior for the multi-class problem
-    kernel = SEIso(varphi=1.0, s=1.0)
-    gibbs_classifier = GibbsMultinomialGP(X, t, kernel)
-    steps_burn = 100
-    steps = 100
-    M_0 = np.zeros((N, K))
-    # Burn in
-    M_samples, Y_samples = gibbs_classifier.sample(M_0, steps_burn)
-    M_0_burned = M_samples[-1]
-    M_samples, Y_samples = gibbs_classifier.sample(M_0_burned, steps)
+    # This is the general kernel for a GP prior for the multi-class problem
+    varphi = np.array([
+        [1.0, 0.05],
+        [1.0, 0.05],
+        [1.0, 0.05]
+    ])
+    s = 1.0
+    sigma = 10e-6 * np.ones(K)
+    tau = 10e-6 * np.ones(K)
+    kernel = SEARDMultinomial(varphi, s, sigma=sigma, tau=tau)
+    variation_bayes_classifier = VariationBayesMultinomialGP(X, t, kernel)
+    steps = 5
+    M_0 = np.zeros((N_total, K))
+    M_tilde, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde = variation_bayes_classifier.estimate(M_0, steps)
 
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     m_star = -1. * np.ones(3)
-    n0, m00, patches = ax[0].hist(M_samples[:, 0, 0], 20, density="probability", histtype='stepfilled')
-    n1, m01, patches = ax[1].hist(M_samples[:, 0, 1], 20, density="probability", histtype='stepfilled')
-    n2, m20, patches = ax[2].hist(M_samples[:, 2, 0], 20, density="probability", histtype='stepfilled')
+    n0, m00, patches = ax[0].hist(M_tilde[0, 0], 20, density="probability", histtype='stepfilled')
+    n1, m01, patches = ax[1].hist(M_tilde[0, 1], 20, density="probability", histtype='stepfilled')
+    n2, m20, patches = ax[2].hist(M_tilde[2, 0], 20, density="probability", histtype='stepfilled')
     m_star[0] = m00[np.argmax(n0)]
     m_star[1] = m01[np.argmax(n1)]
     m_star[2] = m20[np.argmax(n2)]
@@ -90,7 +95,7 @@ def main():
     xx, yy = np.meshgrid(x, y)
     X_new = np.dstack((xx, yy))
     X_new = X_new.reshape((N * N, D))
-    Z = gibbs_classifier.predict(Y_samples, X_new, n_samples=200, vectorised=True)
+    Z = variation_bayes_classifier.predict(Sigma_tilde, Y_tilde, varphi_tilde, X_new, n_samples=1000, vectorised=True)
     Z = np.reshape(Z, (N, N, K))
     Z = np.moveaxis(Z, 2, 0)
     for k in range(K):

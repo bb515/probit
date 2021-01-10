@@ -69,14 +69,14 @@ class Kernel(ABC):
         self.M = M
         self.varphi = varphi
         self.s = s
-        if sigma:
-            if (type(tau) is float) or (type(tau) is np.float64):
+        if sigma is not None:
+            if tau is not None:
                 self.sigma = sigma
                 self.tau = tau
             else:
                 raise TypeError(
                     "If a sigma hyperhyperparameter is provided, then a tau hyperhyperparameter must be provided"
-                    " (expected {}, got {})".format(float, type(tau))
+                    " (expected {}, got {})".format(np.ndarray, type(tau))
                 )
         else:
             self.sigma = None
@@ -194,7 +194,8 @@ class SEARDMultinomial(Kernel):
             (X_i[d] - X_j[d]), 2) for d in range(self.D)]))
 
     def kernel_matrix(self, X1, X2):
-        """Generate Gaussian kernel matrices as a numpy array.
+        """
+        Generate Gaussian kernel matrices as a numpy array.
 
         This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
         quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
@@ -220,7 +221,7 @@ class SEARDMultinomial(Kernel):
                 for j in range(N2):
                     C[i, j] = self.kernel(k, X1[i], X2[j])
             Cs.append(C)
-        return Cs
+        return np.array(Cs)
 
     def kernel_vector_matrix(self, x_new, X):
         """
@@ -248,7 +249,33 @@ class SEARDMultinomial(Kernel):
             for i in range(N):
                 C_new[i] = self.kernel(k, X[i], x_new[0])
             Cs_new.append(C_new)
-        return Cs_new
+        return np.array(Cs_new)
+
+    def kernel_matrices(self, X1, X2, varphis):
+        """
+        Generate Gaussian kernel matrices for varphi samples, varphis, as an array of numpy arrays.
+
+        This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
+        quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
+
+        e.g.
+        for k in range(K):
+            Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
+
+        :param X1: (N1, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param X2: (N2, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param varphis: (K, D) dimensional numpy.ndarray which holds the
+            covariance hyperparameters.
+        :returns Cs: A (n_samples, K, N1, N2) array of n_samples * K (N1, N2) covariance matrices.
+        """
+        n_samples = np.shape(varphis)[0]
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        Cs_samples = np.empty((n_samples, self.K, N1, N2))
+        for i, varphi in enumerate(varphis):
+            self.varphi = varphi
+            Cs_samples[i, :, :, :] = self.kernel_matrix(X1, X2)
+        return Cs_samples
 
 
 class InvalidKernel(Exception):
