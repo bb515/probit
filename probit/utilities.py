@@ -33,6 +33,7 @@ def sample_varphis(psi, n_samples, general=True):
         size = (n_samples, np.shape(psi)[0], np.shape(psi)[1])
     else:
         size = n_samples
+    print(scale, 'scale')
     return expon.rvs(scale=scale, size=size)
 
 

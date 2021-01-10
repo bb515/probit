@@ -115,7 +115,7 @@ class VariationBayesMultinomialGP(Estimator):
         super().__init__(*args, **kwargs)
         self.IN = np.eye(self.N)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        self.Sigma = np.linalg.inv(self.IN + self.C)
+        self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
         self.cov = self.C @ self.Sigma
 
     def _estimate_initiate(self, M_0):
@@ -279,6 +279,23 @@ class VariationBayesMultinomialGP(Estimator):
                 return ValueError("The scalar implementation has been superseded. Please use "
                                   "the vector implementation.")
 
+    def _multivariate_normal_pdf(self, m_k, C):
+        """
+        Return a number proportional to the multivariate normal pdf of r.v. m_k given mean 0 and covariance C.
+
+        :param m_k: 
+        :param C: 
+        :return: 
+        """
+        epsilon = 1e-6 * self.IN
+        C_tild = C + epsilon
+        L = np.linalg.cholesky(C_tild)
+        L_inv = np.linalg.inv(L)
+        C_inv = L_inv.T @ L_inv
+        # We don't need the constant term, since it cancels in the ratio
+        # i.e. np.exp(- self.N / 2 * np.log(2 * np.pi) - 0.5 * m_k @ C_inv @ m_k)
+        return np.exp(- 0.5 * m_k @ C_inv @ m_k)
+
     def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=500):
         """
         Return the w values of the sample on 2005 Page 9 Eq.(7).
@@ -288,6 +305,8 @@ class VariationBayesMultinomialGP(Estimator):
         :arg int n_samples: The number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
         """
         # Vector draw from varphi
+        # TODO: Get a domain error here with varphi_tilde blowing up?
+
         varphis = sample_varphis(psi_tilde, n_samples, general=self.kernel.general_kernel)  # (n_samples, K, D) in general, (n_samples, ) for ISO case. Depend on the shape of psi_tilde.
         Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)  # (n_samples, K, N, N) in general, (n_samples, N, N) for ISO case. Depend on the shape of psi_tilde.
         # Transpose M_tilde to become (n_samples, K, N) multivariate normal between m_k (N, ) and Cs_k over all samples
@@ -295,24 +314,24 @@ class VariationBayesMultinomialGP(Estimator):
         # TODO: begrudgingly using a nested for loop here, as I don't see the alternative,
         #  maybe I can calculate this by hand.
         ws = np.empty((n_samples, self.K))  # TODO: probably the wrong size.
-        print(np.shape(ws))
         if self.kernel.general_kernel:
             for i in range(n_samples):
                     for k in range(self.K):
-                        print(np.shape(M_tilde_T))
-                        print(np.shape(Cs_samples))
-                        w_i_k = multivariate_normal.rvs(M_tilde_T[k], cov=Cs_samples[i, k])
+                        # Instead of using multivariate_normal.pdf we must use something like linalg cholesky, or
+                        # nugget regularisation.
+                        w_i_k = self._multivariate_normal_pdf(M_tilde_T[k], Cs_samples[i, k])
+                        print(w_i_k)
                         # Add sample to the unnormalised w vectors
                         ws[i, k] = w_i_k
             # Normalise the w vectors
-            denominator = np.sum(ws, axis=0)  # (K, )
-            ws = np.divide(ws, denominator)  # (n_samples, K)
+            normalising_constant = np.sum(ws, axis=0)  # (K,)
+            ws = np.divide(ws, normalising_constant)  # (n_samples, K)
             ws = np.reshape(ws, (n_samples, self.K, 1))  # (n_samples, K, 1)
             ws = np.tile(ws, (1, 1, self.D))  # (n_samples, K, D)
         else:
             for i in range(n_samples):
                 for k in range(self.K):
-                    w_i_k = multivariate_normal.rvs(M_tilde_T[k], cov=Cs_samples[i])
+                    w_i_k = self._multivariate_normal_pdf(M_tilde_T[k], Cs_samples[i])
                     # Add sample to the unnormalised w vectors
                     ws[i, k, :] = w_i_k
             # Normalise the w vectors
@@ -327,15 +346,9 @@ class VariationBayesMultinomialGP(Estimator):
         return np.sum(element_prod, axis=0)
 
     def _psi_tilde(self, varphi_tilde):
-        if self.kernel.general_kernel:
-            sigma = np.reshape(self.sigma, (self.K, 1))
-            tau = np.reshape(self.tau, (self.K, 1))
-
-            sigma = np.tile(self.sigma, (1, self.D))  # (K, D)
-            tau = np.tile(self.tau, (1, self.D))  # (K, D)
-
-        else:
-            return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
+        #_psi_tilde = np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
+        #print('\n', _psi_tilde, 1./ _psi_tilde, '\n')
+        return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
 
     def _M_tilde(self, Y_tilde, varphi_tilde):
         """
@@ -348,13 +361,17 @@ class VariationBayesMultinomialGP(Estimator):
         :arg varphi_tilde: array whose size depends on the kernel.
         :type Y_tilde: :class:`np.ndarray`
         """
+        assert np.shape(Y_tilde) == (self.N, self.K)
         # Update the varphi with new values
         self.kernel.varphi = varphi_tilde
         # Calculate updated C and sigma
         # TODO: Do I want to update these in the class scope?
-        C_tilde = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (N, N)
-        Sigma_tilde = np.linalg.inv(self.IN + C_tilde)  # (N, N)
-        return C_tilde @ Sigma_tilde @ Y_tilde, Sigma_tilde, C_tilde  # (N, K)
+        C_tilde = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
+        Sigma_tilde = np.linalg.inv(np.add(self.IN, C_tilde))  # (K, N, N)
+        M_tilde = np.empty((self.N, self.K))
+        for k, y_k in enumerate(Y_tilde.T):
+            M_tilde[:, k] = C_tilde[k] @ Sigma_tilde[k] @ y_k
+        return M_tilde, Sigma_tilde, C_tilde  # (N, K)
 
     def _Y_tilde(self, M_tilde):
         """
@@ -408,6 +425,9 @@ class VariationBayesMultinomialGP(Estimator):
         log_samples = np.sum(log_cum_dists, axis=3)  # (N, n_samples, K)
         log_element_prod_pdf = np.add(log_M_nk_M_nt_pdfs, log_samples)
         log_element_prod_cdf = np.add(log_M_nk_M_nt_cdfs, log_samples)
+        # TODO: subtract these using log.
+
+
         element_prod_pdf = np.exp(log_element_prod_pdf)
         element_prod_cdf = np.exp(log_element_prod_cdf)
         # Monte Carlo estimate: Sum across the n_samples (axis=1)

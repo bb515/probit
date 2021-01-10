@@ -301,14 +301,20 @@ class GibbsMultinomialGP(Sampler):
         n_posterior_samples = np.shape(Y_samples)[0]
         # TODO: Is there a way to do this without transposing and reshaping?
         Y_samples_T = np.transpose(Y_samples, (0, 2, 1)) #  (n_posterior_samples, K, N)
-        Y_samples_T = np.reshape(Y_samples_T, (n_posterior_samples, self.K, self.N, 1))
-        # Sample pmf over classes
+        ## Y_samples_T = np.reshape(Y_samples_T, (n_posterior_samples, self.K, self.N, 1))
         distribution_over_classes_sampless = []
         for Y_T in Y_samples_T:
-            M_new_tilde_T = np.matmul(intermediate_vectors_T, Y_T)
-            M_new_tilde_T = np.reshape(M_new_tilde_T, (self.K, N_test))
-            var_new_tilde = np.subtract(cs_news, intermediate_scalars)
-            M_new = norm.rvs(loc=M_new_tilde_T.T, scale=var_new_tilde.T)
+            # Initiate m with null values
+            M_new = np.empty((N_test, self.K))
+            for k, y_k in enumerate(Y_T):
+                M_new_tilde_k = intermediate_vectors_T[k] @ y_k  # (N_test, )
+                var_new_tilde_k = cs_news[k] - intermediate_scalars[k]  # (N_test, )
+                M_new[:, k] = norm.rvs(loc=M_new_tilde_k, scale=var_new_tilde_k)
+            # # Vectorised version which is less readable, and likely slower TODO: test this.
+            # M_new_tilde_T = np.matmul(intermediate_vectors_T, Y_T)
+            # M_new_tilde_T = np.reshape(M_new_tilde_T, (self.K, N_test))
+            # var_new_tilde = np.subtract(cs_news, intermediate_scalars)
+            # M_new = norm.rvs(loc=M_new_tilde_T.T, scale=var_new_tilde.T)
             # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
             # TODO: How do we know that 1000 samples is enough to converge?
             #  Goes with root n_samples but depends on the estimator variance

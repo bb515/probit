@@ -65,7 +65,7 @@ def main():
     kernel = SEARDMultinomial(varphi, s)
     gibbs_classifier = GibbsMultinomialGP(X, t, kernel)
     steps_burn = 100
-    steps = 100
+    steps = 15
     M_0 = np.zeros((N_total, K))  # shouldn't M_0 be (150, 3), not (50, 3)
     # Burn in
     M_samples, Y_samples = gibbs_classifier.sample(M_0, steps_burn)
