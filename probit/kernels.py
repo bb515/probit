@@ -162,6 +162,32 @@ class SEIso(Kernel):
         :return: the C_news vectors, one C_new for each object.
         """
 
+    def kernel_matrices(self, X1, X2, varphis):
+        """
+        Generate Gaussian kernel matrices for varphi samples, varphis, as an array of numpy arrays.
+
+        This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
+        quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
+
+        e.g.
+        for k in range(K):
+            Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
+
+        :param X1: (N1, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param X2: (N2, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param varphis: (n_samples, ) dimensional numpy.ndarray which holds the
+            covariance hyperparameters.
+        :returns Cs: A (n_samples, N1, N2) array of n_samples * K (N1, N2) covariance matrices.
+        """
+        n_samples = np.shape(varphis)[0]
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        Cs_samples = np.empty((n_samples, N1, N2))
+        for i, varphi in enumerate(varphis):
+            self.varphi = varphi
+            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
+        return Cs_samples
+
 
 class SEARDMultinomial(Kernel):
     """
@@ -264,7 +290,7 @@ class SEARDMultinomial(Kernel):
 
         :param X1: (N1, D) dimensional numpy.ndarray which holds the feature vectors.
         :param X2: (N2, D) dimensional numpy.ndarray which holds the feature vectors.
-        :param varphis: (K, D) dimensional numpy.ndarray which holds the
+        :param varphis: (n_samples, K, D) dimensional numpy.ndarray which holds the
             covariance hyperparameters.
         :returns Cs: A (n_samples, K, N1, N2) array of n_samples * K (N1, N2) covariance matrices.
         """

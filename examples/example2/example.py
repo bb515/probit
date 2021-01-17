@@ -1,4 +1,4 @@
-"""Binomial Probit regression Gibbs example with parallel sampling (using MPI)."""
+"""Multinomial Probit regression Gibbs example with parallel sampling."""
 import argparse
 import cProfile
 from io import StringIO

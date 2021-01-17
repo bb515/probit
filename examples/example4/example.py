@@ -1,199 +1,236 @@
-"""TODO: Multinomial Probit regression using Gibbs sampling with GP priors."""
+"""Example 6.2 Gibbs with Toy-Box dataset multinomial probit regression."""
+import argparse
+import cProfile
+from io import StringIO
+from pstats import Stats, SortKey
 import numpy as np
+from probit.samplers import GibbsMultinomialGP
+from probit.kernels import SEIso
 import matplotlib.pyplot as plt
-from scipy.stats import norm, uniform, multivariate_normal
 import pathlib
-from probit.utilities import log_heaviside_probit_likelihood
 
 read_path = pathlib.Path()
 
-## Superseded, but may contain useful information.
-# def kernel(varphi, k, X_i, X_j):
-#     """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
-#     sum = 0
-#     D = np.shape(X_i)[0]
-#     for d in range(D):
-#         sum += varphi[k, d] * pow((X_i[d] - X_j[d]), 2)
-#     C_ij = np.exp(-1. * sum)
-#     return C_ij
-#
-#
-# def kernel_matrix(X, varphi):
-#     """Generate Gaussian kernel matrices as a numpy array.
-#
-#     This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
-#     quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
-#
-#     e.g.
-#     for k in range(K):
-#         Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
-#
-#     :param X: (N, D) dimensional numpy.ndarray which holds the feature vectors.
-#     :param varphi: (K, D) dimensional numpy.ndarray which holds the
-#         covariance hyperparameters.
-#     :returns Cs: A (K, N, N) array of K (N, N) covariance matrices.
-#     """
-#     Cs = []
-#     K = np.shape(varphi)[0] # length of the classes
-#     N = np.shape(X)[0]
-#     D = np.shape(X)[1]
-#     # The general covariance function has a different length scale for each dimension.
-#     for k in range(K):
-#         # for each x_i
-#         C = -1.* np.ones((N, N))
-#         for i in range(N):
-#             for j in range(N):
-#                 C[i, j] = kernel(varphi, k, X[i], X[j])
-#         Cs.append(C)
-#
-#     return Cs
-#
-#
-# def kernel_vector_matrix(x_new, X, varphi):
-#     """Generate Gaussian kernel matrices as a numpy array.
-#
-#     This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
-#     quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
-#
-#     e.g.
-#     for k in range(K):
-#         Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
-#
-#     :param x_new: (1, D) dimensional numpy.ndarray of the new feature vector.
-#     :param X: (N, D) dimensional numpy.ndarray which holds the data feature vectors.
-#     :param varphi: (K, D) dimensional numpy.ndarray which holds the
-#         covariance hyperparameters.
-#     :returns Cs: A (K, N, N) array of K (N, N) covariance matrices.
-#     """
-#     Cs_new = []
-#     K = np.shape(varphi)[0] # length of the classes
-#     N = np.shape(X)[0]
-#     D = np.shape(X)[1]
-#     # The general covariance function has a different length scale for each dimension.
-#     for k in range(K):
-#         C_new = -1.* np.ones(N)
-#         for i in range(N):
-#             C_ij = kernel(varphi, k, X[i], x_new[0])
-#             C_new[i] = kernel(varphi, k, X[i], x_new[0])
-#         Cs_new.append(C_new)
-#     return Cs_new
+def main():
+    """Get Gibbs samples and predictive."""
+    parser = argparse.ArgumentParser()
+    # The --profile argument generates profiling information for the example
+    parser.add_argument('--profile', action='store_const', const=True)
+    args = parser.parse_args()
+    if args.profile:
+        profile = cProfile.Profile()
+        profile.enable()
+
+    train = np.load(read_path / 'train.npz')
+    test = np.load(read_path / 'test.npz')
+
+    X_train = train['X']
+    t_train = train['t']
+    X0_train = train['X0']
+    X1_train = train['X1']
+    X2_train = train['X2']
+
+    X_test = test['X']
+    t_test = test['t']
+    X0_test = test['X0']
+    X1_test = test['X1']
+    X2_test = test['X2']
+
+    plt.scatter(X0_train[:, 0], X0_train[:, 1], color='b', label=r"$t=0$")
+    plt.scatter(X1_train[:, 0], X1_train[:, 1], color='r', label=r"$t=1$")
+    plt.scatter(X2_train[:, 0], X2_train[:, 1], color='r')
+    plt.legend()
+    plt.xlim(-1, 1)
+    plt.ylim(-1, 1)
+    plt.xlabel(r"$x_1$", fontsize=16)
+    plt.ylabel(r"$x_2$", fontsize=16)
+    plt.show()
+
+    K = 2  # 2 classes
+    D = 10  # 10 dimensions
+    N_train = 240
+    print(np.shape(X_train))
+    print(np.shape(X_test))
+    print(np.shape(X1_train))
+    # # Shuffle data - may only be necessary for matrix conditioning
+    # Xt = np.c_[X_train, t_train]
+    # np.random.shuffle(Xt)
+    # X_train = Xt[:, :D]
+    # t_train = Xt[:, -1]
+    # This is the kernel for a GP prior for the multi-class problem
+    kernel = SEIso(varphi=1.0, s=1.0)
+    gibbs_classifier = GibbsMultinomialGP(X_train, t_train, kernel)
+    steps_burn = 100
+    steps = 100
+    M_0 = np.zeros((N_train, K))
+    # Burn in
+    M_samples, Y_samples = gibbs_classifier.sample(M_0, steps_burn)
+    M_0_burned = M_samples[-1]
+    M_samples, Y_samples = gibbs_classifier.sample(M_0_burned, steps)
+
+    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    m_star = -1. * np.ones(3)
+    n0, m00, patches = ax[0].hist(M_samples[:, 0, 0], 20, density="probability", histtype='stepfilled')
+    n1, m01, patches = ax[1].hist(M_samples[:, 0, 1], 20, density="probability", histtype='stepfilled')
+    n2, m20, patches = ax[2].hist(M_samples[:, 2, 0], 20, density="probability", histtype='stepfilled')
+    m_star[0] = m00[np.argmax(n0)]
+    m_star[1] = m01[np.argmax(n1)]
+    m_star[2] = m20[np.argmax(n2)]
+    ax[0].axvline(m_star[0], color='k', label=r"Maximum $m_00$")
+    ax[1].axvline(m_star[1], color='k', label=r"Maximum $m_01$")
+    ax[2].axvline(m_star[2], color='k', label=r"Maximum $m_02$")
+    ax[0].set_xlabel(r"$m_00$", fontsize=16)
+    ax[1].set_xlabel(r"$m_01$", fontsize=16)
+    ax[2].set_xlabel(r"$m_20$", fontsize=16)
+    ax[0].legend()
+    ax[1].legend()
+    ax[2].legend()
+    plt.show()
+
+    N = 20
+    x = np.linspace(-1.0, 1.0, N)
+    y = np.linspace(-1.0, 1.0, N)
+    xx, yy = np.meshgrid(x, y)
+    X_new_ = np.dstack((xx, yy))
+    X_new_ = X_new_.reshape((N * N, 2))
+    X_new = np.zeros((N * N, 10))
+    X_new[:, :2] = X_new_
+    Z = gibbs_classifier.predict(Y_samples, X_new, n_samples=200, vectorised=True)
+    Z = np.reshape(Z, (N, N, K))
+    Z = np.moveaxis(Z, 2, 0)
+    for k in range(K):
+        _ = plt.subplots(1, figsize=(6, 6))
+        plt.scatter(X0_train[:, 0], X0_train[:, 1], color='b', label=r"$t=0$")
+        plt.scatter(X1_train[:, 0], X1_train[:, 1], color='r', label=r"$t=1$")
+        plt.scatter(X2_train[:, 0], X2_train[:, 1], color='r')
+        plt.contourf(x, y, Z[k], zorder=1)
+        plt.xlim(-1, 1)
+        plt.ylim(-1, 1)
+        plt.legend()
+        plt.xlabel(r"$x_1$", fontsize=16)
+        plt.ylabel(r"$x_2$", fontsize=16)
+        plt.title("Contour plot - Gibbs")
+        plt.show()
 
 
-def generate_data_n_draws(n):
-    """Generate the draw from the ToyBox dataset."""
-    # sample uniformly
-    X = []
-    X0 = []
-    X1 = []
-    X2 = []
-    t = np.random.randint(3, size=n)
-    for t_i in t:
-        if t_i == 0:
-            dist = 0
-            while not ((dist < 0.5) and (dist > 0.1)):
-                x = np.random.uniform(low=-1.0, high=1.0, size=2)
-                dist = np.linalg.norm(x)
-            # Finally, draw normally from the final 8
-            x = np.append(x, norm.rvs(0, 1, 8))
-            X0.append(x)
-        elif t_i == 1:
-            dist = 0
-            while not ((dist < 1.0) and (dist > 0.6)):
-                x = np.random.uniform(low=-1.0, high=1.0, size=2)
-                dist = np.linalg.norm(x)
-                print(dist)
-            # Finally, draw normally from the final 8
-            x = np.append(x, norm.rvs(0, 1, 8))
-            X1.append(x)
-        elif t_i == 2:
-            x = norm.rvs(0, 0.1, 2)
-            # Finally, draw normally from the final 8
-            x = np.append(x, norm.rvs(0, 1, 8))
-            X2.append(x)
-        X.append(x)
-    # By now Xs is a (N, 10) matrix
-    X = np.array(X)
-    X0 = np.array(X0)
-    X1 = np.array(X1)
-    X2 = np.array(X2)
-    return X, t, X0, X1, X2
+    # # Range of hyper-parameters over which to explore the space
+    # log_s = np.linspace(-1, 5, N)
+    # log_varphi = np.linspace(-1, 5, N)
+    #
+    # log_ss, log_varphis = np.meshgrid(log_s, log_varphi)
+    # X_test = X_test[:50]
+    # t_test = t_test[:50]
+    #
+    # varphi = np.exp(log_varphi[0])
+    # s = np.exp(log_s[0])
+    #
+    # Z = np.zeros((N, N))
+    # for i in range(N):
+    #     for j in range(N):
+    #         s = np.exp(log_s[i])
+    #         varphi = np.exp(log_varphi[j])
+    #         kernel = binary(varphi=varphi, s=s)
+    #         Z = get_log_likelihood(kernel, X_train, t_train, X_test, t_test, 2)
+    #         print(Z)
+    # fig, axs = plt.subplots(1, figsize=(6, 6))
+    # plt.contourf(log_ss, log_varphis, Z, zorder=1)
+    #
+    # # Classes
+    # K = 3
+    # # Datapoints per class
+    # N = 50
+    # # Dimension of the data
+    # D = 2 #10
+    #
+    # # Uniform quadrant dataset - linearly seperable
+    # X0 = np.random.rand(N, D)
+    # X1 = np.ones((N, D)) + np.random.rand(N, D)
+    # offset = np.array([0, 1])
+    # offsets = np.tile(offset, (N, 1))
+    # X2 = offsets + np.random.rand(N, D)
+    # t0 = np.zeros(len(X0))
+    # t1 = np.ones(len(X1))
+    # t2 = 2 * np.ones(len(X2))
+    #
+    # plt.scatter(X0[:, 0], X0[:, 1], color='b', label=r"$t=0$")
+    # plt.scatter(X1[:, 0], X1[:, 1], color='r', label=r"$t=1$")
+    # plt.scatter(X2[:, 0], X2[:, 1], color='g', label=r"$t=2$")
+    # plt.legend()
+    # plt.xlim(0, 2)
+    # plt.ylim(0, 2)
+    # plt.xlabel(r"$x_1$", fontsize=16)
+    # plt.ylabel(r"$x_2$", fontsize=16)
+    # plt.show()
+    #
+    # # Prepare data
+    # X = np.r_[X0, X1, X2]
+    # t = np.r_[t0, t1, t2]
+    # # Shuffle data - may only be necessary for matrix conditioning
+    # Xt = np.c_[X, t]
+    # np.random.shuffle(Xt)
+    # X = Xt[:, :D]
+    # t = Xt[:, -1]
+    #
+    # # This is the kernel for a GP prior for the multi-class problem
+    # kernel = SEIso(varphi=1.0, s=1.0)
+    # gibbs_classifier = GibbsMultinomialGP(X, t, kernel)
+    # steps_burn = 100
+    # steps = 100
+    # M_0 = np.zeros((N, K))
+    # # Burn in
+    # M_samples, Y_samples = gibbs_classifier.sample(M_0, steps_burn)
+    # M_0_burned = M_samples[-1]
+    # M_samples, Y_samples = gibbs_classifier.sample(M_0_burned, steps)
+    #
+    # fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    # m_star = -1. * np.ones(3)
+    # n0, m00, patches = ax[0].hist(M_samples[:, 0, 0], 20, density="probability", histtype='stepfilled')
+    # n1, m01, patches = ax[1].hist(M_samples[:, 0, 1], 20, density="probability", histtype='stepfilled')
+    # n2, m20, patches = ax[2].hist(M_samples[:, 2, 0], 20, density="probability", histtype='stepfilled')
+    # m_star[0] = m00[np.argmax(n0)]
+    # m_star[1] = m01[np.argmax(n1)]
+    # m_star[2] = m20[np.argmax(n2)]
+    # ax[0].axvline(m_star[0], color='k', label=r"Maximum $m_00$")
+    # ax[1].axvline(m_star[1], color='k', label=r"Maximum $m_01$")
+    # ax[2].axvline(m_star[2], color='k', label=r"Maximum $m_02$")
+    # ax[0].set_xlabel(r"$m_00$", fontsize=16)
+    # ax[1].set_xlabel(r"$m_01$", fontsize=16)
+    # ax[2].set_xlabel(r"$m_20$", fontsize=16)
+    # ax[0].legend()
+    # ax[1].legend()
+    # ax[2].legend()
+    # plt.show()
+    #
+    # N = 20
+    # x = np.linspace(-0.1, 1.99, N)
+    # y = np.linspace(-0.1, 1.99, N)
+    # xx, yy = np.meshgrid(x, y)
+    # X_new = np.dstack((xx, yy))
+    # X_new = X_new.reshape((N * N, D))
+    # Z = gibbs_classifier.predict(Y_samples, X_new, n_samples=200, vectorised=True)
+    # Z = np.reshape(Z, (N, N, K))
+    # Z = np.moveaxis(Z, 2, 0)
+    # for k in range(K):
+    #     _ = plt.subplots(1, figsize=(6, 6))
+    #     plt.scatter(X0[:, 0], X0[:, 1], color='b', label=r"$t=0$", zorder=10)
+    #     plt.scatter(X1[:, 0], X1[:, 1], color='r', label=r"$t=1$", zorder=10)
+    #     plt.scatter(X2[:, 0], X2[:, 1], color='g', label=r"$t=2$", zorder=10)
+    #     plt.contourf(x, y, Z[k], zorder=1)
+    #     plt.xlim(0, 2)
+    #     plt.ylim(0, 2)
+    #     plt.legend()
+    #     plt.xlabel(r"$x_1$", fontsize=16)
+    #     plt.ylabel(r"$x_2$", fontsize=16)
+    #     plt.title("Contour plot - Gibbs")
+    #     plt.show()
 
-# Generate 4620 + 240 draws from the above distribution
-# Sample from the three target values
-X, t, X0, X1, X2 = generate_data_n_draws(4620)
-np.savez(read_path / 'test.npz', X=X, t=t, X0=X0, X1=X1, X2=X2)
-
-X, t, X0, X1, X2 = generate_data_n_draws(240)
-np.savez(read_path / 'train.npz', X=X, t=t, X0=X0, X1=X1, X2=X2)
-print(np.shape(X0), np.shape(X1), np.shape(X2))
-## Plotting
-plt.scatter(X0[:,0], X0[:,1], color='b', label=r"$t=0$")
-plt.scatter(X1[:,0], X1[:,1], color='r', label=r"$t=1$")
-plt.scatter(X2[:,0], X2[:,1], color='g', label=r"$t=2$")
-plt.legend()
-plt.xlim(-1,1)
-plt.ylim(-1,1)
-plt.xlabel(r"$x_1$",fontsize=16)
-plt.ylabel(r"$x_2$",fontsize=16)
-plt.show()
-
-D = np.shape(X)[1]
-N = np.shape(X)[0]
-print(D, N)
+    if args.profile:
+        profile.disable()
+        s = StringIO()
+        stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
+        stats.print_stats(.05)
+        print(s.getvalue())
 
 
-# Range of hyper-parameters over which to explore the space
-log_s = np.linspace(-1, 5, 10)
-log_varphi = np.linspace(-1, 5, 10)
-
-def get_log_likelihood(s, varphi, X_train, t_train, n_burn, n_samples):
-    """Given the hyper-parameter values, return a the predictive likelihood."""
-    # Calculate the covariance matrix for the posterior predictive GP
-    I = np.eye(N)
-    C = simple_kernel_matrix(X_train, varphi, s)
-    sigma = np.linalg.inv(I + C)
-    cov = C @ sigma
-
-    M_0 = np.zeros((N, D))
-    # Burn in of Gibbs sampler of 2000 samples
-    samples = simple_gibbs(M_0, n_burn, t_train, cov)
-
-    M_samples = np.array([sample[0] for sample in samples])
-    M_0_burned_in = M_samples[-1]
-    print(M_0_burned_in)
-
-    # 1000 samples for inference
-    samples = simple_gibbs(M_0_burned_in, n_samples, t_train, cov)
-
-    M_samples = np.array([sample[0] for sample in samples])
-    Y_samples = np.array([sample[1] for sample in samples])
-
-    # Predict the classes for the new data points, X_new
-    x_new = np.zeros(8)
-    x_new = np.append(x_new, np.array([0.0, 0.0]))
-    x_new = np.array([x_new])
-
-    predictive_multinomial_distribution = simple_predict_gibbs(varphi, sigma, X, x_new, Y_samples)
-    print(predictive_multinomial_distribution)
-
-get_log_likelihood(1.0, 1.0, X_train, t_train, 20, 10)
-# N = 20
-# x, y = np.mgrid[-0.1:2.1:2.2/N, -0.1:2.1:2.2/N]
-# pos = np.dstack((x, y))
-#
-# Z = np.zeros((N,N))
-# for i in range(N):
-#     for j in range(N):
-#         Z[i,j] = predict_gibbs(beta_samples, np.array( (x[i,j], y[i,j]) ) )
-#
-# fig, axs = plt.subplots(1,figsize=(6,6))
-# plt.scatter(X0[:,0], X0[:,1], color='b', label=r"$t=0$", zorder=10)
-# plt.scatter(X1[:,0], X1[:,1], color='r', label=r"$t=1$", zorder=10)
-# plt.contourf(x,y,Z,zorder=1)
-# plt.xlim(0,2)
-# plt.ylim(0,2)
-# plt.legend()
-# plt.xlabel(r"$x_1$",fontsize=16)
-# plt.ylabel(r"$x_2$",fontsize=16)
-# plt.title("Contour plot - Gibbs")
-# plt.show()
+if __name__ == "__main__":
+    main()

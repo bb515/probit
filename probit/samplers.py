@@ -94,7 +94,7 @@ class GibbsMultinomialGP(Sampler):
         :returns: An :class:`Gibbs_GP` object.
         """
         super().__init__(*args, **kwargs)
-        self.I = np.eye(self.K)  # Q: this eye is different to np.eye(K). Why use of both? Is this even used?
+        self.I = np.eye(self.K)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.Sigma = np.linalg.inv(np.eye(self.N) + self.C)
         self.cov = self.C @ self.Sigma

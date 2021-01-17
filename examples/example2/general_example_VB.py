@@ -4,7 +4,7 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
-from probit.estimators import VariationBayesMultinomialGP
+from probit.estimators import VBMultinomialGP
 from probit.kernels import SEARDMultinomial
 import matplotlib.pyplot as plt
 
@@ -65,7 +65,7 @@ def main():
     sigma = 10e-6 * np.ones(K)
     tau = 10e-6 * np.ones(K)
     kernel = SEARDMultinomial(varphi, s, sigma=sigma, tau=tau)
-    variation_bayes_classifier = VariationBayesMultinomialGP(X, t, kernel)
+    variation_bayes_classifier = VBMultinomialGP(X, t, kernel)
     steps = 5
     M_0 = np.zeros((N_total, K))
     M_tilde, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde = variation_bayes_classifier.estimate(M_0, steps)
