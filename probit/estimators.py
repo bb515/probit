@@ -464,6 +464,7 @@ class VBMultinomialOrderedGP(Estimator):
         Create an :class:`Gibbs_GP` sampler object.
 
         :arg cutpoint: The (K +1, ) array of cutpoint parameters \bm{gamma}.
+        :type cutpoint: :class:`numpy.ndarray`
         :returns: An :class:`Gibbs_GP` object.
         """
         super().__init__(*args, **kwargs)
@@ -477,14 +478,14 @@ class VBMultinomialOrderedGP(Estimator):
                 self.kernel.general_kernel, 0))
         if not all(
                 cutpoint[i] <= cutpoint[i + 1]
-                for i in range(self.N)):
+                for i in range(self.K)):
             raise CutpointValueError(cutpoint)
         if np.any(cutpoint < 0):
             raise ValueError('cutpoint array must have *non negative* elements (got {}).'.format(cutpoint))
         if cutpoint[0] != 0.0:
             raise ValueError('The first cutpoint parameter must be 0.0 (got {}, expected {})'.format(cutpoint[0], 0.0))
-        if cutpoint[-1] not in [np.infty, np.inf]:
-            raise ValueError('The last cutpoint parameter must be numpy.inf (got {}, expected {})'.format(cutpoint[-1], np.inf))
+        # if cutpoint[-1] not in [np.infty, np.inf]:  # TODO
+        #     raise ValueError('The last cutpoint parameter must be numpy.inf (got {}, expected {})'.format(cutpoint[-1], np.inf))
         self.cutpoint = cutpoint
 
     def _estimate_initiate(self, m_0):
@@ -545,17 +546,19 @@ class VBMultinomialOrderedGP(Estimator):
         m_new_tilde = np.dot(intermediate_vectors_T, y_tilde)  # (N_test, N) (N, ) = (N_test, )
         var_new_tilde = np.subtract(c_news, intermediate_scalars)  # (N_test, )
         var_new_tilde = np.reshape(var_new_tilde, (N_test, 1))  # TODO: do in place shape changes - quicker(?) and memor
-        predictive_distributions = np.empty(N_test, self.K)
+        predictive_distributions = np.empty((N_test, self.K))
         for n in range(N_test):
             for k in range(self.K):
-                gamma_k = self.gamma[k + 1]
-                gamma_k_minus_1 = self.gamma[k]
+                gamma_k = self.cutpoint[k + 1]
+                gamma_k_minus_1 = self.cutpoint[k]
+                var = var_new_tilde[n]
                 m_n = m_new_tilde[n]
-                predictive_distributions[n, k] = (norm.pdf(gamma_k_minus_1 - m_n) - norm.pdf(gamma_k - m_n)) / (
-                        norm.cdf(gamma_k - m_n) - norm.cdf(gamma_k_minus_1 - m_n))
+                predictive_distributions[n, k] = (
+                        norm.cdf((gamma_k - m_n) / var) - norm.cdf((gamma_k_minus_1 - m_n) / var)
+                )
         return predictive_distributions  # (N_test, K)
 
-    def predict(self, Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples=1000, vectorised=True):
+    def predict(self, Sigma_tilde, Y_tilde, varphi_tilde, X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
 
@@ -572,7 +575,7 @@ class VBMultinomialOrderedGP(Estimator):
             return ValueError("ARD kernel may not be used in the ordered likelihood estimator.")
         else:
             if vectorised:
-                return self._predict_vector(Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples)
+                return self._predict_vector(Sigma_tilde, Y_tilde, varphi_tilde, X_test)
             else:
                 return ValueError("The scalar implementation has been superseded. Please use "
                                   "the vector implementation.")
@@ -611,7 +614,7 @@ class VBMultinomialOrderedGP(Estimator):
         #  maybe I can calculate this by hand.
         ws = np.empty((n_samples, ))
         for i in range(n_samples):
-            ws[i, :] = self._multivariate_normal_pdf(m_tilde, Cs_samples[i])
+            ws[i] = self._multivariate_normal_pdf(m_tilde, Cs_samples[i])
         # Normalise the w vectors
         denominator = np.sum(ws, axis=0)  # ()
         ws = np.divide(ws, denominator)  # (n_samples, )
@@ -662,8 +665,8 @@ class VBMultinomialOrderedGP(Estimator):
         """
         p = np.empty(self.N)
         for n in range(self.N):
-            gamma_k = self.gamma[t[n] + 1]
-            gamma_k_minus_1 = self.gamma[t[n]]
+            gamma_k = self.cutpoint[t[n] + 1]
+            gamma_k_minus_1 = self.cutpoint[t[n]]
             m_n = m_tilde[n]
             p[n] = (norm.pdf(gamma_k_minus_1 - m_n) - norm.pdf(gamma_k - m_n)) / (
                     norm.cdf(gamma_k - m_n) - norm.cdf(gamma_k_minus_1 - m_n))
