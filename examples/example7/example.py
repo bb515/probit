@@ -1,4 +1,7 @@
-"""Multiclass Probit regression Gibbs example."""
+"""
+Multiclass Probit regression 3 bin example from Cowles 1996 empirical study
+showing convergence of the orginal probit with the Gibbs sampler.
+"""
 import argparse
 import cProfile
 from io import StringIO
@@ -8,92 +11,134 @@ from scipy.stats import multivariate_normal
 from probit.samplers import GibbsMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
+import pathlib
 
-K_total = 5
+write_path = pathlib.Path()
+
+colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
+
+
+def generate_synthetic_data(N_per_class, K, D, beta_0, beta_1):
+    """
+    Generate synthetic data for this model.
+
+    :arg int N_per_class: The number of data points per class.
+    :arg int K: The number of bins/classes/quantiles.
+    :arg int D: The number of dimensions of the covariates.
+    """
+    N_total = int(K * N_per_class)
+    # Sample from the real line, uniformly
+    X = np.random.uniform(0, 12, N_total)
+    epsilons = np.random.normal(0, 1, N_total)
+    # Model latent variable responses
+    Y_true = beta_0 + beta_1 * X + epsilons
+    sort_indeces = np.argsort(Y_true)
+    plt.scatter(X, Y_true)
+    plt.show()
+    # Sort the responses
+    Y_true = Y_true[sort_indeces]
+    X = X[sort_indeces]
+    X_k = []
+    Y_true_k = []
+    t_k = []
+    for k in range(K):
+        X_k.append(X[N_per_class * k:N_per_class * (k + 1)])
+        Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
+        t_k.append(k * np.ones(N_per_class, dtype=int))
+    # Find the first cutpoint and set it equal to 1.0
+    cutpoint_0_min = Y_true_k[0][-1]
+    cutpoint_0_max = Y_true_k[1][0]
+    print(cutpoint_0_max)
+    print(cutpoint_0_min)
+    cutpoint_0 = np.mean([cutpoint_0_max, cutpoint_0_min])
+    print(cutpoint_0)
+    Y_true = np.subtract(Y_true, cutpoint_0)
+    Y_true_k = np.subtract(Y_true_k, cutpoint_0)
+    for k in range(K):
+        plt.scatter(X_k[k], Y_true_k[k], color=colors[k])
+    plt.show()
+    Xs_k = np.array(X_k)
+    Ys_k = np.array(Y_true_k)
+    t_k = np.array(t_k, dtype=int)
+    X = Xs_k.flatten()
+    Y = Ys_k.flatten()
+    t = t_k.flatten()
+    # Prepare data
+    Xt = np.c_[Y, X, t]
+    print(np.shape(Xt))
+    np.random.shuffle(Xt)
+    Y_true = Xt[:, :1]
+    X = Xt[:, 1:D + 1]
+    t = Xt[:, -1]
+    print(np.shape(X))
+    print(np.shape(t))
+    print(np.shape(Y_true))
+    t = np.array(t, dtype=int)
+    print(t)
+    colors_ = [colors[i] for i in t]
+    print(colors_)
+    plt.scatter(X, Y_true, color=colors_)
+    plt.show()
+    return X_k, Y_true_k, X, Y_true, t
+
+
+def split(list, K):
+    """Split a list into quantiles."""
+    divisor, remainder = divmod(len(list), K)
+    return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
+
 K = 3
 D = 1
-means = np.array([
-    [1, 1],
-    [2, 2],
-    [3, 3]
-])
+N_per_class = 512
+N_total = int(N_per_class * K)
+# K_total = 9
+# beta_0 = 1.0
+# beta_1 = -2.0
+# X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, beta_0, beta_1)
+#
+# np.savez(write_path / "data_tertile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
 
-sizes = np.array([80, 80, 80])
-N_total = np.sum(sizes)
-variance = 0.07
-covar = variance * np.eye(2)
-colors = ['b', 'r', 'g', 'k', 'c', 'm']
+data = np.load("data_tertile.npz")
+X_k = data["X_k"]  # Contains (256, 7) array of binned x values
+Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
+X = data["X"]  # Contains (1792,) array of x values
+t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
+Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
 
-# Multiclass case
-X = np.array([[]])
-Xs = np.empty((N_total, 2))
-lower = np.array([0, 80, 160, 240])
-upper = np.array([80, 160, 240, 260])
-for i in range(K):
-    Xi = multivariate_normal.rvs(mean=means[i], cov=covar, size=sizes[i])
-    Xs[lower[i]:upper[i], :] = Xi
-    X = np.append(X, Xi[:, 0])
 
-# # delta spike
-# Xi = np.ones((sizes[3], 2))
-# Xs[lower[3]:upper[3], :] = Xi
-# X = np.append(X, Xi[:, 0])
-
-t = np.empty(N_total, dtype=np.intc)
-X0 = []
-X1 = []
-X2 = []
-for n in range(N_total):
-    X_ny = Xs[n, 1]
-    X_n = Xs[n]
-    if X_ny < 1.5:
-        t[n] = 1
-        X0.append(X_n)
-    elif X_ny < 2.5:
-        t[n] = 2
-        X1.append(X_n)
-    else:
-        t[n] = 3
-        X2.append(X_n)
-
-X0 = np.array(X0)
-X1 = np.array(X1)
-X2 = np.array(X2)
-plt.scatter(X0[:, 0], X0[:, 1], color=colors[0], label=r"$t={}$".format(1))
-plt.scatter(X1[:, 0], X1[:, 1], color=colors[1], label=r"$t={}$".format(2))
-plt.scatter(X2[:, 0], X2[:, 1], color=colors[2], label=r"$t={}$".format(3))
+print(Y_true_k[1][-1], Y_true_k[2][0], "cutpoint")
+# Plot
+colors_ = [colors[i] for i in t]
+plt.scatter(X, Y_true, color=colors_)
+plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+plt.xlabel(r"$x$", fontsize=16)
+plt.ylabel(r"$y$", fontsize=16)
+plt.show()
+# Plot from the binned arrays
+for k in range(K):
+    plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
+plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
 plt.legend()
 plt.xlabel(r"$x$", fontsize=16)
 plt.ylabel(r"$y$", fontsize=16)
 plt.show()
-
-print(np.shape(Xs))
-print(np.shape(X))
-# Prepare data
-Xt = np.c_[Xs, t]
-print(np.shape(Xt))
-
-np.random.shuffle(Xt)
-X = Xt[:, :D]
-t = Xt[:, -1]
-y_true = Xt[:, 1]
-print(np.shape(X))
-print(np.shape(t))
-print(np.shape(y_true))
 
 # This is the general kernel for a GP prior for the multi-class problem
 varphi = 1.0
 s = 1.0
 sigma = 10e-6
 tau = 10e-6
-cutpoint = np.array([0.0, 1.0, 2.0, 3.0])
+
+
+cutpoint = np.array([0.0, 1.0])
+
 kernel = SEIso(varphi, s, sigma=sigma, tau=tau)
-gibbs_classifier = GibbsMultinomialOrderedGP(K_total, X, t, kernel)
+gibbs_classifier = GibbsMultinomialOrderedGP(K, X, t, kernel)
 steps_burn = 100
 steps = 1000
-m_0 = np.random.rand(N_total)  # shouldn't M_0 be (150, 3), not (50, 3)
+m_0 = np.random.rand(N_total)
 gamma_0 = np.append(cutpoint, np.inf)
-y_0 = y_true
+y_0 = Y_true
 # Burn in
 m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0, y_0, gamma_0, steps_burn)
 m_0_burned = m_samples[-1]
