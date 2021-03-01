@@ -432,7 +432,6 @@ class GibbsMultinomialOrderedGP(Sampler):
             raise ValueError('The kernel must not be ARD type (kernel.general_kernel=1),'
                              ' but ISO type (kernel.general_kernel=0). (got {}, expected)'.format(
                 self.kernel.general_kernel, 0))
-        # TODO: quite hacky
         self.K = K
         self.I = np.eye(self.K)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
@@ -440,60 +439,78 @@ class GibbsMultinomialOrderedGP(Sampler):
         self.cov = self.C @ self.Sigma
 
     def _sample_initiate(self, m_0, y_0, gamma_0):
-        """Initialise variables for the sample method."""
+        """
+        Initialise variables for the sample method.
+
+        TODO: 01/03/2021 converted gamma to be a [np.NINF, 0.0, ..., np.inf] array. This may cause problems
+        but those objects are both IEEE so should be okay.
+        """
         # Treat user parsing of cutpoint parameters with just the upper cutpoints for each class
         # The first class t=0 is for y<=0
-        if np.shape(gamma_0)[0] == self.K - 2:  # not including infinity cutpoints at 0 and K, so K = len(gamma_0) + 1
-            if not np.all(gamma_0 > 0):
-                raise ValueError('The cutpoint parameters must be positive. (got {})'.format(gamma_0))
+        if np.shape(gamma_0)[0] == self.K - 2:  # not including any of the fixed cutpoints: -\infty, 0, \infty
             gamma_0 = np.append(gamma_0, np.inf)  # append the infinity cutpoint
             gamma_0 = np.insert(gamma_0, 0.0)  # insert the zero cutpoint at index 0
+            gamma_0 = np.insert(gamma_0, np.NINF)  # insert the negative infinity cutpoint at index 0
             pass  # correct format
-        elif np.shape(gamma_0)[0] == self.K - 1:  # not including one of the infinity cutpoints
-            if gamma_0[-1] not in [np.infty, np.inf]:
+        elif np.shape(gamma_0)[0] == self.K:  # not including one of the infinity cutpoints
+            if gamma_0[-1] != np.inf:
                 if gamma_0[0] != np.NINF:
                     raise ValueError('The last cutpoint parameter must be numpy.inf, or the first cutpoint parameter'
                                      ' must be numpy.NINF (got {}, expected {})'.format(
                         gamma_0[-1], [np.inf, np.NINF]))
                 else:  # gamma_0[0] is negative infinity
-                    gamma_0 = gamma_0[1:]
+                    if gamma_0[1] == 0.0:
+                        gamma_0.append(np.inf)
+                        pass  # correct format
+                    else:
+                        raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+                            gamma_0[1], 0.0))
             else:
                 if gamma_0[0] != 0.0:
-                    raise ValueError('The second cutpoint parameter must be 0.0 (got {}, expected {})'.format(
+                    raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
                         gamma_0[0], 0.0))
-                pass  # This is the correct format for the cutpoint parameter samples for now
-        elif np.shape(gamma_0)[0] == self.K:  # not including two of the cutpoints
+                gamma_0 = np.insert(gamma_0, np.NINF)
+                pass  # correct format
+        elif np.shape(gamma_0)[0] == self.K - 1:  # not including two of the cutpoints
             if gamma_0[0] != np.NINF:  # not including negative infinity cutpoint
-                if gamma_0[-1] not in [np.infty, np.inf]:
-                    raise ValueError('The last cutpoint parameter must be numpy.inf (got {}, expected {})'.format(
+                if gamma_0[-1] != np.inf:
+                    raise ValueError('The cutpoint paramter \gamma_K must be numpy.inf (got {}, expected {})'.format(
                         gamma_0[-1], np.inf))
                 elif gamma_0[0] != 0.0:
-                    raise ValueError('The first cutpoint parameter must be 0.0 (got {}, expected {})'.format(
+                    raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
                         gamma_0[0], 0.0))
                 else:
+                    gamma_0 = np.insert(gamma_0, np.NINF)
                     pass  # correct format
-            elif gamma_0[1] != 0.0:
-                raise ValueError('The second cutpoint parameter must be 0.0 (got {}, expected {})'.format(
+            elif gamma_0[1] != 0.0:  # Including \gamma_0 = np.NINF but not \gamma_1 = 0.0
+                raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
                     gamma_0[1], 0.0))
             else:
-                gamma_0 = gamma_0[1:]
-                gamma_0 = np.append(gamma_0, np.inf)
-                pass  # correct format
+                if gamma_0[-1] == np.inf:
+                    raise ValueError('Length of gamma_0 seems to be one less than it needs to be. Missing a cutpoint! ('
+                                     'got {}, expected {})'.format(len(gamma_0), len(gamma_0) + 1))
+                else:
+                    gamma_0 = np.append(gamma_0, np.inf)
+                    pass  # correct format
         elif np.shape(gamma_0)[0] == self.K + 1:  # including all of the cutpoints
-            if gamma_0[0] is not np.NINF:
-                raise ValueError('The last cutpoint parameter must be numpy.inf (got {}, expected {})'.format(
-                    gamma_0[-1], np.inf))
+            if gamma_0[0] != np.NINF:
+                raise ValueError('The cutpoint parameter \gamma_0 must be numpy.NINF (got {}, expected {})'.format(
+                    gamma_0[0], np.NINF))
             if gamma_0[1] != 0.0:
-                raise ValueError('The second cutpoint parameter must be 0.0 (got {}, expected {})'.format(
+                raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
                     gamma_0[1], 0.0))
-            if gamma_0[-1] not in [np.infty, np.inf]:
-                raise ValueError('The last cutpoint parameter must be numpy.inf (got {}, expected {})'.format(
+            if gamma_0[-1] != np.inf:
+                raise ValueError('The cutpoint parameter \gamma_K must be numpy.inf (got {}, expected {})'.format(
                     gamma_0[-1], np.inf))
-            gamma_0 = gamma_0[1:-1]
             pass  # correct format
-        assert gamma_0[0] == 0.0
+        else:
+            raise ValueError('Could not recognise gamma_0 shape. (np.shape(gamma_0) was {})'.format(np.shape(gamma_0)))
+        assert gamma_0[0] == np.NINF
+        assert gamma_0[1] == 0.0
         assert gamma_0[-1] == np.inf
-        assert np.shape(gamma_0)[0] == self.K
+        if not np.all(gamma_0[2:-1] > 0):
+            raise ValueError('The cutpoint parameters must be positive. (got {})'.format(gamma_0))
+        assert np.shape(gamma_0)[0] == self.K + 1
         m_samples = []
         y_samples = []
         gamma_samples = []
@@ -520,24 +537,25 @@ class GibbsMultinomialOrderedGP(Sampler):
         m, y, gamma_prev, m_samples, y_samples, gamma_samples = self._sample_initiate(m_0, y_0, gamma_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            # Empty gamma (K, ) array to collect the class upper bounds, that is, the upper cut-points for each class
-            gamma = -1. * np.ones(self.K)
+            # Empty gamma (K + 1, ) array to collect the class upper bounds, that is, the upper cut-points for each class
+            gamma = -1. * np.ones(self.K + 1)
             uppers = -1. * np.ones(self.K - 2)
             locs = -1. * np.ones(self.K - 2)
-            # We must necessarily fix gamma_1 = 0
             for k in range(1, self.K - 1):
                 indeces = np.where(self.t_train == k)
                 indeces2 = np.where(self.t_train == k + 1)
                 if indeces2:
-                    uppers[k - 1] = np.min(np.append(y[indeces2], gamma_prev[k + 1]))
+                    uppers[k - 1] = np.min(np.append(y[indeces2], gamma_prev[k + 2]))
                 else:
-                    uppers[k - 1] = gamma[k + 1]
+                    uppers[k - 1] = gamma_prev[k + 2]
                 if indeces:
-                    locs[k - 1] = np.max(np.append(y[indeces], gamma_prev[k - 1]))
+                    locs[k - 1] = np.max(np.append(y[indeces], gamma_prev[k]))
                 else:
-                    locs[k - 1] = gamma[k - 1]
-            gamma[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
-            gamma[0] = 0.0
+                    locs[k - 1] = gamma_prev[k]
+            # Fix \gamma_0 = -\infty, \gamma_1 = 0, \gamma_K = +\infty
+            gamma[0] = np.NINF
+            gamma[1] = 0.0
+            gamma[2:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
             gamma[-1] = np.inf
             # update gamma prev
             gamma_prev = gamma
@@ -547,18 +565,15 @@ class GibbsMultinomialOrderedGP(Sampler):
                 # Class index, k, is the target class
                 k_true = self.t_train[n]
                 # Initiate yi at 0
-                y_n = -1.0  # this is a trick for the next line TODO: should it be -inf?
+                y_n = np.NINF  # this is a trick for the next line TODO: should it be -inf?
                 # Sample from the truncated Gaussian
-                while y_n > gamma[k_true] or y_n <= gamma[k_true - 1]:
+                while y_n > gamma[k_true + 1] or y_n <= gamma[k_true]:
                     # sample y
                     y_n = norm.rvs(loc=m_n, scale=1)
                 # Add sample to the Y vector
                 y[n] = y_n
             # Calculate statistics, then sample other conditional
-            # Empty m (N, ) matrix to collect m samples over
-            m = -1. * np.ones(self.N)
             # TODO: Explore if this needs a regularisation trick (Covariance matrices are poorly conditioned)
-            # TODO: Explore if this can be vectorised.
             mean = self.cov @ y
             m = multivariate_normal.rvs(mean=mean, cov=self.cov)
             # print(m, 'm')
@@ -571,6 +586,7 @@ class GibbsMultinomialOrderedGP(Sampler):
 
     def _predict_scalar(self, y_samples, gamma_samples, X_test):
         """
+            TODO: This code was refactored on 01/03/2021 without testing. Test it.
         Superseded by _predict_vector.
 
         Make gibbs prediction over classes of X_test[0] given the posterior samples.
@@ -601,15 +617,16 @@ class GibbsMultinomialOrderedGP(Sampler):
                 indeces = np.where(self.t_train == k)
                 indeces2 = np.where(self.t_train == k + 1)
                 if indeces2:
-                    uppers[k - 1] = np.min(np.append(y[indeces2], gamma[k + 1]))
+                    uppers[k - 1] = np.min(np.append(y[indeces2], gamma[k + 2]))
                 else:
-                    uppers[k - 1] = gamma[k + 1]
+                    uppers[k - 1] = gamma[k + 2]
                 if indeces:
-                    locs[k - 1] = np.max(np.append(y[indeces], gamma[k - 1]))
+                    locs[k - 1] = np.max(np.append(y[indeces], gamma[k]))
                 else:
-                    locs[k - 1] = gamma[k - 1]
-            gamma[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
-            gamma[0] = 0.0
+                    locs[k - 1] = gamma[k]
+            gamma[0] = np.NINF
+            gamma[1] = 0.0
+            gamma[2:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
             gamma[-1] = np.inf
             # Calculate the measurable function and append the resulting MC sample
             distribution_over_classes_samples.append(self._probit_likelihood(m, gamma))
@@ -621,21 +638,22 @@ class GibbsMultinomialOrderedGP(Sampler):
         """
         Get the probit likelihood given GP posterior mean samples and gamma sample.
 
-        :return distributioon_over_classes: the (N_samples, K) array of values.
+        :return distribution_over_classes: the (N_samples, K) array of values.
         """
         N_samples = np.shape(m_ns)[0]
         distribution_over_classess = np.empty((N_samples, self.K))
         # Special case for gamma[-1] == np.NINF, gamma[0] == 0.0
         distribution_over_classess[:, 0] = norm.cdf(np.subtract(gamma[0], m_ns))
-        for k in range(1, self.K):
+        for k in range(1, self.K + 1):
             gamma_k = gamma[k]
             gamma_k_1 = gamma[k - 1]
-            distribution_over_classess[:, k] = norm.cdf(
+            distribution_over_classess[:, k - 1] = norm.cdf(
                 np.subtract(gamma_k, m_ns)) - norm.cdf(np.subtract(gamma_k_1, m_ns))
         return distribution_over_classess
 
     def _probit_likelihood(self, m_n, gamma):
         """
+                TODO: 01/03 this was refactored without testing. Test it.
         Get the probit likelihood given GP posterior mean sample and gamma sample.
 
         :return distribution_over_classes: the (K, ) array of.
@@ -643,10 +661,10 @@ class GibbsMultinomialOrderedGP(Sampler):
         distribution_over_classes = np.empty(self.K)
         # Special case for gamma[-1] == np.NINF, gamma[0] == 0.0
         distribution_over_classes[0] = norm.cdf(gamma[0] - m_n)
-        for k in range(1, self.K):
+        for k in range(1, self.K + 1):
             gamma_k = gamma[k]  # remember these are the upper bounds of the classes
             gamma_k_1 = gamma[k - 1]
-            distribution_over_classes[k] = norm.cdf(gamma_k - m_n) - norm.cdf(gamma_k_1 - m_n)
+            distribution_over_classes[k - 1] = norm.cdf(gamma_k - m_n) - norm.cdf(gamma_k_1 - m_n)
         return distribution_over_classes
 
     def _predict_vector(self, y_samples, gamma_samples, X_test):
