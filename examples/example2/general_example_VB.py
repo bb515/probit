@@ -9,7 +9,7 @@ from probit.kernels import SEARDMultinomial
 import matplotlib.pyplot as plt
 
 def main():
-    """Get Gibbs samples and predictive."""
+    """Get VB Posterior means and predictive."""
     parser = argparse.ArgumentParser()
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)

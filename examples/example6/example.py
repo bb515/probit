@@ -8,63 +8,88 @@ from scipy.stats import multivariate_normal
 from probit.samplers import GibbsMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
+import pathlib
+
+path = pathlib.Path()
 
 K = 3
 D = 1
-means = np.array([
-    [1, 1],
-    [2, 2],
-    [3, 3]
-])
-
 sizes = np.array([80, 80, 80])
 N_total = np.sum(sizes)
-variance = 0.07
-covar = variance * np.eye(2)
 colors = ['b', 'r', 'g', 'k', 'c', 'm']
 
-# Multiclass case
-X = np.array([[]])
-Xs = np.empty((N_total, 2))
-lower = np.array([0, 80, 160, 240])
-upper = np.array([80, 160, 240, 260])
-for i in range(K):
-    Xi = multivariate_normal.rvs(mean=means[i], cov=covar, size=sizes[i])
-    Xs[lower[i]:upper[i], :] = Xi
-    X = np.append(X, Xi[:, 0])
+# means = np.array([
+#     [1, 1],
+#     [2, 2],
+#     [3, 3]
+# ])
+#
+# variance = 0.07
+# covar = variance * np.eye(2)
+#
+# # Multiclass case
+# X = np.array([[]])
+# Xs = np.empty((N_total, 2))
+# lower = np.array([0, 80, 160, 240])
+# upper = np.array([80, 160, 240, 260])
+# for i in range(K):
+#     Xi = multivariate_normal.rvs(mean=means[i], cov=covar, size=sizes[i])
+#     Xs[lower[i]:upper[i], :] = Xi
+#     X = np.append(X, Xi[:, 0])
+#
+# # # delta spike
+# # Xi = np.ones((sizes[3], 2))
+# # Xs[lower[3]:upper[3], :] = Xi
+# # X = np.append(X, Xi[:, 0])
+#
+# t = np.empty(N_total, dtype=np.intc)
+# X0 = []
+# X1 = []
+# X2 = []
+#
+# for n in range(N_total):
+#     X_ny = Xs[n, 1]
+#     X_n = Xs[n]
+#     if X_ny < 1.5:
+#         t[n] = 0
+#         X0.append(X_n)
+#     elif X_ny < 2.5:
+#         t[n] = 1
+#         X1.append(X_n)
+#     else:
+#         t[n] = 2
+#         X2.append(X_n)
+#
+# X0 = np.array(X0)
+# X1 = np.array(X1)
+# X2 = np.array(X2)
+#
+# # Data shift as a preprocessing step
+# cutpoint_1 = np.mean([np.max(X1[:, 1]), np.min(X0[:, 1])])
+#
+# # Normalised cutpoint
+# X0[:, 1] = np.subtract(X0[:, 1], cutpoint_1)
+# X1[:, 1] = np.subtract(X1[:, 1], cutpoint_1)
+# X2[:, 1] = np.subtract(X2[:, 1], cutpoint_1)
+#
+# # Prepare data
+# Xt = np.c_[Xs, t]
+#
+# np.random.shuffle(Xt)
+# X = Xt[:, :D]
+# t = Xt[:, -1]
+# y_true = Xt[:, 1]
+#
+# np.savez(path / "data.npz", X=X, t=t, Y=y_true, X0=X0,  X1=X1, X2=X2)
 
-# # delta spike
-# Xi = np.ones((sizes[3], 2))
-# Xs[lower[3]:upper[3], :] = Xi
-# X = np.append(X, Xi[:, 0])
+data = np.load(path / "data.npz")
 
-t = np.empty(N_total, dtype=np.intc)
-X0 = []
-X1 = []
-X2 = []
-for n in range(N_total):
-    X_ny = Xs[n, 1]
-    X_n = Xs[n]
-    if X_ny < 1.5:
-        t[n] = 0
-        X0.append(X_n)
-    elif X_ny < 2.5:
-        t[n] = 1
-        X1.append(X_n)
-    else:
-        t[n] = 2
-        X2.append(X_n)
-
-X0 = np.array(X0)
-X1 = np.array(X1)
-X2 = np.array(X2)
-
-# Data shift as a preprocessing step
-cutpoint_1 = np.mean([np.max(X1[:, 1]), np.min(X0[:, 1])])
-# Normalised cutpoint
-X0[:, 1] = np.subtract(X0[:, 1], cutpoint_1)
-X1[:, 1] = np.subtract(X1[:, 1], cutpoint_1)
-X2[:, 1] = np.subtract(X2[:, 1], cutpoint_1)
+X = data["X"]
+y_true = data["Y"]
+t = data["t"]
+X0 = data["X0"]
+X1 = data["X1"]
+X2 = data["X2"]
 
 plt.scatter(X0[:, 0], X0[:, 1], color=colors[0], label=r"$t={}$".format(0))
 plt.scatter(X1[:, 0], X1[:, 1], color=colors[1], label=r"$t={}$".format(1))
@@ -73,14 +98,6 @@ plt.legend()
 plt.xlabel(r"$x$", fontsize=16)
 plt.ylabel(r"$y$", fontsize=16)
 plt.show()
-
-# Prepare data
-Xt = np.c_[Xs, t]
-
-np.random.shuffle(Xt)
-X = Xt[:, :D]
-t = Xt[:, -1]
-y_true = Xt[:, 1]
 
 # This is the general kernel for a GP prior for the multi-class problem
 varphi = 1.0
@@ -215,7 +232,6 @@ plt.show()
 #         ax[i, j].set_xticks(np.array([0, 1, 2], dtype=np.intc), minor=False)
 # plt.show()
 
-#
 # plt.hist(X, bins=20)
 # plt.xlabel(r"$y$", fontsize=16)
 # plt.ylabel("counts")

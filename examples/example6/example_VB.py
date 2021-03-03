@@ -8,20 +8,22 @@ from scipy.stats import multivariate_normal
 from probit.estimators import VBMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
+import pathlib
 
+path = pathlib.Path()
+colors = ['b', 'r', 'g', 'k', 'c', 'm']
 K = 3
 D = 1
+sizes = np.array([80, 80, 80])
+N_total = np.sum(sizes)
+
 means = np.array([
     [1, 1],
     [2, 2],
     [3, 3]
 ])
-sizes = np.array([80, 80, 80])
-N_total = np.sum(sizes)
 variance = 0.07
 covar = variance * np.eye(2)
-colors = ['b', 'r', 'g', 'k', 'c', 'm']
-
 # Multiclass case
 X = np.array([[]])
 Xs = np.empty((N_total, 2))
@@ -58,6 +60,23 @@ for n in range(N_total):
 X0 = np.array(X0)
 X1 = np.array(X1)
 X2 = np.array(X2)
+# Prepare data
+Xt = np.c_[X, t]
+np.random.shuffle(Xt)
+X = Xt[:, :D]
+t = Xt[:, -1]
+
+# np.savez(path / "data.npz", X=X, t=t, Y=y_true, X0=X0,  X1=X1, X2=X2)
+#
+# data = np.load(path / "data.npz")
+#
+# X = data["X"]
+# y_true = data["Y"]
+# t = data["t"]
+# X0 = data["X0"]
+# X1 = data["X1"]
+# X2 = data["X2"]
+
 plt.scatter(X0[:, 0], X0[:, 1], color=colors[0], label=r"$t={}$".format(0))
 plt.scatter(X1[:, 0], X1[:, 1], color=colors[1], label=r"$t={}$".format(1))
 plt.scatter(X2[:, 0], X2[:, 1], color=colors[2], label=r"$t={}$".format(2))
@@ -65,12 +84,6 @@ plt.legend()
 plt.xlabel(r"$x$", fontsize=16)
 plt.ylabel(r"$y$", fontsize=16)
 plt.show()
-
-# Prepare data
-Xt = np.c_[X, t]
-np.random.shuffle(Xt)
-X = Xt[:, :D]
-t = Xt[:, -1]
 
 # This is the general kernel for a GP prior for the multi-class problem
 varphi = 10000.0
@@ -102,7 +115,6 @@ x = np.linspace(-0.1, 5.1, N)
 X_new = x.reshape((N, D))
 Z = variation_bayes_classifier.predict(Sigma_tilde, y_tilde, varphi_tilde, X_new, vectorised=True)
 print(np.sum(Z, axis=1), 'sum')
-#Z = np.moveaxis(Z, 2, 0)
 for k in range(K):
     _ = plt.subplots(1, figsize=(6, 6))
     plt.plot(x, Z[:, k])
