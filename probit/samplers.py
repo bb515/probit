@@ -379,7 +379,7 @@ class GibbsBinomial(Sampler):
         :arg beta_0: The initial location of the sampler in parameter space (K + 1, ) ndarray.
         :type beta_0: :class:`numpy.ndarray`
         :arg int n: Number of samples.
-        :return: Array of n samples and acceptance rate.
+        :return: Array of n samples.
         :rtype: :class:`numpy.ndarray`
         """
         I, beta = self._sample_initiate(beta_0)
@@ -441,9 +441,12 @@ class GibbsMultinomialOrderedGP(Sampler):
     def _sample_initiate(self, m_0, y_0, gamma_0):
         """
         Initialise variables for the sample method.
-
+        TODO: 03/03/2021 The first Gibbs step is not robust to a poor choice of m_0 (it will never sample a y_1 within
+            range of the cutpoints). Idea: just initialise y_0 and m_0 within some standard deviation of each other?
+            Start with an initial guess for m_0 based on a linear regression and then initialise y_0 with random N(0,1)
+            samples around that. Need to test convergence for random init of y_0 and m_0.
         TODO: 01/03/2021 converted gamma to be a [np.NINF, 0.0, ..., np.inf] array. This may cause problems
-        but those objects are both IEEE so should be okay.
+            but those objects are both IEEE so should be okay.
         """
         # Treat user parsing of cutpoint parameters with just the upper cutpoints for each class
         # The first class t=0 is for y<=0
@@ -516,11 +519,133 @@ class GibbsMultinomialOrderedGP(Sampler):
         gamma_samples = []
         return m_0, y_0, gamma_0, m_samples, y_samples, gamma_samples
 
+    def sample_metropolis_within_gibbs(self, m_0, y_0, gamma_0, sigma_gamma, steps, first_step=1):
+        """
+        Sample from the posterior.
+
+        Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
+            then jointly (using a Metropolis step) over y (auxilliaries) and gamma (cutpoint parameters).
+            The purpose of the Metroplis step is that it is allows quicker convergence of the iterates
+            since the full conditional over gamma is really thin if the bins are full. We get around sampling
+            from the full conditional by sampling from the joint full conditional y, \gamma using a
+            Metropolis step.
+
+        :param m_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type m_0: :class:`np.ndarray`.
+        :param y_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type y_0: :class:`np.ndarray`.
+        :param gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
+        :type gamma_0: :class:`np.ndarray`.
+        :arg float sigma_gamma: The
+        :arg int steps: The number of steps in the sampler.
+        :arg int first_step: The first step. Useful for burn in algorithms.
+        """
+        m, y, gamma_prev, m_samples, y_samples, gamma_samples = self._sample_initiate(m_0, y_0, gamma_0)
+        precision_gamma = 1./ sigma_gamma
+        i_gamma_k = np.add(self.t_train, 1)
+        i_gamma_k_minus = self.t_train
+        for _ in trange(first_step, first_step + steps,
+                        desc="GP priors Sampler Progress", unit="samples"):
+            # Empty gamma (K + 1, ) array to collect the upper cut-points for each class
+            gamma = -1. * np.ones(self.K + 1)
+            # Fix \gamma_0 = -\infty, \gamma_1 = 0, \gamma_K = +\infty
+            gamma[0] = np.NINF
+            gamma[1] = 0.0
+            gamma[-1] = np.inf
+
+            # # Vector
+            for k in range(2, self.K):  # TODO: Can be made into a C binding as in Andrius' code
+                gamma_proposal = -np.inf
+                while gamma_proposal <= gamma[k - 1] or gamma_proposal > gamma_prev[k + 1]:
+                    gamma_proposal = norm.rvs(loc=gamma_prev[k], scale=sigma_gamma)
+                gamma[k] = gamma_proposal
+            #print('gamma_proposal', gamma)
+            # Calculate acceptance probability
+            num_2 = np.sum(np.log(
+                    norm.cdf(np.multiply(precision_gamma, gamma_prev[3:self.K + 1] - gamma_prev[2:self.K]))
+                    - norm.cdf(np.multiply(precision_gamma, gamma[1:self.K - 1] - gamma_prev[2:self.K]))
+            ))
+            den_2 = np.sum(np.log(
+                    norm.cdf(np.multiply(precision_gamma, gamma[3:self.K + 1] - gamma[2:self.K]))
+                    - norm.cdf(np.multiply(precision_gamma, gamma_prev[1:self.K - 1] - gamma[2:self.K]))
+            ))
+            # Needs a product over m
+            gamma_k = gamma[i_gamma_k]
+            gamma_prev_k = gamma_prev[i_gamma_k]
+            gamma_k_minus = gamma[i_gamma_k_minus]
+            gamma_prev_k_minus = gamma_prev[i_gamma_k_minus]
+            num_1 = np.sum(np.log(norm.cdf(gamma_k - m) - norm.cdf(gamma_k_minus - m)))
+            den_1 = np.sum(np.log(norm.cdf(gamma_prev_k - m) - norm.cdf(gamma_prev_k_minus - m)))
+            #print('num_1', num_1)
+            #print('den_1', den_1)
+            alpha = np.exp(num_1 + num_2 - den_1 - den_2)
+            #print('alpha = ', alpha)
+
+            # # Scalar version
+            # alpha = 0
+            # for k in range(2, self.K):
+            #     # Propose cutpoint parameter
+            #     gamma_proposal = -np.inf
+            #     while gamma_proposal <= gamma[k - 1] or gamma_proposal > gamma_prev[k + 1]:
+            #         gamma_proposal = norm.rvs(loc=gamma_prev[k], scale=sigma_gamma)
+            #         print('gamma_proposal', gamma_proposal)
+            #     gamma[k] = gamma_proposal
+            #     alpha += np.log(
+            #             norm.cdf(precision_gamma * (gamma_prev[k + 1] - gamma_prev[k]))
+            #             - norm.cdf(precision_gamma * (gamma[k - 1] - gamma_prev[k]))
+            #     ) - np.log(
+            #         norm.cdf(precision_gamma * (gamma[k + 1] - gamma[k]))
+            #         - norm.cdf(precision_gamma * (gamma_prev[k - 1] - gamma[k]))
+            #     )
+            #
+            # # Needs a product over m
+            # gamma_k = gamma[i_gamma_k]
+            # gamma_prev_k = gamma_prev[i_gamma_k]
+            # gamma_k_minus = gamma[i_gamma_k_minus]
+            # gamma_prev_k_minus = gamma_prev[i_gamma_k_minus]
+            # print('gamma_k', np.shape(gamma_k), gamma_k[1])
+            # print('gamma_k_minus', np.shape(gamma_k_minus), gamma_k_minus[1])
+            # print('gamma_prev_k', np.shape(gamma_prev_k), gamma_prev_k[1])
+            # print('m', m[1])
+            # num_1 = np.sum(np.log(norm.cdf(gamma_k - m) - norm.cdf(gamma_k_minus - m)))
+            # den_1 = np.sum(np.log(norm.cdf(gamma_prev_k - m) - norm.cdf(gamma_prev_k_minus - m)))
+            # alpha = np.exp(alpha + num_1 - den_1)
+            # print('alpha = ', alpha)
+
+            if uniform.rvs(0, 1) < alpha:
+                # Accept
+                gamma_prev = gamma
+                # Sample y from the usual full conditional
+                # Empty y (N, ) matrix to collect y sample over
+                y = -1. * np.ones(self.N)
+                for n, m_n in enumerate(m):  # i in range N
+                    # Class index, k, is the target class
+                    k_true = self.t_train[n]
+                    # Initiate yi at 0
+                    y_n = np.NINF  # this is a trick for the next line
+                    # Sample from the truncated Gaussian
+                    while y_n > gamma[k_true + 1] or y_n <= gamma[k_true]:
+                        # sample y
+                        y_n = norm.rvs(loc=m_n, scale=1)
+                    # Add sample to the Y vector
+                    y[n] = y_n
+            else:
+                # Reject, and use previous \gamma, y sample
+                gamma = gamma_prev
+            # Calculate statistics, then sample other conditional
+            # TODO: Explore if this needs a regularisation trick (Covariance matrices are poorly conditioned)
+            mean = self.cov @ y
+            m = multivariate_normal.rvs(mean=mean, cov=self.cov)
+            m_samples.append(m)
+            y_samples.append(y)
+            gamma_samples.append(gamma)
+        return np.array(m_samples), np.array(y_samples), np.array(gamma_samples)
+
     def sample(self, m_0, y_0, gamma_0, steps, first_step=1):
         """
         Sample from the posterior.
 
-        Sampling occurs in blocks over the parameters: y (auxilliaries), m (GP regression posterior means) and
+        Sampling occurs in Gibbs blocks over the parameters: y (auxilliaries), m (GP regression posterior means) and
         gamma (cutpoint parameters).
 
         :param m_0: (N, ) numpy.ndarray of the initial location of the sampler.
@@ -537,11 +662,11 @@ class GibbsMultinomialOrderedGP(Sampler):
         m, y, gamma_prev, m_samples, y_samples, gamma_samples = self._sample_initiate(m_0, y_0, gamma_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            # Empty gamma (K + 1, ) array to collect the class upper bounds, that is, the upper cut-points for each class
+            # Empty gamma (K + 1, ) array to collect the upper cut-points for each class
             gamma = -1. * np.ones(self.K + 1)
             uppers = -1. * np.ones(self.K - 2)
             locs = -1. * np.ones(self.K - 2)
-            for k in range(1, self.K - 1):
+            for k in range(1, self.K - 1):  # TODO change the index to the class.
                 indeces = np.where(self.t_train == k)
                 indeces2 = np.where(self.t_train == k + 1)
                 if indeces2:
@@ -565,8 +690,11 @@ class GibbsMultinomialOrderedGP(Sampler):
                 # Class index, k, is the target class
                 k_true = self.t_train[n]
                 # Initiate yi at 0
-                y_n = np.NINF  # this is a trick for the next line TODO: should it be -inf?
+                y_n = np.NINF  # this is a trick for the next line
                 # Sample from the truncated Gaussian
+                # print(gamma[k_true + 1])
+                # print(gamma[k_true])
+                # print(m_n)
                 while y_n > gamma[k_true + 1] or y_n <= gamma[k_true]:
                     # sample y
                     y_n = norm.rvs(loc=m_n, scale=1)

@@ -86,7 +86,7 @@ plt.ylabel(r"$y$", fontsize=16)
 plt.show()
 
 # This is the general kernel for a GP prior for the multi-class problem
-varphi = 10000.0
+varphi = 1.0
 s = 1.0
 sigma = 10e-6
 tau = 10e-6

@@ -108,18 +108,22 @@ gamma_0 = np.array([np.NINF, 0.0, 1.0, np.inf])
 kernel = SEIso(varphi, s, sigma=sigma, tau=tau)
 gibbs_classifier = GibbsMultinomialOrderedGP(K, X, t, kernel)
 steps_burn = 100
-steps = 1000
+steps = 10000
 m_0 = np.random.rand(N_total)  # shouldn't M_0 be (150, 3), not (50, 3)
-y_0 = y_true
+y_0 = y_true.flatten()
 
 # Burn in
-m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0, y_0, gamma_0, steps_burn)
+m_samples, y_samples, gamma_samples = gibbs_classifier.sample_metropolis_within_gibbs(
+    m_0, y_0, gamma_0, 1.0, steps_burn)
+#m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0, y_0, gamma_0, steps_burn)
 m_0_burned = m_samples[-1]
 y_0_burned = y_samples[-1]
 gamma_0_burned = gamma_samples[-1]
 
 # Sample
-m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0_burned, y_0_burned, gamma_0_burned, steps)
+m_samples, y_samples, gamma_samples = gibbs_classifier.sample_metropolis_within_gibbs(
+    m_0_burned, y_0_burned, gamma_0_burned, 0.2, steps)
+#m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0_burned, y_0_burned, gamma_0_burned, steps)
 m_tilde = np.mean(m_samples, axis=0)
 y_tilde = np.mean(y_samples, axis=0)
 gamma_tilde = np.mean(gamma_samples, axis=0)
