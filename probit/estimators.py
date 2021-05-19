@@ -55,12 +55,12 @@ class Estimator(ABC):
             t_train = t_train.astype(int)
         else:
             raise ValueError("t must contain only integer values (got {})".format(t_train))
-        if np.all(t_train >= 0):
-            self.K = int(np.max(t_train) + 1)  # the number of classes (from 0 indexing)
+        if t_train.dtype != int:
+            raise ValueError("t must contain only integer values (got {})".format(t_train))
         else:
-            raise ValueError("t must contain only positive integer values (got {})").format(t_train)
-        self.t_train = t_train
-        if self.kernel.general_kernel:
+            self.t_train = t_train
+        self.K = int(np.max(self.t_train) + 1)  # the number of classes (from -1 +1 indexing)
+        if self.kernel.ARD_kernel:
             sigma = np.reshape(self.kernel.sigma, (self.K, 1))
             tau = np.reshape(self.kernel.tau, (self.K, 1))
             self.sigma = np.tile(sigma, (1, self.D))  # (K, D)
@@ -94,41 +94,47 @@ class Estimator(ABC):
         """
 
 
-class VBMultinomialGP(Estimator):
+class VBBinomialGP(Estimator):
     """
-    A Variational Bayes classifier. Inherits the Estimator ABC
+    A binary Variational Bayes classfier. Inherits the Estimator ABC.
 
-    This class allows users to define a classification problem, get predictions
+    This class allows users to define a binary classification problem, get predictions
     using approximate Bayesian inference.
 
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
     def __init__(self, *args, **kwargs):
         """
-        Create an :class:`Gibbs_GP` sampler object.
+        Create an :class:`VBBinomialGP` estimator object.
 
-        :returns: An :class:`Gibbs_GP` object.
+        :returns: An :class:`VBBinomialGP` estimator object.
         """
         super().__init__(*args, **kwargs)
-        self.IN = np.eye(self.N)
+        if self.K != 2:
+            raise ValueError("t_train must only contain +1 or -1 class labels, got {}".format(self.t_train))
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
         self.cov = self.C @ self.Sigma
 
-    def _estimate_initiate(self, M_0):
+    def _estimate_initiate(self, M_0, varphi_0=None, psi_0=None):
         """
         Initialise the sampler.
 
-        This method should be implemented in every concrete sampler.
+        :arg M_0: Intialisation of posterior mean estiamtes.
+        :return: Containers for the mean estimates of parameters and hyperparameters.
+        :rtype: (3,) tuple
         """
-        varphi_0 = np.ones(np.shape(self.kernel.varphi))
-        psi_tilde = np.ones(np.shape(self.kernel.varphi))
-        return M_0, varphi_0, psi_tilde
+        if varphi_0 is None:
+            varphi_0 = np.ones(np.shape(self.kernel.varphi))
+        if psi_0 is None:
+            psi_0 = np.ones(np.shape(self.kernel.varphi))
+        return M_0, varphi_0, psi_0
 
-    def estimate(self, M_0, steps, first_step=1):
+    def estimate(self, M_0, steps, varphi_0=None, psi_0=None, first_step=1, fix_hyperparameters=False):
         """
-        Estimating the posterior means are a 3 step iteration over M_tilde, varphi_tilde and psi_tilde
-            Eq.(8), (9), (10), respectively.
+        Estimate the posterior means.
+
+        This is a one step iteration over M_tilde (equation 11).
 
         :param M_0: (N, K) numpy.ndarray of the initial location of the posterior mean.
         :type M_0: :class:`np.ndarray`.
@@ -138,14 +144,215 @@ class VBMultinomialGP(Estimator):
         :return: Posterior mean and covariance estimates.
         :rtype: (5, ) tuple of :class:`numpy.ndarrays`
         """
-        M_tilde, varphi_tilde, psi_tilde = self._estimate_initiate(M_0)
-        for _ in trange(first_step, first_step + steps,
-                        desc="GP priors Sampler Progress", unit="samples"):
-            Y_tilde = self._Y_tilde(M_tilde)
-            M_tilde, Sigma_tilde, C_tilde = self._M_tilde(Y_tilde, varphi_tilde)
-            varphi_tilde = self._varphi_tilde(M_tilde, psi_tilde, n_samples=5)  # TODO: Cythonize. Major bottleneck.
-            psi_tilde = self._psi_tilde(varphi_tilde)
-        return M_tilde, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde
+        M_tilde, varphi_tilde, psi_tilde = self._estimate_initiate(M_0, varphi_0, psi_0)
+
+        if fix_hyperparameters is False:
+            for _ in trange(first_step, first_step + steps,
+                            desc="Estimator progress", unit="iterations"):
+                Y_tilde = self._Y_tilde(M_tilde)
+                M_tilde = self._M_tilde(Y_tilde, varphi_tilde)
+                varphi_tilde = self._varphi_tilde(M_tilde, psi_tilde)  # TODO: Cythonize. Major bottleneck.
+                psi_tilde = self._psi_tilde(varphi_tilde)
+                print("varphi_tilde = ", varphi_tilde, "psi_tilde = ", psi_tilde)
+        elif fix_hyperparameters is True:
+            for _ in trange(first_step, first_step + steps,
+                            desc="Estimator progress", unit="iterations"):
+                Y_tilde = self._Y_tilde(M_tilde)
+                M_tilde = self._M_tilde(Y_tilde, varphi_tilde)
+        return M_tilde, self.Sigma, self.C, Y_tilde, varphi_tilde, psi_tilde
+
+    def _predict_vector(self, Sigma_tilde, Y_tilde, varphi_tilde, X_test):
+        """
+        Make variational Bayes prediction over classes of X_test given the posterior samples.
+
+        :param Sigma_tilde:
+        :param C_tilde:
+        :param Y_tilde: The posterior mean estimate of the latent variable Y.
+        :param varphi_tilde:
+        :param X_test: The new data points, array like (N_test, D).
+        :param n_samples: The number of samples in the Monte Carlo estimate.
+        :return: An (standard and analytical) estimate of the (binary) class probabilities.
+        """
+        # N_test = np.shape(X_test)[0]
+        # Update the kernel with new varphi
+        self.kernel.varphi = varphi_tilde
+        # Cs_news[:, i] is Cs_new for X_test[i]
+        Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
+        # TODO: this is a bottleneck: need to make a vectorised version of this in kernel functions
+        cs_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test,)
+        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
+        intermediate_vectors = Sigma_tilde @ Cs_news  # (N, N_test)
+        intermediate_scalars = np.sum(np.multiply(Cs_news, intermediate_vectors), axis=0)  # (N_test,)
+        # Calculate M_tilde_new # TODO: test this. Results look wrong to me for binary case.
+        M_new_tilde = intermediate_vectors.T @ Y_tilde  # (N_test,)
+        var_new_tilde = np.subtract(cs_news, intermediate_scalars)  # (N_test,)
+        nu_new_tilde = np.sqrt(np.add(1, var_new_tilde))  # (N_test,)
+        random_variables = np.divide(M_new_tilde, nu_new_tilde)
+        return norm.cdf(random_variables)
+
+    def predict(self, Sigma_tilde, Y_tilde, varphi_tilde, X_test):
+        """
+        Return the posterior predictive distribution over classes.
+
+        :param Sigma_tilde: The posterior mean estimate of the marginal posterior covariance.
+        :param Y_tilde: The posterior mean estimate of the latent variable Y.
+        :param varphi_tilde: The posterior mean estimate of the hyper-parameters varphi.
+        :param X_test: The new data points, array like (N_test, D).
+        :return: A Monte Carlo estimate of the class probabilities.
+        """
+        return self._predict_vector(Sigma_tilde, Y_tilde, varphi_tilde, X_test)
+
+    def _psi_tilde(self, varphi_tilde):
+        return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
+
+    def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=1000):
+        """
+        Return the w values of the sample on 2005 Page 9 Eq.(7).
+
+        :arg psi_tilde: Posterior mean estimate of psi.
+        :arg M_tilde: Posterior mean estimate of M_tilde.
+        :arg int n_samples: The number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
+        """
+        # Vector draw from varphi. In the binary case we always have a single and shared covariance function.
+        # (n_samples, D) in ARD, (n_samples, ) for ISO case. Depends on the shape of psi_tilde.
+        varphis = sample_varphis(psi_tilde, n_samples)
+        # (n_samples, N, N) in ARD, (n_samples, N, N) for ISO case. Depends on the shape of psi_tilde.
+        Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)
+        #print("Cs_samples[0]", Cs_samples[0])
+        # Nugget regularisation for numerical stability. 1e-5 or 1e-6 typically used - important to keep the same
+        Cs_samples = np.add(Cs_samples, 1e-5 * np.eye(self.N))
+        ws = np.empty((n_samples,))
+        for i in range(n_samples):
+            # This fails if M_tilde and varphi need to be initialised correctly
+            # Add sample to the unnormalised w vectors
+            ws[i] = multivariate_normal.pdf(M_tilde, mean=None, cov=Cs_samples[i])
+        # Normalise the w vectors
+        normalising_constant = np.sum(ws, axis=0)  # ()
+        ws = np.divide(ws, normalising_constant)  # (n_samples,)
+        # TODO: not sure if this is the correct way of generalising to an ARD kernel.
+        element_prod = np.multiply(varphis, ws)
+        return np.sum(element_prod, axis=0)
+
+    def _M_tilde(self, Y_tilde, varphi_tilde):
+        """
+        Return the posterior mean estimate of M.
+
+        2005 Page 10 Eq.(11)
+
+        :arg Y_tilde: (N,) array
+        :type Y_tilde: :class:`np.ndarray`
+        :arg varphi_tilde: array whose size depends on the kernel.
+        :type Y_tilde: :class:`np.ndarray`
+        """
+        # Update the varphi with new values
+        self.kernel.varphi = varphi_tilde
+        # Calculate updated C and sigma
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (N, N)
+        self.Sigma = np.linalg.inv(np.add(self.IN, self.C))  # (N, N)
+        self.cov = self.C @ self.Sigma
+        return self.cov @ Y_tilde
+
+    def _Y_tilde(self, M_tilde):
+        """
+        Calculate Y_tilde elements 2005 Page 10 Eq.(11)
+
+        :arg M_tilde: The posterior expectations for M (N, K).
+        :type M_tilde: :class:`numpy.ndarray`
+        2005 Page 10 Eq.(11)
+        :return: Y_tilde (N,) containing \tilde(y)_{n} values.
+        """
+        return np.add(M_tilde, self._P(M_tilde, self.t_train))
+
+    def _P(self, M_tilde, t_train):
+        """
+        Estimate the P of 2005 Page 10 Eq.(11), which can be obtained analytically derived from straightforward results
+        for corrections to the mean of a Gaussian due to truncation.
+
+        :arg M_tilde: The posterior expectations for M (N, K).
+        :arg n_samples: The number of samples to take.
+        """
+        return np.divide(
+            np.multiply(t_train, norm.pdf(M_tilde)), norm.cdf(np.multiply(t_train, M_tilde))
+        )
+
+
+class VBMultinomialGP(Estimator):
+    """
+    A Variational Bayes classifier. Inherits the Estimator ABC.
+
+    This class allows users to define a classification problem, get predictions
+    using approximate Bayesian inference.
+
+    For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
+    """
+    def __init__(self, *args, **kwargs):
+        """
+        Create an :class:`VBMultinomialGP` estimator object.
+
+        :returns: An :class:`VBMultinomialGP` object.
+        """
+        super().__init__(*args, **kwargs)
+        self.IN = np.eye(self.N)
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
+        self.cov = self.C @ self.Sigma
+
+    def _estimate_initiate(self, M_0, varphi_0=None, psi_0=None):
+        """
+        Initialise the sampler.
+
+        This method should be implemented in every concrete sampler.
+
+        :arg M_0: Intialisation of posterior mean estiamtes.
+        :return: Containers for the mean estimates of parameters and hyperparameters.
+        :rtype: (3,) tuple
+        """
+        if varphi_0 is None:
+            varphi_0 = np.ones(np.shape(self.kernel.varphi))
+        if psi_0 is None:
+            psi_0 = np.ones(np.shape(self.kernel.varphi))
+        return M_0, varphi_0, psi_0
+
+    def estimate(self, M_0, steps, varphi_0=None, psi_0=None, first_step=1, fix_hyperparameters=False):
+        """
+        Estimating the posterior means are a 3 step iteration over M_tilde, varphi_tilde and psi_tilde
+            Eq.(8), (9), (10), respectively. Unless we fix the hyperparameters, so the iteration is 1 step over M_tilde.
+
+        :param M_0: (N, K) numpy.ndarray of the initial location of the posterior mean.
+        :type M_0: :class:`np.ndarray`.
+        :arg int steps: The number of steps in the sampler.
+        :param varphi_0: (L, M) numpy.ndarray of the initial location of the posterior mean.
+        :type varphi_0: :class:`np.ndarray`.
+        :param psi_0: (L, M) numpy.ndarray of the initial location of the posterior mean.
+        :type psi_0: :class:`np.ndarray`.
+        :arg int first_step: The first step. Useful for burn in algorithms.
+        :arg bool fix_hyperparamters: If set to "True" will fix varphi to initial values. If set to "False" will
+            do posterior mean updates of the hyperparameters. Default "False".
+
+        :return: Posterior mean and covariance estimates.
+        :rtype: (6, ) tuple of :class:`numpy.ndarrays` of the approximate posterior means.
+        """
+        M_tilde, varphi_tilde, psi_tilde = self._estimate_initiate(M_0, varphi_0, psi_0)
+
+        if fix_hyperparameters is False:
+            for _ in trange(first_step, first_step + steps,
+                            desc="GP priors estimator progress", unit="iterations"):
+                Y_tilde = self._Y_tilde(M_tilde)
+                print(Y_tilde, "Y_tilde")
+                M_tilde = self._M_tilde(Y_tilde, varphi_tilde)
+                print(M_tilde, "M_tilde")
+                varphi_tilde = self._varphi_tilde(M_tilde, psi_tilde, n_samples=1000)  # TODO: Cythonize. Major bottleneck.
+                print(varphi_tilde, "varphi_tilde")
+                psi_tilde = self._psi_tilde(varphi_tilde)
+                print(psi_tilde, "psi_tilde")
+        elif fix_hyperparameters is True:
+            for _ in trange(first_step, first_step + steps,
+                            desc="GP priors estimator progress", unit="iterations"):
+                Y_tilde = self._Y_tilde(M_tilde)
+                print(Y_tilde, "Y_tilde")
+                M_tilde = self._M_tilde(Y_tilde, varphi_tilde)
+                print(M_tilde, "M_tilde")
+        return M_tilde, self.Sigma, self.C, Y_tilde, varphi_tilde, psi_tilde
 
     def _vector_expectation_wrt_u(self, M_new_tilde, var_new_tilde, n_samples):
         """
@@ -166,15 +373,22 @@ class VBMultinomialGP(Estimator):
         differences = matrix_of_differencess(M_new_tilde, self.K, N_test)  # (N_test, K, K) we will product across axis 2 (rows)
         differencess = np.tile(differences, (n_samples, 1, 1, 1))  # (n_samples, N_test, K, K)
         differencess = np.moveaxis(differencess, 1, 0)  # (N_test, n_samples, K, K)
-        # Assume its okay to use the same random variables over all of the data points
+        # Assume its okay to use the same random variables over all N_test data points
         Us = sample_Us(self.K, n_samples, different_across_classes=True)  # (n_samples, K, K)
         # Multiply nu by u
-        nu_new_tildes = matrix_of_valuess(nu_new_tilde, self.K, N_test)
-        # Find the transpose for the product across classes
-        nu_new_tilde_Ts = nu_new_tildes.transpose((0, 2, 1))
-        Us_nu_new_tilde_Ts = np.multiply(Us, nu_new_tildes)
-        random_variables = np.add(Us_nu_new_tilde_Ts, differencess)
-        random_variables = np.divide(random_variables, nu_new_tilde_Ts)
+        nu_new_tildes = matrix_of_valuess(nu_new_tilde, self.K, N_test)  # (N_test, K, K)
+        nu_new_tildess = np.tile(nu_new_tildes, (n_samples, 1, 1, 1))  # (n_samples, N_test, K, K)
+        nu_new_tildess = np.moveaxis(nu_new_tildess, 1, 0)  # (N_test, n_samples, K, K)
+        # # Find the transpose (for the product across classes)
+        # nu_new_tilde_Ts = nu_new_tildes.transpose((0, 2, 1))  # (N_test, K, K)
+        # Find the transpose (for the product across classes)
+        nu_new_tilde_Tss = nu_new_tildess.transpose((0, 1, 3, 2))  # (N_test, n_samples, K, K)
+        print(np.shape(nu_new_tildes), "shape nu_new_tildes")
+        print(np.shape(nu_new_tilde_Tss), "shape nu_new_tilde_Tss")
+        print(np.shape(nu_new_tildess), "shape nu_new_tildess")
+        Us_nu_new_tilde_Ts = np.multiply(Us, nu_new_tildess)  # TODO: do we actually need to use transpose here?
+        random_variables = np.add(Us_nu_new_tilde_Ts, differencess)  # (N_test, n_samples, K, K)
+        random_variables = np.divide(random_variables, nu_new_tilde_Tss)  # TODO: do we actually need to use transpose here?
         cum_dists = norm.cdf(random_variables, loc=0, scale=1)
         log_cum_dists = np.log(cum_dists)
         # Fill diagonals with 0
@@ -184,9 +398,9 @@ class VBMultinomialGP(Estimator):
         log_samples = np.sum(log_cum_dists, axis=3)
         samples = np.exp(log_samples)
         # axis 1 is the n_samples samples, which is the monte-carlo sum of interest
-        return 1. / n_samples * np.sum(samples, axis=1)
+        return 1. / n_samples * np.sum(samples, axis=1)  # (N_test, K)
 
-    def _predict_vector_generalised(self, Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples=1000):
+    def _predict_vector_general(self, Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples=1000):
         """
         Make variational Bayes prediction over classes of X_test given the posterior samples.
 
@@ -195,28 +409,32 @@ class VBMultinomialGP(Estimator):
 
         :param Sigma_tilde:
         :param C_tilde:
-        :param Y_tilde: The posterior mean estimate of the latent variable Y.
+        :param Y_tilde: The posterior mean estimate of the latent variable Y (N, K).
         :param varphi_tilde:
         :param X_test: The new data points, array like (N_test, D).
         :param n_samples: The number of samples in the Monte Carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
         """
-        # X_new = np.append(X_test, self.X_train, axis=0)
         N_test = np.shape(X_test)[0]
         # Update the kernel with new varphi  # TODO: test this.
         self.kernel.varphi = varphi_tilde
         # Cs_news[:, i] is Cs_new for X_test[i]
         Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (K, N, N_test)
-        # TODO: this is a bottleneck
-        cs_news = [np.diag(self.kernel.kernel_matrix(X_test, X_test)[k]) for k in range(self.K)]  # (K, N_test)
+        # TODO: this is a bottleneck - write a specialised kernel function - wonder how GPFlow does it
+        covariances_new = self.kernel.kernel_matrix(X_test, X_test)
+        cs_news = [np.diag(covariances_new[k]) for k in range(self.K)]  # (K, N_test)
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
         intermediate_vectors = Sigma_tilde @ Cs_news  # (K, N, N_test)
         intermediate_vectors_T = np.transpose(intermediate_vectors, (0, 2, 1))  # (K, N_test, N)
         intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(1)  # (K, N_test)
-        # Calculate M_tilde_new # TODO: test this.
+        # Calculate M_tilde_new
+        # TODO: could just use Y_tilde instead of Y_tilde_T? It would be better just to store Y in memory as (K, N)
         Y_tilde_T = np.reshape(Y_tilde.T, (self.K, self.N, 1))
-        M_new_tilde_T = np.matmul(intermediate_vectors_T, Y_tilde_T)
-        M_new_tilde_T = np.reshape(M_new_tilde_T, (self.K, N_test))
+        M_new_tilde_T = np.matmul(intermediate_vectors_T, Y_tilde_T)  # (K, N_test, 1)?
+        M_new_tilde_T = np.reshape(M_new_tilde_T, (self.K, N_test))  # (K, N_test)
+        ## This was tested to be the slower option because matmul is an optimised sum and multiply.
+        # M_new_tilde_T_2 = np.sum(np.multiply(Y_tilde_T, intermediate_vectors), axis=1)  # (K, N_test)
+        # assert np.allclose(M_new_tilde_T, M_new_tilde_T_2)
         var_new_tilde_T = np.subtract(cs_news, intermediate_scalars)
         return self._vector_expectation_wrt_u(M_new_tilde_T.T, var_new_tilde_T.T, n_samples)
 
@@ -230,7 +448,6 @@ class VBMultinomialGP(Estimator):
         :param n_samples: The number of samples in the Monte Carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
         """
-        # X_new = np.append(X_test, self.X_train, axis=0)
         N_test = np.shape(X_test)[0]
         # Update the kernel with new varphi  # TODO: test this.
         self.kernel.varphi = varphi_tilde
@@ -246,7 +463,8 @@ class VBMultinomialGP(Estimator):
         Y_tilde_T = np.reshape(Y_tilde.T, (self.K, self.N, 1))
         M_new_tilde = np.matmul(intermediate_vectors_T, Y_tilde)  # (N_test, K)
         var_new_tilde = np.subtract(cs_news, intermediate_scalars)  # (N_test, )
-        var_new_tilde = np.reshape(var_new_tilde, (N_test, 1))  # TODO: do in place shape changes - quicker(?) and memor
+        var_new_tilde = np.reshape(var_new_tilde, (N_test, 1))  # TODO: do in place shape changes - quicker(?) and
+        # TODO: less memory - take a look at the binary case as that has in place shape changes.
         var_new_tilde = np.tile(var_new_tilde, (1, self.K))  # (N_test, K)
         return self._vector_expectation_wrt_u(M_new_tilde, var_new_tilde, n_samples)
 
@@ -261,11 +479,11 @@ class VBMultinomialGP(Estimator):
         :param n_samples: The number of samples in the Monte Carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
         """
-        if self.kernel.general_kernel:
+        if self.kernel.ARD_kernel and self.kernel.general_kernel:
             # This is the general case where there are hyper-parameters
             # varphi (K, D) for all dimensions and classes.
             if vectorised:
-                return self._predict_vector_generalised(Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples)
+                return self._predict_vector_general(Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples)
             else:
                 return ValueError("The scalar implementation has been superseded. Please use "
                                   "the vector implementation.")
@@ -276,25 +494,7 @@ class VBMultinomialGP(Estimator):
                 return ValueError("The scalar implementation has been superseded. Please use "
                                   "the vector implementation.")
 
-    def _multivariate_normal_pdf(self, m_k, C):
-        """
-        Return a number proportional to the multivariate normal pdf of r.v. m_k given mean 0 and covariance C.
-
-        :param m_k: 
-        :param C: 
-        :return:
-        """
-        epsilon = 1e-6 * self.IN
-        C_tild = C + epsilon
-        L = np.linalg.cholesky(C_tild)
-        L_inv = np.linalg.inv(L)
-        C_inv = L_inv.T @ L_inv
-        # We don't need the constant term, since it cancels in the ratio
-        # - TODO: in that case use a log transform here
-        # i.e. np.exp(- self.N / 2 * np.log(2 * np.pi) - 0.5 * m_k @ C_inv @ m_k)
-        return np.exp(- 0.5 * m_k @ C_inv @ m_k)
-
-    def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=500):
+    def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=1000):
         """
         Return the w values of the sample on 2005 Page 9 Eq.(7).
 
@@ -304,48 +504,39 @@ class VBMultinomialGP(Estimator):
         """
         # Vector draw from varphi
         # TODO: Get a domain error here with varphi_tilde blowing up?
-
-        varphis = sample_varphis(psi_tilde, n_samples, general=self.kernel.general_kernel)  # (n_samples, K, D) in general, (n_samples, ) for ISO case. Depend on the shape of psi_tilde.
-        Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)  # (n_samples, K, N, N) in general, (n_samples, N, N) for ISO case. Depend on the shape of psi_tilde.
+        # (n_samples, K, D) in general and ARD, (n_samples, ) for single shared kernel and ISO case. Depends on the
+        # shape of psi_tilde.
+        varphis = sample_varphis(psi_tilde, n_samples)
+        # (n_samples, K, N, N) in general and ARD, (n_samples, N, N) for single shared kernel and ISO case. Depends on
+        # the shape of psi_tilde.
+        Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)
+        # Nugget regularisation for numerical stability. 1e-5 or 1e-6 typically used - important to keep the same
+        Cs_samples = np.add(Cs_samples, 1e-5 * np.eye(self.N))
         # Transpose M_tilde to become (n_samples, K, N) multivariate normal between m_k (N, ) and Cs_k over all samples
         M_tilde_T = np.transpose(M_tilde)  # (K, N)
         # TODO: begrudgingly using a nested for loop here, as I don't see the alternative,
         #  maybe I can calculate this by hand.
-        ws = np.empty((n_samples, self.K))  # TODO: probably the wrong size.
-        if self.kernel.general_kernel:
+        if self.kernel.general_kernel and self.kernel.ARD_kernel:
+            ws = np.empty((n_samples, self.K))  # TODO: probably the wrong size.
             for i in range(n_samples):
                     for k in range(self.K):
-                        # Instead of using multivariate_normal.pdf we must use something like linalg cholesky, or
-                        # nugget regularisation.
-                        w_i_k = self._multivariate_normal_pdf(M_tilde_T[k], Cs_samples[i, k])
-                        print(w_i_k)
+                        # This fails if M_tilde and varphi are not initialised correctly
                         # Add sample to the unnormalised w vectors
-                        ws[i, k] = w_i_k
-            # Normalise the w vectors
-            normalising_constant = np.sum(ws, axis=0)  # (K,)
-            ws = np.divide(ws, normalising_constant)  # (n_samples, K)
-            ws = np.reshape(ws, (n_samples, self.K, 1))  # (n_samples, K, 1)
-            ws = np.tile(ws, (1, 1, self.D))  # (n_samples, K, D)
+                        ws[i, k] = multivariate_normal.pdf(M_tilde_T[k], mean=None, cov=Cs_samples[i, k])  #TODO: check
         else:
+            ws = np.empty((n_samples, ))  # TODO: probably the wrong size.
             for i in range(n_samples):
-                for k in range(self.K):
-                    w_i_k = self._multivariate_normal_pdf(M_tilde_T[k], Cs_samples[i])
-                    # Add sample to the unnormalised w vectors
-                    ws[i, k, :] = w_i_k
-            # Normalise the w vectors
-            denominator = np.sum(ws, axis=0)  # (K, )
-            ws = np.divide(ws, denominator)  # (n_samples, K)
-            # Since all length scale parameters are the same, these should be close within some tolerance
-            # TODO: set the tolerance. Actually im not so sure about this. Check what I meant by the above.
-            assert np.allclose(ws[:, 0], ws[:, 1])
-            # Take only one axis, since there is only one varphi
-            ws = ws[:, 0]  # (n_samples, )
+                # This fails if M_tilde and varphi are not initialised correctly
+                # Add sample to the unnormalised w vectors
+                # TODO: Does it matter I only use a single class to evaluate M_tilde_T[0]?
+                ws[i] = multivariate_normal.pdf(M_tilde_T[0], mean=None, cov=Cs_samples[i])
+        # Normalise the w vectors
+        normalising_constant = np.sum(ws, axis=0)  # (K, )
+        ws = np.divide(ws, normalising_constant)  # (n_samples, K)
         element_prod = np.multiply(ws, varphis)
         return np.sum(element_prod, axis=0)
 
     def _psi_tilde(self, varphi_tilde):
-        #_psi_tilde = np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
-        #print('\n', _psi_tilde, 1./ _psi_tilde, '\n')  # TODO: for debugging
         return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
 
     def _M_tilde(self, Y_tilde, varphi_tilde):
@@ -359,17 +550,16 @@ class VBMultinomialGP(Estimator):
         :arg varphi_tilde: array whose size depends on the kernel.
         :type Y_tilde: :class:`np.ndarray`
         """
-        assert np.shape(Y_tilde) == (self.N, self.K)
         # Update the varphi with new values
         self.kernel.varphi = varphi_tilde
         # Calculate updated C and sigma
-        # TODO: Do I want to update these in the class scope?
-        C_tilde = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
-        Sigma_tilde = np.linalg.inv(np.add(self.IN, C_tilde))  # (K, N, N)
-        M_tilde = np.empty((self.N, self.K))
-        for k, y_k in enumerate(Y_tilde.T):
-            M_tilde[:, k] = C_tilde[k] @ Sigma_tilde[k] @ y_k
-        return M_tilde, Sigma_tilde, C_tilde  # (N, K)
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
+        self.Sigma = np.linalg.inv(np.add(self.IN, self.C))  # (K, N, N)
+        self.cov = self.C @ self.Sigma  # (K, N, N) @ (K, N, N) = (K, N, N)
+        # TODO: Maybe just keep Y_tilde in this shape in memory.
+        Y_tilde_reshape = Y_tilde.T.reshape(self.K, self.N, 1)  # (K, N, 1) required for np.multiply
+        M_tilde_T = self.cov @ Y_tilde_reshape  # (K, N, 1)
+        return M_tilde_T.reshape(self.K, self.N).T  # (N, K)
 
     def _Y_tilde(self, M_tilde):
         """
@@ -380,13 +570,12 @@ class VBMultinomialGP(Estimator):
         2005 Page _ Eq.(_)
         :return: Y_tilde (N, K) containing \tilde(y)_{nk} values.
         """
-        # t = np.argmax(M_tilde, axis=1)  # The max of the GP vector m_k is t_n TODO: this is incorrect.
+        # t = np.argmax(M_tilde, axis=1)  # The max of the GP vector m_k is t_n this would be incorrect.
         negative_P = self._negative_P(M_tilde, self.t_train, n_samples=1000)  # TODO: correct version.
-        # Eq.(5)
-        Y_tilde = np.subtract(M_tilde, negative_P)
-        # Eq.(6)
+        print(negative_P, "negative_P")
+        Y_tilde = np.subtract(M_tilde, negative_P)  # Eq.(5)
         # This part of the differences sum must be 0, since sum is over j \neq i
-        Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train]
+        Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train]  # Eq.(6)
         diff_sum = np.sum(Y_tilde - M_tilde, axis=1)
         Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train] - diff_sum
         return Y_tilde
@@ -399,6 +588,7 @@ class VBMultinomialGP(Estimator):
         :arg M_tilde: The posterior expectations for M (N, K).
         :arg n_samples: The number of samples to take.
         """
+        #  TODO: There is a 70% change of a mistake here need to investigate tomorrow.
         # Find antisymmetric matrix of differences
         differences = matrix_of_differencess(M_tilde, self.K, self.N)  # (N, K, K) we will product across axis 2 (rows)
         # vector_differences = differences[self.grid, :, t]  # (N, K)
@@ -422,7 +612,6 @@ class VBMultinomialGP(Estimator):
         log_samples = np.sum(log_cum_dists, axis=3)  # (N, n_samples, K)
         log_element_prod_pdf = np.add(log_M_nk_M_nt_pdfs, log_samples)
         log_element_prod_cdf = np.add(log_M_nk_M_nt_cdfs, log_samples)
-        # TODO: subtract these using log.
         element_prod_pdf = np.exp(log_element_prod_pdf)
         element_prod_cdf = np.exp(log_element_prod_cdf)
         # Monte Carlo estimate: Sum across the n_samples (axis=1)
@@ -472,9 +661,13 @@ class VBMultinomialOrderedGP(Estimator):
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
         self.cov = self.C @ self.Sigma
+        if self.kernel.ARD_kernel:
+            raise ValueError('The kernel must not be ARD type (kernel.ARD_kernel=1),'
+                             ' but ISO type (kernel.ARD_kernel=0). (got {}, expected)'.format(
+                self.kernel.ARD_kernel, 0))
         if self.kernel.general_kernel:
-            raise ValueError('The kernel must not be ARD type (kernel.general_kernel=1),'
-                             ' but ISO type (kernel.general_kernel=0). (got {}, expected)'.format(
+            raise ValueError('The kernel must not be general type (kernel.general_kernel=1),'
+                             ' but simple type (kernel.general_kernel=0). (got {}, expected)'.format(
                 self.kernel.general_kernel, 0))
         if not all(
                 cutpoint[i] <= cutpoint[i + 1]
@@ -495,8 +688,8 @@ class VBMultinomialOrderedGP(Estimator):
         This method should be implemented in every concrete sampler.
         """
         varphi_0 = np.ones(np.shape(self.kernel.varphi))
-        psi_tilde = np.ones(np.shape(self.kernel.varphi))
-        return m_0, varphi_0, psi_tilde
+        psi_0 = np.ones(np.shape(self.kernel.varphi))
+        return m_0, varphi_0, psi_0
 
     def estimate(self, m_0, steps, first_step=1):
         """
@@ -530,7 +723,6 @@ class VBMultinomialOrderedGP(Estimator):
         :param n_samples: The number of samples in the Monte Carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
         """
-        # X_new = np.append(X_test, self.X_train, axis=0)
         N_test = np.shape(X_test)[0]
         # Update the kernel with new varphi  # TODO: test this.
         self.kernel.varphi = varphi_tilde
@@ -569,34 +761,18 @@ class VBMultinomialOrderedGP(Estimator):
         :param n_samples: The number of samples in the Monte Carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
         """
-        if self.kernel.general_kernel:
+        if self.kernel.ARD_kernel:
             # This is the general case where there are hyper-parameters
             # varphi (K, D) for all dimensions and classes.
-            return ValueError("ARD kernel may not be used in the ordered likelihood estimator.")
+            raise ValueError('For the ordered likelihood estimator, the kernel must not be ARD type'
+                             ' (kernel.ARD_kernel=1), but ISO type (kernel.ARD_kernel=0). (got {}, expected)'.format(
+                self.kernel.ARD_kernel, 0))
         else:
             if vectorised:
                 return self._predict_vector(Sigma_tilde, Y_tilde, varphi_tilde, X_test)
             else:
                 return ValueError("The scalar implementation has been superseded. Please use "
                                   "the vector implementation.")
-
-    def _multivariate_normal_pdf(self, m_k, C):
-        """
-        Return a number proportional to the multivariate normal pdf of r.v. m_k given mean 0 and covariance C.
-
-        :param m_k:
-        :param C:
-        :return:
-        """
-        epsilon = 1e-6 * self.IN
-        C_tild = C + epsilon
-        L = np.linalg.cholesky(C_tild)
-        L_inv = np.linalg.inv(L)
-        C_inv = L_inv.T @ L_inv
-        # We don't need the constant term, since it cancels in the ratio
-        # - TODO: in that case use a log transform here
-        # i.e. np.exp(- self.N / 2 * np.log(2 * np.pi) - 0.5 * m_k @ C_inv @ m_k)
-        return np.exp(- 0.5 * m_k @ C_inv @ m_k)
 
     def _varphi_tilde(self, m_tilde, psi_tilde, n_samples=500):
         """
@@ -608,13 +784,17 @@ class VBMultinomialOrderedGP(Estimator):
         """
         # Vector draw from varphi
         # TODO: Get a domain error here with varphi_tilde blowing up? Probably because of mutlivariate normal.
-        varphis = sample_varphis(psi_tilde, n_samples, general=self.kernel.general_kernel)  # (n_samples, )
+        # (n_samples, K, D) in general and ARD, (n_samples, ) for single shared kernel and ISO case. Depends on the
+        # shape of psi_tilde.
+        varphis = sample_varphis(psi_tilde, n_samples)  # (n_samples, )
+        # (n_samples, K, N, N) in general and ARD, (n_samples, N, N) for single shared kernel and ISO case. Depends on
+        # the shape of psi_tilde.
         Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)  # (n_samples, N, N)
         # TODO: begrudgingly using a for loop here, as I don't see the alternative,
         #  maybe I can calculate this by hand.
         ws = np.empty((n_samples, ))
         for i in range(n_samples):
-            ws[i] = self._multivariate_normal_pdf(m_tilde, Cs_samples[i])
+            ws[i] = multivariate_normal.pdf(m_tilde, mean=None, cov=Cs_samples[i])
         # Normalise the w vectors
         denominator = np.sum(ws, axis=0)  # ()
         ws = np.divide(ws, denominator)  # (n_samples, )

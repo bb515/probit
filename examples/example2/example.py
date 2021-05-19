@@ -1,4 +1,4 @@
-"""Multinomial Probit regression Gibbs example with parallel sampling."""
+"""Multinomial Probit regression Gibbs example."""
 import argparse
 import cProfile
 from io import StringIO

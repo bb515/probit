@@ -144,7 +144,7 @@ print(Y_true_k[1][-1], Y_true_k[2][0], "cutpoint 2")
 # Initiate classifier
 gibbs_classifier = GibbsMultinomialOrderedGP(K, X, t, kernel)
 steps_burn = 100
-steps = 100000
+steps = 1000
 y_0 = Y_true.flatten()
 
 # Plot

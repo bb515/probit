@@ -1,4 +1,4 @@
-"""Binomial Probit regression Gibbs example with parallel sampling (using MPI)."""
+"""Binomial Probit regression Gibbs example."""
 import argparse
 import cProfile
 from io import StringIO
@@ -60,6 +60,11 @@ def main():
         [1.0, 0.05],
         [1.0, 0.05],
         [1.0, 0.05]
+    ])
+    varphi = np.array([
+        [1.0, 1.0],
+        [1.0, 1.0],
+        [1.0, 1.0]
     ])
     s = 1.0
     sigma = 10e-6 * np.ones(K)

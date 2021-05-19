@@ -108,7 +108,7 @@ gamma_0 = np.array([np.NINF, 0.0, 1.0, np.inf])
 kernel = SEIso(varphi, s, sigma=sigma, tau=tau)
 gibbs_classifier = GibbsMultinomialOrderedGP(K, X, t, kernel)
 steps_burn = 100
-steps = 10000
+steps = 1000
 m_0 = np.random.rand(N_total)  # shouldn't M_0 be (150, 3), not (50, 3)
 y_0 = y_true.flatten()
 

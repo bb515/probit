@@ -20,7 +20,9 @@ class Kernel(ABC):
 
         This method should be implemented in every concrete kernel.
 
-        :arg :class:`numpy.ndarray` varphi: The kernel lengthscale hyperparameters as an (N, M) numpy array.
+        :arg :class:`numpy.ndarray` varphi: The kernel lengthscale hyperparameters as an (L, M) numpy array. Note that
+            L=K in the most general case, but it is more common to have a single and shared GP kernel over all classes,
+            in which case L=1.
         :arg :class: float s: The kernel scale hyperparameters as a numpy array.
         :arg sigma: The (K, ) array or float or None (location/ scale) hyper-hyper-parameters that define psi prior.
             Not to be confused with `Sigma`, which is a covariance matrix. Default None.
@@ -35,28 +37,28 @@ class Kernel(ABC):
                 (type(varphi) is np.ndarray)):
             if np.shape(varphi) == (1,):
                 # e.g. [[1]]
-                N = 1
+                L = 1
                 M = 1
             elif np.shape(varphi) == ():
                 # e.g. [1]
-                N = 1
+                L = 1
                 M = 1
             elif np.shape(varphi[0]) == (1,):
                 # e.g. [[1],[2],[3]]
-                N = np.shape(varphi)[0]
+                L = np.shape(varphi)[0]
                 M = 1
             elif np.shape(varphi[0]) == ():
                 # e.g. [1, 2, 3]
-                N = 1
+                L = 1
                 M = np.shape(varphi)[0]
             else:
                 # e.g. [[1, 2], [3, 4], [5, 6]]
-                N = np.shape(varphi)[0]
+                L = np.shape(varphi)[0]
                 M = np.shape(varphi)[1]
         elif ((type(varphi) is float) or
                   (type(varphi) is np.float64)):
             # e.g. 1
-            N = 1
+            L = 1
             M = 1
             varphi = np.float64(varphi)
             s = np.float64(s)
@@ -65,7 +67,7 @@ class Kernel(ABC):
                 "Type of varphi is not supported "
                 "(expected {} or {}, got {})".format(
                     float, np.ndarray, type(varphi)))
-        self.N = N
+        self.L = L
         self.M = M
         self.varphi = varphi
         self.s = s
@@ -118,9 +120,12 @@ class SEIso(Kernel):
         :returns: An :class:`IsoBinomial` object
         """
         super().__init__(*args, **kwargs)
+        # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
+        # all data dims (i.e. non ARD) is assumed.
+        self.ARD_kernel = False
         self.general_kernel = False
-        if self.N != 1:
-            raise ValueError('K wrong for binary kernel (expected {}, got {})'.format(1, self.K))
+        if self.L != 1:
+            raise ValueError('L wrong for binary kernel (expected {}, got {}, and K is {})'.format(1, self.L, self.K))
         if self.M != 1:
             raise ValueError('M wrong for binary kernel (expected {}, got {})'.format(1, self.M))
         if self.s is None:
@@ -201,9 +206,12 @@ class SEARDMultinomial(Kernel):
         :returns: An :class:`EulerCL` object
         """
         super().__init__(*args, **kwargs)
+        # For this kernel, the general and ARD setting are assumed.
+        self.ARD_kernel = True
         self.general_kernel = True
-        if self.N <= 1:
-            raise ValueError('K wrong for simple kernel (expected {}, got {})'.format('more than 1', self.K))
+        if self.L <= 1:
+            raise ValueError('L wrong for simple kernel (expected {}, got {}, and K is {})'.format(
+                'more than 1', self.L, self.K))
         if self.M <= 1:
             raise ValueError('M wrong for simple kernel (expected {}, got {})'.format('more than 1', self.M))
         if self.s is None:
@@ -211,8 +219,8 @@ class SEARDMultinomial(Kernel):
                 float, type(self.s)))
         # In the ARD case (see 2005 paper)
         self.D = self.M
-        # In the one (D, ) hyperparameter for each class case (see 2005 paper)
-        self.K = self.N
+        # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4)
+        self.K = self.L
 
     def kernel(self, k, X_i, X_j):  # TODO: How does this extra argument effect the code? Probably extra outer loops
         """Get the ij'th element of C_k, given the X_i and X_j, k."""

@@ -3,6 +3,21 @@ import numpy as np
 from scipy.stats import norm, expon
 
 
+def unnormalised_multivariate_normal_pdf(x, mean=None, cov=None):
+    """Evaluate the multivariate normal pdf in a numerically stable way."""
+    if cov is None:
+        cov = np.eye(len(x))
+    if mean is None:
+        #return np.exp(-0.5 * np.log(np.linalg.det(cov)) - 0.5 * np.dot(x, np.linalg.solve(cov, x)))
+        L = np.linalg.cholesky(cov)
+        L_inv = np.linalg.inv(L)
+        K_inv = L_inv.T @ L_inv
+        return np.exp( -0.5 * np.log(np.linalg.det(cov)) - 0.5 * x @ K_inv @ x)
+        #return np.linalg.det(cov)**-0.5 * np.exp(-0.5 * np.dot(x, np.linalg.solve(cov, x)))
+    elif mean is not None:
+        return np.exp(-0.5 * np.log(np.linalg.det(cov)) - 0.5 * (x - mean).T * np.linalg.solve(cov, (x - mean)))
+
+
 def log_heaviside_probit_likelihood(u, t, G):
     """The log(p(t|u)) when t=1 indicates inclass and t=0 indicates outclass."""
     v_sample = np.dot(G, u)
@@ -16,7 +31,7 @@ def log_heaviside_probit_likelihood(u, t, G):
     return log_likelihood
 
 
-def sample_varphis(psi, n_samples, general=True):
+def sample_varphis(psi, n_samples):
     """
     Take n_samples of varphi, given the hyper-hyperparameter psi.
 
@@ -29,11 +44,11 @@ def sample_varphis(psi, n_samples, general=True):
     :arg int n_samples: The number of samples for the importance sample.
     """
     scale = 1. / psi
-    if general:
-        size = (n_samples, np.shape(psi)[0], np.shape(psi)[1])
+    shape = np.shape(psi)
+    if shape == ():
+        size = (n_samples,)
     else:
-        size = n_samples
-    print(scale, 'scale')
+        size = (n_samples, shape[0], shape[1])
     return expon.rvs(scale=scale, size=size)
 
 
@@ -62,6 +77,21 @@ def sample_Us(K, n_samples, different_across_classes=None):
         us = norm.rvs(0, 1, (n_samples, K, 1))
         # Needs to be the same across rows, as we sum over the rows
         Us = np.tile(us, (1, 1, K))
+    return Us
+
+
+def sample_Us_vector(K, n_samples, N_test, different_across_classes=None):
+    if not different_across_classes:
+        # Will this induce an unwanted link between the y_nk across k? What effect will it have?
+        us = norm.rvs(0, 1, (n_samples, 1, 1, 1))
+        ones = np.ones((n_samples, N_test, K, K))
+        Us = np.multiply(us, ones)
+    else:
+        # TODO: test this.
+        # This might be a better option as the sample u across classes shouldn't be correlated, does it matter though?
+        us = norm.rvs(0, 1, (n_samples, 1, K, 1))
+        # Needs to be the same across rows, as we sum over the rows
+        Us = np.tile(us, (1, N_test, 1, K))
     return Us
 
 

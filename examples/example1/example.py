@@ -1,7 +1,8 @@
-"""Binomial Probit regression Gibbs example with parallel sampling (using MPI)."""
+"""Binomial Probit regression Gibbs example."""
 import argparse
 import cProfile
 from io import StringIO
+from pstats import Stats, SortKey
 import numpy as np
 from probit.samplers import GibbsBinomial
 from scipy.stats import multivariate_normal
