@@ -494,7 +494,7 @@ class VBMultinomialGP(Estimator):
                 return ValueError("The scalar implementation has been superseded. Please use "
                                   "the vector implementation.")
 
-    def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=1000):
+    def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=3000):
         """
         Return the w values of the sample on 2005 Page 9 Eq.(7).
 
@@ -502,8 +502,8 @@ class VBMultinomialGP(Estimator):
         :arg M_tilde: Posterior mean estimate of M_tilde.
         :arg int n_samples: The number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
         """
+        # TODO: Seems to be a problem with underfitting in this function.
         # Vector draw from varphi
-        # TODO: Get a domain error here with varphi_tilde blowing up?
         # (n_samples, K, D) in general and ARD, (n_samples, ) for single shared kernel and ISO case. Depends on the
         # shape of psi_tilde.
         varphis = sample_varphis(psi_tilde, n_samples)
@@ -572,15 +572,17 @@ class VBMultinomialGP(Estimator):
         """
         # t = np.argmax(M_tilde, axis=1)  # The max of the GP vector m_k is t_n this would be incorrect.
         negative_P = self._negative_P(M_tilde, self.t_train, n_samples=1000)  # TODO: correct version.
-        print(negative_P, "negative_P")
         Y_tilde = np.subtract(M_tilde, negative_P)  # Eq.(5)
-        # This part of the differences sum must be 0, since sum is over j \neq i
-        Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train]  # Eq.(6)
-        diff_sum = np.sum(Y_tilde - M_tilde, axis=1)
-        Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train] - diff_sum
+        Y_tilde[self.grid, self.t_train] = 0
+        Y_tilde[self.grid, self.t_train] = np.sum(M_tilde - Y_tilde, axis=1)
+        # SS
+        # # This part of the differences sum must be 0, since sum is over j \neq i
+        # Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train]  # Eq.(6)
+        # diff_sum = np.sum(Y_tilde - M_tilde, axis=1)
+        # Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train] - diff_sum
         return Y_tilde
 
-    def _negative_P(self, M_tilde, t, n_samples=1000):
+    def _negative_P(self, M_tilde, t, n_samples=3000):
         """
         Estimate the rightmost term of 2005 Page 8 Eq.(5), a ratio of Monte Carlo estimates of the expectation of a
             functions of M wrt to the distribution p.
@@ -588,9 +590,9 @@ class VBMultinomialGP(Estimator):
         :arg M_tilde: The posterior expectations for M (N, K).
         :arg n_samples: The number of samples to take.
         """
-        #  TODO: There is a 70% change of a mistake here need to investigate tomorrow.
         # Find antisymmetric matrix of differences
         differences = matrix_of_differencess(M_tilde, self.K, self.N)  # (N, K, K) we will product across axis 2 (rows)
+        # Note that it is \prod_k m_ni - m_nk
         # vector_differences = differences[self.grid, :, t]  # (N, K)
         # vector_differencess = np.tile(vector_differences, (n_samples, 1, 1))  # (n_samples, N, K)
         # vector_differencess = np.moveaxis(vector_differencess, 1, 0)  # (N, n_samples, K)
@@ -598,16 +600,16 @@ class VBMultinomialGP(Estimator):
         differencess = np.moveaxis(differencess, 1, 0)  # (N, n_samples, K, K)
         # Assume it's okay to use the same samples of U over all of the data points
         Us = sample_Us(self.K, n_samples, different_across_classes=True)  # (n_samples, K, K)
-        random_variables = np.add(Us, differencess)  # (N, n_samples, K, K)
+        random_variables = np.add(Us, differencess)  # (N, n_samples, K, K) Note that it is \prod_k u + m_ni - m_nk
         cum_dists = norm.cdf(random_variables, loc=0, scale=1)  # (N, n_samples, K, K)
         log_cum_dists = np.log(cum_dists)  # (N, n_samples, K, K)
         # Store values for later
-        log_M_nk_M_nt_cdfs = log_cum_dists[self.grid, :, :, t]  # (N, n_samples, K)  # TODO: not sure if this works, could be the wrong values.
-        log_M_nk_M_nt_pdfs = norm.pdf(random_variables[self.grid, :, :, t])  # (N, n_samples, K)  # TODO: not sure if this works
+        log_M_nk_M_nt_cdfs = log_cum_dists[self.grid, :, t, :]  # (N, n_samples, K)
+        log_M_nk_M_nt_pdfs = np.log(norm.pdf(random_variables[self.grid, :, t, :]))  # (N, n_samples, K)  # TODO: not sure if this works
         # product is over j \neq k
         log_cum_dists[:, :, range(self.K), range(self.K)] = 0
         # product is over j \neq tn=i
-        log_cum_dists[self.grid, :, :, t] = 0  # TODO: Test it.
+        log_cum_dists[self.grid, :, :, t] = 0
         # Sum across the elements of the log product of interest (rows, so axis=3)
         log_samples = np.sum(log_cum_dists, axis=3)  # (N, n_samples, K)
         log_element_prod_pdf = np.add(log_M_nk_M_nt_pdfs, log_samples)
@@ -618,25 +620,16 @@ class VBMultinomialGP(Estimator):
         element_prod_pdf = 1. / n_samples * np.sum(element_prod_pdf, axis=1)
         element_prod_cdf = 1. / n_samples * np.sum(element_prod_cdf, axis=1)
         return np.divide(element_prod_pdf, element_prod_cdf)  # (N, K)
-
-        # # Superseded
-        # samples = np.exp(log_samples)
-        # # Take the samples us as matrices (n_samples, N, K)
-        # us = Us[:, :, 0]  # (n_samples, K)  # TODO: definately an issue here.
-        # print(us)
-        # assert us[0, 1] == us[0, 2]
-        # assert us[0, 0] == us[0, 1]
-        # # Assume it's okay to use the same samples of U over all of the data points
-        # diff = np.add(us, vector_differences)
-        # normal_pdfs = norm.pdf(diff, loc=0, scale=1)  # (n_samples, N, K)
-        # normal_cdfs = norm.cdf(diff, loc=0, scale=1)  # (n_samples, N, K)
-        # # Find the elementwise product of these two samples of matrices
-        # element_prod_pdf = np.multiply(normal_pdfs, samples)
-        # element_prod_cdf = np.multiply(normal_cdfs, samples)
-        # # axis 0 is the n_samples samples, which is the monte-carlo sum of interest
-        # element_prod_pdf = 1. / n_samples * np.sum(element_prod_pdf, axis=0)
-        # element_prod_cdf = 1. / n_samples * np.sum(element_prod_cdf, axis=0)
-        # return np.divde(element_prod_pdf, element_prod_cdf)  # (N, K)
+        # Superceded
+        # M_nk_M_nt_cdfs = cum_dists[self.grid, :, :, t]  # (N, n_samples, K)
+        # M_nk_M_nt_pdfs = norm.pdf(random_variables[self.grid, :, t, :])
+        # cum_dists[:, :, range(self.K), range(self.K)] = 1
+        # cum_dists[self.grid, :, :, t] = 1
+        # samples = np.prod(cum_dists, axis=3)
+        # element_prod_pdf = np.multiply(M_nk_M_nt_pdfs, samples)
+        # element_prod_cdf = np.multiply(M_nk_M_nt_cdfs, samples)
+        # element_prod_pdf = 1. / n_samples * np.sum(element_prod_pdf, axis=1)
+        # element_prod_cdf = 1. / n_samples * np.sum(element_prod_cdf, axis=1)
 
 
 class VBMultinomialOrderedGP(Estimator):

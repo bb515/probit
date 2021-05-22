@@ -55,7 +55,7 @@ def main():
     # print(np.shape(M_0))
     M_0 = np.array([1-t, t]).T
     # # Take steps, returning the beta and y samples
-    steps = 2
+    steps = 10
     # M_0, Sigma_tilde, C_tilde, Y_tilde, varphi_0, psi_0 = variational_classifier.estimate(M_0, steps)
     # np.savez(write_path/"initial_estimate.npz", M_0=M_0, varphi_0=varphi_0, psi_0=psi_0)
 
@@ -67,7 +67,7 @@ def main():
     # print(M_0)
     # print(varphi_0)
     # print(psi_0)
-    varphi_0 = 0.375
+    varphi_0 = 1.0
     M_tilde, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde, psi_tilde = variational_classifier.estimate(
         M_0, steps, varphi_0, fix_hyperparameters=True)
     N = 50

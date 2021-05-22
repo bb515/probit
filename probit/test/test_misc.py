@@ -1,8 +1,8 @@
 """Test file for the miscellaneous tests for the gibbs sampler."""
 import numpy as np
 from scipy.stats import norm
-from ..utilities import (
-   matrix_of_differences, sample_U, sample_varphis, function_u1)
+from probit.utilities import (
+   matrix_of_differences, matrix_of_differencess, sample_U, sample_varphis, sample_Us)
 import numpy as np
 from scipy.stats import gamma
 import matplotlib.pyplot as plt
@@ -83,27 +83,6 @@ def plot_vague_prior():
    plt.show()
 
 
-def test_sample_varphi():
-   """Test sampling varphi from the prior."""
-   # Draw hyperparameters from prior with hyper-hyperparameter
-   M = 2
-   K = 3
-   # Initiate varphi posterior estimates as all ones
-   varphi_tilde = 0.6*np.ones((K, M))
-   # Uninformative priors
-   sigma_k = np.zeros((K, M))
-   tau_k = np.zeros((K, M))
-   psi_tilde = (np.ones((K, M)) + sigma_k) / (tau_k + varphi_tilde)
-   samples = []
-   n_samples = 1000
-   for i in range(n_samples):
-      samples.append(sample_varphi(psi_tilde))
-   samples = np.array(samples)
-   varphi_tilde = np.sum(samples, axis=0) / n_samples
-   # rtol = 0.1 since sample variance is Var(varphi) / root(n) = (1/ psi_tilde^2) / root(1000) = 0.0114, so std = 0.1
-   assert np.allclose(varphi_tilde, 1./psi_tilde, rtol=0.1)
-
-
 def test_samples_varphi():
    """Test sampling varphi from the prior with tensor version."""
    M = 2
@@ -116,64 +95,138 @@ def test_samples_varphi():
    psi_tilde = (np.ones((K, M)) + sigma_k) / (tau_k + varphi_tilde)
    samples = []
    n_samples = 1000
-   samples = samples_varphi(psi_tilde, n_samples)
+   samples = sample_varphis(psi_tilde, n_samples)
    varphi_tilde = np.sum(samples, axis=0) / n_samples
    # rtol = 0.1 since sample variance is Var(varphi) / root(n) = (1/ psi_tilde^2) / root(1000) = 0.0114, so std = 0.1
    assert np.allclose(varphi_tilde, 1. / psi_tilde, rtol=0.1)
 
 
 def test_matrix_of_differences():
-   """Test the matrix of difference function produces expected (and not transposed) result."""
+   """Test the matrix of differences function produces expected (and not transposed) result."""
    m_n = np.array([-1, 0, 1])
-
+   # indeces that make up matrix of differences = [
+   #    [0-0, 0-1, 0-2],
+   #    [1-0, 1-1, 1-2],
+   #    [2-0, 2-1, 2-2]
+   # ])
    expected_MOD = np.array([
       [0, -1, -2],
       [1, 0, -1],
       [2, 1, 0]
    ])
-   actual_MOD = matrix_of_differences(m_n)
+   actual_MOD = matrix_of_differences(m_n, 3)
    assert np.allclose(expected_MOD, actual_MOD)
    t_n = np.argmax(m_n)
    actual_vector_difference = actual_MOD[:, t_n]
    expected_vector_difference = np.array([-2, -1, 0])
    assert np.allclose(actual_vector_difference, expected_vector_difference)
 
+def test_matrix_of_differencess():
+   """Test the matrix of differences function for the case of multiple input vectors."""
+   M_n = np.array([
+      [-1, 0, 1],
+      [0, 1, 0],
+      [-1, 0, 1],
+      [1, 0, 0]
+   ])
+   expected_MODs = np.array([
+      [
+         [0, -1, -2],
+         [1, 0, -1],
+         [2, 1, 0]
+      ],
+      [
+         [0, -1, 0],
+         [1, 0, 1],
+         [0, -1, 0]
+      ],
+      [
+         [0, -1, -2],
+         [1, 0, -1],
+         [2, 1, 0]
+      ],
+      [
+         [0, 1, 1],
+         [-1, 0, 0],
+         [-1, 0, 0]
+      ]
+   ]
+   )
+   actual_MODs = matrix_of_differencess(M_n, 3, N_test=4)
+   assert np.allclose(expected_MODs, actual_MODs)
 
-def test_function_u1_sum_to_one():
-   # TODO: this currently doesn't work
+def test_correct_zeros():
+   N_test=4
+   grid = np.ogrid[0:N_test]
+   n_samples = 3
    K = 3
-   m_n = np.array([-1, 0, 1])
-   difference = matrix_of_differences(m_n)
-   print(difference)
-   U = sample_U(K)
-   print(U)
-   f1 = function_u1(difference, U)
-   print(f1)
-   assert np.allclose(np.sum(f1), 1.0)
+   t = np.array([
+      2,
+      1,
+      2,
+      0
+   ])
+   M_n = np.array([
+      [-1, 0, 1],
+      [0, 1, 0],
+      [-1, 0, 1],
+      [1, 0, 0]
+   ])
+   differences = matrix_of_differencess(M_n, K, N_test)  # (N, K, K) product across axis 2
+   differencess = np.tile(differences, (n_samples, 1, 1, 1))  # (n_samples, N, K, K)
+   differencess = np.moveaxis(differencess, 1, 0)  # (N, n_samples, K, K)
+   # Assume it's okay to use the same samples of U over all of the data points
+   Us = sample_Us(K, n_samples, different_across_classes=True)  # (n_samples, K, K)
+   random_variables = np.add(Us, differencess)
+   cum_dists = norm.cdf(random_variables, loc=0, scale=1)
+   log_cum_dists=np.log(cum_dists)
+   log_M_nk_M_nt_cdfs = log_cum_dists[grid, :, t, :]
+   log_M_nk_M_nt_pdfs = np.log(
+      norm.pdf(random_variables[grid, :, t, :]))  # (N, n_samples, K)
+   log_cum_dists[:, :, range(K), range(K)] = 0
+   log_cum_dists[grid, :, :, t] = 0
+   print(log_cum_dists)
+   log_samples = np.sum(log_cum_dists, axis=3)
+   print(log_samples)
+   log_element_prod_pdf = np.add(log_M_nk_M_nt_pdfs, log_samples)
+   log_element_prod_cdf = np.add(log_M_nk_M_nt_cdfs, log_samples)
+
+   assert 0
 
 
-def test_functions_sum_to_one():
-   # TODO: this currently doesn't work
-   K = 3
-   m_n = np.array([-1, 0, 1])
-   difference = matrix_of_differences(m_n)
-   U = sample_U(K)
-   t_n = np.argmax(m_n)
-   f1 = function_u1_alt(difference, U, np.argmax(t_n))
-   vector_difference = difference[:, t_n]
-   f2 = function_u2(difference, vector_difference, U, t_n, K)
-   f3 = function_u3(difference, vector_difference, U, t_n, K)
-   assert np.allclose(np.sum(f1), 1.0)
-   assert np.allclose(np.sum(f2), 1.0)
-   assert np.allclose(np.sum(f3), 1.0)
+test_correct_zeros()
+
+#test_matrix_of_differencess()
 
 
-# test_samples_varphi()
+# def test_function_u1_sum_to_one():
+#    # TODO: this currently doesn't work
+#    K = 3
+#    m_n = np.array([-1, 0, 1])
+#    difference = matrix_of_differences(m_n)
+#    print(difference)
+#    U = sample_U(K)
+#    print(U)
+#    f1 = function_u1(difference, U)
+#    print(f1)
+#    assert np.allclose(np.sum(f1), 1.0)
 
-# u = norm.rvs(0, 1, (K, 1))
-# print(u)
-# U = np.tile(u, (K,))
-# print(U)
-#
+
+# def test_functions_sum_to_one():
+#    # TODO: this currently doesn't work
+#    K = 3
+#    m_n = np.array([-1, 0, 1])
+#    difference = matrix_of_differences(m_n)
+#    U = sample_U(K)
+#    t_n = np.argmax(m_n)
+#    f1 = function_u1_alt(difference, U, np.argmax(t_n))
+#    vector_difference = difference[:, t_n]
+#    f2 = function_u2(difference, vector_difference, U, t_n, K)
+#    f3 = function_u3(difference, vector_difference, U, t_n, K)
+#    assert np.allclose(np.sum(f1), 1.0)
+#    assert np.allclose(np.sum(f2), 1.0)
+#    assert np.allclose(np.sum(f3), 1.0)
+
+
 
 
