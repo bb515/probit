@@ -1,6 +1,6 @@
 """
-Multiclass oredered probit regression 3 bin example from Cowles 1996 empirical study
-showing convergence of the orginal probit with the Gibbs sampler.
+Multiclass ordered probit regression 3 bin example from Cowles 1996 empirical study.
+Variational inference implementation.
 """
 import argparse
 import cProfile
@@ -8,7 +8,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.samplers import GibbsMultinomialOrderedGP
+from probit.estimators import VBMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
@@ -16,85 +16,6 @@ import pathlib
 write_path = pathlib.Path()
 
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-
-
-def generate_synthetic_data(N_per_class, K, kernel):
-    """
-    Generate synthetic data for this model.
-
-    :arg int N_per_class: The number of data points per class.
-    :arg int K: The number of bins/classes/quantiles.
-    :arg int D: The number of dimensions of the covariates.
-    """
-    N_total = int(K * N_per_class)
-
-    # Sample from the real line, uniformly
-    #X = np.random.uniform(0, 12, N_total)
-    X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
-    X = X[:, None]  # reshape X to make it n*D
-    mu = np.zeros((N_total))  # vector of the means
-
-    C = kernel.kernel_matrix(X, X)
-
-    print(np.shape(mu))
-    print(np.shape(C))
-    print("1")
-    cutpoint_0 = np.inf
-    while np.abs(cutpoint_0) > 5.0:
-        print(cutpoint_0)
-        Z = np.random.multivariate_normal(mu, C)
-        plt.figure()  # open new plotting window
-        plt.plot(X[:], Z[:])
-        plt.show()
-        epsilons = np.random.normal(0, 1, N_total)
-        # Model latent variable responses
-        Y_true = epsilons + Z
-        sort_indeces = np.argsort(Y_true)
-        plt.scatter(X, Y_true)
-        plt.show()
-        # Sort the responses
-        Y_true = Y_true[sort_indeces]
-        X = X[sort_indeces]
-        X_k = []
-        Y_true_k = []
-        t_k = []
-        for k in range(K):
-            X_k.append(X[N_per_class * k:N_per_class * (k + 1)])
-            Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
-            t_k.append(k * np.ones(N_per_class, dtype=int))
-        # Find the first cutpoint and set it equal to 0.0
-        cutpoint_0_min = Y_true_k[0][-1]
-        cutpoint_0_max = Y_true_k[1][0]
-        print(cutpoint_0_max, cutpoint_0_min)
-        cutpoint_0 = np.mean([cutpoint_0_max, cutpoint_0_min])
-    Y_true = np.subtract(Y_true, cutpoint_0)
-    Y_true_k = np.subtract(Y_true_k, cutpoint_0)
-    for k in range(K):
-        plt.scatter(X_k[k], Y_true_k[k], color=colors[k])
-    plt.show()
-    Xs_k = np.array(X_k)
-    Ys_k = np.array(Y_true_k)
-    t_k = np.array(t_k, dtype=int)
-    X = Xs_k.flatten()
-    Y = Ys_k.flatten()
-    t = t_k.flatten()
-    # Prepare data
-    Xt = np.c_[Y, X, t]
-    print(np.shape(Xt))
-    np.random.shuffle(Xt)
-    Y_true = Xt[:, :1]
-    X = Xt[:, 1:D + 1]
-    t = Xt[:, -1]
-    print(np.shape(X))
-    print(np.shape(t))
-    print(np.shape(Y_true))
-    t = np.array(t, dtype=int)
-    print(t)
-    colors_ = [colors[i] for i in t]
-    print(colors_)
-    plt.scatter(X, Y_true, color=colors_)
-    plt.show()
-    return X_k, Y_true_k, X, Y_true, t
 
 
 def split(list, K):
@@ -141,12 +62,6 @@ Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs va
 N_total = int(N_per_class * K)
 print(Y_true_k[1][-1], Y_true_k[2][0], "cutpoint 2")
 
-# Initiate classifier
-gibbs_classifier = GibbsMultinomialOrderedGP(K, X, t, kernel)
-steps_burn = 100
-steps = 1000
-y_0 = Y_true.flatten()
-
 # Plot
 colors_ = [colors[i] for i in t]
 plt.scatter(X, Y_true, color=colors_)
@@ -164,29 +79,25 @@ plt.xlabel(r"$x$", fontsize=16)
 plt.ylabel(r"$y$", fontsize=16)
 plt.show()
 
-# m_0 = np.random.rand(N_total)
-# Problem with this is that the intial guess must be close to the true values
-# As a result we have to approximate the latent function.
-if argument == "tertile":
-    m_0 = y_0
-elif argument == "septile":
-    m_0 = y_0
+# Initiate classifier
+variational_classifier = VBMultinomialOrderedGP(X, t, kernel)
+steps = 1
+y_0 = Y_true.flatten()
+m_0 = y_0
+m_tilde, Sigma_tilde, C_tilde, y_tilde, varphi_tilde, containers = variational_classifier.estimate(
+    m_0, gamma_0, steps, write=True)
 
-# Burn in
-m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0, y_0, gamma_0, steps_burn)
-#m_samples, y_samples, gamma_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, gamma_0, 0.5, steps_burn)
-m_0_burned = m_samples[-1]
-y_0_burned = y_samples[-1]
-gamma_0_burned = gamma_samples[-1]
-
-# Sample
-m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0_burned, y_0_burned, gamma_0_burned, steps)
-#m_samples, y_samples, gamma_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, gamma_0, 0.5, steps)
-m_tilde = np.mean(m_samples, axis=0)
-y_tilde = np.mean(y_samples, axis=0)
-gamma_tilde = np.mean(gamma_samples, axis=0)
+ms, ys, varphis, psis, bounds = containers
 
 
+plt.plot(varphis)
+plt.show()
+
+plt.plot(psis)
+plt.title('psis')
+plt.show()
+
+assert 0
 if argument == "tertile":
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     ax[0].plot(gamma_samples[:, 1])

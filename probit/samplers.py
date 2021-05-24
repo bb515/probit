@@ -442,7 +442,7 @@ class GibbsMultinomialOrderedGP(Sampler):
         """
         Initialise variables for the sample method.
         TODO: 03/03/2021 The first Gibbs step is not robust to a poor choice of m_0 (it will never sample a y_1 within
-            range of the cutpoints). Idea: just initialise y_0 and m_0 within some standard deviation of each other?
+            range of the cutpoints). Idea: just initialise y_0 and m_0 close to another.
             Start with an initial guess for m_0 based on a linear regression and then initialise y_0 with random N(0,1)
             samples around that. Need to test convergence for random init of y_0 and m_0.
         TODO: 01/03/2021 converted gamma to be a [np.NINF, 0.0, ..., np.inf] array. This may cause problems
@@ -553,7 +553,7 @@ class GibbsMultinomialOrderedGP(Sampler):
             gamma[1] = 0.0
             gamma[-1] = np.inf
 
-            # # Vector
+            # Vector
             for k in range(2, self.K):  # TODO: Can be made into a C binding as in Andrius' code
                 gamma_proposal = -np.inf
                 while gamma_proposal <= gamma[k - 1] or gamma_proposal > gamma_prev[k + 1]:

@@ -2,7 +2,9 @@
 import numpy as np
 from scipy.stats import norm
 from probit.utilities import (
-   matrix_of_differences, matrix_of_differencess, sample_U, sample_varphis, sample_Us)
+   matrix_of_differences, matrix_of_differencess,
+   matrix_of_VB_differences, matrix_of_VB_differencess,
+   sample_U, sample_varphis, sample_Us)
 import numpy as np
 from scipy.stats import gamma
 import matplotlib.pyplot as plt
@@ -121,6 +123,7 @@ def test_matrix_of_differences():
    expected_vector_difference = np.array([-2, -1, 0])
    assert np.allclose(actual_vector_difference, expected_vector_difference)
 
+
 def test_matrix_of_differencess():
    """Test the matrix of differences function for the case of multiple input vectors."""
    M_n = np.array([
@@ -154,6 +157,7 @@ def test_matrix_of_differencess():
    )
    actual_MODs = matrix_of_differencess(M_n, 3, N_test=4)
    assert np.allclose(expected_MODs, actual_MODs)
+
 
 def test_correct_zeros():
    N_test=4
@@ -190,14 +194,85 @@ def test_correct_zeros():
    print(log_samples)
    log_element_prod_pdf = np.add(log_M_nk_M_nt_pdfs, log_samples)
    log_element_prod_cdf = np.add(log_M_nk_M_nt_cdfs, log_samples)
-
    assert 0
 
 
-test_correct_zeros()
+def test_matrix_of_VB_differences():
+   """Test the matrix of differences function produces expected (and not transposed) result."""
+   m_n = np.array([-1, 0, 1])
+   t_n = 2
+   # indeces that make up matrix of differences = [
+   #    [2-0, 2-1, 2-2],
+   #    [2-0, 2-1, 2-2],
+   #    [2-0, 2-1, 2-2]
+   # ])
+   expected_MOD = np.array([
+      [2, 1, 0],
+      [2, 1, 0],
+      [2, 1, 0]
+   ])
+   actual_MOD = matrix_of_VB_differences(m_n, 3, t_n)
+   assert np.allclose(expected_MOD, actual_MOD)
 
+
+def test_matrix_of_VB_differencess():
+   """Test the matrix of differences function for the case of multiple input vectors."""
+   M_n = np.array([
+      [-1, 0, 1],
+      [0, 1, 0],
+      [-1, 0, 1],
+      [1, 0, 0]
+   ])
+   t = np.array([
+      2,
+      1,
+      2,
+      0
+   ])
+   N_test = 4
+   grid = np.ogrid[0:N_test]
+   K = 3
+   expected_MODs = np.array([
+      [
+         [2, 1, 0],
+         [2, 1, 0],
+         [2, 1, 0]
+      ],
+      [
+         [1, 0, 1],
+         [1, 0, 1],
+         [1, 0, 1]
+      ],
+      [
+         [2, 1, 0],
+         [2, 1, 0],
+         [2, 1, 0]
+      ],
+      [
+         [0, 1, 1],
+         [0, 1, 1],
+         [0, 1, 1]
+      ]
+   ]
+   )
+   actual_MODs = matrix_of_VB_differencess(M_n, 3, N_test, t, grid)
+   assert np.allclose(expected_MODs, actual_MODs)
+
+
+def test_trace():
+   Sigma = np.array([np.eye(3), 3.*np.eye(3), 5.*np.eye(3)])
+   actual = np.trace(Sigma, axis1=1, axis2=2)
+   expected = np.array([3., 9., 15.])
+   actual2 = np.sum(np.trace(Sigma, axis1=1, axis2=2))
+   expected2 = 27.
+   assert np.all(actual == expected)
+   assert actual2 == expected2
+
+#test_correct_zeros()
 #test_matrix_of_differencess()
-
+#test_matrix_of_VB_differences()
+#test_matrix_of_VB_differencess()
+test_trace()
 
 # def test_function_u1_sum_to_one():
 #    # TODO: this currently doesn't work

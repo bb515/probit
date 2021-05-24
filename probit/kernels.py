@@ -287,6 +287,7 @@ class SEARDMultinomial(Kernel):
 
     def kernel_matrices(self, X1, X2, varphis):
         """
+        TODO: This is incredibly inefficient. Need to cythonize.
         Generate Gaussian kernel matrices for varphi samples, varphis, as an array of numpy arrays.
 
         This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a

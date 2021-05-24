@@ -110,6 +110,21 @@ def matrix_of_differences(m_n, K):  # TODO: superseded by matrix_of_differencess
     return difference
 
 
+def matrix_of_VB_differences(m_n, K, t_n):  # TODO: superseded by matrix_of_VB_differencess
+    """
+    Get a matrix of differences of the vector m.
+
+    :arg m: is an (K, 1) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
+    :type m: :class:`numpy.ndarray`
+    """
+    # Find matrix of coefficients
+    Lambda = np.tile(m_n, (K, 1))
+    Lambda_t_n = np.tile(m_n[t_n], (K, K))
+    # Should get the same rows out
+    difference = Lambda_t_n - Lambda
+    return difference
+
+
 def matrix_of_differencess(M, K, N_test):
     """
     Get an array of matrix of differences of the vectors m_ns.
@@ -127,6 +142,26 @@ def matrix_of_differencess(M, K, N_test):
     Lambdas = Lambda_Ts.transpose((0, 2, 1))
     # antisymmetric matrix of differences, the rows contain the elements of the product of interest
     return np.subtract(Lambda_Ts, Lambdas)  # (N_test, K, K)
+
+
+def matrix_of_VB_differencess(M, K, N_test, t, grid):
+    """
+    Get an array of matrix of differences of the vectors m_ns.
+
+    :arg M: An (N_test, K) array filled with e.g. m_k^{new_i, s} where s is the sample, k is the class indicator
+        and i is the index of the test object. Or in the VB implementation, this function  is used for M_tilde (N, K).
+    :type M: :class:`numpy.ndarray`
+    :arg K: The number of classes.
+    :arg N_test: The number of test objects.
+    """
+    # Lambdas is an (N_test, K, K) stack of Lambda matrices
+    # Tile along the rows, as they are the elements of interest
+    Lambda_t_ns = np.tile(M[grid, t], (1, K * K))
+    Lambda_t_ns = Lambda_t_ns.reshape((N_test, K, K))
+    Lambdas = np.tile(M, (1, 1, K))
+    Lambdas = Lambdas.reshape((N_test, K, K))
+    # Matrix of differences for VB, the rows are the same and contain the elements of the product of interest
+    return np.subtract(Lambda_t_ns, Lambdas)  # (N_test, K, K)
 
 
 def matrix_of_valuess(nu, K, N_test):

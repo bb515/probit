@@ -5,7 +5,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import VBMultinomialGP
-from probit.kernels import SEIso
+from probit.kernels import SEIso, SEARDMultinomial
 from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
 import pathlib
@@ -30,13 +30,18 @@ def main():
     N = 100
     # Dimension of the data
     D = 2
+    #X = 2.0 * np.random.rand(N, D)
 
-    X = 2.0 * np.random.rand(N, D)
-
-    kernel = SEIso(varphi=1.0, s=4.0, sigma=1e-6, tau=1e-6)
-    M_true = multivariate_normal.rvs(mean=None, cov=kernel.kernel_matrix(X, X))
-    Y_true = M_true + multivariate_normal.rvs(mean=None, cov=np.eye(len(X)))
-    t = (Y_true > 0)
+    varphi = np.ones((K, D))
+    kernel = SEARDMultinomial(varphi=varphi, s=4.0, sigma=np.array([1e-3, 1e-3]), tau=np.array([1e-3, 1e-3]))
+    #kernel = SEIso(varphi=1.0, s=4.0, sigma=1e-3, tau=1e-3)
+    #M_true = multivariate_normal.rvs(mean=None, cov=kernel.kernel_matrix(X, X))
+    #Y_true = M_true + multivariate_normal.rvs(mean=None, cov=np.eye(len(X)))
+    #t = (Y_true > 0)
+    #np.savez(write_path / "data.npz", X=X, t=t)
+    data = np.load(write_path / "data.npz")
+    X = data['X']
+    t = data['t']
     X0 = X[t == 0]
     X1 = X[t == 1]
     plt.scatter(X0[:, 0], X0[:, 1], color='b', label=r"$t=0$")
@@ -55,7 +60,7 @@ def main():
     # print(np.shape(M_0))
     M_0 = np.array([1-t, t]).T
     # # Take steps, returning the beta and y samples
-    steps = 10
+    steps = 20
     # M_0, Sigma_tilde, C_tilde, Y_tilde, varphi_0, psi_0 = variational_classifier.estimate(M_0, steps)
     # np.savez(write_path/"initial_estimate.npz", M_0=M_0, varphi_0=varphi_0, psi_0=psi_0)
 
@@ -67,10 +72,18 @@ def main():
     # print(M_0)
     # print(varphi_0)
     # print(psi_0)
-    varphi_0 = 1.0
-    M_tilde, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde, psi_tilde = variational_classifier.estimate(
-        M_0, steps, varphi_0, fix_hyperparameters=True)
-    N = 50
+    varphi_0 = varphi
+    M_tilde, Sigma_tilde, C_tilde, Y_tilde, varphi_tilde, psi_tilde, data = variational_classifier.estimate(
+        M_0, steps, varphi_0, fix_hyperparameters=False, write=True)
+    (Ms, Ys, varphis, psis, bounds) = data
+    plt.plot(bounds)
+    plt.show()
+    plt.plot(Ms)
+    plt.plot(Ys)
+    plt.show()
+    # plt.plot(psis)
+    # plt.show()
+    N = 3
     # x = np.linspace(-0.1, 1.99, N)
     # y = np.linspace(-0.1, 1.99, N)
     x = np.linspace(-1.2, 4.0, N)

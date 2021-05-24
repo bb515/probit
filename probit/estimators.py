@@ -5,7 +5,7 @@ import numpy as np
 from scipy.stats import norm, multivariate_normal
 from tqdm import trange
 from .utilities import (
-    sample_Us, sample_varphis, matrix_of_differencess, matrix_of_valuess)
+    sample_Us, sample_varphis, matrix_of_differencess, matrix_of_valuess, matrix_of_VB_differencess)
 
 
 class Estimator(ABC):
@@ -311,9 +311,15 @@ class VBMultinomialGP(Estimator):
             varphi_0 = np.ones(np.shape(self.kernel.varphi))
         if psi_0 is None:
             psi_0 = np.ones(np.shape(self.kernel.varphi))
-        return M_0, varphi_0, psi_0
+        Ms = []
+        Ys = []
+        varphis = []
+        psis = []
+        bounds = []
+        containers = (Ms, Ys, varphis, psis, bounds)
+        return M_0, varphi_0, psi_0, containers
 
-    def estimate(self, M_0, steps, varphi_0=None, psi_0=None, first_step=1, fix_hyperparameters=False):
+    def estimate(self, M_0, steps, varphi_0=None, psi_0=None, first_step=1, fix_hyperparameters=False, write=False):
         """
         Estimating the posterior means are a 3 step iteration over M_tilde, varphi_tilde and psi_tilde
             Eq.(8), (9), (10), respectively. Unless we fix the hyperparameters, so the iteration is 1 step over M_tilde.
@@ -332,27 +338,26 @@ class VBMultinomialGP(Estimator):
         :return: Posterior mean and covariance estimates.
         :rtype: (6, ) tuple of :class:`numpy.ndarrays` of the approximate posterior means.
         """
-        M_tilde, varphi_tilde, psi_tilde = self._estimate_initiate(M_0, varphi_0, psi_0)
-
-        if fix_hyperparameters is False:
-            for _ in trange(first_step, first_step + steps,
-                            desc="GP priors estimator progress", unit="iterations"):
-                Y_tilde = self._Y_tilde(M_tilde)
-                print(Y_tilde, "Y_tilde")
-                M_tilde = self._M_tilde(Y_tilde, varphi_tilde)
-                print(M_tilde, "M_tilde")
+        M_tilde, varphi_tilde, psi_tilde, containers = self._estimate_initiate(M_0, varphi_0, psi_0)
+        Ms, Ys, varphis, psis, bounds = containers
+        for _ in trange(first_step, first_step + steps,
+                        desc="GP priors estimator progress", unit="iterations"):
+            Y_tilde, calligraphic_Z = self._Y_tilde(M_tilde)
+            M_tilde = self._M_tilde(Y_tilde, varphi_tilde)
+            if fix_hyperparameters is False:
                 varphi_tilde = self._varphi_tilde(M_tilde, psi_tilde, n_samples=1000)  # TODO: Cythonize. Major bottleneck.
-                print(varphi_tilde, "varphi_tilde")
                 psi_tilde = self._psi_tilde(varphi_tilde)
-                print(psi_tilde, "psi_tilde")
-        elif fix_hyperparameters is True:
-            for _ in trange(first_step, first_step + steps,
-                            desc="GP priors estimator progress", unit="iterations"):
-                Y_tilde = self._Y_tilde(M_tilde)
-                print(Y_tilde, "Y_tilde")
-                M_tilde = self._M_tilde(Y_tilde, varphi_tilde)
-                print(M_tilde, "M_tilde")
-        return M_tilde, self.Sigma, self.C, Y_tilde, varphi_tilde, psi_tilde
+            if write:
+                # Calculate bound
+                bound = self.variational_lower_bound(self.N, self.K, M_tilde, self.Sigma, self.C, calligraphic_Z)
+                Ms.append(np.linalg.norm(M_tilde))
+                Ys.append(np.linalg.norm(Y_tilde))
+                if fix_hyperparameters is False:
+                    varphis.append(varphi_tilde)
+                    psis.append(psi_tilde)
+                bounds.append(bound)
+        containers = (Ms, Ys, varphis, psis, bounds)
+        return M_tilde, self.Sigma, self.C, Y_tilde, varphi_tilde, psi_tilde, containers
 
     def _vector_expectation_wrt_u(self, M_new_tilde, var_new_tilde, n_samples):
         """
@@ -383,9 +388,6 @@ class VBMultinomialGP(Estimator):
         # nu_new_tilde_Ts = nu_new_tildes.transpose((0, 2, 1))  # (N_test, K, K)
         # Find the transpose (for the product across classes)
         nu_new_tilde_Tss = nu_new_tildess.transpose((0, 1, 3, 2))  # (N_test, n_samples, K, K)
-        print(np.shape(nu_new_tildes), "shape nu_new_tildes")
-        print(np.shape(nu_new_tilde_Tss), "shape nu_new_tilde_Tss")
-        print(np.shape(nu_new_tildess), "shape nu_new_tildess")
         Us_nu_new_tilde_Ts = np.multiply(Us, nu_new_tildess)  # TODO: do we actually need to use transpose here?
         random_variables = np.add(Us_nu_new_tilde_Ts, differencess)  # (N_test, n_samples, K, K)
         random_variables = np.divide(random_variables, nu_new_tilde_Tss)  # TODO: do we actually need to use transpose here?
@@ -449,14 +451,15 @@ class VBMultinomialGP(Estimator):
         :return: A Monte Carlo estimate of the class probabilities.
         """
         N_test = np.shape(X_test)[0]
-        # Update the kernel with new varphi  # TODO: test this.
+        # Update the kernel with new varphi
         self.kernel.varphi = varphi_tilde
         # Cs_news[:, i] is Cs_new for X_test[i]
         Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
         # TODO: this is a bottleneck
-        cs_news = np.diag(self.kernel.kernel_matrix(X_test, X_test)) # (N_test, )
+        cs_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
         intermediate_vectors = Sigma_tilde @ Cs_news  # (N, N_test)
+        # TODO: Generalises to (K, N, N)?
         intermediate_vectors_T = np.transpose(intermediate_vectors)  # (N_test, N)
         intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(0)  # (N_test, )
         # Calculate M_tilde_new # TODO: test this.
@@ -506,12 +509,13 @@ class VBMultinomialGP(Estimator):
         # Vector draw from varphi
         # (n_samples, K, D) in general and ARD, (n_samples, ) for single shared kernel and ISO case. Depends on the
         # shape of psi_tilde.
-        varphis = sample_varphis(psi_tilde, n_samples)
+        varphis = sample_varphis(psi_tilde, n_samples)  # Note that this resets the kernel varphi
         # (n_samples, K, N, N) in general and ARD, (n_samples, N, N) for single shared kernel and ISO case. Depends on
         # the shape of psi_tilde.
         Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)
         # Nugget regularisation for numerical stability. 1e-5 or 1e-6 typically used - important to keep the same
         Cs_samples = np.add(Cs_samples, 1e-5 * np.eye(self.N))
+        #Cs_samples = np.add(Cs_samples, 1e-2 * np.eye(self.N))
         # Transpose M_tilde to become (n_samples, K, N) multivariate normal between m_k (N, ) and Cs_k over all samples
         M_tilde_T = np.transpose(M_tilde)  # (K, N)
         # TODO: begrudgingly using a nested for loop here, as I don't see the alternative,
@@ -552,8 +556,10 @@ class VBMultinomialGP(Estimator):
         """
         # Update the varphi with new values
         self.kernel.varphi = varphi_tilde
+        print(varphi_tilde, self.kernel.varphi, 'varphi')
         # Calculate updated C and sigma
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
+        print(self.C, 'C', np.linalg.cond(self.C))
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))  # (K, N, N)
         self.cov = self.C @ self.Sigma  # (K, N, N) @ (K, N, N) = (K, N, N)
         # TODO: Maybe just keep Y_tilde in this shape in memory.
@@ -571,7 +577,7 @@ class VBMultinomialGP(Estimator):
         :return: Y_tilde (N, K) containing \tilde(y)_{nk} values.
         """
         # t = np.argmax(M_tilde, axis=1)  # The max of the GP vector m_k is t_n this would be incorrect.
-        negative_P = self._negative_P(M_tilde, self.t_train, n_samples=1000)  # TODO: correct version.
+        negative_P, calligraphic_Z = self._negative_P(M_tilde, self.t_train, n_samples=1000)  # TODO: correct version.
         Y_tilde = np.subtract(M_tilde, negative_P)  # Eq.(5)
         Y_tilde[self.grid, self.t_train] = 0
         Y_tilde[self.grid, self.t_train] = np.sum(M_tilde - Y_tilde, axis=1)
@@ -580,7 +586,7 @@ class VBMultinomialGP(Estimator):
         # Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train]  # Eq.(6)
         # diff_sum = np.sum(Y_tilde - M_tilde, axis=1)
         # Y_tilde[self.grid, self.t_train] = M_tilde[self.grid, self.t_train] - diff_sum
-        return Y_tilde
+        return Y_tilde, calligraphic_Z
 
     def _negative_P(self, M_tilde, t, n_samples=3000):
         """
@@ -590,26 +596,27 @@ class VBMultinomialGP(Estimator):
         :arg M_tilde: The posterior expectations for M (N, K).
         :arg n_samples: The number of samples to take.
         """
-        # Find antisymmetric matrix of differences
-        differences = matrix_of_differencess(M_tilde, self.K, self.N)  # (N, K, K) we will product across axis 2 (rows)
-        # Note that it is \prod_k m_ni - m_nk
-        # vector_differences = differences[self.grid, :, t]  # (N, K)
-        # vector_differencess = np.tile(vector_differences, (n_samples, 1, 1))  # (n_samples, N, K)
-        # vector_differencess = np.moveaxis(vector_differencess, 1, 0)  # (N, n_samples, K)
+        # Find matrix of differences
+        #differences = matrix_of_differencess(M_tilde, self.K, self.N)  # TODO: confirm this is wrong
+        # we will product across axis 2 (rows)
+        differences = matrix_of_VB_differencess(M_tilde, self.K, self.N, t, self.grid)  # (N, K, K)
         differencess = np.tile(differences, (n_samples, 1, 1, 1))  # (n_samples, N, K, K)
         differencess = np.moveaxis(differencess, 1, 0)  # (N, n_samples, K, K)
         # Assume it's okay to use the same samples of U over all of the data points
-        Us = sample_Us(self.K, n_samples, different_across_classes=True)  # (n_samples, K, K)
+        Us = sample_Us(self.K, n_samples, different_across_classes=False)  # (n_samples, K, K)
         random_variables = np.add(Us, differencess)  # (N, n_samples, K, K) Note that it is \prod_k u + m_ni - m_nk
         cum_dists = norm.cdf(random_variables, loc=0, scale=1)  # (N, n_samples, K, K)
         log_cum_dists = np.log(cum_dists)  # (N, n_samples, K, K)
         # Store values for later
         log_M_nk_M_nt_cdfs = log_cum_dists[self.grid, :, t, :]  # (N, n_samples, K)
-        log_M_nk_M_nt_pdfs = np.log(norm.pdf(random_variables[self.grid, :, t, :]))  # (N, n_samples, K)  # TODO: not sure if this works
-        # product is over j \neq k
-        log_cum_dists[:, :, range(self.K), range(self.K)] = 0
+        log_M_nk_M_nt_pdfs = np.log(norm.pdf(random_variables[self.grid, :, t, :]))  # (N, n_samples, K)
         # product is over j \neq tn=i
         log_cum_dists[self.grid, :, :, t] = 0
+        calligraphic_Z = np.sum(log_cum_dists, axis=3)  # TODO: not sure if correct
+        calligraphic_Z = np.exp(calligraphic_Z)
+        calligraphic_Z = 1. / n_samples * np.sum(calligraphic_Z, axis=1)
+        # product is over j \neq k
+        log_cum_dists[:, :, range(self.K), range(self.K)] = 0
         # Sum across the elements of the log product of interest (rows, so axis=3)
         log_samples = np.sum(log_cum_dists, axis=3)  # (N, n_samples, K)
         log_element_prod_pdf = np.add(log_M_nk_M_nt_pdfs, log_samples)
@@ -619,7 +626,7 @@ class VBMultinomialGP(Estimator):
         # Monte Carlo estimate: Sum across the n_samples (axis=1)
         element_prod_pdf = 1. / n_samples * np.sum(element_prod_pdf, axis=1)
         element_prod_cdf = 1. / n_samples * np.sum(element_prod_cdf, axis=1)
-        return np.divide(element_prod_pdf, element_prod_cdf)  # (N, K)
+        return np.divide(element_prod_pdf, element_prod_cdf), calligraphic_Z  # (N, K)
         # Superceded
         # M_nk_M_nt_cdfs = cum_dists[self.grid, :, :, t]  # (N, n_samples, K)
         # M_nk_M_nt_pdfs = norm.pdf(random_variables[self.grid, :, t, :])
@@ -631,6 +638,62 @@ class VBMultinomialGP(Estimator):
         # element_prod_pdf = 1. / n_samples * np.sum(element_prod_pdf, axis=1)
         # element_prod_cdf = 1. / n_samples * np.sum(element_prod_cdf, axis=1)
 
+    def variational_lower_bound(self, N, K, M,  Sigma, C, calligraphic_Z):
+        """
+        Calculate the variational lower bound of the log marginal likelihood.
+
+        :arg M_tilde:
+        :arg Sigma_tilde:
+        :arg C_tilde:
+        :arg calligraphic_Z:
+        """
+        # print(np.linalg.det(C))
+        # print(np.linalg.cond(C))
+        C = C + 1e-4 * np.eye(N)
+        # print(np.linalg.det(C))
+        # print(np.linalg.cond(C))
+        C_inv = np.linalg.inv(C)
+        M_T = M.T
+        intermediate_vectors = np.empty((N, K))
+
+        if self.kernel.general_kernel:
+            # TODO: This may not specialise.
+            for k in range(K):
+                intermediate_vectors[:, k] = C_inv[k] @ M_T[k]
+            summation = np.sum(np.multiply(intermediate_vectors, M))
+            # Case when Sigma is (K, N, N)
+            bound = (
+                    - (N * K * np.log(2 * np.pi) / 2) + (N * np.log(2 * np.pi) / 2)
+                    + (N * K / 2) - (np.sum(np.trace(Sigma, axis1=1, axis2=2)) / 2)
+                    - (summation / 2) - (np.sum(np.trace(C_inv @ Sigma, axis1=1, axis2=2)) / 2)
+                    - (np.sum(np.linalg.det(C_inv)) / 2) + (np.sum(np.linalg.det(Sigma)) / 2)
+                    + np.sum(np.log(calligraphic_Z))
+            )
+        else:
+            # Case when Sigma is (N, N)
+            summation = np.sum(np.multiply(M, C_inv @ M))
+            one = - (np.sum(np.trace(Sigma)) / 2)
+            two = - (np.sum(np.trace(C_inv @ Sigma)) / 2)
+            three = - (np.sum(np.log(np.linalg.det(C))) / 2)
+            four = (np.sum(np.log(np.linalg.det(Sigma))) / 2)
+            five = np.sum(np.log(calligraphic_Z))
+            print("one ", one)
+            print("two ", two)
+            print("three ", three)
+            print("four ", four)
+            print("five ", five)
+            bound = (
+                    - (N * K * np.log(2 * np.pi) / 2) + (N * np.log(2 * np.pi) / 2)
+                    + (N * K / 2) - (np.sum(np.trace(Sigma)) / 2)
+                    - (summation / 2) - (np.sum(np.trace(C_inv @ Sigma)) / 2)
+                    - (np.sum(np.log(np.linalg.det(C))) / 2) + (np.sum(np.log(np.linalg.det(Sigma))) / 2)
+                    + np.sum(np.log(calligraphic_Z))
+            )
+
+        print('bound = ', bound)
+        return bound
+
+
 
 class VBMultinomialOrderedGP(Estimator):
     """
@@ -641,7 +704,7 @@ class VBMultinomialOrderedGP(Estimator):
 
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
-    def __init__(self, cutpoint, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         """
         Create an :class:`Gibbs_GP` sampler object.
 
@@ -662,29 +725,97 @@ class VBMultinomialOrderedGP(Estimator):
             raise ValueError('The kernel must not be general type (kernel.general_kernel=1),'
                              ' but simple type (kernel.general_kernel=0). (got {}, expected)'.format(
                 self.kernel.general_kernel, 0))
+
+    def _estimate_initiate(self, m_0, gamma_0, varphi_0=None, psi_0=None):
+        """
+        Initialise the estimator.
+
+        TODO: 23/05/2021 Refactored this so that is in line with probit.sampler
+        """
+        if varphi_0 is None:
+            varphi_0 = np.ones(np.shape(self.kernel.varphi))
+        if psi_0 is None:
+            psi_0 = np.ones(np.shape(self.kernel.varphi))
+        ys = []
+        ms = []
+        varphis = []
+        psis = []
+        bounds = []
+        containers = (ms, ys, varphis, psis, bounds)
+        # Treat user parsing of cutpoint parameters with just the upper cutpoints for each class
+        # The first class t=0 is for y<=0
+        if np.shape(gamma_0)[0] == self.K - 2:  # not including any of the fixed cutpoints: -\infty, 0, \infty
+            gamma_0 = np.append(gamma_0, np.inf)  # append the infinity cutpoint
+            gamma_0 = np.insert(gamma_0, 0.0)  # insert the zero cutpoint at index 0
+            gamma_0 = np.insert(gamma_0, np.NINF)  # insert the negative infinity cutpoint at index 0
+            pass  # correct format
+        elif np.shape(gamma_0)[0] == self.K:  # not including one of the infinity cutpoints
+            if gamma_0[-1] != np.inf:
+                if gamma_0[0] != np.NINF:
+                    raise ValueError('The last cutpoint parameter must be numpy.inf, or the first cutpoint parameter'
+                                     ' must be numpy.NINF (got {}, expected {})'.format(
+                        gamma_0[-1], [np.inf, np.NINF]))
+                else:  # gamma_0[0] is negative infinity
+                    if gamma_0[1] == 0.0:
+                        gamma_0.append(np.inf)
+                        pass  # correct format
+                    else:
+                        raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+                            gamma_0[1], 0.0))
+            else:
+                if gamma_0[0] != 0.0:
+                    raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+                        gamma_0[0], 0.0))
+                gamma_0 = np.insert(gamma_0, np.NINF)
+                pass  # correct format
+        elif np.shape(gamma_0)[0] == self.K - 1:  # not including two of the cutpoints
+            if gamma_0[0] != np.NINF:  # not including negative infinity cutpoint
+                if gamma_0[-1] != np.inf:
+                    raise ValueError('The cutpoint paramter \gamma_K must be numpy.inf (got {}, expected {})'.format(
+                        gamma_0[-1], np.inf))
+                elif gamma_0[0] != 0.0:
+                    raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+                        gamma_0[0], 0.0))
+                else:
+                    gamma_0 = np.insert(gamma_0, np.NINF)
+                    pass  # correct format
+            elif gamma_0[1] != 0.0:  # Including \gamma_0 = np.NINF but not \gamma_1 = 0.0
+                raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+                    gamma_0[1], 0.0))
+            else:
+                if gamma_0[-1] == np.inf:
+                    raise ValueError('Length of gamma_0 seems to be one less than it needs to be. Missing a cutpoint! ('
+                                     'got {}, expected {})'.format(len(gamma_0), len(gamma_0) + 1))
+                else:
+                    gamma_0 = np.append(gamma_0, np.inf)
+                    pass  # correct format
+        elif np.shape(gamma_0)[0] == self.K + 1:  # including all of the cutpoints
+            if gamma_0[0] != np.NINF:
+                raise ValueError('The cutpoint parameter \gamma_0 must be numpy.NINF (got {}, expected {})'.format(
+                    gamma_0[0], np.NINF))
+            if gamma_0[1] != 0.0:
+                raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+                    gamma_0[1], 0.0))
+            if gamma_0[-1] != np.inf:
+                raise ValueError('The cutpoint parameter \gamma_K must be numpy.inf (got {}, expected {})'.format(
+                    gamma_0[-1], np.inf))
+            pass  # correct format
+        else:
+            raise ValueError('Could not recognise gamma_0 shape. (np.shape(gamma_0) was {})'.format(np.shape(gamma_0)))
+        assert gamma_0[0] == np.NINF
+        assert gamma_0[1] == 0.0
+        assert gamma_0[-1] == np.inf
+        if not np.all(gamma_0[2:-1] > 0):
+            raise ValueError('The cutpoint parameters must be positive. (got {})'.format(gamma_0))
+        assert np.shape(gamma_0)[0] == self.K + 1
         if not all(
-                cutpoint[i] <= cutpoint[i + 1]
+                gamma_0[i] <= gamma_0[i + 1]
                 for i in range(self.K)):
-            raise CutpointValueError(cutpoint)
-        if np.any(cutpoint < 0):
-            raise ValueError('cutpoint array must have *non negative* elements (got {}).'.format(cutpoint))
-        if cutpoint[0] != 0.0:
-            raise ValueError('The first cutpoint parameter must be 0.0 (got {}, expected {})'.format(cutpoint[0], 0.0))
-        # if cutpoint[-1] not in [np.infty, np.inf]:  # TODO
-        #     raise ValueError('The last cutpoint parameter must be numpy.inf (got {}, expected {})'.format(cutpoint[-1], np.inf))
-        self.cutpoint = cutpoint
+            raise CutpointValueError(gamma_0)
 
-    def _estimate_initiate(self, m_0):
-        """
-        Initialise the sampler.
+        return m_0, gamma_0, varphi_0, psi_0, containers
 
-        This method should be implemented in every concrete sampler.
-        """
-        varphi_0 = np.ones(np.shape(self.kernel.varphi))
-        psi_0 = np.ones(np.shape(self.kernel.varphi))
-        return m_0, varphi_0, psi_0
-
-    def estimate(self, m_0, steps, first_step=1):
+    def estimate(self, m_0, gamma_0, steps, varphi_0=None, psi_0=None, first_step=1, write=False):
         """
         Estimating the posterior means are a 3 step iteration over M_tilde, varphi_tilde and psi_tilde
             Eq.(8), (9), (10), respectively.
@@ -697,16 +828,26 @@ class VBMultinomialOrderedGP(Estimator):
         :return: Posterior mean and covariance estimates.
         :rtype: (5, ) tuple of :class:`numpy.ndarrays`
         """
-        m_tilde, varphi_tilde, psi_tilde = self._estimate_initiate(m_0)
+        m_tilde, gamma, varphi_tilde, psi_tilde, containers = self._estimate_initiate(
+            m_0, gamma_0, varphi_0, psi_0)
+        ms, ys, varphis, psis, bounds = containers
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            y_tilde = self._y_tilde(m_tilde)
-            m_tilde, Sigma_tilde, C_tilde = self._m_tilde(y_tilde, varphi_tilde)
-            varphi_tilde = self._varphi_tilde(m_tilde, psi_tilde, n_samples=5)  # TODO: Cythonize. Major bottleneck.
+            y_tilde = self._y_tilde(m_tilde, gamma)
+            m_tilde = self._m_tilde(y_tilde, varphi_tilde)
+            varphi_tilde = self._varphi_tilde(m_tilde, psi_tilde, n_samples=1000)  # TODO: Cythonize. Major bottleneck.
             psi_tilde = self._psi_tilde(varphi_tilde)
-        return m_tilde, Sigma_tilde, C_tilde, y_tilde, varphi_tilde
+            if write:
+                # bound = TODO
+                ms.append(m_tilde)
+                ys.append(y_tilde)
+                varphis.append(varphi_tilde)
+                psis.append(psi_tilde)
+                # bounds.append(bound)
+        containers = (ms, ys, varphis, psis, bounds)
+        return m_tilde, self.Sigma_tilde, self.C_tilde, y_tilde, varphi_tilde, containers
 
-    def _predict_vector(self, Sigma_tilde, y_tilde, varphi_tilde, X_test):
+    def _predict_vector(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test):
         """
         Make variational Bayes prediction over classes of X_test given the posterior samples.
         :param Sigma_tilde:
@@ -717,7 +858,7 @@ class VBMultinomialOrderedGP(Estimator):
         :return: A Monte Carlo estimate of the class probabilities.
         """
         N_test = np.shape(X_test)[0]
-        # Update the kernel with new varphi  # TODO: test this.
+        # Update the kernel with new varphi
         self.kernel.varphi = varphi_tilde
         # C_news[:, i] is C_new for X_test[i]
         C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
@@ -732,10 +873,11 @@ class VBMultinomialOrderedGP(Estimator):
         var_new_tilde = np.subtract(c_news, intermediate_scalars)  # (N_test, )
         var_new_tilde = np.reshape(var_new_tilde, (N_test, 1))  # TODO: do in place shape changes - quicker(?) and memor
         predictive_distributions = np.empty((N_test, self.K))
+        # TODO: vectorise
         for n in range(N_test):
-            for k in range(self.K):
-                gamma_k = self.cutpoint[k + 1]
-                gamma_k_minus_1 = self.cutpoint[k]
+            for k in range(1, self.K + 1):
+                gamma_k = gamma[k]
+                gamma_k_minus_1 = gamma[k - 1]
                 var = var_new_tilde[n]
                 m_n = m_new_tilde[n]
                 predictive_distributions[n, k] = (
@@ -767,7 +909,7 @@ class VBMultinomialOrderedGP(Estimator):
                 return ValueError("The scalar implementation has been superseded. Please use "
                                   "the vector implementation.")
 
-    def _varphi_tilde(self, m_tilde, psi_tilde, n_samples=500):
+    def _varphi_tilde(self, m_tilde, psi_tilde, n_samples=1000):
         """
         Return the w values of the sample on 2005 Page 9 Eq.(7).
 
@@ -776,13 +918,13 @@ class VBMultinomialOrderedGP(Estimator):
         :arg int n_samples: The number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
         """
         # Vector draw from varphi
-        # TODO: Get a domain error here with varphi_tilde blowing up? Probably because of mutlivariate normal.
         # (n_samples, K, D) in general and ARD, (n_samples, ) for single shared kernel and ISO case. Depends on the
         # shape of psi_tilde.
         varphis = sample_varphis(psi_tilde, n_samples)  # (n_samples, )
         # (n_samples, K, N, N) in general and ARD, (n_samples, N, N) for single shared kernel and ISO case. Depends on
         # the shape of psi_tilde.
         Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)  # (n_samples, N, N)
+        Cs_samples = np.add(Cs_samples, 1e-5 * np.eye(self.N))
         # TODO: begrudgingly using a for loop here, as I don't see the alternative,
         #  maybe I can calculate this by hand.
         ws = np.empty((n_samples, ))
@@ -810,12 +952,12 @@ class VBMultinomialOrderedGP(Estimator):
         # Update the varphi with new values
         self.kernel.varphi = varphi_tilde
         # Calculate updated C and sigma
-        C_tilde = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
-        Sigma_tilde = np.linalg.inv(np.add(self.IN, C_tilde))  # (K, N, N)
-        m_tilde = C_tilde @ Sigma_tilde @ y_tilde
-        return m_tilde, Sigma_tilde, C_tilde  # (N, K)
+        self.C_tilde = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
+        self.Sigma_tilde = np.linalg.inv(np.add(self.IN, self.C_tilde))  # (K, N, N)
+        m_tilde = self.C_tilde @ self.Sigma_tilde @ y_tilde
+        return m_tilde  # (N, K)
 
-    def _y_tilde(self, m_tilde):
+    def _y_tilde(self, m_tilde, gamma):
         """
         Calculate Y_tilde elements 2021 Page 3 Eq.(11).
 
@@ -823,12 +965,12 @@ class VBMultinomialOrderedGP(Estimator):
         :type M_tilde: :class:`numpy.ndarray`
         :return: Y_tilde (N, ) containing \tilde(y)_{n} values.
         """
-        p = self._p(m_tilde, self.t_train, n_samples=1000)
+        p = self._p(m_tilde, gamma)
         # Eq. (11)
         y_tilde = np.add(m_tilde, p)
         return y_tilde
 
-    def _p(self, m_tilde, t, n_samples=1000):
+    def _p(self, m_tilde, gamma):
         """
         Estimate the rightmost term of 2021 Page 3 Eq.(11), a ratio of Monte Carlo estimates of the expectation of a
             functions of M wrt to the distribution p.
@@ -836,13 +978,10 @@ class VBMultinomialOrderedGP(Estimator):
         :arg M_tilde: The posterior expectations for M (N, K).
         :arg n_samples: The number of samples to take.
         """
-        p = np.empty(self.N)
-        for n in range(self.N):
-            gamma_k = self.cutpoint[t[n] + 1]
-            gamma_k_minus_1 = self.cutpoint[t[n]]
-            m_n = m_tilde[n]
-            p[n] = (norm.pdf(gamma_k_minus_1 - m_n) - norm.pdf(gamma_k - m_n)) / (
-                    norm.cdf(gamma_k - m_n) - norm.cdf(gamma_k_minus_1 - m_n))
+        gamma_ks = gamma[self.t_train]
+        gamma_k_minus_1s = gamma[self.t_train - 1]
+        p = (norm.pdf(gamma_k_minus_1s - m_tilde) - norm.pdf(gamma_ks - m_tilde)) / (
+                norm.cdf(gamma_ks - m_tilde) - norm.cdf(gamma_k_minus_1s - m_tilde))
         return p  # (N, )
 
 

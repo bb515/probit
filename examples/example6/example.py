@@ -99,6 +99,7 @@ plt.xlabel(r"$x$", fontsize=16)
 plt.ylabel(r"$y$", fontsize=16)
 plt.show()
 
+
 # This is the general kernel for a GP prior for the multi-class problem
 varphi = 1.0
 s = 1.0
