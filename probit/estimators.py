@@ -527,6 +527,7 @@ class VBMultinomialGP(Estimator):
                         # This fails if M_tilde and varphi are not initialised correctly
                         # Add sample to the unnormalised w vectors
                         ws[i, k] = multivariate_normal.pdf(M_tilde_T[k], mean=None, cov=Cs_samples[i, k])  #TODO: check
+            ws = np.reshape(ws, (n_samples, self.K, 1))  # TODO: check this works as expected- mult scalar per class.
         else:
             ws = np.empty((n_samples, ))  # TODO: probably the wrong size.
             for i in range(n_samples):

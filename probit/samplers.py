@@ -357,7 +357,7 @@ class GibbsBinomial(Sampler):
         else:
             raise ValueError("t must contain only integer values (got {})".format(t_train))
         if t_train.all() not in [0, 1]:
-            raise ValueError("In the binomial case, t must contain only 1s and/or 0s (got {})".format(t))
+            raise ValueError("In the binomial case, t must contain only 1s and/or 0s (got {})".format(t_train))
         self.K = int(np.max(t_train) + 1)  # the number of classes
         self.t_train = t_train
         self.cov = np.linalg.inv(self.X_train_T @ self.X_train)  # From Mark's lecture notes

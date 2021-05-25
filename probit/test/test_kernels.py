@@ -110,3 +110,6 @@ class TestSEARDmultinomial:
         assert np.allclose(Cs_0_expected, Cs[0])
         assert np.allclose(Cs_1_expected, Cs[1])
         assert np.allclose(Cs_2_expected, Cs[2])
+
+
+

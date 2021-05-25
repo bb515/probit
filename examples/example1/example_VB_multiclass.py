@@ -5,7 +5,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import VBMultinomialGP
-from probit.kernels import SEIso, SEARDMultinomial
+from probit.kernels import SEIso, SEARDMultinomialTemp
 from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
 import pathlib
@@ -33,7 +33,7 @@ def main():
     #X = 2.0 * np.random.rand(N, D)
 
     varphi = np.ones((K, D))
-    kernel = SEARDMultinomial(varphi=varphi, s=4.0, sigma=np.array([1e-3, 1e-3]), tau=np.array([1e-3, 1e-3]))
+    kernel = SEARDMultinomialTemp(varphi=varphi, s=4.0, sigma=np.array([1e-3, 1e-3]), tau=np.array([1e-3, 1e-3]))
     #kernel = SEIso(varphi=1.0, s=4.0, sigma=1e-3, tau=1e-3)
     #M_true = multivariate_normal.rvs(mean=None, cov=kernel.kernel_matrix(X, X))
     #Y_true = M_true + multivariate_normal.rvs(mean=None, cov=np.eye(len(X)))
@@ -60,7 +60,7 @@ def main():
     # print(np.shape(M_0))
     M_0 = np.array([1-t, t]).T
     # # Take steps, returning the beta and y samples
-    steps = 20
+    steps = 5
     # M_0, Sigma_tilde, C_tilde, Y_tilde, varphi_0, psi_0 = variational_classifier.estimate(M_0, steps)
     # np.savez(write_path/"initial_estimate.npz", M_0=M_0, varphi_0=varphi_0, psi_0=psi_0)
 

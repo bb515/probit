@@ -115,9 +115,9 @@ class SEIso(Kernel):
     """
     def __init__(self, *args, **kwargs):
         """
-        Create an :class:`IsoBinomial` kernel object.
+        Create an :class:`SEIso` kernel object.
 
-        :returns: An :class:`IsoBinomial` object
+        :returns: An :class:`SEIso` object
         """
         super().__init__(*args, **kwargs)
         # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
@@ -201,9 +201,9 @@ class SEARDMultinomial(Kernel):
 
     def __init__(self, *args, **kwargs):
         """
-        Create an :class:`EulerCL` integrator object.
+        Create an :class:`SEARDMultinomial` kernel object.
 
-        :returns: An :class:`EulerCL` object
+        :returns: An :class:`SEARDMultinomial` object
         """
         super().__init__(*args, **kwargs)
         # For this kernel, the general and ARD setting are assumed.
@@ -284,6 +284,138 @@ class SEARDMultinomial(Kernel):
                 C_new[i] = self.kernel(k, X[i], x_new[0])
             Cs_new.append(C_new)
         return np.array(Cs_new)
+
+    def kernel_matrices(self, X1, X2, varphis):
+        """
+        TODO: This is incredibly inefficient. Need to cythonize.
+        Generate Gaussian kernel matrices for varphi samples, varphis, as an array of numpy arrays.
+
+        This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
+        quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
+
+        e.g.
+        for k in range(K):
+            Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
+
+        :param X1: (N1, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param X2: (N2, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param varphis: (n_samples, K, D) dimensional numpy.ndarray which holds the
+            covariance hyperparameters.
+        :returns Cs: A (n_samples, K, N1, N2) array of n_samples * K (N1, N2) covariance matrices.
+        """
+        n_samples = np.shape(varphis)[0]
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        Cs_samples = np.empty((n_samples, self.K, N1, N2))
+        for i, varphi in enumerate(varphis):
+            self.varphi = varphi
+            Cs_samples[i, :, :, :] = self.kernel_matrix(X1, X2)
+        return Cs_samples
+
+
+class SEARDMultinomialTemp(Kernel):
+    """
+    A temporary kernel for debugging.
+
+    A square exponential (SE) automatic relevance detection (ARD) multinomial kernel class. Inherits the Kernel ABC.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        Create an :class:`EulerCL` integrator object.
+
+        :returns: An :class:`EulerCL` object
+        """
+        super().__init__(*args, **kwargs)
+        # For this kernel, the general and ARD setting are assumed.
+        self.ARD_kernel = True
+        self.general_kernel = True
+        if self.L <= 1:
+            raise ValueError('L wrong for simple kernel (expected {}, got {}, and K is {})'.format(
+                'more than 1', self.L, self.K))
+        if self.M <= 1:
+            raise ValueError('M wrong for simple kernel (expected {}, got {})'.format('more than 1', self.M))
+        if self.s is None:
+            raise TypeError('You must supply an s for the general kernel (expected {}, got {})'.format(
+                float, type(self.s)))
+        # In the ARD case (see 2005 paper)
+        self.D = self.M
+        # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4)
+        self.K = self.L
+
+    def _kernel(self, X_i, X_j):
+        """For internal use only, since not scaled by s. Get the ij'th k elements of Cs, given the X_i and X_j."""
+        return np.exp(-1. * np.sum(np.multiply(self.varphi, np.power(X_i - X_j, 2)), axis=1))
+
+    def kernel(self, k, X_i, X_j):
+        """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
+        return self.s * np.exp(-1. * np.power(distance.minkowski(X_i, X_j, w=self.varphi[k, :]), 2))
+
+    def kernel_matrix(self, X1, X2):
+        """
+        Generate Gaussian kernel matrices as a numpy array.
+
+        This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
+        quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
+
+        e.g.
+        for k in range(K):
+            Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
+
+        :param X1: (N1, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param X2: (N2, D) dimensional numpy.ndarray which holds the feature vectors.
+        :param varphi: (K, D) dimensional numpy.ndarray which holds the
+            covariance hyperparameters.
+        :returns Cs: A (K, N1, N2) array of K (N1, N2) covariance matrices.
+        """
+        # TODO: this has been tested (scratch 4), but best to make sure it works
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        Cs = np.empty((self.K, N1, N2))
+        for k in range(self.K):
+            Cs[k, :, :] = np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi[k, :]), 2))
+        return self.s * Cs
+        # # Superseded
+        # # The general covariance function has a different length scale for each dimension.
+        # for k in range(self.K):
+        #     # for each x_i
+        #     C = -1. * np.ones((N1, N2))
+        #     for i in range(N1):
+        #         for j in range(N2):
+        #             C[i, j] = self.kernel(k, X1[i], X2[j])
+        #     Cs.append(C)
+        # return np.array(Cs)
+
+    def kernel_vector_matrix(self, x_new, X):
+        """
+        Generate Gaussian kernel vectors as a numpy array.
+
+        This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
+        quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
+
+        e.g.
+        for k in range(K):
+            Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
+
+        :param x_new: (1, D) dimensional numpy.ndarray of the new feature vector.
+        :param X: (N, D) dimensional numpy.ndarray which holds the data feature vectors.
+        :returns Cs_new: A (K, N) array of K (N,) covariance vectors.
+        """
+        # TODO: this has been tested (scratch 4), but best to make sure it works
+        N = np.shape(X)[0]
+        Cs_new = np.empty((self.K, N))
+        x = x_new[0]
+        for i in range(N):
+            Cs_new[:, i] = self._kernel(X[i], x)
+        return self.s * Cs_new
+        # # Superceded
+        # # The general covariance function has a different length scale for each dimension.
+        # for k in range(K):
+        #     C_new = -1. * np.ones(N)
+        #     for i in range(N):
+        #         C_new[i] = self.kernel(k, X[i], x_new[0])
+        #     Cs_new.append(C_new)
+        # return np.array(Cs_new)
 
     def kernel_matrices(self, X1, X2, varphis):
         """
