@@ -541,7 +541,7 @@ class GibbsMultinomialOrderedGP(Sampler):
         :arg int first_step: The first step. Useful for burn in algorithms.
         """
         m, y, gamma_prev, m_samples, y_samples, gamma_samples = self._sample_initiate(m_0, y_0, gamma_0)
-        precision_gamma = 1./ sigma_gamma
+        precision_gamma = 1. / sigma_gamma
         i_gamma_k = np.add(self.t_train, 1)
         i_gamma_k_minus = self.t_train
         for _ in trange(first_step, first_step + steps,

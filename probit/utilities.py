@@ -3,6 +3,55 @@ import numpy as np
 from scipy.stats import norm, expon
 
 
+def vectorised_multiclass_unnormalised_log_multivariate_normal_pdf(Ms, mean=None, covs=None):
+    """
+    Evaluate a vector of log multivariate normal pdf in a numerically stable way.
+
+    :arg Ms: (N, K)
+    :arg int n_samples: n_samples
+    :arg covs: (n_samples, K, N, N)
+    :return: (n_samples, K)
+    """
+    if covs is None:
+        raise ValueError("Must provide sample covariance matrices ({} was provided)".format(covs))
+    if mean is not None:
+        Ms = Ms - mean
+    Ls = np.linalg.cholesky(covs)
+    L_invs = np.linalg.inv(Ls)
+    K_invs = L_invs.transpose((0, 1, 3, 2)) @ L_invs  # (n_samples, K, N, N)
+    half_log_det_covs = np.trace(np.log(Ls), axis1=2, axis2=3)
+    # A stacked ms.T @ K_inv @ ms
+    out = np.einsum('ijkl, lj->ijk', K_invs, Ms)
+    out = np.einsum('ijk, kj->ij', out, Ms)
+    return -1. * half_log_det_covs - 0.5 * out  # ((n_samples, K, N, N) @ (N, )) @ (N,)
+
+
+def vectorised_unnormalised_log_multivariate_normal_pdf(ms, mean=None, covs=None):
+    """Evaluate a vector of log multivariate normal pdf in a numerically stable way."""
+    if covs is None:
+        raise ValueError("Must provide sample covariance matrices ({} was provided)".format(covs))
+    if mean is not None:
+        ms = ms - mean
+    Ls = np.linalg.cholesky(covs)
+    L_invs = np.linalg.inv(Ls)
+    K_invs = L_invs.transpose((0, 2, 1)) @ L_invs
+    half_log_det_covs = np.trace(np.log(Ls), axis1=1, axis2=2)
+    return -1. * half_log_det_covs - 0.5 * (K_invs @ ms) @ ms
+
+
+def unnormalised_log_multivariate_normal_pdf(x, mean=None, cov=None):
+    """Evaluate the multivariate normal pdf in a numerically stable way."""
+    if cov is None:
+        cov = np.eye(len(x))
+    if mean is not None:
+        x = x - mean
+    L = np.linalg.cholesky(cov)
+    L_inv = np.linalg.inv(L)
+    K_inv = L_inv.T @ L_inv
+    half_log_det_cov = np.trace(np.log(L))
+    return -1. * half_log_det_cov - 0.5 * x.T @ K_inv @ x
+
+
 def unnormalised_multivariate_normal_pdf(x, mean=None, cov=None):
     """Evaluate the multivariate normal pdf in a numerically stable way."""
     if cov is None:
@@ -12,8 +61,7 @@ def unnormalised_multivariate_normal_pdf(x, mean=None, cov=None):
         L = np.linalg.cholesky(cov)
         L_inv = np.linalg.inv(L)
         K_inv = L_inv.T @ L_inv
-        return np.exp( -0.5 * np.log(np.linalg.det(cov)) - 0.5 * x @ K_inv @ x)
-        #return np.linalg.det(cov)**-0.5 * np.exp(-0.5 * np.dot(x, np.linalg.solve(cov, x)))
+        return np.exp(-0.5 * np.log(np.linalg.det(cov)) - 0.5 * x @ K_inv @ x)
     elif mean is not None:
         return np.exp(-0.5 * np.log(np.linalg.det(cov)) - 0.5 * (x - mean).T * np.linalg.solve(cov, (x - mean)))
 
@@ -43,6 +91,7 @@ def sample_varphis(psi, n_samples):
     :type psi: :class:`np.ndarray`
     :arg int n_samples: The number of samples for the importance sample.
     """
+    # scale = psi
     scale = 1. / psi
     shape = np.shape(psi)
     if shape == ():
@@ -110,9 +159,11 @@ def matrix_of_differences(m_n, K):  # TODO: superseded by matrix_of_differencess
     return difference
 
 
-def matrix_of_VB_differences(m_n, K, t_n):  # TODO: superseded by matrix_of_VB_differencess
+def matrix_of_VB_differences(m_n, K, t_n):
     """
     Get a matrix of differences of the vector m.
+
+    Superseded by matrix_of_VB_differencess, but is still needed in the non-vectorised case for Sparse GP regression.
 
     :arg m: is an (K, 1) array filled with m_k^{new, s} where s is the sample, and k is the class indicator.
     :type m: :class:`numpy.ndarray`

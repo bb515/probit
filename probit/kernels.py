@@ -14,7 +14,7 @@ class Kernel(ABC):
     """
 
     @abstractmethod
-    def __init__(self, varphi, s, sigma=None, tau=None):
+    def __init__(self, varphi, scale, sigma=None, tau=None):
         """
         Create an :class:`Kernel` object.
 
@@ -23,7 +23,7 @@ class Kernel(ABC):
         :arg :class:`numpy.ndarray` varphi: The kernel lengthscale hyperparameters as an (L, M) numpy array. Note that
             L=K in the most general case, but it is more common to have a single and shared GP kernel over all classes,
             in which case L=1.
-        :arg :class: float s: The kernel scale hyperparameters as a numpy array.
+        :arg :class: float scale: The kernel scale hyperparameters as a numpy array.
         :arg sigma: The (K, ) array or float or None (location/ scale) hyper-hyper-parameters that define psi prior.
             Not to be confused with `Sigma`, which is a covariance matrix. Default None.
         :type sigma: float or None or :class:`numpy.ndarray`
@@ -61,7 +61,7 @@ class Kernel(ABC):
             L = 1
             M = 1
             varphi = np.float64(varphi)
-            s = np.float64(s)
+            scale = np.float64(scale)
         else:
             raise TypeError(
                 "Type of varphi is not supported "
@@ -70,7 +70,7 @@ class Kernel(ABC):
         self.L = L
         self.M = M
         self.varphi = varphi
-        self.s = s
+        self.scale = scale
         if sigma is not None:
             if tau is not None:
                 self.sigma = sigma
@@ -89,7 +89,7 @@ class Kernel(ABC):
         """
         Return the kernel given two input vectors
 
-        This method should be implemented in every concrete integrator.
+        This method should be implemented in every concrete kernel.
         """
 
     # @abstractmethod
@@ -97,7 +97,7 @@ class Kernel(ABC):
     #     """
     #     Return the kernel vector given an input matrix and input vectors
     #
-    #     This method should be implemented in every concrete integrator.
+    #     This method should be implemented in every concrete kernel.
     #     """
 
     @abstractmethod
@@ -105,7 +105,7 @@ class Kernel(ABC):
         """
         Return the kernel given two input vectors
 
-        This method should be implemented in every concrete integrator.
+        This method should be implemented in every concrete kernel.
         """
 
 
@@ -128,13 +128,13 @@ class SEIso(Kernel):
             raise ValueError('L wrong for binary kernel (expected {}, got {}, and K is {})'.format(1, self.L, self.K))
         if self.M != 1:
             raise ValueError('M wrong for binary kernel (expected {}, got {})'.format(1, self.M))
-        if self.s is None:
+        if self.scale is None:
             raise TypeError(
-                'You must supply an s for the simple kernel (expected {}, got {})'.format(float, type(self.s)))
+                'You must supply a scale for the simple kernel (expected {}, got {})'.format(float, type(self.scale)))
 
     def kernel(self, X_i, X_j):
         """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
-        return self.s * np.exp(-1. * self.varphi * distance.sqeuclidean(X_i, X_j))
+        return self.scale * np.exp(-1. * self.varphi * distance.sqeuclidean(X_i, X_j))
 
     def kernel_matrix(self, X1, X2):
         """ Generate Gaussian kernel matrix efficiently using scipy's distance matrix function.
@@ -142,8 +142,8 @@ class SEIso(Kernel):
         :param X1: are the datum.
         :param X2: usually the same as X1 are the datum.
         """
-        distance_mat = distance_matrix(X1, X2)
-        return np.multiply(self.s, np.exp(-1. * self.varphi * pow(distance_mat, 2)))
+        distance_mat = distance_matrix(X1, X2)  # TODO: This only works for more than 1 dimensions
+        return np.multiply(self.scale, np.exp(-1. * self.varphi * pow(distance_mat, 2)))
 
     def kernel_vector_matrix(self, x_new, X):
         """
@@ -157,7 +157,7 @@ class SEIso(Kernel):
         X_new = np.tile(x_new, (N, 1))
         # This is probably horribly inefficient
         D = distance.cdist(X_new, X)[0]
-        return np.multiply(self.s, np.exp(-1. * self.varphi * pow(D, 2)))
+        return np.multiply(self.scale, np.exp(-1. * self.varphi * pow(D, 2)))
 
     def kernel_matrix_matrix(self, X_new, X):
         """
@@ -214,9 +214,9 @@ class SEARDMultinomial(Kernel):
                 'more than 1', self.L, self.K))
         if self.M <= 1:
             raise ValueError('M wrong for simple kernel (expected {}, got {})'.format('more than 1', self.M))
-        if self.s is None:
-            raise TypeError('You must supply an s for the general kernel (expected {}, got {})'.format(
-                float, type(self.s)))
+        if self.scale is None:
+            raise TypeError('You must supply a scale for the general kernel (expected {}, got {})'.format(
+                float, type(self.scale)))
         # In the ARD case (see 2005 paper)
         self.D = self.M
         # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4)
@@ -224,7 +224,7 @@ class SEARDMultinomial(Kernel):
 
     def kernel(self, k, X_i, X_j):  # TODO: How does this extra argument effect the code? Probably extra outer loops
         """Get the ij'th element of C_k, given the X_i and X_j, k."""
-        return self.s * np.exp(-1. * np.sum([self.varphi[k, d] * np.power(
+        return self.scale * np.exp(-1. * np.sum([self.varphi[k, d] * np.power(
             (X_i[d] - X_j[d]), 2) for d in range(self.D)]))
 
     def kernel_matrix(self, X1, X2):
@@ -322,22 +322,22 @@ class SEARDMultinomialTemp(Kernel):
 
     def __init__(self, *args, **kwargs):
         """
-        Create an :class:`EulerCL` integrator object.
+        Create an :class:`SEARDMultinomial` kernel object.
 
-        :returns: An :class:`EulerCL` object
+        :returns: An :class:`SEARDMultinomial` object
         """
         super().__init__(*args, **kwargs)
         # For this kernel, the general and ARD setting are assumed.
         self.ARD_kernel = True
         self.general_kernel = True
         if self.L <= 1:
-            raise ValueError('L wrong for simple kernel (expected {}, got {}, and K is {})'.format(
-                'more than 1', self.L, self.K))
+            raise ValueError('L wrong for general kernel (expected {}, got {})'.format(
+                'more than 1', self.L))
         if self.M <= 1:
-            raise ValueError('M wrong for simple kernel (expected {}, got {})'.format('more than 1', self.M))
-        if self.s is None:
-            raise TypeError('You must supply an s for the general kernel (expected {}, got {})'.format(
-                float, type(self.s)))
+            raise ValueError('M wrong for general kernel (expected {}, got {})'.format('more than 1', self.M))
+        if self.scale is None:
+            raise TypeError('You must supply a scale for the general kernel (expected {}, got {})'.format(
+                float, type(self.scale)))
         # In the ARD case (see 2005 paper)
         self.D = self.M
         # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4)
@@ -349,7 +349,7 @@ class SEARDMultinomialTemp(Kernel):
 
     def kernel(self, k, X_i, X_j):
         """Get the ij'th element of C, given the X_i and X_j, indices and hyper-parameters."""
-        return self.s * np.exp(-1. * np.power(distance.minkowski(X_i, X_j, w=self.varphi[k, :]), 2))
+        return self.scale * np.exp(-1. * np.power(distance.minkowski(X_i, X_j, w=self.varphi[k, :]), 2))
 
     def kernel_matrix(self, X1, X2):
         """
@@ -374,7 +374,7 @@ class SEARDMultinomialTemp(Kernel):
         Cs = np.empty((self.K, N1, N2))
         for k in range(self.K):
             Cs[k, :, :] = np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi[k, :]), 2))
-        return self.s * Cs
+        return self.scale * Cs
         # # Superseded
         # # The general covariance function has a different length scale for each dimension.
         # for k in range(self.K):
@@ -407,7 +407,7 @@ class SEARDMultinomialTemp(Kernel):
         x = x_new[0]
         for i in range(N):
             Cs_new[:, i] = self._kernel(X[i], x)
-        return self.s * Cs_new
+        return self.scale * Cs_new
         # # Superceded
         # # The general covariance function has a different length scale for each dimension.
         # for k in range(K):
