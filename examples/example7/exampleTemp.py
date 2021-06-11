@@ -8,7 +8,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.samplers import GibbsMultinomialOrderedGP
+from probit.samplers import GibbsMultinomialOrderedGPTemp
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
@@ -114,15 +114,24 @@ tau = 10e-6
 
 kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
 
-argument = "diabetes_quantile"
+#argument = "diabetes_quantile"
+argument = "stocks_quantile"
 
 if argument == "diabetes_quantile":
-    K = 6
+    K = 5
     D = 2
-    gamma_0 = np.array([-np.inf, 0.0, 3.8, 4.5, 5.0, 5.6, np.inf])
+    gamma_0 = np.array([np.NINF, 3.8, 4.5, 5.0, 5.6, np.inf])
     data = np.load("data_diabetes_train.npz")
-    data_test = np.load("data_diabetes_test.npz")
-    data_continuous = np.load("data_diabetes_continuous.npz")
+    # data_test = np.load("data_diabetes_test.npz")  # SS
+    # data_continuous = np.load("data_diabetes_continuous.npz")
+    data = np.load(write_path / "/data/5bin/diabetes.data.npz")
+    data_continuous = np.load("/data/continuous/diabetes.DATA.npz")
+elif argument == "stocks_quantile":
+    K = 5
+    D = 9
+    gamma_0 = np.array([np.NINF, 1.0, 2.0, 3.0, 4.0, np.inf])
+    data = np.load(write_path / "./data/5bin/stock.npz")
+    data_continuous = np.load(write_path / "./data/continuous/stock.npz")
 elif argument == "tertile":
     K = 3
     D = 1
@@ -142,11 +151,15 @@ elif argument == "septile":
     data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
 
-X = data["X"]
-t = data["t"]
+X = data["X_train"][0]
+t = data["t_train"][0]
 
-X_test = data_test["X"]
-t_test = data_test["t"]
+X_test = data["X_test"][0]
+t_test = data["t_test"][0]
+# X = data["X_train"]
+# t = data["t_test"]
+# X_test = data["X_test"]
+# t_test = data["t_test"]
 
 X_true = data_continuous["X"]
 Y_true = data_continuous["y"]  # this is not going to be the correct one
@@ -183,7 +196,7 @@ print(y_true)
 # print(Y_true_k[1][-1], Y_true_k[2][0], "cutpoint 2")
 
 # Initiate classifier
-gibbs_classifier = GibbsMultinomialOrderedGP(K, X, t, kernel)
+gibbs_classifier = GibbsMultinomialOrderedGPTemp(K, X, t, kernel)
 steps_burn = 100
 steps = 5000
 y_0 = t.flatten()
@@ -219,6 +232,9 @@ plt.show()
 if argument == "diabetes_quantile":
     m_0 = y_true
     y_0 = y_true
+elif argument == "stocks_quantile":
+    m_0 = y_true
+    y_0 = y_true
 elif argument == "tertile":
     m_0 = y_0
 elif argument == "septile":
@@ -238,7 +254,7 @@ m_tilde = np.mean(m_samples, axis=0)
 y_tilde = np.mean(y_samples, axis=0)
 gamma_tilde = np.mean(gamma_samples, axis=0)
 
-if argument == "diabetes_quantile":
+if argument == "diabetes_quantile" or argument == "stocks_quantile":
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     ax[0].plot(gamma_samples[:, 1])
     ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)

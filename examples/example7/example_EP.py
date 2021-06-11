@@ -8,7 +8,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.estimators import VBMultinomialOrderedGP, VBMultinomialOrderedGPTemp
+from probit.estimators import EPMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
@@ -24,8 +24,8 @@ def split(list, K):
     return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
 
 
-# argument = "diabetes_quantile"
-argument = "stocks_quantile"
+argument = "diabetes_quantile"
+# argument = "stocks_quantile"
 
 print("here")
 if argument == "diabetes_quantile":
@@ -172,8 +172,7 @@ def outer_loops():
             print(x_new)
             kernel = SEIso(x_new[0], x_new[1], sigma=sigma, tau=tau)
             # Initiate classifier
-            variational_classifier = VBMultinomialOrderedGPTemp(X_train, t_train, kernel)
-            #variational_classifier = VBMultinomialOrderedGP(X, t, kernel)
+            variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
             steps = 50
             y_0 = Y_true.flatten()
             m_0 = y_0
@@ -357,8 +356,7 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     print("two")
-    variational_classifier = VBMultinomialOrderedGPTemp(X_train, t_train, kernel)
-    #variational_classifier = VBMultinomialOrderedGP(X, t, kernel)
+    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     print("three")
     steps = 50
     y_0 = Y_true.flatten()

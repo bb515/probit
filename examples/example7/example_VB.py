@@ -24,20 +24,27 @@ def split(list, K):
     return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
 
 
-argument = "diabetes_quantile"
+# argument = "diabetes_quantile"
+argument = "stocks_quantile"
 
+print("here")
 if argument == "diabetes_quantile":
     K = 5
-    #K = 6
     D = 2
     # TODO: vary these hyperparameters. One by one, see what happens to the lower bound.
     #gamma_0 = np.array([-np.inf, 1.0, 2.0, 3.0, 4.0, np.inf])
-    gamma_0 = np.array([-np.inf, 1.0, 4.5, 5.0, 5.6, np.inf])
-    # gamma_0 = np.array([-np.inf, 0.0, 3.8, 4.5, 5.0, 5.6, np.inf])
-    data = np.load("data_diabetes.npz")
-    # data = np.load("data_diabetes_train.npz")
-    # data_test = np.load("data_diabetes_test.npz")
-    data_continuous = np.load("data_diabetes_continuous.npz")
+    #gamma_0 = np.array([-np.inf, 1.0, 4.5, 5.0, 5.6, np.inf])
+    gamma_0 = np.array([-np.inf, 3.8, 4.5, 5.0, 5.6, np.inf])
+    # data = np.load("data_diabetes.npz")
+    # data_continuous = np.load("data_diabetes_continuous.npz")
+    data = np.load(write_path / "/data/5bin/diabetes.data.npz")
+    data_continuous = np.load("/data/continuous/diabetes.DATA.npz")
+elif argument == "stocks_quantile":
+    K = 5
+    D = 9
+    gamma_0 = np.array([np.NINF, 1.0, 2.0, 3.0, 4.0, np.inf])
+    data = np.load(write_path / "./data/5bin/stock.npz")
+    data_continuous = np.load(write_path / "./data/continuous/stock.npz")
 elif argument == "tertile":
     K = 3
     D = 1
@@ -57,7 +64,7 @@ elif argument == "septile":
     data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
 
-if argument == "diabetes_quantile":
+if argument == "diabetes_quantile" or argument == "stocks_quantile":
     X_trains = data["X_train"]
     t_trains = data["t_train"]
     X_tests = data["X_test"]
@@ -97,7 +104,7 @@ if argument == "diabetes_quantile":
         Y_trues.append(y)
     Y_trues = np.array(Y_trues)
 
-if argument != "diabetes_quantile":
+if argument not in ["diabetes_quantile", "stocks_quantile"]:
     X_k = data["X_k"]  # Contains (256, 7) array of binned x values
     #Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
     X = data["X"]  # Contains (1792,) array of x values
@@ -129,9 +136,11 @@ def outer_loops():
     avg_bounds_Z = []
     avg_zero_one_Z = []
     avg_predictive_likelihood_Z = []
+    avg_mean_abs_Z = []
     max_bounds = []
     max_zero_ones = []
     max_predictive_likelihoods = []
+    max_mean_abss = []
 
     for split in range(20):
         X_train = X_trains[split, :, :]
@@ -144,7 +153,7 @@ def outer_loops():
         lower_x2 = -1
         upper_x1 = 0
         upper_x2 = 6
-        N = 30
+        N = 20
         x1 = np.logspace(lower_x1, upper_x1, N)
         x2 = np.logspace(lower_x2, upper_x2, N)
         xx, yy = np.meshgrid(x1, x2)
@@ -156,6 +165,7 @@ def outer_loops():
 
         bounds_Z = []
         zero_one_Z = []
+        mean_abs_Z = []
         predictive_likelihood_Z = []
 
         for x_new in X_new:
@@ -186,23 +196,33 @@ def outer_loops():
             mean_zero_one = zero_one * 1
             mean_zero_one = np.sum(mean_zero_one) / len(t_test)
             zero_one_Z.append(mean_zero_one)
+
+            # Other error
+            mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
+            mean_abs_Z.append(mean_absolute_error)
         avg_bounds_Z.append(bounds_Z)
         avg_zero_one_Z.append(zero_one_Z)
         avg_predictive_likelihood_Z.append(predictive_likelihood_Z)
+        avg_mean_abs_Z.append(mean_abs_Z)
 
         bounds_Z = np.array(bounds_Z)
         predictive_likelihood_Z = np.array(predictive_likelihood_Z)
         zero_one_Z = np.array(zero_one_Z)
+        mean_abs_Z = np.array(mean_abs_Z)
+
 
         max_bound = np.max(bounds_Z)
         max_predictive_likelihood = np.max(predictive_likelihood_Z)
         max_zero_one = np.max(zero_one_Z)
+        max_mean_abs = np.min(mean_abs_Z)
         max_bounds.append(max_bound)
         max_zero_ones.append(max_zero_one)
+        max_mean_abss.append(max_mean_abs)
         max_predictive_likelihoods.append(max_predictive_likelihood)
         argmax_bound = np.argmax(bounds_Z)
         argmax_predictive_likelihood = np.argmax(predictive_likelihood_Z)
         argmax_zero_one = np.argmax(zero_one_Z)
+        # TODO
 
         bounds_Z = bounds_Z.reshape((N, N))
         predictive_likelihood_Z = predictive_likelihood_Z.reshape((N, N))
@@ -239,28 +259,50 @@ def outer_loops():
         # plt.show()
 
     avg_max_bound = np.average(np.array(max_bounds))
+    std_max_bound = np.std(np.array(max_bounds))
     avg_max_predictive_likelihood = np.average(np.array(max_predictive_likelihoods))
+    std_max_predictive_likelihood = np.std(np.array(max_predictive_likelihoods))
     avg_max_zero_one = np.average(np.array(max_zero_ones))
-    print(avg_max_bound, "average max bound")
-    print(avg_max_predictive_likelihood, "average max predictive likelihood")
-    print(avg_max_zero_one, "average max zero one")
+    std_max_zero_one = np.std(np.array(max_zero_ones))
+    avg_max_mean_abs = np.average(np.array(max_mean_abss))
+    std_max_mean_abs = np.std(np.array(max_mean_abss))
+    print(avg_max_bound, std_max_bound, "average max bound, std")
+    print(avg_max_predictive_likelihood, std_max_predictive_likelihood, "average max predictive likelihood, std")
+    print(avg_max_zero_one, std_max_zero_one, "average max zero one, std")
+    print(avg_max_mean_abs, std_max_mean_abs, "average max mean abs, std")
 
     avg_bounds_Z = np.array(avg_bounds_Z)
     avg_predictive_likelihood_Z = np.array(avg_predictive_likelihood_Z)
     avg_zero_one_Z = np.array(avg_zero_one_Z)
+    avg_mean_abs_Z = np.array(avg_mean_abs_Z)
     avg_bounds_Z = np.average(avg_bounds_Z, axis=0)
     avg_predictive_likelihood_Z = np.average(avg_predictive_likelihood_Z, axis=0)
     avg_zero_one_Z = np.average(avg_zero_one_Z, axis=0)
+    avg_mean_abs_Z = np.average(avg_mean_abs_Z, axis=0)
+
+    std_max_bound = np.std(np.array(avg_bounds_Z))
+    std_max_predictive_likelihood = np.std(np.array(avg_predictive_likelihood_Z))
+    std_max_zero_one = np.std(np.array(avg_zero_one_Z))
+    std_max_mean_abs = np.std(np.array(avg_mean_abs_Z))
+
     argmax_bound = np.argmax(avg_bounds_Z)
     argmax_predictive_likelihood = np.argmax(avg_predictive_likelihood_Z)
     argmax_zero_one = np.argmax(avg_zero_one_Z)
-    print(max_bound, "Max avg bound", X_new[argmax_bound], "parameters")
-    print(max_predictive_likelihood, "Max avg predictive likelihood", X_new[argmax_predictive_likelihood], "parameters")
-    print(max_zero_one, "Max avg zero one", X_new[argmax_zero_one], "parameters")
+    argmax_mean_abs = np.argmax(avg_mean_abs_Z)
+
+    max_bound = np.max(avg_bounds_Z)
+    max_predictive_likelihood = np.max(avg_predictive_likelihood_Z)
+    max_zero_one = np.max(avg_zero_one_Z)
+    max_mean_abs = np.min(avg_mean_abs_Z)
+    print(max_bound, std_max_bound, "Max avg bound, std", X_new[argmax_bound], "parameters")
+    print(max_predictive_likelihood, std_max_predictive_likelihood, "Max avg predictive likelihood, std", X_new[argmax_predictive_likelihood], "parameters")
+    print(max_zero_one, std_max_zero_one, "Max avg zero one, std", X_new[argmax_zero_one], "parameters")
+    print(max_mean_abs, std_max_mean_abs, "Max avg mean abs, std", X_new[argmax_mean_abs], "parameters")
 
     avg_bounds_Z = avg_bounds_Z.reshape((N, N))
     avg_predictive_likelihood_Z = avg_predictive_likelihood_Z.reshape((N, N))
     avg_zero_one_Z = avg_zero_one_Z.reshape((N, N))
+    avg_mean_abs_Z = avg_mean_abs_Z.reshape((N, N))
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_predictive_likelihood_Z)
     plt.scatter(X_new[argmax_predictive_likelihood, 0], X_new[argmax_predictive_likelihood, 1], c='r')
@@ -291,22 +333,39 @@ def outer_loops():
     plt.title("Contour plot - mean zero-one accuracy")
     plt.show()
 
-def test_plots(X_test, X_train, t_test, t_train):
+    fig, axs = plt.subplots(1, figsize=(6, 6))
+    plt.contourf(x1, x2, avg_mean_abs_Z)
+    plt.scatter(X_new[argmax_zero_one, 0], X_new[argmax_zero_one, 0], c='r')
+    axs.set_xscale('log')
+    axs.set_yscale('log')
+    plt.xlabel(r"$\log{\varphi}$", fontsize=16)
+    plt.ylabel(r"$\log{s}$", fontsize=16)
+    plt.title("Contour plot - mean absolute error accuracy")
+    plt.show()
+
+def test_plots(X_test, X_train, t_test, t_train, Y_true):
     grid = np.ogrid[0:len(X_test)]
-    varphi = 10e-4
-    scale = 20e5
+    varphi = 1.83298071e-05
+    scale = 3.79269019e+01
+    #varphi = 10e-5
+    #scale = 2.0
+    #varphi = 10e-4
+    #scale = 20e5
     sigma = 10e-6
     tau = 10e-6
+    print("one")
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
+    print("two")
     variational_classifier = VBMultinomialOrderedGPTemp(X_train, t_train, kernel)
     #variational_classifier = VBMultinomialOrderedGP(X, t, kernel)
+    print("three")
     steps = 50
     y_0 = Y_true.flatten()
     m_0 = y_0
     gamma, m_tilde, Sigma_tilde, C_tilde, y_tilde, varphi_tilde, bound, containers = variational_classifier.estimate(
-        m_0, gamma_0, steps, varphi_0=varphi, fix_hyperparameters=True, write=True)
-
+        m_0, gamma_0, steps, varphi_0=varphi, fix_hyperparameters=False, write=True)
+    print("four")
     ms, ys, varphis, psis, bounds = containers
 
     plt.title("variational lower bound")
@@ -322,17 +381,18 @@ def test_plots(X_test, X_train, t_test, t_train):
     plt.title(r"$\phi$", fontsize=16)
     plt.show()
 
-    if argument == "diabetes_quantile":
+    if argument == "diabetes_quantile" or argument == "stocks_quantile":
         lower_x1 = 0.0
         upper_x1 = 16.0
         lower_x2 = -30
         upper_x2 = 0
         N = 60
+
         x1 = np.linspace(lower_x1, upper_x1, N)
         x2 = np.linspace(lower_x2, upper_x2, N)
         xx, yy = np.meshgrid(x1, x2)
         X_new = np.dstack((xx, yy))
-        X_new = X_new.reshape((N * N, D))
+        X_new = X_new.reshape((N * N, 2))
 
         # Test
         Z = variational_classifier.predict(gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test, vectorised=True)  # (n_test, K)
@@ -356,15 +416,16 @@ def test_plots(X_test, X_train, t_test, t_train):
         for i in range(K):
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
-            plt.scatter(X[np.where(t == i)][:, 0], X[np.where(t == i)][:, 1], color='red')
-            plt.scatter(X[np.where(t == i + 1)][:, 0], X[np.where(t == i + 1)][:, 1], color='blue')
+            plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
+            plt.scatter(X_test[np.where(t_test == i)][:, 0], X_test[np.where(t_test == i)][:, 1], color='blue')
+            #plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
 
             # plt.xlim(0, 2)
             # plt.ylim(0, 2)
             plt.legend()
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
-            plt.title("Contour plot - Gibbs")
+            plt.title("Contour plot - Variational")
             plt.show()
 
     elif argument == "tertile":
@@ -455,6 +516,6 @@ def test_plots(X_test, X_train, t_test, t_train):
             plt.scatter(X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
         plt.show()
 
-#test_plots()
-outer_loops()
+test_plots(X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
+#outer_loops()
 
