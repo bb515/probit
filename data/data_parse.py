@@ -241,10 +241,13 @@ def read_all_datasets(path, list_of_writepaths, folds=20):
         # print(np.shape(X_5trains))
         # print(np.shape(t_5trains))
         print("Done", write_path)
+        print("Test set")
         print(np.shape(X_10tests))
         print(np.shape(t_10tests))
+        print("Train set")
         print(np.shape(X_10trains))
         print(np.shape(t_10trains))
+        assert 0
         #np.savez(path / (write_path + ".npz"), X_test=X_5tests, t_test=t_5tests, X_train=X_5trains, t_train=t_5trains)
         np.savez(path / (write_path + ".npz"), X_test=X_10tests, t_test=t_10tests, X_train=X_10trains, t_train=t_10trains)
 
@@ -271,5 +274,5 @@ def read_all_continuous_datasets(path, list_of_writepaths):
 
 path = pathlib.Path()
 
-# read_all_datasets(path, list_of_10bins_write_paths)
-read_all_continuous_datasets(path, list_of_write_paths)
+read_all_datasets(path, list_of_10bins_write_paths)
+# read_all_continuous_datasets(path, list_of_write_paths)

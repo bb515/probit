@@ -1,7 +1,7 @@
 """Utility functions."""
 import numpy as np
 from scipy.stats import norm, expon
-
+import math
 
 def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     """
@@ -18,17 +18,19 @@ def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     """
     phi1 = 1.0
     phi2 = 0.0
-    func = norm.pdf(b, loc=mean, scale=sigma)
-    if t >= 2:
-        z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+    func1 = norm.pdf(b, loc=mean, scale=sigma)
+    if t >= 1:
+        z2 = (gamma[t] - b) / np.sqrt(noise_variance)
         phi2 = norm.cdf(z2)
-    if t < K - 1:
-        z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+    if t <= K - 2:
+        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
         phi1 = norm.cdf(z1)
     prob = phi1 - phi2
     if prob < EPS*EPS:
         prob = EPS*EPS
-    func = func * prob
+    func = func1 * np.log(prob)
+    if math.isnan(func):
+        raise ValueError("fft1 {} {} {} {} {}".format(t, gamma[t], prob, func, func1))
     return func
 
 
@@ -62,7 +64,7 @@ def fromb_t1(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
         p = 0.0
         for i in range(n):
             x = a + (i + 0.5) * h
-            p = p + fromb_fft1(x, posterior_mean, posterior_std, t, K, gamma, noise_variance, EPS)
+            p += fromb_fft1(x, posterior_mean, posterior_std, t, K, gamma, noise_variance, EPS)
         p = (y[0] + h * p) / 2.0
         s = 1.0
         for k in range(1, m + 1):
@@ -93,34 +95,36 @@ def fromb_fft2(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
     """
     phi1 = 1.0
     phi2 = 0.0
-    func = norm.pdf(b, loc=mean, scale=sigma)
-    if t >= 2:
-        z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+    func1 = norm.pdf(b, loc=mean, scale=sigma)
+    if t >= 1:
+        z2 = (gamma[t] - b) / np.sqrt(noise_variance)
         phi2 = norm.cdf(z2)
-    if t <= K - 1:
-        z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+    if t <= K - 2:
+        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
         phi1 = norm.cdf(z1)
     prob = phi1 - phi2
     if prob < EPS*EPS:
         prob = EPS*EPS
-    func = func / prob * norm.pdf(posterior_mean, loc=gamma[t - 2], scale=np.sqrt(
+    func = func1 / prob * norm.pdf(posterior_mean, loc=gamma[t], scale=np.sqrt(
         noise_variance + posterior_covariance))
+    if math.isnan(func):
+        raise ValueError("{} {} {} {} {} ({} {} {})".format(t, gamma[t], prob, func, func1, b, mean, sigma))
     return func
 
 
 def fromb_t2(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
+    :arg posterior_mean: The approximate posterior mean evaluated at the datapoint. (pdf inside the integrand)
+    :arg posterior_covariance: The approximate posterior marginal variance.
+    :arg t: The target for the datapoint
+    :arg K: The number of ordinal classes.
     :param noise_variance: A noise variance for the likelihood.
     :param EPS: A machine tolerance to be used.
     :return:
     """
-    mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t - 2]) / (
+    if t == 0:
+        return 0
+    mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t]) / (
             noise_variance + posterior_covariance)
     sigma = np.sqrt((noise_variance * posterior_covariance) / (noise_variance + posterior_covariance))
     y = np.zeros((20,))
@@ -169,18 +173,20 @@ def fromb_fft3(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
     """
     phi1 = 1.0
     phi2 = 0.0
-    func = norm.pdf(b, loc=mean, scale=sigma)
-    if t >= 2:
-        z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+    func1 = norm.pdf(b, loc=mean, scale=sigma)
+    if t >= 1:
+        z2 = (gamma[t] - b) / np.sqrt(noise_variance)
         phi2 = norm.cdf(z2)
-    if t <= K - 1:
-        z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+    if t <= K - 2:
+        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
         phi1 = norm.cdf(z1)
     prob = phi1 - phi2
     if prob < EPS*EPS:
         prob = EPS*EPS
-    func = func / prob * norm.pdf(posterior_mean, loc=gamma[t - 1], scale=np.sqrt(
+    func = func1 / prob * norm.pdf(posterior_mean, loc=gamma[t + 1], scale=np.sqrt(
         noise_variance + posterior_covariance))
+    if math.isnan(func):
+        raise ValueError("{} {} {} {} {}".format(t, gamma[t], prob, func, func1))
     return func
 
 
@@ -196,7 +202,9 @@ def fromb_t3(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
     :param EPS: A machine tolerance to be used.
     :return:
     """
-    mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t - 1]) / (
+    if t == K - 1:
+        return 0
+    mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t + 1]) / (
             noise_variance + posterior_covariance)
     sigma = np.sqrt((noise_variance * posterior_covariance) / (noise_variance + posterior_covariance))
     y = np.zeros((20,))
@@ -246,17 +254,17 @@ def fromb_fft4(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
     phi1 = 1.0
     phi2 = 0.0
     func = norm.pdf(b, loc=mean, scale=sigma)
-    if t >= 2:
-        z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+    if t >= 1:
+        z2 = (gamma[t] - b) / np.sqrt(noise_variance)
         phi2 = norm.cdf(z2)
-    if t <= K - 1:
-        z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+    if t <= K - 2:
+        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
         phi1 = norm.cdf(z1)
     prob = phi1 - phi2
     if prob < EPS*EPS:
         prob = EPS*EPS
-    func = func / prob * norm.pdf(posterior_mean, loc=gamma[t - 1], scale=np.sqrt(
-        noise_variance + posterior_covariance)) * (gamma[t - 1] - b)
+    func = func / prob * norm.pdf(posterior_mean, loc=gamma[t + 1], scale=np.sqrt(
+        noise_variance + posterior_covariance)) * (gamma[t + 1] - b)
     return func
 
 
@@ -272,7 +280,9 @@ def fromb_t4(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
     :param EPS: A machine tolerance to be used.
     :return:
     """
-    mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t - 1]) / (
+    if t == K - 1:
+        return 0
+    mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t + 1]) / (
             noise_variance + posterior_covariance)
     sigma = np.sqrt((noise_variance * posterior_covariance) / (noise_variance + posterior_covariance))
     y = np.zeros((20,))
@@ -322,17 +332,17 @@ def fromb_fft5(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
     phi1 = 1.0
     phi2 = 0.0
     func = norm.pdf(b, loc=mean, scale=sigma)
-    if t >= 2:
-        z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+    if t >= 1:
+        z2 = (gamma[t] - b) / np.sqrt(noise_variance)
         phi2 = norm.cdf(z2)
-    if t <= K - 1:
-        z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+    if t <= K - 2:
+        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
         phi1 = norm.cdf(z1)
     prob = phi1 - phi2
     if prob < EPS*EPS:
         prob = EPS*EPS
-    func = func / prob * norm.pdf(posterior_mean, loc=gamma[t - 2], scale=np.sqrt(
-        noise_variance + posterior_covariance)) * (gamma[t - 2] - b)
+    func = func / prob * norm.pdf(posterior_mean, loc=gamma[t], scale=np.sqrt(
+        noise_variance + posterior_covariance)) * (gamma[t] - b)
     return func
 
 
@@ -348,7 +358,9 @@ def fromb_t5(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
     :param EPS: A machine tolerance to be used.
     :return:
     """
-    mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t - 2]) / (
+    if t == 0:
+        return 0
+    mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t]) / (
             noise_variance + posterior_covariance)
     sigma = np.sqrt((noise_variance * posterior_covariance) / (noise_variance + posterior_covariance))
     y = np.zeros((20,))
@@ -380,6 +392,383 @@ def fromb_t5(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
         n = n + n
         h = h / 2.0
     return q
+
+#
+# def SSfromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
+#     """
+#     TODO: need to check it is the correct indexing of the cutpoint parameters in the way that I have them.
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     phi1 = 1.0
+#     phi2 = 0.0
+#     func = norm.pdf(b, loc=mean, scale=sigma)
+#     if t >= 2:
+#         z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+#         phi2 = norm.cdf(z2)
+#     if t < K - 1:
+#         z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+#         phi1 = norm.cdf(z1)
+#     prob = phi1 - phi2
+#     if prob < EPS*EPS:
+#         prob = EPS*EPS
+#     func = func * prob
+#     return func
+#
+#
+# def SSfromb_t1(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     posterior_std = np.sqrt(posterior_covariance)
+#     y = np.zeros((20,))
+#     a = posterior_mean - 5.0 * posterior_std
+#     b = posterior_mean + 5.0 * posterior_std
+#
+#     h = b - a
+#     y[0] = h * (
+#         fromb_fft1(a, posterior_mean, posterior_std, t, K, gamma, noise_variance, EPS)
+#         + fromb_fft1(b, posterior_mean, posterior_std, t, K, gamma, noise_variance, EPS)
+#     ) / 2.0
+#
+#     m = 1
+#     n = 1
+#     ep = EPS + 1.0
+#     while (ep >=EPS and m <=19):
+#         p = 0.0
+#         for i in range(n):
+#             x = a + (i + 0.5) * h
+#             p = p + fromb_fft1(x, posterior_mean, posterior_std, t, K, gamma, noise_variance, EPS)
+#         p = (y[0] + h * p) / 2.0
+#         s = 1.0
+#         for k in range(1, m + 1):
+#             s = 4.0 * s
+#             q = (s * p - y[k - 1]) / (s - 1.0)
+#             y[k - 1] = p
+#             p = q
+#         ep = np.abs(q - y[m - 1])
+#         m = m + 1
+#         y[m - 1] = q  # TODO: Is this m from previous line or m before update.
+#         n = n + n
+#         h = h / 2.0
+#     return q
+#
+#
+# def SSfromb_fft2(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     TODO: check this function.
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     phi1 = 1.0
+#     phi2 = 0.0
+#     func = norm.pdf(b, loc=mean, scale=sigma)
+#     if t >= 2:
+#         z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+#         phi2 = norm.cdf(z2)
+#     if t <= K - 1:
+#         z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+#         phi1 = norm.cdf(z1)
+#     prob = phi1 - phi2
+#     if prob < EPS*EPS:
+#         prob = EPS*EPS
+#     func = func / prob * norm.pdf(posterior_mean, loc=gamma[t - 2], scale=np.sqrt(
+#         noise_variance + posterior_covariance))
+#     return func
+#
+#
+# def SSfromb_t2(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     :arg posterior_mean: The approximate posterior mean evaluated at the datapoint. (pdf inside the integrand)
+#     :arg posterior_covariance: The approximate posterior marginal variance.
+#     :arg t: The target for the datapoint
+#     :arg K: The number of ordinal classes.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t - 2]) / (
+#             noise_variance + posterior_covariance)
+#     sigma = np.sqrt((noise_variance * posterior_covariance) / (noise_variance + posterior_covariance))
+#     y = np.zeros((20,))
+#     a = mean - 5.0 * sigma
+#     b = mean + 5.0 * sigma
+#     h = b - a
+#     y[0] = h * (
+#         fromb_fft2(a, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#         + fromb_fft2(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#     ) / 2.0
+#     m = 1
+#     n = 1
+#     ep = EPS + 1.0
+#     while (ep >=EPS and m <=19):
+#         p = 0.0
+#         for i in range(n):
+#             x = a + (i + 0.5) * h
+#             p = p + fromb_fft2(x, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#         p = (y[0] + h * p) / 2.0
+#         s = 1.0
+#         for k in range(1, m + 1):
+#             s = 4.0 * s
+#             q = (s * p - y[k - 1]) / (s - 1.0)
+#             y[k - 1] = p
+#             p = q
+#         ep = np.abs(q - y[m - 1])
+#         m = m + 1
+#         y[m - 1] = q
+#         n = n + n
+#         h = h / 2.0
+#     return q
+#
+#
+# def SSfromb_fft3(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     TODO: check this function.
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     phi1 = 1.0
+#     phi2 = 0.0
+#     func = norm.pdf(b, loc=mean, scale=sigma)
+#     if t >= 2:
+#         z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+#         phi2 = norm.cdf(z2)
+#     if t <= K - 1:
+#         z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+#         phi1 = norm.cdf(z1)
+#     prob = phi1 - phi2
+#     if prob < EPS*EPS:
+#         prob = EPS*EPS
+#     func = func / prob * norm.pdf(posterior_mean, loc=gamma[t - 1], scale=np.sqrt(
+#         noise_variance + posterior_covariance))
+#     return func
+#
+#
+# def SSfromb_t3(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t - 1]) / (
+#             noise_variance + posterior_covariance)
+#     sigma = np.sqrt((noise_variance * posterior_covariance) / (noise_variance + posterior_covariance))
+#     y = np.zeros((20,))
+#     a = mean - 5.0 * sigma
+#     b = mean + 5.0 * sigma
+#     h = b - a
+#     y[0] = h * (
+#         fromb_fft3(a, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#         + fromb_fft3(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#     ) / 2.0
+#     m = 1
+#     n = 1
+#     ep = EPS + 1.0
+#     while (ep >=EPS and m <=19):
+#         p = 0.0
+#         for i in range(n):
+#             x = a + (i + 0.5) * h
+#             p = p + fromb_fft3(x, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#         p = (y[0] + h * p) / 2.0
+#         s = 1.0
+#         for k in range(1, m + 1):
+#             s = 4.0 * s
+#             q = (s * p - y[k - 1]) / (s - 1.0)
+#             y[k - 1] = p
+#             p = q
+#         ep = np.abs(q - y[m - 1])
+#         m = m + 1
+#         y[m - 1] = q
+#         n = n + n
+#         h = h / 2.0
+#     return q
+#
+#
+# def SSfromb_fft4(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     TODO: check this function.
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     phi1 = 1.0
+#     phi2 = 0.0
+#     func = norm.pdf(b, loc=mean, scale=sigma)
+#     if t >= 2:
+#         z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+#         phi2 = norm.cdf(z2)
+#     if t <= K - 1:
+#         z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+#         phi1 = norm.cdf(z1)
+#     prob = phi1 - phi2
+#     if prob < EPS*EPS:
+#         prob = EPS*EPS
+#     func = func / prob * norm.pdf(posterior_mean, loc=gamma[t - 1], scale=np.sqrt(
+#         noise_variance + posterior_covariance)) * (gamma[t - 1] - b)
+#     return func
+#
+#
+# def SSfromb_t4(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t - 1]) / (
+#             noise_variance + posterior_covariance)
+#     sigma = np.sqrt((noise_variance * posterior_covariance) / (noise_variance + posterior_covariance))
+#     y = np.zeros((20,))
+#     a = mean - 5.0 * sigma
+#     b = mean + 5.0 * sigma
+#     h = b - a
+#     y[0] = h * (
+#         fromb_fft4(a, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#         + fromb_fft4(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#     ) / 2.0
+#     m = 1
+#     n = 1
+#     ep = EPS + 1.0
+#     while (ep >=EPS and m <=19):
+#         p = 0.0
+#         for i in range(n):
+#             x = a + (i + 0.5) * h
+#             p = p + fromb_fft4(x, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#         p = (y[0] + h * p) / 2.0
+#         s = 1.0
+#         for k in range(1, m + 1):
+#             s = 4.0 * s
+#             q = (s * p - y[k - 1]) / (s - 1.0)
+#             y[k - 1] = p
+#             p = q
+#         ep = np.abs(q - y[m - 1])
+#         m = m + 1
+#         y[m - 1] = q
+#         n = n + n
+#         h = h / 2.0
+#     return q
+#
+#
+# def SSfromb_fft5(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     TODO: check this function
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     phi1 = 1.0
+#     phi2 = 0.0
+#     func = norm.pdf(b, loc=mean, scale=sigma)
+#     if t >= 2:
+#         z2 = (gamma[t - 2] - b) / np.sqrt(noise_variance)
+#         phi2 = norm.cdf(z2)
+#     if t <= K - 1:
+#         z1 = (gamma[t - 1] - b) / np.sqrt(noise_variance)
+#         phi1 = norm.cdf(z1)
+#     prob = phi1 - phi2
+#     if prob < EPS*EPS:
+#         prob = EPS*EPS
+#     func = func / prob * norm.pdf(posterior_mean, loc=gamma[t - 2], scale=np.sqrt(
+#         noise_variance + posterior_covariance)) * (gamma[t - 2] - b)
+#     return func
+#
+#
+# def SSfromb_t5(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+#     """
+#     :param b: The approximate posterior mean evaluated at the datapoint.
+#     :param mean: A mean value of a pdf inside the integrand.
+#     :param sigma: A standard deviation of a pdf inside the integrand.
+#     :param t: The target value for the datapoint.
+#     :param K: The number of ordinal classes.
+#     :param gamma: The vector of cutpoints.
+#     :param noise_variance: A noise variance for the likelihood.
+#     :param EPS: A machine tolerance to be used.
+#     :return:
+#     """
+#     mean = (posterior_mean * noise_variance + posterior_covariance * gamma[t - 2]) / (
+#             noise_variance + posterior_covariance)
+#     sigma = np.sqrt((noise_variance * posterior_covariance) / (noise_variance + posterior_covariance))
+#     y = np.zeros((20,))
+#     a = mean - 5.0 * sigma
+#     b = mean + 5.0 * sigma
+#     h = b - a
+#     y[0] = h * (
+#         fromb_fft5(a, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#         + fromb_fft5(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#     ) / 2.0
+#     m = 1
+#     n = 1
+#     ep = EPS + 1.0
+#     while (ep >=EPS and m <=19):
+#         p = 0.0
+#         for i in range(n):
+#             x = a + (i + 0.5) * h
+#             p = p + fromb_fft5(x, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+#         p = (y[0] + h * p) / 2.0
+#         s = 1.0
+#         for k in range(1, m + 1):
+#             s = 4.0 * s
+#             q = (s * p - y[k - 1]) / (s - 1.0)
+#             y[k - 1] = p
+#             p = q
+#         ep = np.abs(q - y[m - 1])
+#         m = m + 1
+#         y[m - 1] = q
+#         n = n + n
+#         h = h / 2.0
+#     return q
 
 
 def vectorised_multiclass_unnormalised_log_multivariate_normal_pdf(Ms, mean=None, covs=None):

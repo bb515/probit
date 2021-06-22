@@ -28,7 +28,7 @@ class Sampler(ABC):
 
         :arg X_train: The data vector.
         :type X_train: :class:`numpy.ndarray`
-        :param t_train: The target vector.
+        :arg t_train: The target vector.
         :type t_train: :class:`numpy.ndarray`
         :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.
         :arg str write_path: Write path for outputs.
@@ -115,7 +115,7 @@ class GibbsMultinomialGP(Sampler):
         """
         Sampling occurs in blocks over the parameters: Y (auxilliaries) and M.
 
-        :param M_0: (N, K) numpy.ndarray of the initial location of the sampler.
+        :arg M_0: (N, K) numpy.ndarray of the initial location of the sampler.
         :type M_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
@@ -213,19 +213,20 @@ class GibbsMultinomialGP(Sampler):
         # axis 1 is the n_samples samples, which is the monte-carlo sum of interest
         return 1. / n_samples * np.sum(samples, axis=1)
 
-    def _predict_scalar(self, Y_samples, X_test, n_samples=1000):
+    def _predict_scalar(self, Y_samples, x_test, n_samples=1000):
         """
         Superseded by _predict_vector.
 
+        TODO: This code was refactored on 01/03/2021 and 21/06/2021 without testing. Test it.
         Make gibbs prediction over classes of X_test[0] given the posterior samples.
 
-        :param Y_samples: The Gibbs samples of the latent variable Y.
-        :param X_test: The new data point, array like (1, D).
-        :param n_samples: The number of samples in the monte carlo estimate.
+        :arg Y_samples: The Gibbs samples of the latent variable Y.
+        :arg x_test: The new data point, array like (1, D).
+        :arg n_samples: The number of samples in the monte carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
         """
-        cs_new = np.diag(self.kernel.kernel(X_test[0], X_test[0]))  # (1, )
-        Cs_new = self.kernel.kernel_vector_matrix(X_test, self.X_train)
+        cs_new = np.diag(self.kernel.kernel(x_test[0], x_test[0]))  # (1, )
+        Cs_new = self.kernel.kernel_vector(x_test, self.X_train)
         intermediate_vector = self.Sigma @ Cs_new  # (N, N_test)
         intermediate_scalar = Cs_new.T @ intermediate_vector
         n_posterior_samples = np.shape(Y_samples)[0]
@@ -246,9 +247,9 @@ class GibbsMultinomialGP(Sampler):
         """
         Make gibbs prediction over classes of X_test given the posterior samples.
 
-        :param Y_samples: The Gibbs samples of the latent variable Y.
-        :param X_test: The new data points, array like (N_test, D).
-        :param n_samples: The number of samples in the monte carlo estimate.
+        :arg Y_samples: The Gibbs samples of the latent variable Y.
+        :arg X_test: The new data points, array like (N_test, D).
+        :arg n_samples: The number of samples in the monte carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
         """
         N_test = np.shape(X_test)[0]
@@ -284,9 +285,9 @@ class GibbsMultinomialGP(Sampler):
         This is the general case where there are hyperparameters varphi (K, D)
             for all dimensions and classes.
 
-        :param Y_samples: The Gibbs samples of the latent variable Y.
-        :param X_test: The new data points, array like (N_test, D).
-        :param n_samples: The number of samples in the monte carlo estimate.
+        :arg Y_samples: The Gibbs samples of the latent variable Y.
+        :arg X_test: The new data points, array like (N_test, D).
+        :arg n_samples: The number of samples in the monte carlo estimate.
         :return: A monte carlo estimate of the class probabilities.
         """
         # X_new = np.append(X_test, self.X_train, axis=0)
@@ -494,11 +495,11 @@ class GibbsMultinomialOrderedGPTemp(Sampler):
             from the full conditional by sampling from the joint full conditional y, \gamma using a
             Metropolis step.
 
-        :param m_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
-        :param y_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :arg y_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type y_0: :class:`np.ndarray`.
-        :param gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
+        :arg gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
         :type gamma_0: :class:`np.ndarray`.
         :arg float sigma_gamma: The
         :arg int steps: The number of steps in the sampler.
@@ -611,11 +612,11 @@ class GibbsMultinomialOrderedGPTemp(Sampler):
         Sampling occurs in Gibbs blocks over the parameters: y (auxilliaries), m (GP regression posterior means) and
         gamma (cutpoint parameters).
 
-        :param m_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
-        :param y_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :arg y_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type y_0: :class:`np.ndarray`.
-        :param gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
+        :arg gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
         :type gamma_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
@@ -674,19 +675,19 @@ class GibbsMultinomialOrderedGPTemp(Sampler):
             gamma_samples.append(gamma)
         return np.array(m_samples), np.array(y_samples), np.array(gamma_samples)
 
-    def _predict_scalar(self, y_samples, gamma_samples, X_test):
+    def _predict_scalar(self, y_samples, gamma_samples, x_test):
         """
-            TODO: This code was refactored on 01/03/2021 without testing. Test it.
+            TODO: This code was refactored on 01/03/2021 and 21/06/2021 without testing. Test it.
         Superseded by _predict_vector.
 
         Make gibbs prediction over classes of X_test[0] given the posterior samples.
 
-        :param Y_samples: The Gibbs samples of the latent variable Y.
-        :param X_test: The new data point, array like (1, D).
+        :arg Y_samples: The Gibbs samples of the latent variable Y.
+        :arg x_test: The new data point, array like (1, D).
         :return: A Monte Carlo estimate of the class probabilities.
         """
-        cs_new = np.diag(self.kernel.kernel(X_test[0], X_test[0]))  # (1, )
-        Cs_new = self.kernel.kernel_vector_matrix(X_test, self.X_train)
+        cs_new = np.diag(self.kernel.kernel(x_test[0], x_test[0]))  # (1, )
+        Cs_new = self.kernel.kernel_vector(x_test, self.X_train)
         intermediate_vector = self.Sigma @ Cs_new  # (N, N_test)
         intermediate_scalar = Cs_new.T @ intermediate_vector
         n_posterior_samples = np.shape(y_samples)[0]
@@ -760,8 +761,8 @@ class GibbsMultinomialOrderedGPTemp(Sampler):
         """
         Make gibbs prediction over classes of X_test given the posterior samples.
 
-        :param y_samples: The Gibbs samples of the latent variable Y.
-        :param X_test: The new data points, array like (N_test, D).
+        :arg y_samples: The Gibbs samples of the latent variable Y.
+        :arg X_test: The new data points, array like (N_test, D).
         :return: A Monte Carlo estimate of the class probabilities.
         """
         # N_test = np.shape(X_test)[0]
@@ -934,11 +935,11 @@ class GibbsMultinomialOrderedGP(Sampler):
             from the full conditional by sampling from the joint full conditional y, \gamma using a
             Metropolis step.
 
-        :param m_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
-        :param y_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :arg y_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type y_0: :class:`np.ndarray`.
-        :param gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
+        :arg gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
         :type gamma_0: :class:`np.ndarray`.
         :arg float sigma_gamma: The
         :arg int steps: The number of steps in the sampler.
@@ -1052,11 +1053,11 @@ class GibbsMultinomialOrderedGP(Sampler):
         Sampling occurs in Gibbs blocks over the parameters: y (auxilliaries), m (GP regression posterior means) and
         gamma (cutpoint parameters).
 
-        :param m_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
-        :param y_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :arg y_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type y_0: :class:`np.ndarray`.
-        :param gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
+        :arg gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
         :type gamma_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
@@ -1116,19 +1117,19 @@ class GibbsMultinomialOrderedGP(Sampler):
             gamma_samples.append(gamma)
         return np.array(m_samples), np.array(y_samples), np.array(gamma_samples)
 
-    def _predict_scalar(self, y_samples, gamma_samples, X_test):
+    def _predict_scalar(self, y_samples, gamma_samples, x_test):
         """
-            TODO: This code was refactored on 01/03/2021 without testing. Test it.
+            TODO: This code was refactored on 01/03/2021 and 21/06/2021 without testing. Test it.
         Superseded by _predict_vector.
 
         Make gibbs prediction over classes of X_test[0] given the posterior samples.
 
-        :param Y_samples: The Gibbs samples of the latent variable Y.
-        :param X_test: The new data point, array like (1, D).
+        :arg Y_samples: The Gibbs samples of the latent variable Y.
+        :arg x_test: The new data point, array like (1, D).
         :return: A Monte Carlo estimate of the class probabilities.
         """
-        cs_new = np.diag(self.kernel.kernel(X_test[0], X_test[0]))  # (1, )
-        Cs_new = self.kernel.kernel_vector_matrix(X_test, self.X_train)
+        cs_new = np.diag(self.kernel.kernel(x_test[0], x_test[0]))  # (1, )
+        Cs_new = self.kernel.kernel_vector(x_test, self.X_train)
         intermediate_vector = self.Sigma @ Cs_new  # (N, N_test)
         intermediate_scalar = Cs_new.T @ intermediate_vector
         n_posterior_samples = np.shape(y_samples)[0]
@@ -1203,8 +1204,8 @@ class GibbsMultinomialOrderedGP(Sampler):
         """
         Make gibbs prediction over classes of X_test given the posterior samples.
 
-        :param y_samples: The Gibbs samples of the latent variable Y.
-        :param X_test: The new data points, array like (N_test, D).
+        :arg y_samples: The Gibbs samples of the latent variable Y.
+        :arg X_test: The new data points, array like (N_test, D).
         :return: A Monte Carlo estimate of the class probabilities.
         """
         # N_test = np.shape(X_test)[0]
