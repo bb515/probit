@@ -5,6 +5,7 @@ import math
 
 def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     TODO: need to check it is the correct indexing of the cutpoint parameters in the way that I have them.
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
@@ -36,6 +37,7 @@ def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
 
 def fromb_t1(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
     :param sigma: A standard deviation of a pdf inside the integrand.
@@ -82,6 +84,7 @@ def fromb_t1(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
 
 def fromb_fft2(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     TODO: check this function.
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
@@ -114,6 +117,7 @@ def fromb_fft2(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
 
 def fromb_t2(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     :arg posterior_mean: The approximate posterior mean evaluated at the datapoint. (pdf inside the integrand)
     :arg posterior_covariance: The approximate posterior marginal variance.
     :arg t: The target for the datapoint
@@ -160,6 +164,7 @@ def fromb_t2(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
 
 def fromb_fft3(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     TODO: check this function.
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
@@ -192,6 +197,7 @@ def fromb_fft3(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
 
 def fromb_t3(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
     :param sigma: A standard deviation of a pdf inside the integrand.
@@ -240,6 +246,7 @@ def fromb_t3(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
 
 def fromb_fft4(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     TODO: check this function.
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
@@ -270,6 +277,7 @@ def fromb_fft4(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
 
 def fromb_t4(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
     :param sigma: A standard deviation of a pdf inside the integrand.
@@ -318,6 +326,7 @@ def fromb_t4(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
 
 def fromb_fft5(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     TODO: check this function
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
@@ -348,6 +357,7 @@ def fromb_fft5(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
 
 def fromb_t5(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
+    # TODO: C
     :param b: The approximate posterior mean evaluated at the datapoint.
     :param mean: A mean value of a pdf inside the integrand.
     :param sigma: A standard deviation of a pdf inside the integrand.

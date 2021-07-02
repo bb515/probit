@@ -33,6 +33,12 @@ class Kernel(ABC):
 
         :returns: A :class:`Kernel` object
         """
+        # Boolean field that if `True` then the kernel has Automatic-relavance-detection (ARD) capabilities, if `False`,
+        # then there is a shared and single lengthscale across all data dimensions. Default `False`.
+        self.ARD_kernel = False
+        # Boolean field that if `True` then the kernel has a unique kernel for each and every class, if `False` then
+        # there is a single and shared kernel for each class. Default `False`.
+        self.general_kernel = False
         if ((type(varphi) is list) or
                 (type(varphi) is np.ndarray)):
             if np.shape(varphi) == (1,):
@@ -104,6 +110,14 @@ class Kernel(ABC):
     def kernel_matrix(self):
         """
         Return the Gram matrix given two input matrices.
+
+        This method should be implemented in every concrete kernel.
+        """
+
+    @abstractmethod
+    def kernel_matrices(self):
+        """
+        Return samples of the Gram matrix given two input matrices, and random samples of the hyperparameters.
 
         This method should be implemented in every concrete kernel.
         """

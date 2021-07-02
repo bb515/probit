@@ -101,20 +101,26 @@ class Estimator(ABC):
 
     def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=3000, vectorised=True, numerical_stability=True):
         """
-        Return the posterior mean estimate of the hyperparameters varphi 2005 Page 9 Eq.(9).
+        Return the posterior mean estimate of the hyperparameters varphi.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 9 Eq.(9).
 
         This is the same for all multinomial categorical estimators, and so can live in the Abstract Base Class.
 
-        :arg psi_tilde: Posterior mean estimate of psi.
         :arg M_tilde: Posterior mean estimate of M_tilde.
-        :arg int n_samples: The int number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
-            Default 3000.
+        :type M_tilde: :class:`numpy.ndarray`
+        :arg psi_tilde: Posterior mean estimate of psi.
+        :type psi_tilde: :class:`numpy.ndarray`
+        :arg int n_samples: The int number of samples for the importance sampling estimate, 500 is used in Girolami and
+            Rogers Page 13 Default 3000.
         :arg bool vectorised: If `True` then it will do calculations in a more efficient, vectorised way using
             `numpy.einsum()`, if `False` then it will do a scalar version of the calculations. Default `True`.
         :arg bool numerical_stability: If `True` then it will do calculations using log-sum-exp trick, c.f.
             https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/ since normalising vectors of log likelihoods can
             result in under- or overflow. log-sum-exp trick resolves this issue. Default `True`.
-        :return: The posterior mean estimate of the hyperparameters varphi 2005 Page 9 Eq.(9).
+        :return: The posterior mean estimate of the hyperparameters varphi Girolami and Rogers Page 9 Eq.(9).
         """
         # Vector draw from varphi
         # (n_samples, K, D) in general and ARD, (n_samples, ) for single shared kernel and ISO case. Depends on the
@@ -181,12 +187,17 @@ class Estimator(ABC):
 
     def _psi_tilde(self, varphi_tilde):
         """
-        Return the posterior mean estimate of the hyperhyperparameters psi 2005 Page 9 Eq.(10).
+        Return the posterior mean estimate of the hyperhyperparameters psi.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 9 Eq.(10).
 
         This is the same for all categorical estimators, and so can live in the Abstract Base Class.
 
         :arg varphi_tilde: Posterior mean estimate of varphi.
-        :return: The posterior mean estimate of the hyperhyperparameters psi 2005 Page 9 Eq.(10).
+        :type varphi_tilde: :class:`numpy.ndarray`
+        :return: The posterior mean estimate of the hyperhyperparameters psi Girolami and Rogers Page 9 Eq.(10).
         """
         return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
 
@@ -416,20 +427,24 @@ class VBBinomialGP(Estimator):
 
     def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=1000, vectorised=True, numerical_stability=True):
         """
-        Return the posterior mean estimate of the hyperparameters varphi 2005 Page 9 Eq.(9).
+        Return the posterior mean estimate of the hyperparameters varphi.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 9 Eq.(9).
 
         This is different from the corresponding multinomial categorical estimator function in the Abstract Base Class.
 
         :arg psi_tilde: Posterior mean estimate of psi.
         :arg M_tilde: Posterior mean estimate of M_tilde.
-        :arg int n_samples: The int number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
-            Default 3000.
+        :arg int n_samples: The int number of samples for the importance sampling estimate, 500 is used in Girolami and
+            Rogers Page 13 Default 3000.
         :arg bool vectorised: If `True` then it will do calculations in a more efficient, vectorised way using
             `numpy.einsum()`, if `False` then it will do a scalar version of the calculations. Default `True`.
         :arg bool numerical_stability: If `True` then it will do calculations using log-sum-exp trick, c.f.
             https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/ since normalising vectors of log likelihoods can
             result in under- or overflow. log-sum-exp trick resolves this issue. Default `True`.
-        :return: The posterior mean estimate of the hyperparameters varphi 2005 Page 9 Eq.(9).
+        :return: The posterior mean estimate of the hyperparameters varphi in Girolami and Rogers Page 9 Eq.(9).
         """
         # TODO: There seems to be an algorithmic error in the function. Numerically it should be stable.
         # TODO: This wasn't derived for the binary case so would perhaps need a separate derivation.
@@ -472,15 +487,19 @@ class VBBinomialGP(Estimator):
 
     def _varphi_tilde_SS(self, M_tilde, psi_tilde, n_samples=10):
         """
-        Return the posterior mean estimate of the hyperparameters varphi 2005 Page 9 Eq.(9).
+        Return the posterior mean estimate of the hyperparameters varphi.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 9 Eq.(9).
 
         This is different from the corresponding multinomial categorical estimator function in the Abstract Base Class.
 
         :arg psi_tilde: Posterior mean estimate of psi.
         :arg M_tilde: Posterior mean estimate of M_tilde.
-        :arg int n_samples: The int number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
-            Default 3000.
-        :return: The posterior mean estimate of the hyperparameters varphi 2005 Page 9 Eq.(9).
+        :arg int n_samples: The int number of samples for the importance sampling estimate, 500 is used in Girolami and
+         Rogers Page 13. Default 3000.
+        :return: The posterior mean estimate of the hyperparameters varphi Girolami and Rogers Page 9 Eq.(9).
         """
         # TODO: Numerical instabilities here. Seems to be a problem with underfitting in this function.
         # Vector draw from varphi. In the binary case we always have a single and shared covariance function.
@@ -506,7 +525,9 @@ class VBBinomialGP(Estimator):
         """
         Return the posterior mean estimate of M.
 
-        2005 Page 10 Eq.(11)
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 10 Eq.(11)
 
         :arg Y_tilde: (N,) array
         :type Y_tilde: :class:`np.ndarray`
@@ -523,19 +544,27 @@ class VBBinomialGP(Estimator):
 
     def _Y_tilde(self, M_tilde):
         """
-        Calculate Y_tilde elements 2005 Page 10 Eq.(11)
+        Calculate Y_tilde elements.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 10 Eq.(11)
 
         :arg M_tilde: The posterior expectations for M (N, K).
         :type M_tilde: :class:`numpy.ndarray`
-        2005 Page 10 Eq.(11)
+        Girolami and Rogers Page 10 Eq.(11)
         :return: Y_tilde (N,) containing \tilde(y)_{n} values.
         """
         return np.add(M_tilde, self._P(M_tilde, self.t_train))
 
     def _P(self, M_tilde, t_train):
         """
-        Estimate the P of 2005 Page 10 Eq.(11), which can be obtained analytically derived from straightforward results
-        for corrections to the mean of a Gaussian due to truncation.
+        Estimate the P, which can be obtained analytically derived from straightforward results for corrections to the
+        mean of a Gaussian due to truncation.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 10 Eq.(11)
 
         :arg M_tilde: The posterior expectations for M (N, K).
         :arg n_samples: The number of samples to take.
@@ -799,7 +828,9 @@ class VBMultinomialSparseGP(Estimator):
         """
         Return the update of the ADF scalar update (K, N).
 
-        2005 Page 12 Eq.(12), (13).
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 12 Eq.(12), (13).
 
         :arg s_ADF: ADF scalar update of the posterior variance (K, N).
         :arg Sigma_ADF: The ADF approximation to the GP posterior covariance.
@@ -847,8 +878,11 @@ class VBMultinomialSparseGP(Estimator):
 
     def _negative_p_n(self, M_tilde_n, t_n, n_samples=3000):
         """
-        Estimate the rightmost term of 2005 Page 8 Eq.(5), a ratio of Monte Carlo estimates of the expectation of
-            functions of M wrt to the distribution p.
+        Calculate ratio of Monte Carlo estimates of the expectation of functions of M wrt to the distribution p.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        The rightmost term of Page 8 Eq.(5).
 
         :arg M_tilde_n: The current estimate of posterior expectations for M_n (K,), where M_n is the regression
             variable for the inducing point, n.
@@ -885,8 +919,11 @@ class VBMultinomialSparseGP(Estimator):
 
     def _negative_p(self, M_tilde, t, n_samples=3000):
         """
-        Estimate the rightmost term of 2005 Page 8 Eq.(5), a ratio of Monte Carlo estimates of the expectation of a
-            functions of M wrt to the distribution p.
+        Calculate ratio of Monte Carlo estimates of the expectation of functions of M wrt to the distribution p.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        The rightmost term of Page 8 Eq.(5).
 
         :arg M_tilde: The posterior expectations for M (N, K).
         :arg t: The target vector.
@@ -956,11 +993,14 @@ class VBMultinomialSparseGP(Estimator):
 
     def _Y_tilde(self, M_tilde):
         """
-        Calculate Y_tilde elements 2005 Page 8 Eq.(5).
+        Calculate Y_tilde elements.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 8 Eq.(5).
 
         :arg M_tilde: The posterior expectations for M (N, K).
         :type M_tilde: :class:`numpy.ndarray`
-        2005 Page _ Eq.(_)
         :return: Y_tilde (N, K) containing \tilde(y)_{nk} values.
         """
         # t = np.argmax(M_tilde, axis=1)  # The max of the GP vector m_k is t_n this would be incorrect.
@@ -1058,7 +1098,9 @@ class VBMultinomialGP(Estimator):
         """
         Return the posterior mean estimate of M.
 
-        2005 Page 9 Eq.(8)
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 9 Eq.(8)
 
         :arg Y_tilde: (N, K) array
         :type Y_tilde: :class:`np.ndarray`
@@ -1081,11 +1123,14 @@ class VBMultinomialGP(Estimator):
 
     def _Y_tilde(self, M_tilde):
         """
-        Calculate Y_tilde elements 2005 Page 8 Eq.(5).
+        Calculate Y_tilde elements.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 8 Eq.(5).
 
         :arg M_tilde: The posterior expectations for M (N, K).
         :type M_tilde: :class:`numpy.ndarray`
-        2005 Page _ Eq.(_)
         :return: Y_tilde (N, K) containing \tilde(y)_{nk} values.
         """
         # t = np.argmax(M_tilde, axis=1)  # The max of the GP vector m_k is t_n this would be incorrect.
@@ -1102,8 +1147,11 @@ class VBMultinomialGP(Estimator):
 
     def _negative_P(self, M_tilde, t, n_samples=3000):
         """
-        Estimate the rightmost term of 2005 Page 8 Eq.(5), a ratio of Monte Carlo estimates of the expectation of a
-            functions of M wrt to the distribution p.
+        Estimate a ratio of Monte Carlo estimates of the expectation of a functions of M wrt to the distribution p.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        the rightmost term of 2005 Page 8 Eq.(5),
 
         :arg M_tilde: The posterior expectations for M (N, K).
         :arg t: The target vector.
@@ -1278,8 +1326,10 @@ class VBMultinomialGP(Estimator):
             return bound
 
 
-class VBMultinomialOrderedGP(Estimator):
+class VBMultinomialOrderedGPSS(Estimator):
     """
+    TODO: Superceded since it is not required that gamma_1 = 0.
+
     A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
 
     This class allows users to define a classification problem, get predictions
@@ -1496,7 +1546,10 @@ class VBMultinomialOrderedGP(Estimator):
 
     def _varphi_tilde(self, m_tilde, psi_tilde, n_samples=10, vectorised=True):
         """
-        Return the w values of the sample on 2005 Page 9 Eq.(7).
+        Return the w values of the sample on
+
+
+        Page 9 Eq.(7).
 
         :arg m_tilde: Posterior mean estimate of M_tilde.
         :arg psi_tilde: Posterior mean estimate of psi.
@@ -1638,7 +1691,7 @@ class VBMultinomialOrderedGP(Estimator):
         return bound
 
 
-class VBMultinomialOrderedGPTemp(Estimator):
+class VBMultinomialOrderedGP(Estimator):
     """
     A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
 
@@ -1819,7 +1872,11 @@ class VBMultinomialOrderedGPTemp(Estimator):
 
     def _varphi_tilde(self, m_tilde, psi_tilde, n_samples=10, vectorised=True):
         """
-        Return the w values of the sample on 2005 Page 9 Eq.(7).
+        Return the w values of the sample
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
+        Page 9 Eq.(7).
 
         :arg m_tilde: Posterior mean estimate of M_tilde.
         :arg psi_tilde: Posterior mean estimate of psi.
@@ -1959,6 +2016,91 @@ class VBMultinomialOrderedGPTemp(Estimator):
             )
         print('bound = ', bound)
         return bound
+
+    def _hyperparameter_training_step_initialise(self, theta):
+        """
+        Initialise the hyperparameter training step.!! FOR VB
+
+        :arg theta: The set of (log-)hyperparameters
+            .. math::
+                [\log{\sigma} \gamma_{1} \gamma_{1} \gamma_{2} ... \gamma_{K-1} \log{\varphi}],
+
+            where :math:`\sigma` is the noise standard deviation, :math:`\b_{1}` is the first cutpoint,
+            :math:`\Delta_{l}` is the :math:`l`th cutpoint interval, :math:`\varphi` is the single shared lengthscale
+            parameter or vector of parameters in which there are in the most general case K * D parameters.
+        :type theta: :class:`numpy.ndarray`
+        :return: (gamma, noise_variance) the updated cutpoints and noise variance.
+        :rtype: (2,) tuple
+        """
+        noise_variance = np.exp(theta[0])
+        gamma = np.empty((self.K + 1,))  # including all of the cutpoints
+        gamma[0] = np.NINF
+        gamma[-1] = np.inf
+        gamma[1] = theta[1]
+        for i in range(2, self.K):
+            gamma[i] = gamma[i-1] + np.exp(theta[i])
+        if self.kernel.general_kernel and self.kernel.ARD_kernel:
+            # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+            # and lengthscales parameter for each dimension and class
+            self.kernel.varphi = np.exp(np.reshape(theta[self.K:self.K + self.K * self.D], (self.K, self.D)))
+        else:
+            # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+            # and a single, shared lengthscale parameter
+            self.kernel.varphi = np.exp(theta[self.K])
+        return gamma, noise_variance
+
+    def hyperparameter_training_step(
+            self, theta, steps=50, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
+            amplitude_EP_0=None, first_step=1, write=False):
+        """
+        Optimisation routine for hyperparameters. !! FOR VB
+
+        :arg theta: (log-)hyperparameters to be optimised.
+        :arg steps:
+        :arg posterior_mean_0:
+        :arg Sigma_0:
+        :arg mean_EP_0:
+        :arg precision_EP_0:
+        :arg amplitude_EP_0:
+        :arg varphi_0:
+        :arg psi_0:
+        :arg grad_Z_wrt_cavity_mean_0:
+        :arg first_step:
+        :arg fix_hyperparameters:
+        :arg write:
+        :return:
+        """
+        gamma, noise_variance = self._hyperparameter_training_step_initialise(theta)
+        print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
+        print("theta  = {}".format(theta))
+        print("HERE")
+        error = np.inf
+        iteration = 0
+        posterior_mean = posterior_mean_0
+        Sigma = Sigma_0
+        mean_EP = mean_EP_0
+        precision_EP = precision_EP_0
+        amplitude_EP = amplitude_EP_0
+        intervals = gamma[2:self.K] - gamma[1:self.K - 1]
+        while error / steps > 5e-3:  # variational_classifier.EPS**2:
+            iteration += 1
+            (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
+             precision_EP, amplitude_EP, containers) = self.estimate(
+                steps, gamma, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+                precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, noise_variance=noise_variance,
+                first_step=first_step, write=write)
+            # print("iteration {}, error={}".format(iteration, error / steps))
+            self.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+        (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs,
+         approximate_marginal_likelihoods) = containers
+        # Try optimisation routine
+        t1, t2, t3, t4, t5, Lambda_cholesky, Lambda, weights = self.compute_integrals(
+            gamma, Sigma, mean_EP, precision_EP, posterior_mean, noise_variance)
+        fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
+        gx = self.evaluate_function_gradient(intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda,
+                                             weights)
+        print("function call {}, gradient vector {}".format(fx, gx))
+        return fx, gx
 
 
 class EPMultinomialOrderedGP(Estimator):
@@ -2149,7 +2291,7 @@ class EPMultinomialOrderedGP(Estimator):
         (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs,
          approximate_log_marginal_likelihoods) = containers
         for step in trange(first_step, first_step + steps,
-                        desc="EP GP priors Estimator Progress", unit="iterations"):
+                        desc="EP GP priors Estimator Progress", unit="iterations", disable=True):
             index = self.new_point(step, random_selection=False)
             # Find the mean and variance of the leave-one-out posterior distribution Q^{\backslash i}(\bm{f})
             (Sigma, Sigma_nn, posterior_mean, cavity_mean_n, cavity_variance_n, mean_EP_n_old,
@@ -2241,7 +2383,7 @@ class EPMultinomialOrderedGP(Estimator):
                 mean_EP_n_old, precision_EP_n_old, amplitude_EP_n_old)
 
     def _include(self, index, posterior_mean, cavity_mean_n, cavity_variance_n, gamma, noise_variance,
-                 grad_Z_wrt_cavity_mean):
+                 grad_Z_wrt_cavity_mean, numerically_stable=True):
         """
         Update the approximate posterior by incorporating the message p(t_i|m_i) into Q^{\i}(\bm{f}).
 
@@ -2293,13 +2435,20 @@ class EPMultinomialOrderedGP(Estimator):
             norm_pdf_z1 = norm.pdf(z1)
             norm_pdf_z2 = norm.pdf(z2)
         if not (Z_n > self.EPS):
-            warnings.warn("Z_n must be greater than tolerance={} (got {}): SETTING to Z_n=tolerance".format(
-                self.EPS, Z_n))
-            Z_n = self.EPS
-            z1 = 0
-            z2 = 0
-        grad_Z_wrt_cavity_variance_n = (- z1 * norm_pdf_z1 + z2 * norm_pdf_z2) / (2 * variance * Z_n)  # beta
-        grad_Z_wrt_cavity_mean_n = (- norm_pdf_z1 + norm_pdf_z2) / (std_dev * Z_n)  # alpha/gamma
+            warnings.warn("Z_n must be greater than tolerance={} (got {}): SETTING to Z_n=tolerance\n "
+                          "z1={}, z2={}".format(
+                self.EPS, Z_n, z1, z2))
+            # Z_n = self.EPS
+        if numerically_stable == True:
+            log_grad_Z_wrt_cavity_variance_n = (
+                np.log(- z1 * norm_pdf_z1 + z2 * norm_pdf_z2) - np.log(2 * variance * Z_n))
+            log_grad_Z_wrt_cavity_mean_n = (
+                np.log(- norm_pdf_z1 + norm_pdf_z2) - np.log(std_dev * Z_n))
+            grad_Z_wrt_cavity_variance_n = np.exp(log_grad_Z_wrt_cavity_variance_n)
+            grad_Z_wrt_cavity_mean_n = np.exp(log_grad_Z_wrt_cavity_mean_n)
+        else:
+            grad_Z_wrt_cavity_variance_n = (- z1 * norm_pdf_z1 + z2 * norm_pdf_z2) / (2 * variance * Z_n)  # beta
+            grad_Z_wrt_cavity_mean_n = (- norm_pdf_z1 + norm_pdf_z2) / (std_dev * Z_n)  # alpha/gamma
         # Update alphas
         grad_Z_wrt_cavity_mean[index] = grad_Z_wrt_cavity_mean_n
         grad_Z_wrt_cavity_mean_n_2 = grad_Z_wrt_cavity_mean_n**2
@@ -2534,6 +2683,7 @@ class EPMultinomialOrderedGP(Estimator):
         """
         gamma, noise_variance = self._hyperparameter_training_step_initialise(theta)
         print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
+        print("theta = {}".format(theta))
         error = np.inf
         iteration = 0
         posterior_mean = posterior_mean_0
@@ -2556,12 +2706,13 @@ class EPMultinomialOrderedGP(Estimator):
         t1, t2, t3, t4, t5, Lambda_cholesky, Lambda, weights = self.compute_integrals(
             gamma, Sigma, mean_EP, precision_EP, posterior_mean, noise_variance)
         fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
-        gx = self.evaluate_function_gradient(intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
+        gx = self.evaluate_function_gradient(
+            intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
         print("function call {}, gradient vector {}".format(fx, gx))
         return fx, gx
 
     def compute_integrals(self, gamma, Sigma, mean_EP, precision_EP, posterior_mean, noise_variance):
-        """Compute the integrals required for the gradient evaluation."""
+        """# TODO: C Compute the integrals required for the gradient evaluation."""
         # Fill possible zeros in with machine precision
         precision_EP[precision_EP == 0.0] = self.EPS * self.EPS
         # Call EP routine to find posterior distribution
@@ -2604,10 +2755,11 @@ class EPMultinomialOrderedGP(Estimator):
 
     def evaluate_function_gradient(self, intervals, varphi, noise_variance, t2, t3, t4, t5, Lambda, weights):
         """
+        # TODO: C
         Evaluate the gradient.
         :return:
         """
-        # Initiate gx
+        # Initiate or reset gx
         if self.kernel.general_kernel and self.kernel.ARD_kernel:
             # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
             # and lengthscales parameter for each dimension and class
@@ -2647,12 +2799,12 @@ class EPMultinomialOrderedGP(Estimator):
             raise ValueError("TODO")
         else:
             # VC * VC * a' * partial_C * a / 2
-            # Partial TODO: check
-            gx[self.K] += varphi * weights.T @ partial_C @ weights
-            gx[self.K] -= varphi * np.trace(Lambda @ partial_C)
+            # Partial TODO: Checked and gradient is correct with varphi / 2, since 1 / 2 comes from Gaussian form
+            gx[self.K] += varphi / 2 * weights.T @ partial_C @ weights
+            gx[self.K] -= varphi / 2 * np.trace(Lambda @ partial_C)
         gx = -gx
-        # for i in range(self.K):
-        #     #print("Gradient {} ---- x \n".format(gx[i]))
+        for i in range(self.K):
+            print("Gradient {} {} \n".format(i, gx[i]))
         return gx
 
     def evaluate_function_gradient_SS(self, gamma, intervals, Sigma, mean_EP, precision_EP, posterior_mean,

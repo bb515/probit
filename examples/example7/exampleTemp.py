@@ -121,9 +121,6 @@ if argument == "diabetes_quantile":
     K = 5
     D = 2
     gamma_0 = np.array([np.NINF, 3.8, 4.5, 5.0, 5.6, np.inf])
-    data = np.load("data_diabetes_train.npz")
-    # data_test = np.load("data_diabetes_test.npz")  # SS
-    # data_continuous = np.load("data_diabetes_continuous.npz")
     data = np.load(write_path / "/data/5bin/diabetes.data.npz")
     data_continuous = np.load("/data/continuous/diabetes.DATA.npz")
 elif argument == "stocks_quantile":
@@ -151,28 +148,69 @@ elif argument == "septile":
     data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
 
-X = data["X_train"][0]
-t = data["t_train"][0]
+if argument in ["diabetes_quantile", "stocks_quantile"]:
+    X_trains = data["X_train"]
+    t_trains = data["t_train"]
+    X_tests = data["X_test"]
+    t_tests = data["t_test"]
 
-X_test = data["X_test"][0]
-t_test = data["t_test"][0]
-# X = data["X_train"]
-# t = data["t_test"]
-# X_test = data["X_test"]
-# t_test = data["t_test"]
+    # Python indexing
+    t_tests = t_tests - 1
+    t_trains = t_trains - 1
+    t_tests = t_tests.astype(int)
+    t_trains = t_trains.astype(int)
 
-X_true = data_continuous["X"]
-Y_true = data_continuous["y"]  # this is not going to be the correct one
-N_total = len(X)
+    # Number of splits
+    N_splits = len(X_trains)
+    assert len(X_trains) == len(X_tests)
 
-y = []
+    X = X_trains[0]
+    t = t_trains[0]
+    N_total = len(X)
+    # Since python indexes from 0
+    t = t - 1
+    print(len(X), len(t))
+    X_test = X_tests[0]
+    t_test = t_tests[0]
+    t_test = t_test - 1
 
-for i in range(len(X)):
-    for j in range(len(X_true)):
-        one = X[i]
-        two = X_true[j]
-        if np.allclose(one, two):
-            y.append(Y_true[j])
+    X_true = data_continuous["X"]
+    Y_true = data_continuous["y"]  # this is not going to be the correct one
+    Y_trues = []
+
+    for k in range(20):
+        y = []
+        for i in range(len(X_trains[0, :, :])):
+            for j, two in enumerate(X_true):
+                one = X_trains[k, i]
+                if np.allclose(one, two):
+                    y.append(Y_true[j])
+        Y_trues.append(y)
+    Y_trues = np.array(Y_trues)
+else:
+    X_k = data["X_k"]  # Contains (256, 7) array of binned x values
+    #Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
+    X = data["X"]  # Contains (1792,) array of x values
+    t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
+    Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+    N_total = int(N_per_class * K)
+
+    # # Plot
+    # colors_ = [colors[i] for i in t]
+    # plt.scatter(X, Y_true, color=colors_)
+    # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+    # plt.xlabel(r"$x$", fontsize=16)
+    # plt.ylabel(r"$y$", fontsize=16)
+    # plt.show()
+
+    # # Plot from the binned arrays
+    # for k in range(K):
+    #     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
+    # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+    # plt.legend()
+    # plt.xlabel(r"$x$", fontsize=16)
+    # plt.ylabel(r"$y$", fontsize=16)
+    # plt.show()
 
 
 # for i in range(len(X_test)):
@@ -182,10 +220,6 @@ for i in range(len(X)):
 #         if np.allclose(one, two):
 #             t_test.append[j]
 
-
-y_true = np.array(y)
-
-print(y_true)
 
 # X_k = data["X_k"]  # Contains (256, 7) array of binned x values
 # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
@@ -199,8 +233,6 @@ print(y_true)
 gibbs_classifier = GibbsMultinomialOrderedGPTemp(K, X, t, kernel)
 steps_burn = 100
 steps = 5000
-y_0 = t.flatten()
-#y_0 = Y_true.flatten()
 
 # # Plot
 # colors_ = [colors[i] for i in t]
@@ -229,15 +261,14 @@ plt.show()
 # m_0 = np.random.rand(N_total)
 # Problem with this is that the intial guess must be close to the true values
 # As a result we have to approximate the latent function.
-if argument == "diabetes_quantile":
-    m_0 = y_true
-    y_0 = y_true
-elif argument == "stocks_quantile":
-    m_0 = y_true
-    y_0 = y_true
+if argument in ["diabetes_quantile", "stocks_quantile"]:
+    m_0 = Y_true
+    y_0 = Y_true
 elif argument == "tertile":
+    y_0 = t.flatten()
     m_0 = y_0
 elif argument == "septile":
+    y_0 = t.flatten()
     m_0 = y_0
 
 # Burn in

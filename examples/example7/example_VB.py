@@ -8,12 +8,13 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.estimators import VBMultinomialOrderedGP, VBMultinomialOrderedGPTemp
+from probit.estimators import VBMultinomialOrderedGPSS, VBMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
 
 write_path = pathlib.Path()
+
 
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 
@@ -24,8 +25,8 @@ def split(list, K):
     return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
 
 
-# argument = "diabetes_quantile"
-argument = "stocks_quantile"
+argument = "diabetes_quantile"
+# argument = "stocks_quantile"
 
 print("here")
 if argument == "diabetes_quantile":
@@ -35,10 +36,8 @@ if argument == "diabetes_quantile":
     #gamma_0 = np.array([-np.inf, 1.0, 2.0, 3.0, 4.0, np.inf])
     #gamma_0 = np.array([-np.inf, 1.0, 4.5, 5.0, 5.6, np.inf])
     gamma_0 = np.array([-np.inf, 3.8, 4.5, 5.0, 5.6, np.inf])
-    # data = np.load("data_diabetes.npz")
-    # data_continuous = np.load("data_diabetes_continuous.npz")
-    data = np.load(write_path / "/data/5bin/diabetes.data.npz")
-    data_continuous = np.load("/data/continuous/diabetes.DATA.npz")
+    data = np.load(write_path / "./data/5bin/diabetes.data.npz")
+    data_continuous = np.load(write_path / "./data/continuous/diabetes.DATA.npz")
 elif argument == "stocks_quantile":
     K = 5
     D = 9
@@ -64,7 +63,7 @@ elif argument == "septile":
     data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
 
-if argument == "diabetes_quantile" or argument == "stocks_quantile":
+if argument in ["diabetes_quantile", "stocks_quantile"]:
     X_trains = data["X_train"]
     t_trains = data["t_train"]
     X_tests = data["X_test"]
@@ -103,8 +102,7 @@ if argument == "diabetes_quantile" or argument == "stocks_quantile":
                     y.append(Y_true[j])
         Y_trues.append(y)
     Y_trues = np.array(Y_trues)
-
-if argument not in ["diabetes_quantile", "stocks_quantile"]:
+else:
     X_k = data["X_k"]  # Contains (256, 7) array of binned x values
     #Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
     X = data["X"]  # Contains (1792,) array of x values
@@ -129,7 +127,41 @@ if argument not in ["diabetes_quantile", "stocks_quantile"]:
     # plt.ylabel(r"$y$", fontsize=16)
     # plt.show()
 
-# This is the general kernel for a GP prior for the multi-class problem
+
+def ordinal_VB_training(X_train, t_train, X_test, t_test, gamma_0, K, varphi_0=1.0/D, noise_variance_0=1.0,
+                        scale=1.0, sigma=10e-6, tau=10e-6):
+    """
+    An example ordinal training function.
+
+    :return:
+    """
+    varphi = varphi_0
+    noise_variance = noise_variance_0
+    theta = []
+    theta.append(np.log(noise_variance))
+    print("gamma_0", gamma_0)
+    theta.append(gamma_0[1])
+    for i in range(2, K):
+        theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
+    theta.append(np.log(varphi))
+    theta = np.array(theta)
+    print("theta_0", theta)
+    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    # Initiate classifier
+    variational_classifier = VBMultinomialOrderedGP(X_train, t_train, kernel)
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options={
+        'maxiter':25})
+    theta = res.x
+    noise_variance = np.exp(theta[0])
+    gamma = np.empty((K + 1,))  # including all of the cutpoints
+    gamma[0] = np.NINF
+    gamma[-1] = np.inf
+    gamma[1] = theta[1]
+    for i in range(2, K):
+        gamma[i] = gamma[i - 1] + np.exp(theta[i])
+    varphi = np.exp(theta[K])
+    return gamma, noise_variance, varphi
+
 
 def outer_loops():
     grid = np.ogrid[0:len(X_tests[0, :, :])]
@@ -172,7 +204,7 @@ def outer_loops():
             print(x_new)
             kernel = SEIso(x_new[0], x_new[1], sigma=sigma, tau=tau)
             # Initiate classifier
-            variational_classifier = VBMultinomialOrderedGPTemp(X_train, t_train, kernel)
+            variational_classifier = VBMultinomialOrderedGP(X_train, t_train, kernel)
             #variational_classifier = VBMultinomialOrderedGP(X, t, kernel)
             steps = 50
             y_0 = Y_true.flatten()
@@ -347,25 +379,17 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
     grid = np.ogrid[0:len(X_test)]
     varphi = 1.83298071e-05
     scale = 3.79269019e+01
-    #varphi = 10e-5
-    #scale = 2.0
-    #varphi = 10e-4
-    #scale = 20e5
     sigma = 10e-6
     tau = 10e-6
-    print("one")
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    print("two")
-    variational_classifier = VBMultinomialOrderedGPTemp(X_train, t_train, kernel)
+    variational_classifier = VBMultinomialOrderedGP(X_train, t_train, kernel)
     #variational_classifier = VBMultinomialOrderedGP(X, t, kernel)
-    print("three")
     steps = 50
     y_0 = Y_true.flatten()
     m_0 = y_0
     gamma, m_tilde, Sigma_tilde, C_tilde, y_tilde, varphi_tilde, bound, containers = variational_classifier.estimate(
         m_0, gamma_0, steps, varphi_0=varphi, fix_hyperparameters=False, write=True)
-    print("four")
     ms, ys, varphis, psis, bounds = containers
 
     plt.title("variational lower bound")
@@ -381,7 +405,7 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
     plt.title(r"$\phi$", fontsize=16)
     plt.show()
 
-    if argument == "diabetes_quantile" or argument == "stocks_quantile":
+    if argument in ["diabetes_quantile", "stocks_quantile"]:
         lower_x1 = 0.0
         upper_x1 = 16.0
         lower_x2 = -30
