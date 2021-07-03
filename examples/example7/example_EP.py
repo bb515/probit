@@ -128,7 +128,7 @@ if argument not in ["diabetes_quantile", "stocks_quantile"]:
 
 def ordinal_EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance,
-        K, steps=500, scale=1.0, sigma=10e-6, tau=10e-6):
+        K, steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     print("varphi", kernel.varphi)
@@ -142,14 +142,14 @@ def ordinal_EP_testing(
     precision_EP = None
     amplitude_EP = None
     approximate_marginal_likelihoods = []
-    while error / steps > 5e-3:  # variational_classifier.EPS**2:  #TODO: is this really correct?
+    while error / steps > variational_classifier.EPS**2:  #TODO: is this really correct?
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
          precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
             steps, gamma, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, noise_variance=noise_variance,
             write=True)
-        # print("iteration {}, error={}".format(iteration, error / steps))
+        print("iteration {}, error={}".format(iteration, error / steps))
         variational_classifier.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         approximate_marginal_likelihoods.append(variational_classifier.approximate_evidence(
             mean_EP, precision_EP, amplitude_EP, Sigma))
@@ -199,7 +199,6 @@ def ordinal_EP_testing(
 
         # plt.xlim(0, 2)
         # plt.ylim(0, 2)
-        plt.legend()
         plt.xlabel(r"$x_1$", fontsize=16)
         plt.ylabel(r"$x_2$", fontsize=16)
         plt.title("Contour plot - Expectation propagation")
@@ -207,7 +206,7 @@ def ordinal_EP_testing(
     return bound, zero_one, predictive_likelihood, mean_absolute_error
 
 
-def ordinal_EP_training(X_train, t_train, X_test, t_test, gamma_0, K, varphi_0=1.0/D, noise_variance_0=1.0,
+def ordinal_EP_training(X_train, t_train, X_test, t_test, gamma_0, K, varphi_0=0.0006, noise_variance_0=1.0,
                         scale=1.0, sigma=10e-6, tau=10e-6):
     """
     An example ordinal training function.
@@ -229,7 +228,7 @@ def ordinal_EP_training(X_train, t_train, X_test, t_test, gamma_0, K, varphi_0=1
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='CG', jac=True, options={
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options={
         'maxiter':25})
     theta = res.x
     noise_variance = np.exp(theta[0])
@@ -258,11 +257,11 @@ def test_bed(gamma_0=np.array([-np.inf, 0.2, 0.4, 0.6, 0.8, np.inf]), scale=1.0)
     bound, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
 
-    print(gamma)
-    print(zero_one)
-    print(predictive_likelihood)
-    print(mean_abs)
-    print(bound)
+    print("gamma", gamma)
+    print("zero_one", zero_one)
+    print("predictive likelihood", predictive_likelihood)
+    print("mean_abs", mean_abs)
+    print("bound", bound)
     assert 0
 
 
@@ -610,7 +609,6 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
 
             # plt.xlim(0, 2)
             # plt.ylim(0, 2)
-            plt.legend()
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.title("Contour plot - Variational")
@@ -652,7 +650,6 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
                       colors=(
                           colors[0], colors[1], colors[2])
                       )
-        plt.legend()
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
         plt.scatter(X[np.where(t == 0)], np.zeros_like(X[np.where(t == 0)]) + val, facecolors=colors[0], edgecolors='white')
         plt.scatter(X[np.where(t == 1)], np.zeros_like(X[np.where(t == 1)]) + val, facecolors=colors[1], edgecolors='white')
@@ -701,25 +698,27 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
         plt.legend()
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
         for i in range(7):
-            plt.scatter(X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
+            plt.scatter(
+                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
         plt.show()
 
 # Debug
 test_bed()
 
+assert 0
 split = 2
 X_train = X_trains[split, :, :]
 t_train = t_trains[split, :]
 X_test = X_tests[split, :, :]
 t_test = t_tests[split, :]
 Y_true = Y_trues[split, :]
-gamma = np.array([np.NANF, 0.91957117, 4.33669622, 6.93837388, 8.10256752, np.inf])
-noise_variance = 2.0730371538626398
-varphi = 0.054306417960043166
+
+gamma = np.array([-np.inf, -1.4395564, -0.85935829, 4.55393507, 7.47177837, np.inf])
+noise_variance = 2.8037410261849766
+varphi = 0.05925575735992925
 scale = 1.0
 bound, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
-
 
 assert 0
 

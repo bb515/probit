@@ -2038,7 +2038,7 @@ class VBMultinomialOrderedGP(Estimator):
         gamma[-1] = np.inf
         gamma[1] = theta[1]
         for i in range(2, self.K):
-            gamma[i] = gamma[i-1] + np.exp(theta[i])
+            gamma[i] = gamma[i-1] + np.exp(theta[i])  # TODO: won't need this since not threshold.
         if self.kernel.general_kernel and self.kernel.ARD_kernel:
             # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
             # and lengthscales parameter for each dimension and class
@@ -2301,8 +2301,9 @@ class EPMultinomialOrderedGP(Estimator):
             (mean_EP_n, precision_EP_n, amplitude_EP_n, Z_n, grad_Z_wrt_cavity_mean_n, grad_Z_wrt_cavity_mean,
              posterior_mean, posterior_mean_n_new, posterior_covariance_n_new, z1, z2, nu_n) = self._include(
                 index, posterior_mean, cavity_mean_n, cavity_variance_n, gamma, noise_variance, grad_Z_wrt_cavity_mean)
+            diff = precision_EP_n_old - precision_EP_n
             if (
-                    np.abs(precision_EP_n_old - precision_EP_n) > self.EPS
+                    np.abs(diff) > self.EPS
                     and Z_n > self.EPS
                     and precision_EP_n > 0.0
                     and posterior_covariance_n_new > 0.0
@@ -2310,12 +2311,12 @@ class EPMultinomialOrderedGP(Estimator):
                 # Update posterior mean and rank-1 covariance
                 Sigma, posterior_mean = self._update(
                     index, mean_EP_n_old, Sigma, Sigma_nn, precision_EP_n, precision_EP_n_old, grad_Z_wrt_cavity_mean_n,
-                    posterior_mean_n_new, posterior_mean, posterior_covariance_n_new)
+                    posterior_mean_n_new, posterior_mean, posterior_covariance_n_new, diff)
                 # Update EP parameters
                 precision_EP[index] = precision_EP_n
                 mean_EP[index] = mean_EP_n
                 amplitude_EP[index] = amplitude_EP_n
-                error += ((precision_EP_n - precision_EP_n_old)**2
+                error += (diff**2
                           + (mean_EP_n - mean_EP_n_old)**2
                           + (amplitude_EP_n - amplitude_EP_n_old)**2)
                 if write:
@@ -2499,7 +2500,7 @@ class EPMultinomialOrderedGP(Estimator):
 
     def _update(self, index, mean_EP_n_old, Sigma, Sigma_nn, precision_EP_n,
                 precision_EP_n_old, grad_Z_wrt_cavity_mean_n, posterior_mean_n_new, posterior_mean,
-                posterior_covariance_n_new):
+                posterior_covariance_n_new, diff):
         """
         Update the posterior mean and covariance.
 
@@ -2507,9 +2508,6 @@ class EPMultinomialOrderedGP(Estimator):
         family. The update for the t_n is a rank-1 update. Constructs a low rank approximation to the GP posterior
         covariance matrix.
         """
-        # diff = pnew - epinvvar
-        diff = precision_EP_n - precision_EP_n_old
-        #print("diff", diff)
         # rho = diff/(1+diff*Aii);
         rho = diff / (1 + diff * Sigma_nn)
 		# eta = (alpha+epinvvar*(postmean-epmean))/(1.0-Aii*epinvvar) ;
@@ -2517,19 +2515,16 @@ class EPMultinomialOrderedGP(Estimator):
                 1.0 - Sigma_nn * precision_EP_n_old)
         # ai[i] = Retrieve_Posterior_Covariance (i, index, settings) ;
         a_n = Sigma[:, index]  # The index'th column of Sigma
-        #print("A_ii", a_n[index])
         # postcov[j]-=rho*ai[i]*ai[j] ;
         Sigma = Sigma - rho * np.outer(a_n, a_n)
         # postmean+=eta*ai[i];
-        #print("posterior_mean", posterior_mean[index])
-        #print("eta a_n", eta * a_n[index])
-        posterior_mean += eta * a_n  #mistake
-        # print("Got (posterior_mean_n_new={}, posterior_mean_index={}, diff={})".format(
-        #         posterior_mean_n_new, posterior_mean[index], posterior_mean_n_new - posterior_mean[index]))
-        if np.abs(posterior_covariance_n_new - Sigma[index, index]) > self.EPS:  # TODO: check this is correct.
+        posterior_mean += eta * a_n
+        # assert(fabs((settings->alpha+index)->pair->postmean-alpha->hnew)<EPS)
+        if np.abs(posterior_covariance_n_new - Sigma[index, index]) > self.EPS:
             raise ValueError("np.abs(posterior_covariance_n_new - Sigma[index, index]) must be less than some "
                              "tolerance. Got (posterior_covariance_n_new={}, Sigma_index_index={}, diff={})".format(
                 posterior_covariance_n_new, Sigma[index, index], posterior_covariance_n_new - Sigma[index, index]))
+        # assert(fabs((settings->alpha+index)->postcov[index]-alpha->cnew)<EPS)
         if np.abs(posterior_mean_n_new - posterior_mean[index]) > self.EPS:
             raise ValueError("np.abs(posterior_mean_n_new - posterior_mean[index]) must be less than some tolerance."
                              " Got (posterior_mean_n_new={}, posterior_mean_index={}, diff={})".format(
@@ -2692,28 +2687,28 @@ class EPMultinomialOrderedGP(Estimator):
         precision_EP = precision_EP_0
         amplitude_EP = amplitude_EP_0
         intervals = gamma[2:self.K] - gamma[1:self.K - 1]
-        while error / steps > 5e-3:  # variational_classifier.EPS**2:
+        while error / steps > self.EPS**2:  # 5e-3
             iteration += 1
             (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
              precision_EP, amplitude_EP, containers) = self.estimate(
                 steps, gamma, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, noise_variance=noise_variance,
                 first_step=first_step, write=write)
-            # print("iteration {}, error={}".format(iteration, error / steps))
-            self.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+            print("iteration {}, error={}".format(iteration, error / steps))
+            weights, precision_EP = self.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs, approximate_marginal_likelihoods) = containers
         # Try optimisation routine
-        t1, t2, t3, t4, t5, Lambda_cholesky, Lambda, weights = self.compute_integrals(
-            gamma, Sigma, mean_EP, precision_EP, posterior_mean, noise_variance)
+        t1, t2, t3, t4, t5, Lambda_cholesky, Lambda = self.compute_integrals(
+            gamma, Sigma, precision_EP, posterior_mean, noise_variance, grad_Z_wrt_cavity_mean)
         fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
         gx = self.evaluate_function_gradient(
             intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
         print("function call {}, gradient vector {}".format(fx, gx))
         return fx, gx
 
-    def compute_integrals(self, gamma, Sigma, mean_EP, precision_EP, posterior_mean, noise_variance):
+    def compute_integrals(self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):
         """# TODO: C Compute the integrals required for the gradient evaluation."""
-        # Fill possible zeros in with machine precision
+        # Fill possible zeros in with machine precision # TODO: is this required?
         precision_EP[precision_EP == 0.0] = self.EPS * self.EPS
         # Call EP routine to find posterior distribution
         t1 = np.empty((self.N,))
@@ -2723,18 +2718,19 @@ class EPMultinomialOrderedGP(Estimator):
         t5 = np.empty((self.N,))
         Pi_inv = np.diag(1. / precision_EP)
         # Cholesky factorisation only
-        Lambda_cholesky = np.linalg.cholesky(np.add(Pi_inv, self.C))
-        # Inverse: TODO, make faster
-        Lambda = np.linalg.inv(np.add(Pi_inv, self.C))  # (N, N)
-        weights = Lambda @ mean_EP  # (N,)
-        # Compute integrals
+        L = np.linalg.cholesky(np.add(Pi_inv, self.C))
+        # Inverse
+        L_inv = np.linalg.inv(L)
+        Lambda = L_inv.T @ L_inv  # (N, N)
+        # Lambda = np.linalg.inv(intermediate_matrix)#TODO: avoid calculating cholesky twice
+        # Compute integrals - not scalable to large datasets because of the for loop.
         for i in range(self.N):
             t1[i] = fromb_t1(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
             t2[i] = fromb_t2(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
             t3[i] = fromb_t3(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
             t4[i] = fromb_t4(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
             t5[i] = fromb_t5(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
-        return t1, t2, t3, t4, t5, Lambda_cholesky, Lambda, weights
+        return t1, t2, t3, t4, t5, L, Lambda
 
     def evaluate_function(self, precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights):
         """
@@ -2888,6 +2884,7 @@ class EPMultinomialOrderedGP(Estimator):
 
     def approximate_evidence(self, mean_EP, precision_EP, amplitude_EP, Sigma):
         """
+        TODO: check
         Compute the approximate evidence at the EP solution.
 
         :return:
@@ -2900,6 +2897,7 @@ class EPMultinomialOrderedGP(Estimator):
 
     def compute_EP_weights(self, precision_EP, mean_EP, grad_Z_wrt_cavity_mean):
         """
+        TODO: C
         Compute regression weights, and check that they are in equilibrium with the gradients of Z wrt cavity means.
 
         There is likely a problem here, as on all but first swips, the weights are not in equilibrium. (although the
@@ -2907,7 +2905,6 @@ class EPMultinomialOrderedGP(Estimator):
         """
         Pi_inv  = np.diag(1./precision_EP)
         Lambda = np.linalg.inv(np.add(Pi_inv, self.C))
-        weights = Lambda @ mean_EP
         # Check the equilibrium
         diff = 0
         diffs = []
@@ -2915,21 +2912,30 @@ class EPMultinomialOrderedGP(Estimator):
         #print(grad_Z_wrt_cavity_mean)
         for i in range(self.N):
             # Only check for equilibrium if it has been updated in this swipe
-            if precision_EP[i] != 0.0:
-                weight = weights[i]
-                alpha = grad_Z_wrt_cavity_mean[i]
-                diffs.append(100*(weight - alpha)/ np.abs(alpha))
-                diff += np.abs(weight - alpha)
-                grad_total += np.abs(alpha)
+            if precision_EP[i] == 0.0:
+                warnings.warn("{} sample has not been updated.\n".format(i))
+                precision_EP[i] = self.EPS
+            else:
+                pass
+                # weight = weights[i]
+                # alpha = grad_Z_wrt_cavity_mean[i]
+                # diffs.append(100*(weight - alpha)/ np.abs(alpha))
+                # diff += np.abs(weight - alpha)
+                # grad_total += np.abs(alpha)
                 # if np.abs(weight - alpha) > np.sqrt(self.EPS):
                 #     print("{} sample is not at equilibrium (alpha = {} != weight = {})".format(
                 #     i, alpha, weight))
                     # raise ValueError("{} sample is not at equilibrium (alpha = {} != weight = {})".format(
                     # i, alpha, weight))
+        # Check the equilibrium
+        weights = Lambda @ mean_EP
+        if np.any(np.abs(weights - grad_Z_wrt_cavity_mean)) > self.EPS:
+            raise ValueError("Fatal error: the weights are not in equilibrium with the gradients".format(
+                weights, grad_Z_wrt_cavity_mean))
         # print("non-equilibrium", diff)
         # print("diffs", diffs)
         # print("grad_total", grad_total)
-        return 0
+        return weights, precision_EP
 
 
 class CutpointValueError(Exception):

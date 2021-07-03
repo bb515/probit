@@ -3,62 +3,98 @@ import numpy as np
 from scipy.stats import norm, expon
 import math
 
-def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
+def return_prob(b, t, K, gamma, noise_std, numerically_stable=True):
+    """Return a Gaussian probability."""
+    if numerically_stable:
+        phi1 = 1.0
+        phi2 = 0.0
+        if t >= 1:
+            z2 = (gamma[t] - b) / noise_std
+            phi2 = norm.cdf(z2)
+        if t <= K - 2:
+            z1 = (gamma[t + 1] - b) / noise_std
+            phi1 = norm.cdf(z1)
+    else:
+        phi1 = norm.cdf((gamma[t] - b) / noise_std)
+        phi2 = norm.cdf((gamma[t + 1] - b) / noise_std)
+    return phi1 - phi2
+
+def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS, numerically_stable=True):
     """
-    # TODO: C
-    TODO: need to check it is the correct indexing of the cutpoint parameters in the way that I have them.
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
-    :return:
+    :arg float b: The approximate posterior mean evaluated at the datapoint.
+    :arg float mean: A mean value of a pdf inside the integrand.
+    :arg float sigma: A standard deviation of a pdf inside the integrand.
+    :arg int t: The target value for the datapoint, indexed from 0.
+    :arg int K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :type gamma: `nd.numpy.array`
+    :arg float noise_variance: A noise variance for the likelihood.
+    :arg float EPS: A machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
     """
-    phi1 = 1.0
-    phi2 = 0.0
-    func1 = norm.pdf(b, loc=mean, scale=sigma)
-    if t >= 1:
-        z2 = (gamma[t] - b) / np.sqrt(noise_variance)
-        phi2 = norm.cdf(z2)
-    if t <= K - 2:
-        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
-        phi1 = norm.cdf(z1)
-    prob = phi1 - phi2
+    noise_std = np.sqrt(noise_variance)
+    func = norm.pdf(b, loc=mean, scale=sigma)
+    prob = return_prob(b, t, K, gamma, noise_std, numerically_stable=True)
     if prob < EPS*EPS:
         prob = EPS*EPS
-    func = func1 * np.log(prob)
+    func = func * np.log(prob)
     if math.isnan(func):
-        raise ValueError("fft1 {} {} {} {} {}".format(t, gamma[t], prob, func, func1))
+        raise ValueError("fft1 {} {} {} {}".format(t, gamma[t], prob, func))
+    return func
+
+
+def vector_fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS, numerically_stable=True):
+    """
+    :arg float b: The approximate posterior mean evaluated at the datapoint.
+    :arg float mean: A mean value of a pdf inside the integrand.
+    :arg float sigma: A standard deviation of a pdf inside the integrand.
+    :arg int t: The target value for the datapoint, indexed from 0.
+    :arg int K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :type gamma: `nd.numpy.array`
+    :arg float noise_variance: A noise variance for the likelihood.
+    :arg float EPS: A machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
+    """
+    func1 = norm.pdf(b, loc=mean, scale=sigma)
+    EPS_2 = EPS * EPS
+    noise_std = np.sqrt(noise_variance)
+    z2 = (gamma[t] - b) / noise_std
+    z1 = (gamma[t + 1] - b) / noise_std
+    phi2 = norm.cdf(z2)
+    phi1 = norm.cdf(z1)
+    prob = phi1 - phi2
+    prob[prob < EPS_2] = EPS_2
+    func = np.multiply(func1 * np.log(prob))
+    if np.any(math.isnan(func)):
+        raise ValueError("fft1 \n{} \n{} \n{} \n{} \n{}".format(t, gamma, prob, func, func1))
     return func
 
 
 def fromb_t1(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
-    # TODO: C
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
-    :return:
+    :arg float posterior_mean: The approximate posterior mean evaluated at the datapoint.
+    :arg float posterior_covariance: The approximate posterior marginal variance evaluated at the datapoint.
+    :arg int t: The target value for the datapoint.
+    :arg int K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :type gamma: `numpy.ndarray`
+    :arg float noise_variance: A noise variance for the likelihood.
+    :arg float EPS: A machine tolerance to be used.
+    :return: fromberg numerical integral numerical value.
+    :rtype: float
     """
     posterior_std = np.sqrt(posterior_covariance)
     y = np.zeros((20,))
     a = posterior_mean - 5.0 * posterior_std
     b = posterior_mean + 5.0 * posterior_std
-
     h = b - a
     y[0] = h * (
         fromb_fft1(a, posterior_mean, posterior_std, t, K, gamma, noise_variance, EPS)
         + fromb_fft1(b, posterior_mean, posterior_std, t, K, gamma, noise_variance, EPS)
     ) / 2.0
-
     m = 1
     n = 1
     ep = EPS + 1.0
@@ -69,62 +105,72 @@ def fromb_t1(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
             p += fromb_fft1(x, posterior_mean, posterior_std, t, K, gamma, noise_variance, EPS)
         p = (y[0] + h * p) / 2.0
         s = 1.0
-        for k in range(1, m + 1):
-            s = 4.0 * s
-            q = (s * p - y[k - 1]) / (s - 1.0)
-            y[k - 1] = p
+        for k in range(m):
+            s *= 4.0
+            q = (s * p - y[k]) / (s - 1.0)
+            y[k] = p
             p = q
         ep = np.abs(q - y[m - 1])
-        m = m + 1
-        y[m - 1] = q  # TODO: Is this m from previous line or m before update.
-        n = n + n
-        h = h / 2.0
+        m += 1
+        y[m - 1] = q
+        n += n
+        h /= 2.0
     return q
 
 
-def fromb_fft2(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+def fromb_fft2(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS,
+               numerically_stable=True):
     """
-    # TODO: C
-    TODO: check this function.
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
-    :return:
+    :arg b: The approximate posterior mean evaluated at the datapoint.
+    :arg mean: A mean value of a pdf inside the integrand.
+    :arg sigma: A standard deviation of a pdf inside the integrand.
+    :arg t: The target value for the datapoint.
+    :arg K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :arg noise_variance: A noise variance for the likelihood.
+    :arg EPS: A machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
     """
-    phi1 = 1.0
-    phi2 = 0.0
-    func1 = norm.pdf(b, loc=mean, scale=sigma)
-    if t >= 1:
-        z2 = (gamma[t] - b) / np.sqrt(noise_variance)
-        phi2 = norm.cdf(z2)
-    if t <= K - 2:
-        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
-        phi1 = norm.cdf(z1)
+    noise_std = np.sqrt(noise_variance)
+    EPS_2 = EPS * EPS
+    return_prob(b, t, K, gamma, noise_std, numerically_stable=True)
+
+    if numerically_stable:
+        phi1 = 1.0
+        phi2 = 0.0
+        func = norm.pdf(b, loc=mean, scale=sigma)
+        if t >= 1:
+            z2 = (gamma[t] - b) / noise_std
+            phi2 = norm.cdf(z2)
+        if t <= K - 2:
+            z1 = (gamma[t + 1] - b) / noise_std
+            phi1 = norm.cdf(z1)
+    else:
+        phi1 = norm.cdf((gamma[t] - b) / noise_std)
+        phi2 = norm.cdf((gamma[t + 1] - b) / noise_std)
     prob = phi1 - phi2
-    if prob < EPS*EPS:
-        prob = EPS*EPS
-    func = func1 / prob * norm.pdf(posterior_mean, loc=gamma[t], scale=np.sqrt(
+    if prob < EPS_2:
+        prob = EPS_2
+    func = func / prob * norm.pdf(posterior_mean, loc=gamma[t], scale=np.sqrt(
         noise_variance + posterior_covariance))
     if math.isnan(func):
-        raise ValueError("{} {} {} {} {} ({} {} {})".format(t, gamma[t], prob, func, func1, b, mean, sigma))
+        raise ValueError("{} {} {} {} ({} {} {})".format(t, gamma[t], prob, func, b, mean, sigma))
     return func
 
 
 def fromb_t2(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
-    # TODO: C
-    :arg posterior_mean: The approximate posterior mean evaluated at the datapoint. (pdf inside the integrand)
-    :arg posterior_covariance: The approximate posterior marginal variance.
-    :arg t: The target for the datapoint
-    :arg K: The number of ordinal classes.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
-    :return:
+    :arg float posterior_mean: The approximate posterior mean evaluated at the datapoint. (pdf inside the integrand)
+    :arg float posterior_covariance: The approximate posterior marginal variance.
+    :arg int t: The target for the datapoint
+    :arg int K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :type gamma: `numpy.ndarray`
+    :arg float noise_variance: A noise variance for the likelihood.
+    :arg float EPS: A machine tolerance to be used.
+    :return: fromberg numerical integral numerical value.
+    :rtype: float
     """
     if t == 0:
         return 0
@@ -146,44 +192,53 @@ def fromb_t2(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, 
         p = 0.0
         for i in range(n):
             x = a + (i + 0.5) * h
-            p = p + fromb_fft2(x, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
+            p += fromb_fft2(x, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS)
         p = (y[0] + h * p) / 2.0
         s = 1.0
-        for k in range(1, m + 1):
-            s = 4.0 * s
-            q = (s * p - y[k - 1]) / (s - 1.0)
-            y[k - 1] = p
+        for k in range(m):
+            s *= 4.0
+            q = (s * p - y[k]) / (s - 1.0)
+            y[k] = p
             p = q
         ep = np.abs(q - y[m - 1])
-        m = m + 1
+        m += 1
         y[m - 1] = q
-        n = n + n
-        h = h / 2.0
+        n += n
+        h /= 2.0
     return q
 
 
-def fromb_fft3(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
+def fromb_fft3(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS,
+               numerically_stable=True):
     """
-    # TODO: C
-    TODO: check this function.
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
-    :return:
+    :arg float b: The approximate posterior mean evaluated at the datapoint.
+    :arg float mean: A mean value of a pdf inside the integrand.
+    :arg float sigma: A standard deviation of a pdf inside the integrand.
+    :arg float posterior_mean: The approximate posterior mean evaluated at the datapoint. (pdf inside the integrand)
+    :arg float posterior_covariance: The approximate posterior marginal variance.
+    :arg int t: The target value for the datapoint.
+    :arg int K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :type gamma: `numpy.ndarray`
+    :arg float noise_variance: A noise variance for the likelihood.
+    :arg float EPS: A machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
     """
-    phi1 = 1.0
-    phi2 = 0.0
     func1 = norm.pdf(b, loc=mean, scale=sigma)
-    if t >= 1:
+    if numerically_stable:
+        phi1 = 1.0
+        phi2 = 0.0
+        if t >= 1:
+            z2 = (gamma[t] - b) / np.sqrt(noise_variance)
+            phi2 = norm.cdf(z2)
+        if t <= K - 2:
+            z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
+            phi1 = norm.cdf(z1)
+    else:
+        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
         z2 = (gamma[t] - b) / np.sqrt(noise_variance)
         phi2 = norm.cdf(z2)
-    if t <= K - 2:
-        z1 = (gamma[t + 1] - b) / np.sqrt(noise_variance)
         phi1 = norm.cdf(z1)
     prob = phi1 - phi2
     if prob < EPS*EPS:
@@ -198,14 +253,14 @@ def fromb_fft3(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
 def fromb_t3(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
     # TODO: C
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
+    :arg b: The approximate posterior mean evaluated at the datapoint.
+    :arg mean: A mean value of a pdf inside the integrand.
+    :arg sigma: A standard deviation of a pdf inside the integrand.
+    :arg t: The target value for the datapoint.
+    :arg K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :arg noise_variance: A noise variance for the likelihood.
+    :arg EPS: A machine tolerance to be used.
     :return:
     """
     if t == K - 1:
@@ -248,15 +303,16 @@ def fromb_fft4(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
     """
     # TODO: C
     TODO: check this function.
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
-    :return:
+    :arg b: The approximate posterior mean evaluated at the datapoint.
+    :arg mean: A mean value of a pdf inside the integrand.
+    :arg sigma: A standard deviation of a pdf inside the integrand.
+    :arg t: The target value for the datapoint.
+    :arg K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :arg noise_variance: A noise variance for the likelihood.
+    :arg EPS: A machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
     """
     phi1 = 1.0
     phi2 = 0.0
@@ -278,14 +334,14 @@ def fromb_fft4(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
 def fromb_t4(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
     # TODO: C
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
+    :arg b: The approximate posterior mean evaluated at the datapoint.
+    :arg mean: A mean value of a pdf inside the integrand.
+    :arg sigma: A standard deviation of a pdf inside the integrand.
+    :arg t: The target value for the datapoint.
+    :arg K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :arg noise_variance: A noise variance for the likelihood.
+    :arg EPS: A machine tolerance to be used.
     :return:
     """
     if t == K - 1:
@@ -328,15 +384,16 @@ def fromb_fft5(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
     """
     # TODO: C
     TODO: check this function
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
-    :return:
+    :arg b: The approximate posterior mean evaluated at the datapoint.
+    :arg mean: A mean value of a pdf inside the integrand.
+    :arg sigma: A standard deviation of a pdf inside the integrand.
+    :arg t: The target value for the datapoint.
+    :arg K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :arg noise_variance: A noise variance for the likelihood.
+    :arg EPS: A machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
     """
     phi1 = 1.0
     phi2 = 0.0
@@ -358,14 +415,14 @@ def fromb_fft5(b, mean, sigma, posterior_mean, posterior_covariance, t, K, gamma
 def fromb_t5(posterior_mean, posterior_covariance, t, K, gamma, noise_variance, EPS):
     """
     # TODO: C
-    :param b: The approximate posterior mean evaluated at the datapoint.
-    :param mean: A mean value of a pdf inside the integrand.
-    :param sigma: A standard deviation of a pdf inside the integrand.
-    :param t: The target value for the datapoint.
-    :param K: The number of ordinal classes.
-    :param gamma: The vector of cutpoints.
-    :param noise_variance: A noise variance for the likelihood.
-    :param EPS: A machine tolerance to be used.
+    :arg b: The approximate posterior mean evaluated at the datapoint.
+    :arg mean: A mean value of a pdf inside the integrand.
+    :arg sigma: A standard deviation of a pdf inside the integrand.
+    :arg t: The target value for the datapoint.
+    :arg K: The number of ordinal classes.
+    :arg gamma: The vector of cutpoints.
+    :arg noise_variance: A noise variance for the likelihood.
+    :arg EPS: A machine tolerance to be used.
     :return:
     """
     if t == 0:
