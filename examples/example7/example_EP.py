@@ -25,21 +25,31 @@ def split(list, K):
     return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
 
 
-argument = "diabetes_quantile"
-# argument = "stocks_quantile"
+# argument = "diabetes_quantile"
+argument = "stocks_quantile"
 
 if argument == "diabetes_quantile":
     K = 5
     D = 2
-    #gamma_0 = np.array([-np.inf, 1.0, 2.0, 3.0, 4.0, np.inf])
-    gamma_0 = np.array([-np.inf, 1.0, 4.5, 5.0, 5.6, np.inf])
-    #gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1.*2./K, -1.0 + 2.*2./K, -1.0 + 3.*2./K, np.inf])
+    gamma_0 = np.array([-np.inf, -0.2, -0.1, 0.1, 0.2, np.inf])
+    varphi_0 = 6.7e-06
+    noise_variance_0 = 1.0
     data = np.load(write_path / "./data/5bin/diabetes.data.npz")
+    data_continuous = np.load("./data/continuous/diabetes.DATA.npz")
+elif argument == "abalone":
+    K = 5
+    D = 7
+    gamma_0 = np.array([-np.inf, -0.2, -0.1, 0.1, 0.2, np.inf])
+    varphi_0 = 2.0/7.0
+    noise_variance_0 = 1.0
+    data = np.load(write_path / "./data/5bin/abalone.npz")
     data_continuous = np.load("./data/continuous/diabetes.DATA.npz")
 elif argument == "stocks_quantile":
     K = 5
     D = 9
-    gamma_0 = np.array([np.NINF, 1.0, 2.0, 3.0, 4.0, np.inf])
+    gamma_0 = np.array([-np.inf, 0.1, 0.3, 0.5, 0.7, np.inf])
+    varphi_0 = 0.005
+    noise_variance_0 = 1.0
     data = np.load(write_path / "./data/5bin/stock.npz")
     data_continuous = np.load(write_path / "./data/continuous/stock.npz")
 elif argument == "tertile":
@@ -60,6 +70,13 @@ elif argument == "septile":
     #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
     data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
+
+# Default initial values
+# gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1.*2./K, -1.0 + 2.*2./K, -1.0 + 3.*2./K, np.inf])
+# varphi_0 = 2./D
+# noise_variance_0 = 1.0
+# Temporary
+Lambda = None
 
 if argument == "diabetes_quantile" or argument == "stocks_quantile":
     X_trains = data["X_train"]
@@ -131,7 +148,7 @@ def ordinal_EP_testing(
         K, steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
-    print("varphi", kernel.varphi)
+    print("varphi", kernel.varphi, varphi)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     error = np.inf
@@ -141,38 +158,41 @@ def ordinal_EP_testing(
     mean_EP = None
     precision_EP = None
     amplitude_EP = None
-    approximate_marginal_likelihoods = []
-    while error / steps > variational_classifier.EPS**2:  #TODO: is this really correct?
+    while error / steps > variational_classifier.EPS:  #TODO: is this really correct
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
          precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
-            steps, gamma, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
-            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, noise_variance=noise_variance,
-            write=True)
+            steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
         print("iteration {}, error={}".format(iteration, error / steps))
-        variational_classifier.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-        approximate_marginal_likelihoods.append(variational_classifier.approximate_evidence(
-            mean_EP, precision_EP, amplitude_EP, Sigma))
-    bound = approximate_marginal_likelihoods[-1]
-    plt.title(r"Variational lower bound $\scr{F}$", fontsize=16)
-    plt.plot(bound)
-    plt.show()
+    weights, precision_EP, Lambda, Lambda_cholesky = variational_classifier.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+    t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
+        gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+    fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     # Test
     Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
-                                       noise_variance, X_test, vectorised=True)  # (n_test, K)
+                                       noise_variance, X_test, Lambda, vectorised=True)  # (n_test, K)
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
-    lower_x1 = 0.0
-    upper_x1 = 16.0
-    lower_x2 = -30
-    upper_x2 = 0
-    N = 60
+    # lower_x1 = 0.0
+    # upper_x1 = 16.0
+    # lower_x2 = -30
+    # upper_x2 = 0
+
+    lower_x1 = 15.0
+    upper_x1 = 65.0
+    lower_x2 = 15.0
+    upper_x2 = 70.0
+
+    N = 75
     x1 = np.linspace(lower_x1, upper_x1, N)
     x2 = np.linspace(lower_x2, upper_x2, N)
     xx, yy = np.meshgrid(x1, x2)
     X_new = np.dstack((xx, yy))
     X_new = X_new.reshape((N * N, 2))
+    X_new_ = np.zeros((N * N, D))
+    X_new_[:, :2] = X_new
     # Mean zero-one error
     t_star = np.argmax(Z, axis=1)
     print(t_star)
@@ -187,7 +207,7 @@ def ordinal_EP_testing(
     print("mean_absolute_error ", mean_absolute_error)
 
     Z = variational_classifier.predict(gamma_0, Sigma, mean_EP, precision_EP, varphi,
-                                       noise_variance, X_new, vectorised=True)
+                                       noise_variance, X_new_, Lambda, vectorised=True)
     Z_new = Z.reshape((N, N, K))
     print(np.sum(Z, axis=1), 'sum')
     for i in range(K):
@@ -203,33 +223,28 @@ def ordinal_EP_testing(
         plt.ylabel(r"$x_2$", fontsize=16)
         plt.title("Contour plot - Expectation propagation")
         plt.show()
-    return bound, zero_one, predictive_likelihood, mean_absolute_error
+    return fx, zero_one, predictive_likelihood, mean_absolute_error
 
 
-def ordinal_EP_training(X_train, t_train, X_test, t_test, gamma_0, K, varphi_0=0.0006, noise_variance_0=1.0,
-                        scale=1.0, sigma=10e-6, tau=10e-6):
+def ordinal_EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0, sigma=10e-6, tau=10e-6):
     """
     An example ordinal training function.
 
     :return:
     """
-    varphi = varphi_0
-    noise_variance = noise_variance_0
     theta = []
-    theta.append(np.log(noise_variance))
-    print("gamma_0", gamma_0)
+    theta.append(np.log(noise_variance_0))
     theta.append(gamma_0[1])
     for i in range(2, K):
         theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
-    theta.append(np.log(varphi))
+    theta.append(np.log(varphi_0))
     theta = np.array(theta)
-    print("theta_0", theta)
-    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options={
-        'maxiter':25})
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='CG', jac=True, options={
+        'maxiter':10})
     theta = res.x
     noise_variance = np.exp(theta[0])
     gamma = np.empty((K + 1,))  # including all of the cutpoints
@@ -241,23 +256,64 @@ def ordinal_EP_training(X_train, t_train, X_test, t_test, gamma_0, K, varphi_0=0
     varphi = np.exp(theta[K])
     return gamma, noise_variance, varphi
 
+def ordinal_EP_training_varphi(X_train, t_train, varphi_0=1e-3, scale=1.0, sigma=10e-6, tau=10e-6):
+    """
+    An example ordinal training function.
 
-def test_bed(gamma_0=np.array([-np.inf, 0.2, 0.4, 0.6, 0.8, np.inf]), scale=1.0):
+    :return:
+    """
+    varphi = varphi_0
+    # gamma = [-np.inf, -0.28436501, 0.36586332, 3.708507, 4.01687246, np.inf]
+    # noise_variance = 4.927489010195959,
+    gamma = np.array([-np.inf, -0.28436501, 0.36586332, 3.708507, 4.01687246, np.inf])
+    noise_variance = 0.01
+    theta = []
+    theta.append(np.log(varphi))
+    theta = np.array(theta)
+    print("theta_0", theta)
+    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    # Initiate classifier
+    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    # Use L-BFGS-B
+    res = minimize(variational_classifier.hyperparameter_training_step_varphi, theta, method='CG', jac=True,
+                   options={'maxiter':10})
+    theta = res.x
+    varphi = np.exp(theta[0])
+    return gamma, noise_variance, varphi
+
+
+def test_bed(split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
+    X_train = X_trains[split, :, :]
+    t_train = t_trains[split, :]
+    X_test = X_tests[split, :, :]
+    t_test = t_tests[split, :]
+
+    gamma, noise_variance, varphi = ordinal_EP_training(
+        X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+
+    fx, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
+        X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
+
+    return gamma, noise_variance, varphi, zero_one, predictive_likelihood, mean_abs, fx
+
+
+def test_bed_varphi(scale=1.0):
     """Testing for the error with gradients blowing up."""
     split = 2
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
-    Y_true = Y_trues[split, :]
 
-    gamma, noise_variance, varphi = ordinal_EP_training(
-        X_train, t_train, X_test, t_test, gamma_0, K, scale=scale)
+    gamma, noise_variance, varphi = ordinal_EP_training_varphi(
+        X_train, t_train, scale=scale)
 
     bound, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
 
     print("gamma", gamma)
+    print("noise_variance", noise_variance)
+    print("varphi", varphi)
     print("zero_one", zero_one)
     print("predictive likelihood", predictive_likelihood)
     print("mean_abs", mean_abs)
@@ -265,8 +321,7 @@ def test_bed(gamma_0=np.array([-np.inf, 0.2, 0.4, 0.6, 0.8, np.inf]), scale=1.0)
     assert 0
 
 
-def outer_loops(scale=1.0):
-    grid = np.ogrid[0:len(X_tests[0, :, :])]
+def outer_loops():
     bounds = []
     zero_ones = []
     predictive_likelihoods = []
@@ -275,19 +330,11 @@ def outer_loops(scale=1.0):
     noise_variances = []
     gammas = []
     for split in range(20):
-        X_train = X_trains[split, :, :]
-        t_train = t_trains[split, :]
-        X_test = X_tests[split, :, :]
-        t_test = t_tests[split, :]
-        Y_true = Y_trues[split, :]
+        gamma, noise_variance, varphi, zero_one, predictive_likelihood, mean_abs, fx = test_bed(
+            split, gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0
+        )
 
-        gamma, noise_variance, varphi = ordinal_EP_training(
-            X_train, t_train, X_test, t_test, gamma_0, K, scale=scale)
-
-        bound, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
-            X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
-
-        bounds.append(bound)
+        bounds.append(fx)
         zero_ones.append(zero_one)
         predictive_likelihoods.append(predictive_likelihood)
         mean_abss.append(mean_abs)
@@ -312,19 +359,19 @@ def outer_loops(scale=1.0):
     std_zero_one = np.std(zero_ones)
     avg_mean_abs = np.average(mean_abss)
     std_mean_abs = np.std(mean_abss)
-    print(avg_bound, std_bound, "average max bound, std")
-    print(avg_predictive_likelihood, std_predictive_likelihood, "average max predictive likelihood, std")
-    print(avg_zero_one, std_zero_one, "average max zero one, std")
-    print(avg_mean_abs, std_mean_abs, "average max mean abs, std")
+    print(avg_bound, std_bound, "bound, std")
+    print(avg_predictive_likelihood, std_predictive_likelihood, "predictive likelihood, std")
+    print(avg_zero_one, std_zero_one, "zero one, std")
+    print(avg_mean_abs, std_mean_abs, "mean abs, std")
     avg_varphi = np.average(varphis)
     std_varphi = np.std(varphis)
     avg_noise_variances = np.average(noise_variances)
     std_noise_variances = np.std(noise_variances)
-    avg_gammas = np.average(gammas)
-    std_gammas = np.std(gammas)
-    print(avg_varphi, std_varphi, "average varphi, std")
-    print(avg_noise_variances, std_noise_variances, "average noise_variances, std")
-    print(avg_gammas, std_gammas, "average gammas, std")
+    avg_gammas = np.average(gammas, axis=0)
+    std_gammas = np.std(gammas, axis=0)
+    print(avg_varphi, std_varphi, "varphi, std")
+    print(avg_noise_variances, std_noise_variances, "noise_variances, std")
+    print(avg_gammas, std_gammas, "gammas, std")
     return 0
 
 
@@ -539,34 +586,24 @@ def SSouter_loops():
     plt.show()
 
 
-def test_plots(X_test, X_train, t_test, t_train, Y_true):
+def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance):
     grid = np.ogrid[0:len(X_test)]
-    varphi = 1.83298071e-05
-    scale = 3.79269019e+01
     sigma = 10e-6
     tau = 10e-6
-    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    kernel = SEIso(varphi, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     steps = 50
     y_0 = Y_true.flatten()
     m_0 = y_0
     gamma, m_tilde, Sigma_tilde, C_tilde, y_tilde, varphi_tilde, bound, containers = variational_classifier.estimate(
-        m_0, gamma_0, steps, varphi_0=varphi, fix_hyperparameters=False, write=True)
-    ms, ys, varphis, psis, bounds = containers
+        steps, gamma, varphi, noise_variance, fix_hyperparameters=False, write=True)
 
     plt.title("variational lower bound")
     plt.title(r"Variational lower bound $\scr{F}$", fontsize=16)
     plt.plot(bound)
     plt.show()
 
-    plt.plot(varphis)
-    plt.title(r"$\varphi$", fontsize=16)
-    plt.show()
-
-    plt.plot(psis)
-    plt.title(r"$\phi$", fontsize=16)
-    plt.show()
 
     if argument in ["diabetes_quantile", "stocks_quantile"]:
         lower_x1 = 0.0
@@ -582,7 +619,8 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
         X_new = X_new.reshape((N * N, 2))
 
         # Test
-        Z = variational_classifier.predict(gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test, vectorised=True)  # (n_test, K)
+        Z = variational_classifier.predict(
+            gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test, Lambda, vectorised=True)  # (n_test, K)
 
         predictive_likelihood = Z[grid, t_test]
         predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
@@ -597,7 +635,8 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
         mean_zero_one = np.sum(mean_zero_one) / len(t_test)
         print("mean_zero_one ", mean_zero_one)
 
-        Z = variational_classifier.predict(gamma, Sigma_tilde, y_tilde, varphi_tilde, X_new, vectorised=True)
+        Z = variational_classifier.predict(
+            gamma, Sigma_tilde, y_tilde, varphi_tilde, X_new, Lambda, vectorised=True)
         Z_new = Z.reshape((N, N, K))
         print(np.sum(Z, axis=1), 'sum')
         for i in range(K):
@@ -636,7 +675,8 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
         N = 1000
         x = np.linspace(lower_x, upper_x, N)
         X_new = x.reshape((N, D))
-        Z = variational_classifier.predict(Sigma_tilde, y_tilde, varphi_tilde, X_new, vectorised=True)
+        Z = variational_classifier.predict(
+            Sigma_tilde, y_tilde, varphi_tilde, X_new, Lambda, vectorised=True)
         print(np.sum(Z, axis=1), 'sum')
         plt.xlim(lower_x, upper_x)
         plt.ylim(0.0, 1.0)
@@ -680,7 +720,8 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
         N = 1000
         x = np.linspace(lower_x, upper_x, N)
         X_new = x.reshape((N, D))
-        Z = variational_classifier.predict(Sigma_tilde, y_tilde, varphi_tilde, X_new, vectorised=True)
+        Z = variational_classifier.predict(
+            Sigma_tilde, y_tilde, varphi_tilde, X_new, Lambda, vectorised=True)
         print(np.sum(Z, axis=1), 'sum')
         plt.xlim(lower_x, upper_x)
         plt.ylim(0.0, 1.0)
@@ -702,30 +743,34 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
                 X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
         plt.show()
 
-# Debug
-test_bed()
-
-assert 0
-split = 2
-X_train = X_trains[split, :, :]
-t_train = t_trains[split, :]
-X_test = X_tests[split, :, :]
-t_test = t_tests[split, :]
-Y_true = Y_trues[split, :]
-
-gamma = np.array([-np.inf, -1.4395564, -0.85935829, 4.55393507, 7.47177837, np.inf])
-noise_variance = 2.8037410261849766
-varphi = 0.05925575735992925
-scale = 1.0
-bound, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
-        X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
-
-assert 0
 
 
+# split = 2
+# X_train = X_trains[split, :, :]
+# t_train = t_trains[split, :]
+# X_test = X_tests[split, :, :]
+# t_test = t_tests[split, :]
+# Y_true = Y_trues[split, :]
+#
+#
+# gamma = [-np.inf, -0.89228776, -0.24117873, 5.70592399, 6.10216011, np.inf]
+# noise_variance = 15.554851837260292
+# varphi = 6.55985409159531e-08
+# scale=1.0
+#
+# # gamma = np.array([-np.inf, -1.4395564, -0.85935829, 4.55393507, 7.47177837, np.inf])
+# # noise_variance = 2.8037410261849766
+# # varphi = 0.05925575735992925
+# # scale = 1.0
+# bound, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
+#         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
+#
+# assert 0
 
-#test_plots(X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
-#outer_loops(scale=1.0)
+
+
+# test_plots(X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
+outer_loops()
 
 
 
