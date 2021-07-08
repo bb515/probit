@@ -67,7 +67,6 @@ class Kernel(ABC):
             L = 1
             M = 1
             varphi = np.float64(varphi)
-            scale = np.float64(scale)
         else:
             raise TypeError(
                 "Type of varphi is not supported "
@@ -76,6 +75,7 @@ class Kernel(ABC):
         self.L = L
         self.M = M
         self.varphi = varphi
+        scale = np.float64(scale)
         self.scale = scale
         if sigma is not None:
             if tau is not None:
@@ -121,6 +121,61 @@ class Kernel(ABC):
 
         This method should be implemented in every concrete kernel.
         """
+
+    def hyperparameter_update(self, varphi=None, scale=None, sigma=None, tau=None):
+        if varphi is not None:
+            # Update
+            if ((type(varphi) is list) or
+                    (type(varphi) is np.ndarray)):
+                if np.shape(varphi) == (1,):
+                    # e.g. [[1]]
+                    L = 1
+                    M = 1
+                elif np.shape(varphi) == ():
+                    # e.g. [1]
+                    L = 1
+                    M = 1
+                elif np.shape(varphi[0]) == (1,):
+                    # e.g. [[1],[2],[3]]
+                    L = np.shape(varphi)[0]
+                    M = 1
+                elif np.shape(varphi[0]) == ():
+                    # e.g. [1, 2, 3]
+                    L = 1
+                    M = np.shape(varphi)[0]
+                else:
+                    # e.g. [[1, 2], [3, 4], [5, 6]]
+                    L = np.shape(varphi)[0]
+                    M = np.shape(varphi)[1]
+            elif ((type(varphi) is float) or
+                  (type(varphi) is np.float64)):
+                # e.g. 1
+                L = 1
+                M = 1
+                varphi = np.float64(varphi)
+            else:
+                raise TypeError(
+                    "Type of varphi is not supported "
+                    "(expected {} or {}, got {})".format(
+                        float, np.ndarray, type(varphi)))
+            self.L = L
+            self.M = M
+            self.varphi = varphi
+        if scale is not None:
+            # Update scale
+            self.scale = scale
+        if sigma is not None:
+            # Update sigma
+            self.sigma = sigma
+        if tau is not None:
+            # Update tau
+            self.tau = tau
+        if bool(self.sigma) != bool(self.tau):
+            raise TypeError(
+                "If a sigma hyperhyperparameter is provided, then a tau hyperhyperparameter must be provided"
+                " (expected {}, got {})".format(np.ndarray, type(tau))
+            )
+        return 0
 
     def distance_mat(self, X1, X2):
         """

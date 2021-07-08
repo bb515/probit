@@ -12,10 +12,10 @@ from probit.estimators import VBMultinomialOrderedGPSS, VBMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
+from probit.utilities import generate_prior_data, generate_synthetic_data
+
 
 write_path = pathlib.Path()
-
-
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 
 
@@ -25,32 +25,147 @@ def split(list, K):
     return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
 
 
+arguments = [
+    "abalone",
+    "auto",
+    "diabetes_quantile",
+    "housing",
+    "machine",
+    "pyrim",
+    "stocks_quantile",
+    "triazines",
+    "wpbc"
+]
+
 argument = "diabetes_quantile"
 # argument = "stocks_quantile"
+bins = "quantile"
+
 
 print("here")
-if argument == "diabetes_quantile":
-    K = 5
-    D = 2
+if argument == "abalone":
+    D = 10
+    varphi_0 = 2.0/D
+    noise_variance_0 = 1.0
+    data_continuous = np.load("./data/continuous/abalone.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/abalone.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/abalone.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "auto":
+    D = 7
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/auto.DATA.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/auto.data.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/auto.data.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "diabetes_quantile":
     # TODO: vary these hyperparameters. One by one, see what happens to the lower bound.
-    #gamma_0 = np.array([-np.inf, 1.0, 2.0, 3.0, 4.0, np.inf])
-    #gamma_0 = np.array([-np.inf, 1.0, 4.5, 5.0, 5.6, np.inf])
+    D = 2
+    varphi_0 = 6.7e-06
+    noise_variance_0 = 1.0
+    data_continuous = np.load("./data/continuous/diabetes.DATA.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/diabetes.data.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/diabetes.data.npz")
+    # gamma_0 = np.array([-np.inf, 1.0, 2.0, 3.0, 4.0, np.inf])
+    # gamma_0 = np.array([-np.inf, 1.0, 4.5, 5.0, 5.6, np.inf])
     gamma_0 = np.array([-np.inf, 3.8, 4.5, 5.0, 5.6, np.inf])
-    data = np.load(write_path / "./data/5bin/diabetes.data.npz")
-    data_continuous = np.load(write_path / "./data/continuous/diabetes.DATA.npz")
+    #gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "housing":
+    D = 13
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/housing.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/housing.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/housing.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "machine":
+    D = 6
+    varphi_0 = 2.0 / D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/machine.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/machine.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/machine.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "pyrim":
+    D = 27
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/pyrim.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/pyrim.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/pyrim.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "stocks_quantile":
     K = 5
     D = 9
-    gamma_0 = np.array([np.NINF, 1.0, 2.0, 3.0, 4.0, np.inf])
-    data = np.load(write_path / "./data/5bin/stock.npz")
+    varphi_0 = 0.0001
+    noise_variance_0 = 2.0
     data_continuous = np.load(write_path / "./data/continuous/stock.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/stock.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/stock.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "triazines":
+    D = 60
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/triazines.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/triazines.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/triazines.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "wpbc":
+    D = 32
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/wpbc.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/wpbc.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/wpbc.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "tertile":
     K = 3
     D = 1
     N_per_class = 64
+    varphi_0 = 0.01
+    scale = 3.0
+    noise_variance_0 = 1.0
     gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
     # # Generate the synethetic data
-    # X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, kernel)
+    # X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
     # np.savez(write_path / "data_tertile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
     data = np.load("data_tertile.npz")
 elif argument == "septile":
@@ -58,12 +173,12 @@ elif argument == "septile":
     D = 1
     N_per_class = 32
     # Generate the synethetic data
-    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, kernel)
+    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
     #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
     data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
 
-if argument in ["diabetes_quantile", "stocks_quantile"]:
+if argument in arguments:
     X_trains = data["X_train"]
     t_trains = data["t_train"]
     X_tests = data["X_test"]

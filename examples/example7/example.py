@@ -12,89 +12,26 @@ from probit.samplers import GibbsMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
+from probit.utilities import generate_prior_data, generate_synthetic_data
+
 
 write_path = pathlib.Path()
 
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 
+arguments = [
+    "abalone",
+    "auto",
+    "diabetes_quantile",
+    "housing",
+    "machine",
+    "pyrim",
+    "stocks_quantile",
+    "triazines",
+    "wpbc"
+]
 
-def generate_synthetic_data(N_per_class, K, kernel):
-    """
-    Generate synthetic data for this model.
-
-    :arg int N_per_class: The number of data points per class.
-    :arg int K: The number of bins/classes/quantiles.
-    :arg int D: The number of dimensions of the covariates.
-    """
-    N_total = int(K * N_per_class)
-
-    # Sample from the real line, uniformly
-    #X = np.random.uniform(0, 12, N_total)
-    X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
-    X = X[:, None]  # reshape X to make it n*D
-    mu = np.zeros((N_total))  # vector of the means
-
-    C = kernel.kernel_matrix(X, X)
-
-    print(np.shape(mu))
-    print(np.shape(C))
-    print("1")
-    cutpoint_0 = np.inf
-    while np.abs(cutpoint_0) > 5.0:
-        print(cutpoint_0)
-        Z = np.random.multivariate_normal(mu, C)
-        plt.figure()  # open new plotting window
-        plt.plot(X[:], Z[:])
-        plt.show()
-        epsilons = np.random.normal(0, 1, N_total)
-        # Model latent variable responses
-        Y_true = epsilons + Z
-        sort_indeces = np.argsort(Y_true)
-        plt.scatter(X, Y_true)
-        plt.show()
-        # Sort the responses
-        Y_true = Y_true[sort_indeces]
-        X = X[sort_indeces]
-        X_k = []
-        Y_true_k = []
-        t_k = []
-        for k in range(K):
-            X_k.append(X[N_per_class * k:N_per_class * (k + 1)])
-            Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
-            t_k.append(k * np.ones(N_per_class, dtype=int))
-        # Find the first cutpoint and set it equal to 0.0
-        cutpoint_0_min = Y_true_k[0][-1]
-        cutpoint_0_max = Y_true_k[1][0]
-        print(cutpoint_0_max, cutpoint_0_min)
-        cutpoint_0 = np.mean([cutpoint_0_max, cutpoint_0_min])
-    Y_true = np.subtract(Y_true, cutpoint_0)
-    Y_true_k = np.subtract(Y_true_k, cutpoint_0)
-    for k in range(K):
-        plt.scatter(X_k[k], Y_true_k[k], color=colors[k])
-    plt.show()
-    Xs_k = np.array(X_k)
-    Ys_k = np.array(Y_true_k)
-    t_k = np.array(t_k, dtype=int)
-    X = Xs_k.flatten()
-    Y = Ys_k.flatten()
-    t = t_k.flatten()
-    # Prepare data
-    Xt = np.c_[Y, X, t]
-    print(np.shape(Xt))
-    np.random.shuffle(Xt)
-    Y_true = Xt[:, :1]
-    X = Xt[:, 1:D + 1]
-    t = Xt[:, -1]
-    print(np.shape(X))
-    print(np.shape(t))
-    print(np.shape(Y_true))
-    t = np.array(t, dtype=int)
-    print(t)
-    colors_ = [colors[i] for i in t]
-    print(colors_)
-    plt.scatter(X, Y_true, color=colors_)
-    plt.show()
-    return X_k, Y_true_k, X, Y_true, t
+argument = "tertile"
 
 
 def split(list, K):
@@ -107,14 +44,21 @@ def split(list, K):
 # varphi = 30.0
 # scale = 20.0
 
-varphi = 0.01
+varphi = 30.0
+# varphi = 0.01
 scale = 3.0
 sigma = 10e-6
 tau = 10e-6
 
 kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
 
-argument = "diabetes_quantile"
+# N_per_class = 64
+# K = 3
+#
+# X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
+#
+
+
 
 if argument == "diabetes_quantile":
     K = 6
@@ -129,7 +73,7 @@ elif argument == "tertile":
     N_per_class = 64
     gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
     # # Generate the synethetic data
-    # X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, kernel)
+    # X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
     # np.savez(write_path / "data_tertile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
     data = np.load("data_tertile.npz")
 elif argument == "septile":
@@ -137,50 +81,48 @@ elif argument == "septile":
     D = 1
     N_per_class = 32
     # Generate the synethetic data
-    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, kernel)
+    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
     #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
     data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
 
-X = data["X"]
-t = data["t"]
 
-X_test = data_test["X"]
-t_test = data_test["t"]
+if argument in arguments:
+    X = data["X"]
+    t = data["t"]
+    N_total = len(X)
+    X_test = data_test["X"]
+    t_test = data_test["t"]
 
-X_true = data_continuous["X"]
-Y_true = data_continuous["y"]  # this is not going to be the correct one
-N_total = len(X)
+    X_true = data_continuous["X"]
+    Y_true = data_continuous["y"]  # this is not going to be the correct one
 
-y = []
+    y = []
 
-for i in range(len(X)):
-    for j in range(len(X_true)):
-        one = X[i]
-        two = X_true[j]
-        if np.allclose(one, two):
-            y.append(Y_true[j])
+    for i in range(len(X)):
+        for j in range(len(X_true)):
+            one = X[i]
+            two = X_true[j]
+            if np.allclose(one, two):
+                y.append(Y_true[j])
+    y_true = np.array(y)
+    print(y_true)
 
+else:
+    X_k = data["X_k"]  # Contains (256, 7) array of binned x values
+    Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
+    X = data["X"]  # Contains (1792,) array of x values
+    t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
+    Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+    N_total = int(N_per_class * K)
+    print(Y_true_k[1][-1], Y_true_k[2][0], "cutpoint 2")
+    # for i in range(len(X_test)):
+    #     for j in range(len(X_true)):
+    #         one = X_test[i]
+    #         two = X_true[j]
+    #         if np.allclose(one, two):
+    #             t_test.append[j]
 
-# for i in range(len(X_test)):
-#     for j in range(len(X_true)):
-#         one = X_test[i]
-#         two = X_true[j]
-#         if np.allclose(one, two):
-#             t_test.append[j]
-
-
-y_true = np.array(y)
-
-print(y_true)
-
-# X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-# Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-# X = data["X"]  # Contains (1792,) array of x values
-# t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-# Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-# N_total = int(N_per_class * K)
-# print(Y_true_k[1][-1], Y_true_k[2][0], "cutpoint 2")
 
 # Initiate classifier
 gibbs_classifier = GibbsMultinomialOrderedGP(K, X, t, kernel)
@@ -189,39 +131,38 @@ steps = 5000
 y_0 = t.flatten()
 #y_0 = Y_true.flatten()
 
-# # Plot
-# colors_ = [colors[i] for i in t]
-# plt.scatter(X, Y_true, color=colors_)
-# plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-# plt.xlabel(r"$x$", fontsize=16)
-# plt.ylabel(r"$y$", fontsize=16)
-# plt.show()
 
-# Plot from the binned arrays
+if argument in arguments:
+    # Plot from the binned arrays
 
-plt.scatter(X[np.where(t == 1)][:, 0], X[np.where(t == 1)][:, 1])
-plt.scatter(X[np.where(t == 2)][:, 0], X[np.where(t == 2)][:, 1])
-plt.scatter(X[np.where(t == 3)][:, 0], X[np.where(t == 3)][:, 1])
-plt.scatter(X[np.where(t == 4)][:, 0], X[np.where(t == 4)][:, 1])
-plt.scatter(X[np.where(t == 5)][:, 0], X[np.where(t == 5)][:, 1])
-
-# for k in range(K):
-#     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
-# plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-plt.legend()
-plt.xlabel(r"$x_1$", fontsize=16)
-plt.ylabel(r"$x_2$", fontsize=16)
-plt.show()
+    plt.scatter(X[np.where(t == 1)][:, 0], X[np.where(t == 1)][:, 1])
+    plt.scatter(X[np.where(t == 2)][:, 0], X[np.where(t == 2)][:, 1])
+    plt.scatter(X[np.where(t == 3)][:, 0], X[np.where(t == 3)][:, 1])
+    plt.scatter(X[np.where(t == 4)][:, 0], X[np.where(t == 4)][:, 1])
+    plt.scatter(X[np.where(t == 5)][:, 0], X[np.where(t == 5)][:, 1])
+    plt.legend()
+    plt.xlabel(r"$x_1$", fontsize=16)
+    plt.ylabel(r"$x_2$", fontsize=16)
+    plt.show()
+else:
+    # Plot
+    colors_ = [colors[i] for i in t]
+    plt.scatter(X, Y_true, color=colors_)
+    plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+    plt.xlabel(r"$x$", fontsize=16)
+    plt.ylabel(r"$y$", fontsize=16)
+    plt.show()
+    # for k in range(K):
+    #     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
+    # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
 
 # m_0 = np.random.rand(N_total)
 # Problem with this is that the intial guess must be close to the true values
 # As a result we have to approximate the latent function.
-if argument == "diabetes_quantile":
+if argument in arguments:
     m_0 = y_true
     y_0 = y_true
-elif argument == "tertile":
-    m_0 = y_0
-elif argument == "septile":
+else:
     m_0 = y_0
 
 # Burn in

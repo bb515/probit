@@ -13,6 +13,8 @@ from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
 from scipy.optimize import minimize
+from probit.utilities import generate_prior_data, generate_synthetic_data
+
 
 write_path = pathlib.Path()
 
@@ -24,61 +26,178 @@ def split(list, K):
     divisor, remainder = divmod(len(list), K)
     return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
 
-
+arguments = [
+    "abalone",
+    "auto",
+    "diabetes_quantile",
+    "housing",
+    "machine",
+    "pyrim",
+    "stocks_quantile",
+    "triazines",
+    "wpbc"
+]
+argument = "tertile"
+generate_new_data = True
 # argument = "diabetes_quantile"
-argument = "stocks_quantile"
+# argument = "stocks_quantile"
+bins = "quantile"
 
-if argument == "diabetes_quantile":
-    K = 5
+if argument == "abalone":
+    D = 10
+    varphi_0 = 2.0/D
+    noise_variance_0 = 1.0
+    data_continuous = np.load("./data/continuous/abalone.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/abalone.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/abalone.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "auto":
+    D = 7
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/auto.DATA.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/auto.data.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/auto.data.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "diabetes_quantile":
     D = 2
-    gamma_0 = np.array([-np.inf, -0.2, -0.1, 0.1, 0.2, np.inf])
     varphi_0 = 6.7e-06
     noise_variance_0 = 1.0
-    data = np.load(write_path / "./data/5bin/diabetes.data.npz")
     data_continuous = np.load("./data/continuous/diabetes.DATA.npz")
-elif argument == "abalone":
-    K = 5
-    D = 7
-    gamma_0 = np.array([-np.inf, -0.2, -0.1, 0.1, 0.2, np.inf])
-    varphi_0 = 2.0/7.0
-    noise_variance_0 = 1.0
-    data = np.load(write_path / "./data/5bin/abalone.npz")
-    data_continuous = np.load("./data/continuous/diabetes.DATA.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/diabetes.data.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/diabetes.data.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "housing":
+    D = 13
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/housing.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/housing.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/housing.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "machine":
+    D = 6
+    varphi_0 = 2.0 / D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/machine.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/machine.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/machine.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "pyrim":
+    D = 27
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/pyrim.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/pyrim.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/pyrim.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "stocks_quantile":
     K = 5
     D = 9
-    gamma_0 = np.array([-np.inf, 0.1, 0.3, 0.5, 0.7, np.inf])
-    varphi_0 = 0.005
-    noise_variance_0 = 1.0
-    data = np.load(write_path / "./data/5bin/stock.npz")
+    varphi_0 = 0.0001
+    noise_variance_0 = 2.0
     data_continuous = np.load(write_path / "./data/continuous/stock.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/stock.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/stock.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "triazines":
+    D = 60
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/triazines.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/triazines.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/triazines.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+elif argument == "wpbc":
+    D = 32
+    varphi_0 = 2.0/D
+    noise_variance_0 = 2.0
+    data_continuous = np.load(write_path / "./data/continuous/wpbc.npz")
+    if bins == "quantile":
+        K = 5
+        data = np.load(write_path / "./data/5bin/wpbc.npz")
+    elif bins == "decile":
+        K = 10
+        data = np.load(write_path / "./data/10bin/wpbc.npz")
+    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "tertile":
     K = 3
     D = 1
-    N_per_class = 64
-    gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
-    # # Generate the synethetic data
-    # X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, kernel)
-    # np.savez(write_path / "data_tertile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
-    data = np.load("data_tertile.npz")
+    N_per_class = 20  # 64
+    varphi_0 = 30.0
+    scale = 1.0
+    noise_variance_0 = 0.1
+    kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
+    #gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
+    if generate_new_data == True:
+        # Generate the synethetic data
+        X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+            N_per_class, K, D, kernel, noise_variance=noise_variance_0)
+        # np.savez(write_path / "data_tertile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
+    else:
+        data = np.load("data_tertile.npz")
+        X_k = data["X_k"]  # Contains (256, 7) array of binned x values
+        # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
+        X = data["X"]  # Contains (1792,) array of x values
+        t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
+        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+        N_total = int(N_per_class * K)
 elif argument == "septile":
     K = 7
     D = 1
     N_per_class = 32
+    varphi_0 = 30.0
+    scale = 20.0
+    noise_variance_0 = 1.0
     # Generate the synethetic data
-    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, kernel)
+    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
     #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
     data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
+    X_k = data["X_k"]  # Contains (256, 7) array of binned x values
+    # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
+    X = data["X"]  # Contains (1792,) array of x values
+    t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
+    Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+    N_total = int(N_per_class * K)
 
-# Default initial values
-# gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1.*2./K, -1.0 + 2.*2./K, -1.0 + 3.*2./K, np.inf])
-# varphi_0 = 2./D
-# noise_variance_0 = 1.0
 # Temporary
 Lambda = None
 
-if argument == "diabetes_quantile" or argument == "stocks_quantile":
+if argument in arguments:
+
     X_trains = data["X_train"]
     t_trains = data["t_train"]
     X_tests = data["X_test"]
@@ -106,26 +225,20 @@ if argument == "diabetes_quantile" or argument == "stocks_quantile":
 
     X_true = data_continuous["X"]
     Y_true = data_continuous["y"]  # this is not going to be the correct one
-    Y_trues = []
+    # Y_trues = []
+    #
+    # for k in range(20):
+    #     y = []
+    #     for i in range(len(X_trains[0, :, :])):
+    #         for j, two in enumerate(X_true):
+    #             one = X_trains[k, i]
+    #             if np.allclose(one, two):
+    #                 y.append(Y_true[j])
+    #     Y_trues.append(y)
+    # Y_trues = np.array(Y_trues)
 
-    for k in range(20):
-        y = []
-        for i in range(len(X_trains[0, :, :])):
-            for j, two in enumerate(X_true):
-                one = X_trains[k, i]
-                if np.allclose(one, two):
-                    y.append(Y_true[j])
-        Y_trues.append(y)
-    Y_trues = np.array(Y_trues)
-
-if argument not in ["diabetes_quantile", "stocks_quantile"]:
-    X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-    #Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-    X = data["X"]  # Contains (1792,) array of x values
-    t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-    Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-    N_total = int(N_per_class * K)
-
+if argument not in arguments:
+    pass
     # # Plot
     # colors_ = [colors[i] for i in t]
     # plt.scatter(X, Y_true, color=colors_)
@@ -143,7 +256,129 @@ if argument not in ["diabetes_quantile", "stocks_quantile"]:
     # plt.ylabel(r"$y$", fontsize=16)
     # plt.show()
 
-def ordinal_EP_testing(
+
+def EP_plotting(
+        X_train, t_train, gamma, varphi, noise_variance, K, steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
+    print("scale={}".format(scale))
+    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    # Initiate classifier
+    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    steps = variational_classifier.N
+    error = np.inf
+    iteration = 0
+    posterior_mean = None
+    Sigma = None
+    mean_EP = None
+    precision_EP = None
+    amplitude_EP = None
+    while error / steps > variational_classifier.EPS:  #TODO: is this really correct
+        iteration += 1
+        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
+         precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
+            steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
+        plt.scatter(X_train, posterior_mean)
+        plt.scatter(X_train, Y_true)
+        plt.ylim(-3, 3)
+        plt.show()
+        print("iteration {}, error={}".format(iteration, error / steps))
+    weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
+        precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+    t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
+        gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+    fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
+
+    if argument in arguments:
+        lower_x1 = 15.0
+        upper_x1 = 65.0
+        lower_x2 = 15.0
+        upper_x2 = 70.0
+
+        N = 75
+        x1 = np.linspace(lower_x1, upper_x1, N)
+        x2 = np.linspace(lower_x2, upper_x2, N)
+        xx, yy = np.meshgrid(x1, x2)
+        X_new = np.dstack((xx, yy))
+        X_new = X_new.reshape((N * N, 2))
+        X_new_ = np.zeros((N * N, D))
+        X_new_[:, :2] = X_new
+
+        Z = variational_classifier.predict(gamma_0, Sigma, mean_EP, precision_EP, varphi,
+                                           noise_variance, X_new_, Lambda, vectorised=True)
+        Z_new = Z.reshape((N, N, K))
+        print(np.sum(Z, axis=1), 'sum')
+        for i in range(K):
+            fig, axs = plt.subplots(1, figsize=(6, 6))
+            plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
+            plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
+            # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
+
+            plt.xlabel(r"$x_1$", fontsize=16)
+            plt.ylabel(r"$x_2$", fontsize=16)
+            plt.title("Contour plot - Expectation propagation")
+            plt.show()
+    elif argument == "tertile":
+        lower_x = -0.5
+        upper_x = 1.5
+        N = 1000
+        x = np.linspace(lower_x, upper_x, N)
+        X_new = x.reshape((N, D))
+        Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_new, Lambda,
+                                           vectorised=True)
+        print(np.sum(Z, axis=1), 'sum')
+        plt.xlim(lower_x, upper_x)
+        plt.ylim(0.0, 1.0)
+        plt.xlabel(r"$x$", fontsize=16)
+        plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
+        plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
+                  .format(lower_x, upper_x))
+        plt.stackplot(x, Z.T,
+                      labels=(
+                          r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$"),
+                      colors=(
+                          colors[0], colors[1], colors[2])
+                      )
+        val = 0.5  # this is the value where you want the data to appear on the y-axis.
+        plt.scatter(X[np.where(t == 0)], np.zeros_like(X[np.where(t == 0)]) + val, facecolors=colors[0],
+                    edgecolors='white')
+        plt.scatter(X[np.where(t == 1)], np.zeros_like(X[np.where(t == 1)]) + val, facecolors=colors[1],
+                    edgecolors='white')
+        plt.scatter(X[np.where(t == 2)], np.zeros_like(X[np.where(t == 2)]) + val, facecolors=colors[2],
+                    edgecolors='white')
+        plt.show()
+
+    elif argument == "septile":
+        lower_x = -0.5
+        upper_x = 1.5
+        N = 1000
+        x = np.linspace(lower_x, upper_x, N)
+        X_new = x.reshape((N, D))
+        Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_new, Lambda,
+                                           vectorised=True)
+        print(np.sum(Z, axis=1), 'sum')
+        plt.xlim(lower_x, upper_x)
+        plt.ylim(0.0, 1.0)
+        plt.xlabel(r"$x$", fontsize=16)
+        plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
+        plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
+                  .format(lower_x, upper_x))
+        plt.stackplot(x, Z.T,
+                      labels=(
+                          r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$", r"$p(t=3|x, X, t)$",
+                          r"$p(t=4|x, X, t)$", r"$p(t=5|x, X, t)$", r"$p(t=6|x, X, t)$"),
+                      colors=(
+                          colors[0], colors[1], colors[2], colors[3], colors[4], colors[5], colors[6])
+                      )
+        plt.legend()
+        val = 0.5  # this is the value where you want the data to appear on the y-axis.
+        for i in range(7):
+            plt.scatter(
+                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
+        plt.show()
+    return fx
+
+
+def EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance,
         K, steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
     grid = np.ogrid[0:len(X_test[:, :])]
@@ -165,7 +400,7 @@ def ordinal_EP_testing(
             steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
         print("iteration {}, error={}".format(iteration, error / steps))
-    weights, precision_EP, Lambda, Lambda_cholesky = variational_classifier.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+    weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
     t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
@@ -226,7 +461,7 @@ def ordinal_EP_testing(
     return fx, zero_one, predictive_likelihood, mean_absolute_error
 
 
-def ordinal_EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0, sigma=10e-6, tau=10e-6):
+def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0, sigma=10e-6, tau=10e-6):
     """
     An example ordinal training function.
 
@@ -243,7 +478,7 @@ def ordinal_EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='CG', jac=True, options={
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options={
         'maxiter':10})
     theta = res.x
     noise_variance = np.exp(theta[0])
@@ -254,9 +489,9 @@ def ordinal_EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K
     for i in range(2, K):
         gamma[i] = gamma[i - 1] + np.exp(theta[i])
     varphi = np.exp(theta[K])
-    return gamma, noise_variance, varphi
+    return gamma, varphi, noise_variance
 
-def ordinal_EP_training_varphi(X_train, t_train, varphi_0=1e-3, scale=1.0, sigma=10e-6, tau=10e-6):
+def EP_training_varphi(X_train, t_train, varphi_0=1e-3, scale=1.0, sigma=10e-6, tau=10e-6):
     """
     An example ordinal training function.
 
@@ -275,40 +510,39 @@ def ordinal_EP_training_varphi(X_train, t_train, varphi_0=1e-3, scale=1.0, sigma
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
-    res = minimize(variational_classifier.hyperparameter_training_step_varphi, theta, method='CG', jac=True,
+    res = minimize(variational_classifier.hyperparameter_training_step_varphi, theta, method='L-BFGS-B', jac=True,
                    options={'maxiter':10})
     theta = res.x
     varphi = np.exp(theta[0])
-    return gamma, noise_variance, varphi
+    return gamma, varphi, noise_variance
 
 
-def test_bed(split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
+def test(split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
 
-    gamma, noise_variance, varphi = ordinal_EP_training(
+    gamma, varphi, noise_variance = EP_training(
         X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
 
-    fx, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
+    fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
 
-    return gamma, noise_variance, varphi, zero_one, predictive_likelihood, mean_abs, fx
+    return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
 
 
-def test_bed_varphi(scale=1.0):
-    """Testing for the error with gradients blowing up."""
+def test_varphi(scale=1.0):
     split = 2
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
 
-    gamma, noise_variance, varphi = ordinal_EP_training_varphi(
+    gamma, varphi, noise_variance = EP_training_varphi(
         X_train, t_train, scale=scale)
 
-    bound, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
+    bound, zero_one, predictive_likelihood, mean_abs = EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
 
     print("gamma", gamma)
@@ -330,7 +564,7 @@ def outer_loops():
     noise_variances = []
     gammas = []
     for split in range(20):
-        gamma, noise_variance, varphi, zero_one, predictive_likelihood, mean_abs, fx = test_bed(
+        gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx = test(
             split, gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0
         )
 
@@ -391,7 +625,7 @@ def SSouter_loops():
         t_train = t_trains[split, :]
         X_test = X_tests[split, :, :]
         t_test = t_tests[split, :]
-        Y_true = Y_trues[split, :]
+        # Y_true = Y_trues[split, :]
 
         lower_x1 = -10
         lower_x2 = -1
@@ -411,6 +645,7 @@ def SSouter_loops():
         zero_one_Z = []
         mean_abs_Z = []
         predictive_likelihood_Z = []
+        tick = False
 
         for x_new in X_new:
             print(x_new)
@@ -422,7 +657,6 @@ def SSouter_loops():
             m_0 = y_0
             gamma, m_tilde, Sigma_tilde, C_tilde, y_tilde, varphi_tilde, bound, containers = variational_classifier.estimate(
                 m_0, gamma_0, steps, varphi_0=x_new[0], fix_hyperparameters=True, write=False)
-
             bounds_Z.append(bound)
             # ms, ys, varphis, psis, bounds = containers
 
@@ -585,6 +819,40 @@ def SSouter_loops():
     plt.title("Contour plot - mean absolute error accuracy")
     plt.show()
 
+def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_variance, scale=1.0):
+    """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
+    sigma = 10e-6
+    tau = 10e-6
+    res = 20
+    kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
+    # Initiate classifier
+    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    Z, x, y = variational_classifier.grid_over_hyperparameters(gamma, range_log_varphi, range_log_noise_variance, res)
+    fig, axs = plt.subplots(1, figsize=(6, 6))
+    plt.contourf(x, y, Z, zorder=1)
+    plt.xscale("log")
+    plt.yscale("log")
+    # plt.xlim(0, 2)
+    # plt.ylim(0, 2)
+    plt.xlabel(r"$\sigma$", fontsize=16)
+    plt.ylabel(r"$\varphi$", fontsize=16)
+    plt.title("Contour plot - EP lower bound on the log likelihood")
+    plt.show()
+
+
+def test_toy(X_train, t_train, gamma_0, varphi_0, noise_variance_0, scale=1.0):
+    """Test toy."""
+    # gamma = gamma_0
+    # varphi = varphi_0
+    # noise_variance = noise_variance_0
+    noise_variance_0 = 1.0
+    gamma, varphi, noise_variance = EP_training(
+        X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+    print(gamma, gamma_0)
+    print(varphi, varphi_0)
+    print(noise_variance, noise_variance_0)
+    fx = EP_plotting(X_train, t_train, gamma, varphi, noise_variance, K, scale=scale)
+    print("fx={}".format(fx))
 
 def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance):
     grid = np.ogrid[0:len(X_test)]
@@ -604,8 +872,7 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_va
     plt.plot(bound)
     plt.show()
 
-
-    if argument in ["diabetes_quantile", "stocks_quantile"]:
+    if argument in arguments:
         lower_x1 = 0.0
         upper_x1 = 16.0
         lower_x2 = -30
@@ -653,130 +920,20 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_va
             plt.title("Contour plot - Variational")
             plt.show()
 
-    elif argument == "tertile":
-        plt.scatter(X[np.where(t == 0)], m_tilde[np.where(t == 0)], color=colors[0], label=r"$t={}$".format(1))
-        plt.scatter(X[np.where(t == 1)], m_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
-        plt.scatter(X[np.where(t == 2)], m_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$\tilde{m}$", fontsize=16)
-        plt.title("GP regression posterior sample mean mbar, plotted against x")
-        plt.show()
-
-        plt.scatter(X[np.where(t == 0)], y_tilde[np.where(t == 0)], color=colors[0], label=r"$t={}$".format(1))
-        plt.scatter(X[np.where(t == 1)], y_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
-        plt.scatter(X[np.where(t == 2)], y_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$\tilde{y}$", fontsize=16)
-        plt.title("Latent variable posterior sample mean ybar, plotted against x")
-        plt.show()
-
-        lower_x = -0.5
-        upper_x = 1.5
-        N = 1000
-        x = np.linspace(lower_x, upper_x, N)
-        X_new = x.reshape((N, D))
-        Z = variational_classifier.predict(
-            Sigma_tilde, y_tilde, varphi_tilde, X_new, Lambda, vectorised=True)
-        print(np.sum(Z, axis=1), 'sum')
-        plt.xlim(lower_x, upper_x)
-        plt.ylim(0.0, 1.0)
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
-        plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
-                  .format(lower_x, upper_x))
-        plt.stackplot(x, Z.T,
-                      labels=(
-                          r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$"),
-                      colors=(
-                          colors[0], colors[1], colors[2])
-                      )
-        val = 0.5  # this is the value where you want the data to appear on the y-axis.
-        plt.scatter(X[np.where(t == 0)], np.zeros_like(X[np.where(t == 0)]) + val, facecolors=colors[0], edgecolors='white')
-        plt.scatter(X[np.where(t == 1)], np.zeros_like(X[np.where(t == 1)]) + val, facecolors=colors[1], edgecolors='white')
-        plt.scatter(X[np.where(t == 2)], np.zeros_like(X[np.where(t == 2)]) + val, facecolors=colors[2], edgecolors='white')
-        plt.show()
-
-    elif argument == "septile":
-        #plt.scatter(X, m_tilde)
-        #plt.scatter(X[np.where(t == 1)], m_tilde[np.where(t == 1)])
-        for i in range(7):
-            plt.scatter(X[np.where(t == i)], m_tilde[np.where(t == i)], color=colors[i], label=r"$t={}$".format(i + 1))
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$\tilde{m}$", fontsize=16)
-        plt.title("GP regression posterior sample mean mbar, plotted against x")
-        plt.legend()
-        plt.show()
-
-        for i in range(7):
-            plt.scatter(X[np.where(t == i)], y_tilde[np.where(t == i)], color=colors[i], label=r"$t={}$".format(i))
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$\tilde{y}$", fontsize=16)
-        plt.title("Latent variable posterior sample mean ybar, plotted against x")
-        plt.legend()
-        plt.show()
-
-        lower_x = -0.5
-        upper_x = 1.5
-        N = 1000
-        x = np.linspace(lower_x, upper_x, N)
-        X_new = x.reshape((N, D))
-        Z = variational_classifier.predict(
-            Sigma_tilde, y_tilde, varphi_tilde, X_new, Lambda, vectorised=True)
-        print(np.sum(Z, axis=1), 'sum')
-        plt.xlim(lower_x, upper_x)
-        plt.ylim(0.0, 1.0)
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
-        plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
-                  .format(lower_x, upper_x))
-        plt.stackplot(x, Z.T,
-                      labels=(
-                          r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$", r"$p(t=3|x, X, t)$",
-                          r"$p(t=4|x, X, t)$", r"$p(t=5|x, X, t)$", r"$p(t=6|x, X, t)$"),
-                      colors=(
-                          colors[0], colors[1], colors[2], colors[3], colors[4], colors[5], colors[6])
-                      )
-        plt.legend()
-        val = 0.5  # this is the value where you want the data to appear on the y-axis.
-        for i in range(7):
-            plt.scatter(
-                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
-        plt.show()
 
 
+grid_toy(X, t, gamma_0, [-2, 2], [-2, 2], scale=1.0)
 
-# split = 2
-# X_train = X_trains[split, :, :]
-# t_train = t_trains[split, :]
-# X_test = X_tests[split, :, :]
-# t_test = t_tests[split, :]
-# Y_true = Y_trues[split, :]
-#
-#
-# gamma = [-np.inf, -0.89228776, -0.24117873, 5.70592399, 6.10216011, np.inf]
-# noise_variance = 15.554851837260292
-# varphi = 6.55985409159531e-08
-# scale=1.0
-#
-# # gamma = np.array([-np.inf, -1.4395564, -0.85935829, 4.55393507, 7.47177837, np.inf])
-# # noise_variance = 2.8037410261849766
-# # varphi = 0.05925575735992925
-# # scale = 1.0
-# bound, zero_one, predictive_likelihood, mean_abs = ordinal_EP_testing(
-#         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
-#
-# assert 0
-
-
+# test_toy(X, t, gamma_0, varphi_0, noise_variance_0, scale)
 
 # test_plots(X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
-outer_loops()
+# outer_loops()
 
 
 
 #scale = 1.0
 #scale = 3.79269019e+01
-# ordinal_EP_training(X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma_0, K, steps=100,
+# EP_training(X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma_0, K, steps=100,
 #                     scale=scale)
 
 
@@ -793,5 +950,5 @@ outer_loops()
 # noise_variance = 3.4702749861740054
 # varphi = 0.0008392067708278249
 #
-# ordinal_EP_testing(
+# EP_testing(
 #     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma, varphi, noise_variance, K, scale=scale)
