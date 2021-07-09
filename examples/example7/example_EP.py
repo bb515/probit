@@ -39,8 +39,8 @@ arguments = [
 ]
 # argument = "tertile"
 generate_new_data = True
-argument = "diabetes_quantile"
-# argument = "stocks_quantile"
+# argument = "diabetes_quantile"
+argument = "stocks_quantile"
 bins = "quantile"
 
 if argument == "abalone":
@@ -118,8 +118,8 @@ elif argument == "pyrim":
 elif argument == "stocks_quantile":
     K = 5
     D = 9
-    varphi_0 = 0.0001
-    noise_variance_0 = 2.0
+    noise_variance_0 = 0.01  # 2.0  0.03
+    varphi_0 = 0.00045  # 0.0001  # varphi_0 = 0.00045
     data_continuous = np.load(write_path / "./data/continuous/stock.npz")
     if bins == "quantile":
         K = 5
@@ -127,7 +127,9 @@ elif argument == "stocks_quantile":
     elif bins == "decile":
         K = 10
         data = np.load(write_path / "./data/10bin/stock.npz")
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+    gamma_0 = [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf]
+    # gamma_0 = np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf])
+    # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "triazines":
     D = 60
     varphi_0 = 2.0/D
@@ -389,12 +391,13 @@ def EP_plotting(
 
 def EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance,
-        K, steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
+        K, scale=1.0, sigma=10e-6, tau=10e-6):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     print("varphi", kernel.varphi, varphi)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    steps = variational_classifier.N
     error = np.inf
     iteration = 0
     posterior_mean = None
@@ -419,15 +422,15 @@ def EP_testing(
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
-    lower_x1 = 0.0
-    upper_x1 = 16.0
-    lower_x2 = -30
-    upper_x2 = 0
+    # lower_x1 = 0.0
+    # upper_x1 = 16.0
+    # lower_x2 = -30
+    # upper_x2 = 0
 
-    # lower_x1 = 15.0
-    # upper_x1 = 65.0
-    # lower_x2 = 15.0
-    # upper_x2 = 70.0
+    lower_x1 = 15.0
+    upper_x1 = 65.0
+    lower_x2 = 15.0
+    upper_x2 = 70.0
 
     N = 75
     x1 = np.linspace(lower_x1, upper_x1, N)
@@ -532,13 +535,13 @@ def test(split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
 
-    gamma, varphi, noise_variance = EP_training(
-        X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+    # gamma, varphi, noise_variance = EP_training(
+    #     X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
 
     fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
-        X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
+        X_train, t_train, X_test, t_test, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
 
-    return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
+    return gamma_0, varphi_0, noise_variance_0, zero_one, predictive_likelihood, mean_abs, fx
 
 
 def test_varphi(scale=1.0):
@@ -966,9 +969,9 @@ def main():
 # test_toy(X, t, gamma_0, varphi_0, noise_variance_0, scale)
 
 
-print(X_trains[0])
-print(X_tests[0])
-assert 0
+# print(X_trains[0])
+# print(X_tests[0])
+# assert 0
 print(gamma_0, varphi_0, noise_variance_0)
 # test_plots(X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
 outer_loops()
