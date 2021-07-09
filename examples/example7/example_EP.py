@@ -37,9 +37,9 @@ arguments = [
     "triazines",
     "wpbc"
 ]
-argument = "tertile"
+# argument = "tertile"
 generate_new_data = True
-# argument = "diabetes_quantile"
+argument = "diabetes_quantile"
 # argument = "stocks_quantile"
 bins = "quantile"
 
@@ -155,17 +155,26 @@ elif argument == "wpbc":
 elif argument == "tertile":
     K = 3
     D = 1
-    N_per_class = 20  # 64
-    varphi_0 = 30.0
+    N_per_class = 30  # 64
+    varphi_0 = 28.247881910538307  # 7.0 #  19.59821963518377  # 30.0
     scale = 1.0
-    noise_variance_0 = 0.1
+    noise_variance_0 = 0.11103503642649291  # 1.0 #  0.07548142258576254  #0.1
     kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
-    #gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
+    # gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
     if generate_new_data == True:
         # Generate the synethetic data
-        X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
-            N_per_class, K, D, kernel, noise_variance=noise_variance_0)
-        # np.savez(write_path / "data_tertile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
+        # X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+        #     N_per_class, K, D, kernel, noise_variance=noise_variance_0)
+        # np.savez(write_path / "data_tertile_prior.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+        data = np.load(write_path / "data_tertile_prior.npz")
+        X_k = data["X_k"]  # Contains (90,) array of binned x values
+        # Y_true_k = data["Y_k"]  # Contains (90,) array of binned y values
+        X = data["X"]  # Contains (90,) array of x values
+        t = data["t"]  # Contains (90,) array of ordinal response variables, corresponding to Xs values
+        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+        gamma_0 = data["gamma_0"]
+        gamma = [-np.inf, - 0.43160987, 0.2652492, np.inf]
+        # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     else:
         data = np.load("data_tertile.npz")
         X_k = data["X_k"]  # Contains (256, 7) array of binned x values
@@ -271,7 +280,7 @@ def EP_plotting(
     mean_EP = None
     precision_EP = None
     amplitude_EP = None
-    while error / steps > variational_classifier.EPS:  #TODO: is this really correct
+    while error / steps > variational_classifier.EPS**2:
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
          precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
@@ -393,7 +402,7 @@ def EP_testing(
     mean_EP = None
     precision_EP = None
     amplitude_EP = None
-    while error / steps > variational_classifier.EPS:  #TODO: is this really correct
+    while error / steps > variational_classifier.EPS**2:
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
          precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
@@ -410,15 +419,15 @@ def EP_testing(
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
-    # lower_x1 = 0.0
-    # upper_x1 = 16.0
-    # lower_x2 = -30
-    # upper_x2 = 0
+    lower_x1 = 0.0
+    upper_x1 = 16.0
+    lower_x2 = -30
+    upper_x2 = 0
 
-    lower_x1 = 15.0
-    upper_x1 = 65.0
-    lower_x2 = 15.0
-    upper_x2 = 70.0
+    # lower_x1 = 15.0
+    # upper_x1 = 65.0
+    # lower_x2 = 15.0
+    # upper_x2 = 70.0
 
     N = 75
     x1 = np.linspace(lower_x1, upper_x1, N)
@@ -468,7 +477,7 @@ def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=
     :return:
     """
     theta = []
-    theta.append(np.log(noise_variance_0))
+    theta.append(np.log(np.sqrt(noise_variance_0)))
     theta.append(gamma_0[1])
     for i in range(2, K):
         theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
@@ -819,17 +828,37 @@ def SSouter_loops():
     plt.title("Contour plot - mean absolute error accuracy")
     plt.show()
 
-def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_variance, scale=1.0):
+def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, scale=1.0):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     sigma = 10e-6
     tau = 10e-6
-    res = 20
+    res = 30
     kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
-    Z, x, y = variational_classifier.grid_over_hyperparameters(gamma, range_log_varphi, range_log_noise_variance, res)
+    Z, grad, x, y = variational_classifier.grid_over_hyperparameters(
+        gamma, range_log_varphi, range_log_noise_std, res)
     fig, axs = plt.subplots(1, figsize=(6, 6))
-    plt.contourf(x, y, Z, zorder=1)
+
+    ax = plt.axes(projection='3d')
+    ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
+                    cmap='viridis', edgecolor='none')
+    ax.set_title('surface')
+    plt.show()
+
+    print(grad)
+    norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
+    u = grad[:, 0] / norm
+    v = grad[:, 1] / norm
+    print(u)
+    print(v)
+
+    fig, ax = plt.subplots(1, 1)
+    ax.set_aspect(1)
+    ax.contourf(x, y, np.log(Z), 100, cmap='viridis', zorder=1)
+    ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
+    ax.plot(0.1, 30, 'm')
+
     plt.xscale("log")
     plt.yscale("log")
     # plt.xlim(0, 2)
@@ -842,16 +871,13 @@ def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_variance
 
 def test_toy(X_train, t_train, gamma_0, varphi_0, noise_variance_0, scale=1.0):
     """Test toy."""
-    # gamma = gamma_0
-    # varphi = varphi_0
-    # noise_variance = noise_variance_0
-    noise_variance_0 = 1.0
-    gamma, varphi, noise_variance = EP_training(
-        X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
-    print(gamma, gamma_0)
-    print(varphi, varphi_0)
-    print(noise_variance, noise_variance_0)
-    fx = EP_plotting(X_train, t_train, gamma, varphi, noise_variance, K, scale=scale)
+    # gamma, varphi, noise_variance = EP_training(
+    #     X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+    # print(gamma, gamma_0)
+    # print(varphi, varphi_0)
+    # print(noise_variance, noise_variance_0)
+    # print(gamma_0, varphi_0, noise_variance_0)
+    fx = EP_plotting(X_train, t_train, gamma_0, varphi=varphi_0, noise_variance=noise_variance_0, K=K, scale=scale)
     print("fx={}".format(fx))
 
 def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance):
@@ -920,14 +946,32 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_va
             plt.title("Contour plot - Variational")
             plt.show()
 
+def main():
+    """Conduct an EP estimation/optimisation."""
+    parser = argparse.ArgumentParser()
+    # The --profile argument generates profiling information for the example
+    parser.add_argument(
+        "dataset_name", help="run example on a given dataset name")
+    parser.add_argument('--profile', action='store_const', const=True)
+    args = parser.parse_args()
+    write_path = pathlib.Path(__file__).parent.absolute() / args.dataset_name
+
+    if args.profile:
+        profile = cProfile.Profile()
+        profile.enable()
 
 
-grid_toy(X, t, gamma_0, [-2, 2], [-2, 2], scale=1.0)
+# grid_toy(X, t, gamma_0, [-2, 2], [-1, 1], scale=1.0)
 
 # test_toy(X, t, gamma_0, varphi_0, noise_variance_0, scale)
 
+
+print(X_trains[0])
+print(X_tests[0])
+assert 0
+print(gamma_0, varphi_0, noise_variance_0)
 # test_plots(X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
-# outer_loops()
+outer_loops()
 
 
 

@@ -41,7 +41,6 @@ argument = "diabetes_quantile"
 # argument = "stocks_quantile"
 bins = "quantile"
 
-
 print("here")
 if argument == "abalone":
     D = 10
