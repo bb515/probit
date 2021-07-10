@@ -12,7 +12,9 @@ from probit.estimators import VBMultinomialOrderedGPSS, VBMultinomialOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
+import importlib.resources as pkg_resources
 from probit.utilities import generate_prior_data, generate_synthetic_data
+from . import data
 
 
 write_path = pathlib.Path()
@@ -32,13 +34,13 @@ arguments = [
     "housing",
     "machine",
     "pyrim",
-    "stocks_quantile",
+    "stocks",
     "triazines",
     "wpbc"
 ]
 
 argument = "diabetes_quantile"
-# argument = "stocks_quantile"
+# argument = "stocks"
 bins = "quantile"
 
 print("here")
@@ -118,7 +120,9 @@ elif argument == "pyrim":
         K = 10
         data = np.load(write_path / "./data/10bin/pyrim.npz")
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "stocks_quantile":
+elif argument == "stocks":
+    continuous = pkg_resources.path(data, 'stocksdomain/stock.npz')
+    bin5 = pkg_resources.path(data, 'stocksdomain/5bins/stock.npz')
     K = 5
     D = 9
     varphi_0 = 0.0001
@@ -519,7 +523,7 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
     plt.title(r"$\phi$", fontsize=16)
     plt.show()
 
-    if argument in ["diabetes_quantile", "stocks_quantile"]:
+    if argument in arguments:
         lower_x1 = 0.0
         upper_x1 = 16.0
         lower_x2 = -30

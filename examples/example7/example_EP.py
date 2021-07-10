@@ -14,7 +14,8 @@ import matplotlib.pyplot as plt
 import pathlib
 from scipy.optimize import minimize
 from probit.utilities import generate_prior_data, generate_synthetic_data
-
+import importlib.resources as pkg_resources
+import data
 
 write_path = pathlib.Path()
 
@@ -29,18 +30,18 @@ def split(list, K):
 arguments = [
     "abalone",
     "auto",
-    "diabetes_quantile",
+    "diabetes",
     "housing",
     "machine",
     "pyrim",
-    "stocks_quantile",
+    "stocks",
     "triazines",
     "wpbc"
 ]
 # argument = "tertile"
 generate_new_data = True
-# argument = "diabetes_quantile"
-argument = "stocks_quantile"
+# argument = "diabetes"
+argument = "stocks"
 bins = "quantile"
 
 if argument == "abalone":
@@ -67,7 +68,7 @@ elif argument == "auto":
         K = 10
         data = np.load(write_path / "./data/10bin/auto.data.npz")
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "diabetes_quantile":
+elif argument == "diabetes":
     D = 2
     varphi_0 = 6.7e-06
     noise_variance_0 = 1.0
@@ -115,18 +116,23 @@ elif argument == "pyrim":
         K = 10
         data = np.load(write_path / "./data/10bin/pyrim.npz")
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "stocks_quantile":
+elif argument == "stocks":
+    with pkg_resources.path(data.stocksdomain, 'stock.npz') as path:
+        data_continuous = np.load(path)
+    with pkg_resources.path(data, 'stocksdomain/5bins/stock.npz') as path:
+        data = np.load(path)
     K = 5
     D = 9
     noise_variance_0 = 0.01  # 2.0  0.03
     varphi_0 = 0.00045  # 0.0001  # varphi_0 = 0.00045
-    data_continuous = np.load(write_path / "./data/continuous/stock.npz")
+    #data_continuous = np.load(write_path / "../data/continuous/stock.npz")
+    assert 0
     if bins == "quantile":
         K = 5
-        data = np.load(write_path / "./data/5bin/stock.npz")
+        data = np.load("./data/5bin/stock.npz")
     elif bins == "decile":
         K = 10
-        data = np.load(write_path / "./data/10bin/stock.npz")
+        data = np.load("./data/10bin/stock.npz")
     gamma_0 = [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf]
     # gamma_0 = np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf])
     # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
@@ -535,13 +541,13 @@ def test(split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
 
-    # gamma, varphi, noise_variance = EP_training(
-    #     X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+    gamma, varphi, noise_variance = EP_training(
+        X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
 
     fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
-        X_train, t_train, X_test, t_test, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+        X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
 
-    return gamma_0, varphi_0, noise_variance_0, zero_one, predictive_likelihood, mean_abs, fx
+    return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
 
 
 def test_varphi(scale=1.0):
@@ -949,19 +955,19 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_va
             plt.title("Contour plot - Variational")
             plt.show()
 
-def main():
-    """Conduct an EP estimation/optimisation."""
-    parser = argparse.ArgumentParser()
-    # The --profile argument generates profiling information for the example
-    parser.add_argument(
-        "dataset_name", help="run example on a given dataset name")
-    parser.add_argument('--profile', action='store_const', const=True)
-    args = parser.parse_args()
-    write_path = pathlib.Path(__file__).parent.absolute() / args.dataset_name
-
-    if args.profile:
-        profile = cProfile.Profile()
-        profile.enable()
+# def main():
+#     """Conduct an EP estimation/optimisation."""
+#     parser = argparse.ArgumentParser()
+#     # The --profile argument generates profiling information for the example
+#     parser.add_argument(
+#         "dataset_name", help="run example on a given dataset name")
+#     parser.add_argument('--profile', action='store_const', const=True)
+#     args = parser.parse_args()
+#     write_path = pathlib.Path(__file__).parent.absolute() / args.dataset_name
+#
+#     if args.profile:
+#         profile = cProfile.Profile()
+#         profile.enable()
 
 
 # grid_toy(X, t, gamma_0, [-2, 2], [-1, 1], scale=1.0)
