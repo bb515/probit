@@ -26,7 +26,7 @@ def split(list, K):
     divisor, remainder = divmod(len(list), K)
     return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
 
-arguments = [
+datasets = [
     "abalone",
     "auto",
     "diabetes",
@@ -37,236 +37,175 @@ arguments = [
     "triazines",
     "wpbc"
 ]
-# argument = "tertile"
-data_from_prior = True
-# argument = "diabetes"
-argument = "stocks"
-bins = "quantile"
 
-if argument == "abalone":
-    from probit.data import abalone
-    with pkg_resources.path(abalone, 'abalone.npz') as path:
-        data_continuous = np.load(path)
-    D = 10
-    varphi_0 = 2.0/D
-    noise_variance_0 = 1.0
-    if bins == "quantile":
-        from probit.data.abalone import quantile
-        with pkg_resources.path(quantile, 'abalone.npz') as path:
-            data = np.load(path)
+
+def load_data(dataset, bins):
+    if dataset == "abalone":
+        from probit.data import abalone
+        with pkg_resources.path(abalone, 'abalone.npz') as path:
+            data_continuous = np.load(path)
+        D = 10
+        varphi_0 = 2.0/D
+        noise_variance_0 = 1.0
+        if bins == "quantile":
+            from probit.data.abalone import quantile
+            with pkg_resources.path(quantile, 'abalone.npz') as path:
+                data = np.load(path)
+            K = 5
+        elif bins == "decile":
+            from probit.data.abalone import decile
+            with pkg_resources.path(decile, 'abalone.npz') as path:
+                data = np.load(path)
+            K = 10
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+    elif dataset == "auto":
+        from probit.data import auto
+        with pkg_resources.path(auto, 'auto.npz') as path:
+            data_continuous = np.load(path)
+        D = 7
+        varphi_0 = 2.0/D
+        noise_variance_0 = 2.0
+        if bins == "quantile":
+            K = 5
+            from probit.data.auto import quantile
+            with pkg_resources.path(quantile, 'auto.npz') as path:
+                data = np.load(path)
+        elif bins == "decile":
+            K = 10
+            from probit.data.auto import decile
+            with pkg_resources.path(decile, 'auto.npz') as path:
+                data = np.load(path)
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+    elif dataset == "diabetes":
+        D = 2
+        varphi_0 = 6.7e-06
+        noise_variance_0 = 1.0
+        from probit.data import diabetes
+        with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
+            data_continuous = np.load(path)
+        if bins == "quantile":
+            K = 5
+            from probit.data.diabetes import quantile
+            with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
+                data = np.load(path)
+        elif bins == "decile":
+            from probit.data.diabetes import decile
+            with pkg_resources.path(decile, 'diabetes.data.npz') as path:
+                data = np.load(path)
+            K = 10
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+    elif dataset == "housing":
+        D = 13
+        varphi_0 = 2.0/D
+        noise_variance_0 = 2.0
+        from probit.data import bostonhousing
+        with pkg_resources.path(bostonhousing, 'housing.npz') as path:
+            data_continuous = np.load(path)
+        if bins == "quantile":
+            K = 5
+            from probit.data.bostonhousing import quantile
+            with pkg_resources.path(quantile, 'housing.npz') as path:
+                data = np.load(path)
+        elif bins == "decile":
+            K = 10
+            from probit.data.bostonhousing import decile
+            with pkg_resources.path(decile, 'housing.npz') as path:
+                data = np.load(path)
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+    elif dataset == "machine":
+        D = 6
+        varphi_0 = 2.0 / D
+        noise_variance_0 = 2.0
+        from probit.data import machinecpu
+        with pkg_resources.path(machinecpu, 'machine.npz') as path:
+            data_continuous = np.load(path)
+        if bins == "quantile":
+            from probit.data.machinecpu import quantile
+            with pkg_resources.path(quantile, 'machine.npz') as path:
+                data = np.load(path)
+            K = 5
+        elif bins == "decile":
+            from probit.data.machinecpu import decile
+            with pkg_resources.path(decile, 'machine.npz') as path:
+                data = np.load(path)
+            K = 10
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+    elif dataset == "pyrim":
+        from probit.data import pyrimidines
+        with pkg_resources.path(pyrimidines, 'pyrim.npz') as path:
+            data_continuous = np.load(path)
+        D = 27
+        varphi_0 = 2.0/D
+        noise_variance_0 = 2.0
+        if bins == "quantile":
+            from probit.data.pyrimidines import quantile
+            with pkg_resources.path(quantile, 'pyrim.npz') as path:
+                data = np.load(path)
+            K = 5
+        elif bins == "decile":
+            from probit.data.pyrimidines import decile
+            with pkg_resources.path(decile, 'pyrim.npz') as path:
+                data = np.load(path)
+            K = 10
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+    elif dataset == "stocks":
+        from probit.data import stocksdomain
+        with pkg_resources.path(stocksdomain, 'stock.npz') as path:
+            data_continuous = np.load(path)
         K = 5
-    elif bins == "decile":
-        from probit.data.abalone import decile
-        with pkg_resources.path(decile, 'abalone.npz') as path:
-            data = np.load(path)
-        K = 10
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "auto":
-    from probit.data import auto
-    with pkg_resources.path(auto, 'auto.npz') as path:
-        data_continuous = np.load(path)
-    D = 7
-    varphi_0 = 2.0/D
-    noise_variance_0 = 2.0
-    if bins == "quantile":
-        K = 5
-        from probit.data.auto import quantile
-        with pkg_resources.path(quantile, 'auto.npz') as path:
-            data = np.load(path)
-    elif bins == "decile":
-        K = 10
-        from probit.data.auto import decile
-        with pkg_resources.path(decile, 'auto.npz') as path:
-            data = np.load(path)
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "diabetes":
-    D = 2
-    varphi_0 = 6.7e-06
-    noise_variance_0 = 1.0
-    from probit.data import diabetes
-    with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
-        data_continuous = np.load(path)
-    if bins == "quantile":
-        K = 5
-        from probit.data.diabetes import quantile
-        with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
-            data = np.load(path)
-    elif bins == "decile":
-        from probit.data.diabetes import decile
-        with pkg_resources.path(decile, 'diabetes.data.npz') as path:
-            data = np.load(path)
-        K = 10
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "housing":
-    D = 13
-    varphi_0 = 2.0/D
-    noise_variance_0 = 2.0
-    from probit.data import bostonhousing
-    with pkg_resources.path(bostonhousing, 'housing.npz') as path:
-        data_continuous = np.load(path)
-    if bins == "quantile":
-        K = 5
-        from probit.data.bostonhousing import quantile
-        with pkg_resources.path(quantile, 'housing.npz') as path:
-            data = np.load(path)
-    elif bins == "decile":
-        K = 10
-        from probit.data.bostonhousing import decile
-        with pkg_resources.path(decile, 'housing.npz') as path:
-            data = np.load(path)
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "machine":
-    D = 6
-    varphi_0 = 2.0 / D
-    noise_variance_0 = 2.0
-    from probit.data import machinecpu
-    with pkg_resources.path(machinecpu, 'machine.npz') as path:
-        data_continuous = np.load(path)
-    if bins == "quantile":
-        from probit.data.machinecpu import quantile
-        with pkg_resources.path(quantile, 'machine.npz') as path:
-            data = np.load(path)
-        K = 5
-    elif bins == "decile":
-        from probit.data.machinecpu import decile
-        with pkg_resources.path(decile, 'machine.npz') as path:
-            data = np.load(path)
-        K = 10
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "pyrim":
-    from probit.data import pyrimidines
-    with pkg_resources.path(pyrimidines, 'pyrim.npz') as path:
-        data_continuous = np.load(path)
-    D = 27
-    varphi_0 = 2.0/D
-    noise_variance_0 = 2.0
-    if bins == "quantile":
-        from probit.data.pyrimidines import quantile
-        with pkg_resources.path(quantile, 'pyrim.npz') as path:
-            data = np.load(path)
-        K = 5
-    elif bins == "decile":
-        from probit.data.pyrimidines import decile
-        with pkg_resources.path(decile, 'pyrim.npz') as path:
-            data = np.load(path)
-        K = 10
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "stocks":
-    from probit.data import stocksdomain
-    with pkg_resources.path(stocksdomain, 'stock.npz') as path:
-        data_continuous = np.load(path)
-    K = 5
-    D = 9
-    noise_variance_0 = 0.01  # 2.0  0.03
-    varphi_0 = 0.00045  # 0.0001  # varphi_0 = 0.00045
-    if bins == "quantile":
-        from probit.data.stocksdomain import quantile
-        with pkg_resources.path(quantile, 'stock.npz') as path:
-            data = np.load(path)
-        K = 5
-    elif bins == "decile":
-        from probit.data.stocksdomain import decile
-        with pkg_resources.path(decile, 'stock.npz') as path:
-            data = np.load(path)
-        K = 10
-        #data = np.load("./data/10bin/stock.npz")
-    gamma_0 = [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf]
-    # gamma_0 = np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf])
-    # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "triazines":
-    from probit.data import triazines
-    with pkg_resources.path(triazines, 'triazines.npz') as path:
-        data_continuous = np.load(path)
-    D = 60
-    varphi_0 = 2.0/D
-    noise_variance_0 = 2.0
-    if bins == "quantile":
-        from probit.data.triazines import quantile
-        with pkg_resources.path(quantile, 'triazines.npz') as path:
-            data = np.load(path)
-        K = 5
-    elif bins == "decile":
-        K = 10
-        data = np.load(write_path / "./data/10bin/triazines.npz")
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "wpbc":
-    D = 32
-    varphi_0 = 2.0/D
-    noise_variance_0 = 2.0
-    from probit.data import wisconsin
-    with pkg_resources.path(wisconsin, 'wpbc.npz') as path:
-        data_continuous = np.load(path)
-    data_continuous = np.load(write_path / "./data/continuous/wpbc.npz")
-    if bins == "quantile":
-        from probit.data.wisconsin import quantile
-        with pkg_resources.path(quantile, 'wpbc.npz') as path:
-            data = np.load(path)
-        K = 5
-    elif bins == "decile":
-        from probit.data.wisconsin import decile
-        with pkg_resources.path(decile, 'wpbc.npz') as path:
-            data = np.load(path)
-        K = 10
-    gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-elif argument == "tertile":
-    from probit.data import tertile
-    K = 3
-    D = 1
-    N_per_class = 30  # 64
-    varphi_0 = 28.247881910538307  # 7.0 #  19.59821963518377  # 30.0
-    scale = 1.0
-    noise_variance_0 = 0.11103503642649291  # 1.0 #  0.07548142258576254  #0.1
-    kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
-    # gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
-    if data_from_prior == True:
-        with pkg_resources.path(tertile, 'tertile_prior.npz') as path:
-            data = np.load(path)
-        # Generate the synethetic data
-        # X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
-        #     N_per_class, K, D, kernel, noise_variance=noise_variance_0)
-        # np.savez(write_path / "data_tertile_prior.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
-        X_k = data["X_k"]  # Contains (90,) array of binned x values
-        # Y_true_k = data["Y_k"]  # Contains (90,) array of binned y values
-        X = data["X"]  # Contains (90,) array of x values
-        t = data["t"]  # Contains (90,) array of ordinal response variables, corresponding to Xs values
-        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-        gamma_0 = data["gamma_0"]
-        gamma = [-np.inf, - 0.43160987, 0.2652492, np.inf]
+        D = 9
+        noise_variance_0 = 0.01  # 2.0  0.03
+        varphi_0 = 0.00045  # 0.0001  # varphi_0 = 0.00045
+        if bins == "quantile":
+            from probit.data.stocksdomain import quantile
+            with pkg_resources.path(quantile, 'stock.npz') as path:
+                data = np.load(path)
+            K = 5
+        elif bins == "decile":
+            from probit.data.stocksdomain import decile
+            with pkg_resources.path(decile, 'stock.npz') as path:
+                data = np.load(path)
+            K = 10
+            #data = np.load("./data/10bin/stock.npz")
+        gamma_0 = [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf]
+        # gamma_0 = np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf])
         # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-    else:
-        with pkg_resources.path(tertile, 'tertile.npz') as path:
-            data = np.load(path)
-        X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-        # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-        X = data["X"]  # Contains (1792,) array of x values
-        t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-        N_total = int(N_per_class * K)
-elif argument == "septile":
-    from probit.data import septile
-    with pkg_resources.path(septile, 'septile.npz') as path:
-        data = np.load(path)
-    K = 7
-    D = 1
-    N_per_class = 32
-    varphi_0 = 30.0
-    scale = 20.0
-    noise_variance_0 = 1.0
-    # Generate the synethetic data
-    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
-    #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
-    gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
-    X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-    # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-    X = data["X"]  # Contains (1792,) array of x values
-    t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-    Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-    N_total = int(N_per_class * K)
+    elif dataset == "triazines":
+        from probit.data import triazines
+        with pkg_resources.path(triazines, 'triazines.npz') as path:
+            data_continuous = np.load(path)
+        D = 60
+        varphi_0 = 2.0/D
+        noise_variance_0 = 2.0
+        if bins == "quantile":
+            from probit.data.triazines import quantile
+            with pkg_resources.path(quantile, 'triazines.npz') as path:
+                data = np.load(path)
+            K = 5
+        elif bins == "decile":
+            K = 10
+            data = np.load(write_path / "./data/10bin/triazines.npz")
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+    elif dataset == "wpbc":
+        D = 32
+        varphi_0 = 2.0/D
+        noise_variance_0 = 2.0
+        from probit.data import wisconsin
+        with pkg_resources.path(wisconsin, 'wpbc.npz') as path:
+            data_continuous = np.load(path)
+        data_continuous = np.load(write_path / "./data/continuous/wpbc.npz")
+        if bins == "quantile":
+            from probit.data.wisconsin import quantile
+            with pkg_resources.path(quantile, 'wpbc.npz') as path:
+                data = np.load(path)
+            K = 5
+        elif bins == "decile":
+            from probit.data.wisconsin import decile
+            with pkg_resources.path(decile, 'wpbc.npz') as path:
+                data = np.load(path)
+            K = 10
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 
-# Temporary
-Lambda = None
-
-if argument in arguments:
     X_trains = data["X_train"]
     t_trains = data["t_train"]
     X_tests = data["X_test"]
@@ -296,8 +235,65 @@ if argument in arguments:
     #     Y_trues.append(y)
     # Y_trues = np.array(Y_trues)
 
-if argument not in arguments:
-    pass
+    return X_trains, t_trains, X_tests, t_tests, Y_true
+
+
+def load_data_synthetic(dataset, data_from_prior):
+    if dataset == "tertile":
+        from probit.data import tertile
+        K = 3
+        D = 1
+        N_per_class = 30  # 64
+        varphi_0 = 28.247881910538307  # 7.0 #  19.59821963518377  # 30.0
+        scale = 1.0
+        noise_variance_0 = 0.11103503642649291  # 1.0 #  0.07548142258576254  #0.1
+        kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
+        # gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
+        if data_from_prior == True:
+            with pkg_resources.path(tertile, 'tertile_prior.npz') as path:
+                data = np.load(path)
+            # Generate the synethetic data
+            # X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+            #     N_per_class, K, D, kernel, noise_variance=noise_variance_0)
+            # np.savez(write_path / "data_tertile_prior.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+            X_k = data["X_k"]  # Contains (90,) array of binned x values
+            # Y_true_k = data["Y_k"]  # Contains (90,) array of binned y values
+            X = data["X"]  # Contains (90,) array of x values
+            t = data["t"]  # Contains (90,) array of ordinal response variables, corresponding to Xs values
+            Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+            gamma_0 = data["gamma_0"]
+            gamma = [-np.inf, - 0.43160987, 0.2652492, np.inf]
+            # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+        else:
+            with pkg_resources.path(tertile, 'tertile.npz') as path:
+                data = np.load(path)
+            X_k = data["X_k"]  # Contains (256, 7) array of binned x values
+            # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
+            X = data["X"]  # Contains (1792,) array of x values
+            t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
+            Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+            N_total = int(N_per_class * K)
+    elif dataset == "septile":
+        from probit.data import septile
+        with pkg_resources.path(septile, 'septile.npz') as path:
+            data = np.load(path)
+        K = 7
+        D = 1
+        N_per_class = 32
+        varphi_0 = 30.0
+        scale = 20.0
+        noise_variance_0 = 1.0
+        # Generate the synethetic data
+        #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
+        #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
+        gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
+        X_k = data["X_k"]  # Contains (256, 7) array of binned x values
+        # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
+        X = data["X"]  # Contains (1792,) array of x values
+        t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
+        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+        N_total = int(N_per_class * K)
+
     # # Plot
     # colors_ = [colors[i] for i in t]
     # plt.scatter(X, Y_true, color=colors_)
@@ -314,10 +310,11 @@ if argument not in arguments:
     # plt.xlabel(r"$x$", fontsize=16)
     # plt.ylabel(r"$y$", fontsize=16)
     # plt.show()
+    return X, t, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
 
 
-def EP_plotting(
-        X_train, t_train, gamma, varphi, noise_variance, K, steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
+def EP_plotting(dataset, X_train, t_train, Y_true, gamma, varphi, noise_variance, K, D,
+                steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
     print("scale={}".format(scale))
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
@@ -347,7 +344,7 @@ def EP_plotting(
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
 
-    if argument in arguments:
+    if dataset in datasets:
         lower_x1 = 15.0
         upper_x1 = 65.0
         lower_x2 = 15.0
@@ -375,7 +372,7 @@ def EP_plotting(
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.title("Contour plot - Expectation propagation")
             plt.show()
-    elif argument == "tertile":
+    elif dataset == "tertile":
         lower_x = -0.5
         upper_x = 1.5
         N = 1000
@@ -405,7 +402,7 @@ def EP_plotting(
                     edgecolors='white')
         plt.show()
 
-    elif argument == "septile":
+    elif dataset == "septile":
         lower_x = -0.5
         upper_x = 1.5
         N = 1000
@@ -576,7 +573,7 @@ def EP_training_varphi(X_train, t_train, varphi_0=1e-3, scale=1.0, sigma=10e-6, 
     return gamma, varphi, noise_variance
 
 
-def test(split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
+def test(X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
@@ -591,7 +588,7 @@ def test(split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
 
 
-def test_varphi(scale=1.0):
+def test_varphi(X_trains, t_trains, X_tests, t_tests, K, scale=1.0):
     split = 2
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
@@ -614,7 +611,7 @@ def test_varphi(scale=1.0):
     assert 0
 
 
-def outer_loops():
+def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0):
     bounds = []
     zero_ones = []
     predictive_likelihoods = []
@@ -626,7 +623,6 @@ def outer_loops():
         gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx = test(
             split, gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0
         )
-
         bounds.append(fx)
         zero_ones.append(zero_one)
         predictive_likelihoods.append(predictive_likelihood)
@@ -668,7 +664,7 @@ def outer_loops():
     return 0
 
 
-def SSouter_loops():
+def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     grid = np.ogrid[0:len(X_tests[0, :, :])]
     avg_bounds_Z = []
     avg_zero_one_Z = []
@@ -883,25 +879,21 @@ def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, sca
     sigma = 10e-6
     tau = 10e-6
     res = 30
+    varphi_0 = 1.0
     kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     Z, grad, x, y = variational_classifier.grid_over_hyperparameters(
         gamma, range_log_varphi, range_log_noise_std, res)
     fig, axs = plt.subplots(1, figsize=(6, 6))
-
     ax = plt.axes(projection='3d')
     ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
                     cmap='viridis', edgecolor='none')
     ax.set_title('surface')
     plt.show()
-
-    print(grad)
     norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
     u = grad[:, 0] / norm
     v = grad[:, 1] / norm
-    print(u)
-    print(v)
 
     fig, ax = plt.subplots(1, 1)
     ax.set_aspect(1)
@@ -919,7 +911,7 @@ def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, sca
     plt.show()
 
 
-def test_toy(X_train, t_train, gamma_0, varphi_0, noise_variance_0, scale=1.0):
+def test_toy(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
     """Test toy."""
     # gamma, varphi, noise_variance = EP_training(
     #     X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
@@ -927,10 +919,11 @@ def test_toy(X_train, t_train, gamma_0, varphi_0, noise_variance_0, scale=1.0):
     # print(varphi, varphi_0)
     # print(noise_variance, noise_variance_0)
     # print(gamma_0, varphi_0, noise_variance_0)
-    fx = EP_plotting(X_train, t_train, gamma_0, varphi=varphi_0, noise_variance=noise_variance_0, K=K, scale=scale)
+    fx = EP_plotting(X_train, t_train, gamma_0, varphi=varphi_0, noise_variance=noise_variance_0, K=K, D=D, scale=scale)
     print("fx={}".format(fx))
 
-def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance):
+
+def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance, K):
     grid = np.ogrid[0:len(X_test)]
     sigma = 10e-6
     tau = 10e-6
@@ -940,15 +933,13 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_va
     steps = 50
     y_0 = Y_true.flatten()
     m_0 = y_0
-    gamma, m_tilde, Sigma_tilde, C_tilde, y_tilde, varphi_tilde, bound, containers = variational_classifier.estimate(
+    (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
+     mean_EP, precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
         steps, gamma, varphi, noise_variance, fix_hyperparameters=False, write=True)
+    weights, precision_EP, L, Lambda = variational_classifier.compute_EP_weights(
+        precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
 
-    plt.title("variational lower bound")
-    plt.title(r"Variational lower bound $\scr{F}$", fontsize=16)
-    plt.plot(bound)
-    plt.show()
-
-    if argument in arguments:
+    if dataset in datasets:
         lower_x1 = 0.0
         upper_x1 = 16.0
         lower_x2 = -30
@@ -962,9 +953,8 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_va
         X_new = X_new.reshape((N * N, 2))
 
         # Test
-        Z = variational_classifier.predict(
-            gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test, Lambda, vectorised=True)  # (n_test, K)
-
+        Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda,
+                                           vectorised=True)
         predictive_likelihood = Z[grid, t_test]
         predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
         print("predictive_likelihood ", predictive_likelihood)
@@ -978,8 +968,8 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_va
         mean_zero_one = np.sum(mean_zero_one) / len(t_test)
         print("mean_zero_one ", mean_zero_one)
 
-        Z = variational_classifier.predict(
-            gamma, Sigma_tilde, y_tilde, varphi_tilde, X_new, Lambda, vectorised=True)
+        Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda,
+                                           vectorised=True)
         Z_new = Z.reshape((N, N, K))
         print(np.sum(Z, axis=1), 'sum')
         for i in range(K):
@@ -996,53 +986,41 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_va
             plt.title("Contour plot - Variational")
             plt.show()
 
-# def main():
-#     """Conduct an EP estimation/optimisation."""
-#     parser = argparse.ArgumentParser()
-#     # The --profile argument generates profiling information for the example
-#     parser.add_argument(
-#         "dataset_name", help="run example on a given dataset name")
-#     parser.add_argument('--profile', action='store_const', const=True)
-#     args = parser.parse_args()
-#     write_path = pathlib.Path(__file__).parent.absolute() / args.dataset_name
-#
-#     if args.profile:
-#         profile = cProfile.Profile()
-#         profile.enable()
+
+def main():
+    """Conduct an EP estimation/optimisation."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "dataset_name", help="run example on a given dataset name")
+    parser.add_argument(
+        "bins", help="quantile or decile")
+    parser.add_argument(
+        "--data_from_prior", help="data is from prior?", action='store_const', const=True)
+    # The --profile argument generates profiling information for the example
+    parser.add_argument('--profile', action='store_const', const=True)
+    args = parser.parse_args()
+    dataset = args.dataset_name
+    bins = args.bins
+    data_from_prior = args.data_from_prior
+    write_path = pathlib.Path(__file__).parent.absolute()
+    if dataset in datasets:
+        X_trains, t_trains, X_tests, t_tests, Y_trues = load_data(dataset, bins)
+        outer_loops(X_trains, t_trains, X_tests, t_tests)
+        # EP_training(X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma_0, K, steps=100,
+        #                     scale=1.0)
+        # EP_testing(
+        #     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma, varphi, noise_variance, K, scale=scale)
+    else:
+        X, t, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data_synthetic(dataset, data_from_prior)
+        # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
+        grid_toy(X, t, gamma_0, [-2, 2], [-1, 1], scale=1.0)
+        # test_toy(X, t, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
+
+    if args.profile:
+        profile = cProfile.Profile()
+        profile.enable()
 
 
-# grid_toy(X, t, gamma_0, [-2, 2], [-1, 1], scale=1.0)
+if __name__ == "__main__":
+    main()
 
-# test_toy(X, t, gamma_0, varphi_0, noise_variance_0, scale)
-
-
-# print(X_trains[0])
-# print(X_tests[0])
-# assert 0
-print(gamma_0, varphi_0, noise_variance_0)
-# test_plots(X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
-outer_loops()
-
-
-
-#scale = 1.0
-#scale = 3.79269019e+01
-# EP_training(X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma_0, K, steps=100,
-#                     scale=scale)
-
-
-# gamma = np.array([np.NINF, -0.02051816, 4.22900768, 8.72172009, 10.15449307, np.inf])
-# noise_variance = 3.8466548282762365
-# varphi = 0.0008118442260631808
-
-# gamma = np.array([np.NINF, -0.01662607, 4.07932558, 7.04164376, 8.25634517, np.inf])
-# noise_variance = 2.9791932424310215
-# varphi = 0.000844587880740459
-
-# scale=1.0
-# gamma = np.array([np.NINF, -0.34955714, 0.93657207, 3.79460213, 5.00797433, np.inf])
-# noise_variance = 3.4702749861740054
-# varphi = 0.0008392067708278249
-#
-# EP_testing(
-#     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma, varphi, noise_variance, K, scale=scale)
