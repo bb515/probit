@@ -46,8 +46,7 @@ setup(
     author="Ben Boys",
     license="MIT",
     packages=find_packages(exclude=['*.test']),
-    # package_dir={'mypkg': 'src/mypkg'},
-    package_data={'probit': data_list},
+    package_data={'': data_list},
     include_package_data=True,
     install_requires=[
         'numpy',

@@ -15,7 +15,6 @@ import pathlib
 from scipy.optimize import minimize
 from probit.utilities import generate_prior_data, generate_synthetic_data
 import importlib.resources as pkg_resources
-import data
 
 write_path = pathlib.Path()
 
@@ -39,111 +38,153 @@ arguments = [
     "wpbc"
 ]
 # argument = "tertile"
-generate_new_data = True
+data_from_prior = True
 # argument = "diabetes"
 argument = "stocks"
 bins = "quantile"
 
 if argument == "abalone":
+    from probit.data import abalone
+    with pkg_resources.path(abalone, 'abalone.npz') as path:
+        data_continuous = np.load(path)
     D = 10
     varphi_0 = 2.0/D
     noise_variance_0 = 1.0
-    data_continuous = np.load("./data/continuous/abalone.npz")
     if bins == "quantile":
+        from probit.data.abalone import quantile
+        with pkg_resources.path(quantile, 'abalone.npz') as path:
+            data = np.load(path)
         K = 5
-        data = np.load(write_path / "./data/5bin/abalone.npz")
     elif bins == "decile":
+        from probit.data.abalone import decile
+        with pkg_resources.path(decile, 'abalone.npz') as path:
+            data = np.load(path)
         K = 10
-        data = np.load(write_path / "./data/10bin/abalone.npz")
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "auto":
+    from probit.data import auto
+    with pkg_resources.path(auto, 'auto.npz') as path:
+        data_continuous = np.load(path)
     D = 7
     varphi_0 = 2.0/D
     noise_variance_0 = 2.0
-    data_continuous = np.load(write_path / "./data/continuous/auto.DATA.npz")
     if bins == "quantile":
         K = 5
-        data = np.load(write_path / "./data/5bin/auto.data.npz")
+        from probit.data.auto import quantile
+        with pkg_resources.path(quantile, 'auto.npz') as path:
+            data = np.load(path)
     elif bins == "decile":
         K = 10
-        data = np.load(write_path / "./data/10bin/auto.data.npz")
+        from probit.data.auto import decile
+        with pkg_resources.path(decile, 'auto.npz') as path:
+            data = np.load(path)
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "diabetes":
     D = 2
     varphi_0 = 6.7e-06
     noise_variance_0 = 1.0
-    data_continuous = np.load("./data/continuous/diabetes.DATA.npz")
+    from probit.data import diabetes
+    with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
+        data_continuous = np.load(path)
     if bins == "quantile":
         K = 5
-        data = np.load(write_path / "./data/5bin/diabetes.data.npz")
+        from probit.data.diabetes import quantile
+        with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
+            data = np.load(path)
     elif bins == "decile":
+        from probit.data.diabetes import decile
+        with pkg_resources.path(decile, 'diabetes.data.npz') as path:
+            data = np.load(path)
         K = 10
-        data = np.load(write_path / "./data/10bin/diabetes.data.npz")
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "housing":
     D = 13
     varphi_0 = 2.0/D
     noise_variance_0 = 2.0
-    data_continuous = np.load(write_path / "./data/continuous/housing.npz")
+    from probit.data import bostonhousing
+    with pkg_resources.path(bostonhousing, 'housing.npz') as path:
+        data_continuous = np.load(path)
     if bins == "quantile":
         K = 5
-        data = np.load(write_path / "./data/5bin/housing.npz")
+        from probit.data.bostonhousing import quantile
+        with pkg_resources.path(quantile, 'housing.npz') as path:
+            data = np.load(path)
     elif bins == "decile":
         K = 10
-        data = np.load(write_path / "./data/10bin/housing.npz")
+        from probit.data.bostonhousing import decile
+        with pkg_resources.path(decile, 'housing.npz') as path:
+            data = np.load(path)
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "machine":
     D = 6
     varphi_0 = 2.0 / D
     noise_variance_0 = 2.0
-    data_continuous = np.load(write_path / "./data/continuous/machine.npz")
+    from probit.data import machinecpu
+    with pkg_resources.path(machinecpu, 'machine.npz') as path:
+        data_continuous = np.load(path)
     if bins == "quantile":
+        from probit.data.machinecpu import quantile
+        with pkg_resources.path(quantile, 'machine.npz') as path:
+            data = np.load(path)
         K = 5
-        data = np.load(write_path / "./data/machine.npz")
     elif bins == "decile":
+        from probit.data.machinecpu import decile
+        with pkg_resources.path(decile, 'machine.npz') as path:
+            data = np.load(path)
         K = 10
-        data = np.load(write_path / "./data/machine.npz")
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "pyrim":
+    from probit.data import pyrimidines
+    with pkg_resources.path(pyrimidines, 'pyrim.npz') as path:
+        data_continuous = np.load(path)
     D = 27
     varphi_0 = 2.0/D
     noise_variance_0 = 2.0
-    data_continuous = np.load(write_path / "./data/continuous/pyrim.npz")
     if bins == "quantile":
+        from probit.data.pyrimidines import quantile
+        with pkg_resources.path(quantile, 'pyrim.npz') as path:
+            data = np.load(path)
         K = 5
-        data = np.load(write_path / "./data/5bin/pyrim.npz")
     elif bins == "decile":
+        from probit.data.pyrimidines import decile
+        with pkg_resources.path(decile, 'pyrim.npz') as path:
+            data = np.load(path)
         K = 10
-        data = np.load(write_path / "./data/10bin/pyrim.npz")
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "stocks":
-    with pkg_resources.path(data.stocksdomain, 'stock.npz') as path:
+    from probit.data import stocksdomain
+    with pkg_resources.path(stocksdomain, 'stock.npz') as path:
         data_continuous = np.load(path)
-    with pkg_resources.path(data, 'stocksdomain/5bins/stock.npz') as path:
-        data = np.load(path)
     K = 5
     D = 9
     noise_variance_0 = 0.01  # 2.0  0.03
     varphi_0 = 0.00045  # 0.0001  # varphi_0 = 0.00045
-    #data_continuous = np.load(write_path / "../data/continuous/stock.npz")
-    assert 0
     if bins == "quantile":
+        from probit.data.stocksdomain import quantile
+        with pkg_resources.path(quantile, 'stock.npz') as path:
+            data = np.load(path)
         K = 5
-        data = np.load("./data/5bin/stock.npz")
     elif bins == "decile":
+        from probit.data.stocksdomain import decile
+        with pkg_resources.path(decile, 'stock.npz') as path:
+            data = np.load(path)
         K = 10
-        data = np.load("./data/10bin/stock.npz")
+        #data = np.load("./data/10bin/stock.npz")
     gamma_0 = [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf]
     # gamma_0 = np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf])
     # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "triazines":
+    from probit.data import triazines
+    with pkg_resources.path(triazines, 'triazines.npz') as path:
+        data_continuous = np.load(path)
     D = 60
     varphi_0 = 2.0/D
     noise_variance_0 = 2.0
-    data_continuous = np.load(write_path / "./data/continuous/triazines.npz")
     if bins == "quantile":
+        from probit.data.triazines import quantile
+        with pkg_resources.path(quantile, 'triazines.npz') as path:
+            data = np.load(path)
         K = 5
-        data = np.load(write_path / "./data/5bin/triazines.npz")
     elif bins == "decile":
         K = 10
         data = np.load(write_path / "./data/10bin/triazines.npz")
@@ -152,15 +193,23 @@ elif argument == "wpbc":
     D = 32
     varphi_0 = 2.0/D
     noise_variance_0 = 2.0
+    from probit.data import wisconsin
+    with pkg_resources.path(wisconsin, 'wpbc.npz') as path:
+        data_continuous = np.load(path)
     data_continuous = np.load(write_path / "./data/continuous/wpbc.npz")
     if bins == "quantile":
+        from probit.data.wisconsin import quantile
+        with pkg_resources.path(quantile, 'wpbc.npz') as path:
+            data = np.load(path)
         K = 5
-        data = np.load(write_path / "./data/5bin/wpbc.npz")
     elif bins == "decile":
+        from probit.data.wisconsin import decile
+        with pkg_resources.path(decile, 'wpbc.npz') as path:
+            data = np.load(path)
         K = 10
-        data = np.load(write_path / "./data/10bin/wpbc.npz")
     gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 elif argument == "tertile":
+    from probit.data import tertile
     K = 3
     D = 1
     N_per_class = 30  # 64
@@ -169,12 +218,13 @@ elif argument == "tertile":
     noise_variance_0 = 0.11103503642649291  # 1.0 #  0.07548142258576254  #0.1
     kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
     # gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
-    if generate_new_data == True:
+    if data_from_prior == True:
+        with pkg_resources.path(tertile, 'tertile_prior.npz') as path:
+            data = np.load(path)
         # Generate the synethetic data
         # X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
         #     N_per_class, K, D, kernel, noise_variance=noise_variance_0)
         # np.savez(write_path / "data_tertile_prior.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
-        data = np.load(write_path / "data_tertile_prior.npz")
         X_k = data["X_k"]  # Contains (90,) array of binned x values
         # Y_true_k = data["Y_k"]  # Contains (90,) array of binned y values
         X = data["X"]  # Contains (90,) array of x values
@@ -184,7 +234,8 @@ elif argument == "tertile":
         gamma = [-np.inf, - 0.43160987, 0.2652492, np.inf]
         # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     else:
-        data = np.load("data_tertile.npz")
+        with pkg_resources.path(tertile, 'tertile.npz') as path:
+            data = np.load(path)
         X_k = data["X_k"]  # Contains (256, 7) array of binned x values
         # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
         X = data["X"]  # Contains (1792,) array of x values
@@ -192,6 +243,9 @@ elif argument == "tertile":
         Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
         N_total = int(N_per_class * K)
 elif argument == "septile":
+    from probit.data import septile
+    with pkg_resources.path(septile, 'septile.npz') as path:
+        data = np.load(path)
     K = 7
     D = 1
     N_per_class = 32
@@ -201,7 +255,6 @@ elif argument == "septile":
     # Generate the synethetic data
     #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
     #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
-    data = np.load("data_septile.npz")
     gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
     X_k = data["X_k"]  # Contains (256, 7) array of binned x values
     # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
@@ -214,7 +267,6 @@ elif argument == "septile":
 Lambda = None
 
 if argument in arguments:
-
     X_trains = data["X_train"]
     t_trains = data["t_train"]
     X_tests = data["X_test"]
@@ -229,16 +281,6 @@ if argument in arguments:
     # Number of splits
     N_splits = len(X_trains)
     assert len(X_trains) == len(X_tests)
-
-    # X = data["X"]
-    # t = data["t"]
-    # N_total = len(X)
-    # # Since python indexes from 0
-    # t = t - 1
-    # print(len(X), len(t))
-    # X_test = data_test["X"]
-    # t_test = data_test["t"]
-    # t_test = t_test - 1
 
     X_true = data_continuous["X"]
     Y_true = data_continuous["y"]  # this is not going to be the correct one
@@ -329,7 +371,6 @@ def EP_plotting(
             plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
             plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
             # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
-
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.title("Contour plot - Expectation propagation")
