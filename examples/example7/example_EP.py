@@ -88,9 +88,10 @@ def load_data(dataset, bins):
             with pkg_resources.path(decile, 'auto.npz') as path:
                 data = np.load(path)
         gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-    elif dataset == "diabetes":
+    elif dataset == "diabetes":  # lower bound best = 57.86
         D = 2
-        varphi_0 = 6.7e-06
+        varphi_0 = 7.0e-06
+        # noise_variance_0 = 0.137  # 1.0
         noise_variance_0 = 1.0
         from probit.data import diabetes
         with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
@@ -105,6 +106,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(decile, 'diabetes.data.npz') as path:
                 data = np.load(path)
             K = 10
+        # gamma_0 = np.array([-np.inf, -0.92761785, -0.71569034, -0.23952063, 0.05546283, np.inf])
         gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     elif dataset == "housing":
         D = 13
@@ -472,7 +474,7 @@ def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, 
 
 
 def EP_testing(
-        X_train, t_train, X_test, t_test, gamma, varphi, noise_variance,
+        dataset, X_train, t_train, X_test, t_test, gamma, varphi, noise_variance,
         K, D, scale=1.0, sigma=10e-6, tau=10e-6):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
@@ -505,7 +507,7 @@ def EP_testing(
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
-    (x_lims, y_lims) = plot_lims["dataset"]
+    (x_lims, y_lims) = plot_lims[dataset]
 
     N = 75
     x1 = np.linspace(x_lims[0], x_lims[1], N)
@@ -605,7 +607,7 @@ def EP_training_varphi(X_train, t_train, varphi_0=1e-3, scale=1.0, sigma=10e-6, 
     return gamma, varphi, noise_variance
 
 
-def test(X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
+def test(dataset, X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
@@ -615,7 +617,7 @@ def test(X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0, noise_v
         X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
 
     fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
-        X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, D, scale=scale)
+        dataset, X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, D, scale=scale)
 
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
 
@@ -643,7 +645,7 @@ def test_varphi(X_trains, t_trains, X_tests, t_tests, K, scale=1.0):
     assert 0
 
 
-def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D):
+def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D):
     bounds = []
     zero_ones = []
     predictive_likelihoods = []
@@ -653,7 +655,7 @@ def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_v
     gammas = []
     for split in range(20):
         gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx = test(
-            X_trains, t_trains, X_tests, t_tests, split,
+            dataset, X_trains, t_trains, X_tests, t_tests, split,
             gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, K=K, D=D, scale = 1.0)
         bounds.append(fx)
         zero_ones.append(zero_one)
@@ -1044,7 +1046,7 @@ def main():
     if dataset in datasets:
         X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(
             dataset, bins)
-        outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D)
+        outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D)
         # gamma, varphi, noise_variance = EP_training(
         #     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma_0, varphi_0, noise_variance_0, K)
         # EP_testing(
