@@ -88,16 +88,36 @@ def load_data(dataset, bins):
             with pkg_resources.path(decile, 'auto.npz') as path:
                 data = np.load(path)
         gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-    elif dataset == "diabetes":  # lower bound best = 57.86
+    elif dataset == "diabetes":  # lower bound best = 57.86 57.66 57.47
         D = 2
-        varphi_0 = 7.0e-06
-        # noise_variance_0 = 0.137  # 1.0
-        noise_variance_0 = 1.0
         from probit.data import diabetes
         with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
             data_continuous = np.load(path)
         if bins == "quantile":
             K = 5
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    1.0 / D,
+                    1.0
+                ),
+                "57.86": (
+                    np.array([-np.inf, -0.92761785, -0.71569034, -0.23952063, 0.05546283, np.inf]),
+                    7.0e-06,
+                    0.137
+                ),
+                "57.66": (
+                    [-np.inf, -0.96965513, -0.59439608, 0.10485131, 0.55336265, np.inf],
+                    7.05301883339537e-06,
+                    0.33582851890990895
+                ),
+                "56.47": (
+                    [-np.inf, -0.47585805, -0.41276548, -0.25253468, -0.15562599, np.inf],
+                    1.1701782815822784e-05,
+                    0.009451605099929043
+                ),
+            }
+            (gamma_0, varphi_0, noise_variance_0) = hyperparameters["56.47"]
             from probit.data.diabetes import quantile
             with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
                 data = np.load(path)
@@ -106,8 +126,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(decile, 'diabetes.data.npz') as path:
                 data = np.load(path)
             K = 10
-        # gamma_0 = np.array([-np.inf, -0.92761785, -0.71569034, -0.23952063, 0.05546283, np.inf])
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+        #
     elif dataset == "housing":
         D = 13
         varphi_0 = 2.0/D
@@ -568,8 +587,9 @@ def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options={
-        'maxiter':10})
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True)
+    # options = {
+    #     'maxfunc': 10}
     theta = res.x
     noise_variance = np.exp(theta[0])
     gamma = np.empty((K + 1,))  # including all of the cutpoints
