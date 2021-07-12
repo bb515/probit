@@ -57,19 +57,34 @@ def load_data(dataset, bins):
         with pkg_resources.path(abalone, 'abalone.npz') as path:
             data_continuous = np.load(path)
         D = 10
-        varphi_0 = 2.0/D
-        noise_variance_0 = 1.0
         if bins == "quantile":
+            K = 5
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.abalone import quantile
             with pkg_resources.path(quantile, 'abalone.npz') as path:
                 data = np.load(path)
-            K = 5
         elif bins == "decile":
             from probit.data.abalone import decile
+            K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             with pkg_resources.path(decile, 'abalone.npz') as path:
                 data = np.load(path)
-            K = 10
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     elif dataset == "auto":
         from probit.data import auto
         with pkg_resources.path(auto, 'auto.npz') as path:
@@ -79,11 +94,29 @@ def load_data(dataset, bins):
         noise_variance_0 = 2.0
         if bins == "quantile":
             K = 5
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.auto import quantile
             with pkg_resources.path(quantile, 'auto.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
             K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.auto import decile
             with pkg_resources.path(decile, 'auto.npz') as path:
                 data = np.load(path)
@@ -98,7 +131,7 @@ def load_data(dataset, bins):
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    1.0 / D,
+                    0.5 / D,
                     1.0
                 ),
                 "57.86": (
@@ -116,17 +149,31 @@ def load_data(dataset, bins):
                     1.1701782815822784e-05,
                     0.009451605099929043
                 ),
+                "53.07": (
+                    [-np.inf, -0.39296099, -0.34374783, -0.26326698, -0.20514771, np.inf],
+                    1.8099468519640467e-05,
+                    0.00813540519298387
+                ),
             }
-            (gamma_0, varphi_0, noise_variance_0) = hyperparameters["56.47"]
+            (gamma_0, varphi_0, noise_variance_0) = hyperparameters["57.86"]
             from probit.data.diabetes import quantile
             with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
+            K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.diabetes import decile
             with pkg_resources.path(decile, 'diabetes.data.npz') as path:
                 data = np.load(path)
-            K = 10
-        #
     elif dataset == "housing":
         D = 13
         varphi_0 = 2.0/D
@@ -136,15 +183,32 @@ def load_data(dataset, bins):
             data_continuous = np.load(path)
         if bins == "quantile":
             K = 5
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.bostonhousing import quantile
             with pkg_resources.path(quantile, 'housing.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
             K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.bostonhousing import decile
             with pkg_resources.path(decile, 'housing.npz') as path:
                 data = np.load(path)
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     elif dataset == "machine":
         D = 6
         varphi_0 = 2.0 / D
@@ -153,16 +217,33 @@ def load_data(dataset, bins):
         with pkg_resources.path(machinecpu, 'machine.npz') as path:
             data_continuous = np.load(path)
         if bins == "quantile":
+            K = 5
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.machinecpu import quantile
             with pkg_resources.path(quantile, 'machine.npz') as path:
                 data = np.load(path)
-            K = 5
         elif bins == "decile":
+            K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.machinecpu import decile
             with pkg_resources.path(decile, 'machine.npz') as path:
                 data = np.load(path)
-            K = 10
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     elif dataset == "pyrim":
         from probit.data import pyrimidines
         with pkg_resources.path(pyrimidines, 'pyrim.npz') as path:
@@ -171,38 +252,76 @@ def load_data(dataset, bins):
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
         if bins == "quantile":
+            K = 5
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.pyrimidines import quantile
             with pkg_resources.path(quantile, 'pyrim.npz') as path:
                 data = np.load(path)
-            K = 5
         elif bins == "decile":
+            K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.pyrimidines import decile
             with pkg_resources.path(decile, 'pyrim.npz') as path:
                 data = np.load(path)
-            K = 10
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     elif dataset == "stocks":
         from probit.data import stocksdomain
         with pkg_resources.path(stocksdomain, 'stock.npz') as path:
             data_continuous = np.load(path)
-        K = 5
         D = 9
-        noise_variance_0 = 0.01  # 2.0  0.03
-        varphi_0 = 0.00045  # 0.0001  # varphi_0 = 0.00045
         if bins == "quantile":
+            K = 5
+            hyperparameters = {
+                "NA1": (
+                    np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf]),
+                    0.03,
+                    0.0001
+                ),
+                "NA0" : (
+                    [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf],
+                    0.00045,
+                    0.01
+                ),
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.stocksdomain import quantile
             with pkg_resources.path(quantile, 'stock.npz') as path:
                 data = np.load(path)
-            K = 5
         elif bins == "decile":
+            K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.stocksdomain import decile
             with pkg_resources.path(decile, 'stock.npz') as path:
                 data = np.load(path)
-            K = 10
-            #data = np.load("./data/10bin/stock.npz")
-        gamma_0 = [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf]
-        # gamma_0 = np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf])
-        # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     elif dataset == "triazines":
         from probit.data import triazines
         with pkg_resources.path(triazines, 'triazines.npz') as path:
@@ -211,14 +330,31 @@ def load_data(dataset, bins):
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
         if bins == "quantile":
+            K = 5
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.triazines import quantile
             with pkg_resources.path(quantile, 'triazines.npz') as path:
                 data = np.load(path)
-            K = 5
         elif bins == "decile":
             K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             data = np.load(write_path / "./data/10bin/triazines.npz")
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     elif dataset == "wpbc":
         D = 32
         varphi_0 = 2.0/D
@@ -228,16 +364,34 @@ def load_data(dataset, bins):
             data_continuous = np.load(path)
         data_continuous = np.load(write_path / "./data/continuous/wpbc.npz")
         if bins == "quantile":
+            K = 5
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.wisconsin import quantile
             with pkg_resources.path(quantile, 'wpbc.npz') as path:
                 data = np.load(path)
-            K = 5
         elif bins == "decile":
+            K = 10
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.wisconsin import decile
             with pkg_resources.path(decile, 'wpbc.npz') as path:
                 data = np.load(path)
             K = 10
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
 
     X_trains = data["X_train"]
     t_trains = data["t_train"]
@@ -333,7 +487,8 @@ def load_data_synthetic(dataset, data_from_prior):
     # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
     # plt.xlabel(r"$x$", fontsize=16)
     # plt.ylabel(r"$y$", fontsize=16)
-    # plt.show()
+    # plt.show() 
+    # plt.close()
 
     # # Plot from the binned arrays
     # for k in range(K):
@@ -343,6 +498,7 @@ def load_data_synthetic(dataset, data_from_prior):
     # plt.xlabel(r"$x$", fontsize=16)
     # plt.ylabel(r"$y$", fontsize=16)
     # plt.show()
+    # plt.close()
     return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
 
 
@@ -368,6 +524,7 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
         plt.scatter(X_true, Y_true)  # TODO: I changed X_train to X_true, correct?
         plt.ylim(-3, 3)
         plt.show()
+        plt.close() 
         print("iteration {}, error={}".format(iteration, error / steps))
     weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
@@ -398,7 +555,8 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
         plt.ylabel(r"$x_2$", fontsize=16)
         plt.title("Contour plot - Expectation propagation")
         plt.savefig("contour_EP_{}.png".format(i))
-        plt.show()
+        plt.show() 
+        plt.close()
 
 
 def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, K, D,
@@ -424,7 +582,8 @@ def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, 
         plt.scatter(X, posterior_mean)
         plt.scatter(X, Y_true)
         plt.ylim(-3, 3)
-        plt.show()
+        plt.show() 
+        plt.close()
         print("iteration {}, error={}".format(iteration, error / steps))
     weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
@@ -460,7 +619,8 @@ def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, 
         plt.scatter(X[np.where(t == 2)], np.zeros_like(X[np.where(t == 2)]) + val, facecolors=colors[2],
                     edgecolors='white')
         plt.savefig("cumulative_stackplot.png")
-        plt.show()
+        plt.show() 
+        plt.close()
 
     elif dataset == "septile":
         x_lims = (-0.5, 1.5)
@@ -488,7 +648,8 @@ def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, 
         for i in range(7):
             plt.scatter(
                 X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
-        plt.show()
+        plt.show() 
+        plt.close()
     return fx
 
 
@@ -540,10 +701,9 @@ def EP_testing(
     t_star = np.argmax(Z, axis=1)
     print(t_star)
     print(t_test)
-    zero_one = (t_star == t_test)
+    zero_one = (t_star != t_test)
     mean_zero_one = zero_one * 1.
     mean_zero_one = np.sum(mean_zero_one) / len(t_test)
-    mean_zero_one = 1. - mean_zero_one
     print("mean_zero_one_error", mean_zero_one)
     # Other error
     mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
@@ -559,14 +719,14 @@ def EP_testing(
         plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
         plt.scatter(X_test[np.where(t_test == i)][:, 0], X_test[np.where(t_test == i)][:, 1], color='blue')
         # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
-
         # plt.xlim(0, 2)
         # plt.ylim(0, 2)
         plt.xlabel(r"$x_1$", fontsize=16)
         plt.ylabel(r"$x_2$", fontsize=16)
         plt.title("Contour plot - Expectation propagation")
         plt.savefig("contour_EP_{}.png".format(i))
-        plt.show()
+        plt.show() 
+        plt.close()
     return fx, zero_one, predictive_likelihood, mean_absolute_error
 
 
@@ -632,13 +792,13 @@ def test(dataset, X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
-
-    gamma, varphi, noise_variance = EP_training(
-        X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
-
+    gamma = gamma_0
+    varphi = varphi_0
+    noise_variance = noise_variance_0
+    # gamma, varphi, noise_variance = EP_training(
+    #     X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
     fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
         dataset, X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, D, scale=scale)
-
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
 
 
@@ -648,13 +808,10 @@ def test_varphi(X_trains, t_trains, X_tests, t_tests, K, scale=1.0):
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
-
     gamma, varphi, noise_variance = EP_training_varphi(
         X_train, t_train, scale=scale)
-
     bound, zero_one, predictive_likelihood, mean_abs = EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
-
     print("gamma", gamma)
     print("noise_variance", noise_variance)
     print("varphi", varphi)
@@ -676,7 +833,7 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0
     for split in range(20):
         gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx = test(
             dataset, X_trains, t_trains, X_tests, t_tests, split,
-            gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, K=K, D=D, scale = 1.0)
+            gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, K=K, D=D, scale=1.0)
         bounds.append(fx)
         zero_ones.append(zero_one)
         predictive_likelihoods.append(predictive_likelihood)
@@ -708,8 +865,8 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0
     std_varphi = np.std(varphis)
     avg_noise_variances = np.average(noise_variances)
     std_noise_variances = np.std(noise_variances)
-    avg_gammas = np.average(gammas, axis=1)
-    std_gammas = np.std(gammas, axis=1)
+    avg_gammas = np.average(gammas, axis=0)
+    std_gammas = np.std(gammas, axis=0)
     print(avg_varphi, std_varphi, "varphi, std")
     print(avg_noise_variances, std_noise_variances, "noise_variances, std")
     print(avg_gammas, std_gammas, "gammas, std")
@@ -726,14 +883,12 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     max_zero_ones = []
     max_predictive_likelihoods = []
     max_mean_abss = []
-
     for split in range(20):
         X_train = X_trains[split, :, :]
         t_train = t_trains[split, :]
         X_test = X_tests[split, :, :]
         t_test = t_tests[split, :]
         # Y_true = Y_trues[split, :]
-
         lower_x1 = -10
         lower_x2 = -1
         upper_x1 = 0
@@ -747,13 +902,11 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # Outer loop
         sigma = 10e-6
         tau = 10e-6
-
         bounds_Z = []
         zero_one_Z = []
         mean_abs_Z = []
         predictive_likelihood_Z = []
         tick = False
-
         for x_new in X_new:
             print(x_new)
             kernel = SEIso(x_new[0], x_new[1], sigma=sigma, tau=tau)
@@ -766,21 +919,18 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
                 m_0, gamma_0, steps, varphi_0=x_new[0], fix_hyperparameters=True, write=False)
             bounds_Z.append(bound)
             # ms, ys, varphis, psis, bounds = containers
-
             # Test
             Z = variational_classifier.predict(gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test,
                                                vectorised=True)  # (n_test, K)
             predictive_likelihood = Z[grid, t_test]
             predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
             predictive_likelihood_Z.append(predictive_likelihood)
-
             # Mean zero-one error
             t_star = np.argmax(Z, axis=1)
             zero_one = (t_star == t_test)
             mean_zero_one = zero_one * 1
             mean_zero_one = np.sum(mean_zero_one) / len(t_test)
             zero_one_Z.append(mean_zero_one)
-
             # Other error
             mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
             mean_abs_Z.append(mean_absolute_error)
@@ -788,13 +938,10 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         avg_zero_one_Z.append(zero_one_Z)
         avg_predictive_likelihood_Z.append(predictive_likelihood_Z)
         avg_mean_abs_Z.append(mean_abs_Z)
-
         bounds_Z = np.array(bounds_Z)
         predictive_likelihood_Z = np.array(predictive_likelihood_Z)
         zero_one_Z = np.array(zero_one_Z)
         mean_abs_Z = np.array(mean_abs_Z)
-
-
         max_bound = np.max(bounds_Z)
         max_predictive_likelihood = np.max(predictive_likelihood_Z)
         max_zero_one = np.max(zero_one_Z)
@@ -806,11 +953,9 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         argmax_bound = np.argmax(bounds_Z)
         argmax_predictive_likelihood = np.argmax(predictive_likelihood_Z)
         argmax_zero_one = np.argmax(zero_one_Z)
-
         bounds_Z = bounds_Z.reshape((N, N))
         predictive_likelihood_Z = predictive_likelihood_Z.reshape((N, N))
         zero_one_Z = zero_one_Z.reshape((N, N))
-
         # fig, axs = plt.subplots(1, figsize=(6, 6))
         # plt.contourf(x1, x2, predictive_likelihood_Z)
         # plt.scatter(X_new[argmax_predictive_likelihood, 0], X_new[argmax_predictive_likelihood, 1], c='r')
@@ -820,8 +965,8 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # plt.ylabel(r"$\log{s}$", fontsize=16)
         # plt.title("Contour plot - Predictive likelihood of test set")
         # plt.savefig("contour_predictive_likelihood.png")
-        # plt.show()
-
+        # plt.show() 
+        # plt.close()
         # fig, axs = plt.subplots(1, figsize=(6, 6))
         # plt.contourf(x1, x2, bounds_Z)
         # plt.scatter(X_new[argmax_bound, 0], X_new[argmax_bound, 0], c='r')
@@ -831,8 +976,8 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # plt.ylabel(r"$\log{s}$", fontsize=16)
         # plt.title("Contour plot - Variational lower bound")
         # plt.savefig("variational_bound.png")
-        # plt.show()
-        #
+        # plt.show() 
+        # plt.close()
         # fig, axs = plt.subplots(1, figsize=(6, 6))
         # plt.contourf(x1, x2, zero_one_Z)
         # plt.scatter(X_new[argmax_zero_one, 0], X_new[argmax_zero_one, 0], c='r')
@@ -842,8 +987,8 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # plt.ylabel(r"$\log{s}$", fontsize=16)
         # plt.title("Contour plot - mean zero-one accuracy")
         # plt.savefig("mean_zero_one.png")
-        # plt.show()
-
+        # plt.show() 
+        # plt.close()
     avg_max_bound = np.average(np.array(max_bounds))
     std_max_bound = np.std(np.array(max_bounds))
     avg_max_predictive_likelihood = np.average(np.array(max_predictive_likelihoods))
@@ -856,7 +1001,6 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     print(avg_max_predictive_likelihood, std_max_predictive_likelihood, "average max predictive likelihood, std")
     print(avg_max_zero_one, std_max_zero_one, "average max zero one, std")
     print(avg_max_mean_abs, std_max_mean_abs, "average max mean abs, std")
-
     avg_bounds_Z = np.array(avg_bounds_Z)
     avg_predictive_likelihood_Z = np.array(avg_predictive_likelihood_Z)
     avg_zero_one_Z = np.array(avg_zero_one_Z)
@@ -865,17 +1009,14 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     avg_predictive_likelihood_Z = np.average(avg_predictive_likelihood_Z, axis=0)
     avg_zero_one_Z = np.average(avg_zero_one_Z, axis=0)
     avg_mean_abs_Z = np.average(avg_mean_abs_Z, axis=0)
-
     std_max_bound = np.std(np.array(avg_bounds_Z))
     std_max_predictive_likelihood = np.std(np.array(avg_predictive_likelihood_Z))
     std_max_zero_one = np.std(np.array(avg_zero_one_Z))
     std_max_mean_abs = np.std(np.array(avg_mean_abs_Z))
-
     argmax_bound = np.argmax(avg_bounds_Z)
     argmax_predictive_likelihood = np.argmax(avg_predictive_likelihood_Z)
     argmax_zero_one = np.argmax(avg_zero_one_Z)
     argmax_mean_abs = np.argmax(avg_mean_abs_Z)
-
     max_bound = np.max(avg_bounds_Z)
     max_predictive_likelihood = np.max(avg_predictive_likelihood_Z)
     max_zero_one = np.max(avg_zero_one_Z)
@@ -884,7 +1025,6 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     print(max_predictive_likelihood, std_max_predictive_likelihood, "Max avg predictive likelihood, std", X_new[argmax_predictive_likelihood], "parameters")
     print(max_zero_one, std_max_zero_one, "Max avg zero one, std", X_new[argmax_zero_one], "parameters")
     print(max_mean_abs, std_max_mean_abs, "Max avg mean abs, std", X_new[argmax_mean_abs], "parameters")
-
     avg_bounds_Z = avg_bounds_Z.reshape((N, N))
     avg_predictive_likelihood_Z = avg_predictive_likelihood_Z.reshape((N, N))
     avg_zero_one_Z = avg_zero_one_Z.reshape((N, N))
@@ -898,8 +1038,8 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.ylabel(r"$\log{s}$", fontsize=16)
     plt.title("Contour plot - Predictive likelihood of test set")
     plt.savefig("predictive_likelihood.png")
-    plt.show()
-
+    plt.show() 
+    plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_bounds_Z)
     plt.scatter(X_new[argmax_bound, 0], X_new[argmax_bound, 0], c='r')
@@ -909,8 +1049,8 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.ylabel(r"$\log{s}$", fontsize=16)
     plt.title("Contour plot - Variational lower bound")
     plt.savefig("variational_bound.png")
-    plt.show()
-
+    plt.show() 
+    plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_zero_one_Z)
     plt.scatter(X_new[argmax_zero_one, 0], X_new[argmax_zero_one, 0], c='r')
@@ -920,8 +1060,8 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.ylabel(r"$\log{s}$", fontsize=16)
     plt.title("Contour plot - mean zero-one accuracy")
     plt.savefig("mean_zero_one.png")
-    plt.show()
-
+    plt.show() 
+    plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_mean_abs_Z)
     plt.scatter(X_new[argmax_zero_one, 0], X_new[argmax_zero_one, 0], c='r')
@@ -931,7 +1071,8 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.ylabel(r"$\log{s}$", fontsize=16)
     plt.title("Contour plot - mean absolute error accuracy")
     plt.savefig("mean_absolute.png")
-    plt.show()
+    plt.show() 
+    plt.close()
 
 def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, scale=1.0):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
@@ -949,17 +1090,16 @@ def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, sca
     ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
                     cmap='viridis', edgecolor='none')
     ax.set_title('surface')
-    plt.show()
+    plt.show() 
+    plt.close()
     norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
     u = grad[:, 0] / norm
     v = grad[:, 1] / norm
-
     fig, ax = plt.subplots(1, 1)
     ax.set_aspect(1)
     ax.contourf(x, y, np.log(Z), 100, cmap='viridis', zorder=1)
     ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
     ax.plot(0.1, 30, 'm')
-
     plt.xscale("log")
     plt.yscale("log")
     # plt.xlim(0, 2)
@@ -968,7 +1108,8 @@ def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, sca
     plt.ylabel(r"$\varphi$", fontsize=16)
     plt.title("Contour plot - EP lower bound on the log likelihood")
     plt.savefig("contour_bound.png")
-    plt.show()
+    plt.show() 
+    plt.close()
 
 
 def test_toy(dataset, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
@@ -1044,7 +1185,8 @@ def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi,
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.title("Contour plot - Variational")
-            plt.show()
+            plt.show() 
+            plt.close()
 
 
 def main():
