@@ -39,6 +39,18 @@ datasets = [
 ]
 
 
+plot_lims = {
+    "abalone": ((15.0, 65.0), (15.0, 70.0)),
+    "auto": ((15.0, 65.0), (15.0, 70.0)),
+    "diabetes": ((15.0, 65.0), (15.0, 70.0)),
+    "housing": ((15.0, 65.0), (15.0, 70.0)),
+    "machine": ((15.0, 65.0), (15.0, 70.0)),
+    "pyrim": ((15.0, 65.0), (15.0, 70.0)),
+    "stocks": ((15.0, 65.0), (15.0, 70.0)),
+    "triazines": ((15.0, 65.0), (15.0, 70.0)),
+    "wpbc": ((15.0, 65.0), (15.0, 70.0)),
+}
+
 def load_data(dataset, bins):
     if dataset == "abalone":
         from probit.data import abalone
@@ -234,8 +246,7 @@ def load_data(dataset, bins):
     #                 y.append(Y_true[j])
     #     Y_trues.append(y)
     # Y_trues = np.array(Y_trues)
-
-    return X_trains, t_trains, X_tests, t_tests, Y_true
+    return X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
 
 
 def load_data_synthetic(dataset, data_from_prior):
@@ -292,6 +303,7 @@ def load_data_synthetic(dataset, data_from_prior):
         X = data["X"]  # Contains (1792,) array of x values
         t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
         Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+        X_true = None  # TODO
         N_total = int(N_per_class * K)
 
     # # Plot
@@ -310,15 +322,70 @@ def load_data_synthetic(dataset, data_from_prior):
     # plt.xlabel(r"$x$", fontsize=16)
     # plt.ylabel(r"$y$", fontsize=16)
     # plt.show()
-    return X, t, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
+    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
 
 
-def EP_plotting(dataset, X_train, t_train, Y_true, gamma, varphi, noise_variance, K, D,
+def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_variance, K, D, scale):
+    kernel = SEIso(varphi, scale, sigma=10e-6, tau=10e-6)
+    # Initiate classifier
+    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    steps = variational_classifier.N
+    error = np.inf
+    iteration = 0
+    posterior_mean = None
+    Sigma = None
+    mean_EP = None
+    precision_EP = None
+    amplitude_EP = None
+    while error / steps > variational_classifier.EPS ** 2:
+        iteration += 1
+        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
+         precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
+            steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
+        plt.scatter(X_train, posterior_mean)
+        plt.scatter(X_true, Y_true)  # TODO: I changed X_train to X_true, correct?
+        plt.ylim(-3, 3)
+        plt.show()
+        print("iteration {}, error={}".format(iteration, error / steps))
+    weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
+        precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+    t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
+        gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+    fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
+    (xlims, ylims) = plot_lims[dataset]
+
+    N = 75
+    x1 = np.linspace(xlims[0], xlims[1], N)
+    x2 = np.linspace(ylims[0], ylims[1], N)
+    xx, yy = np.meshgrid(x1, x2)
+    X_new = np.dstack((xx, yy))
+    X_new = X_new.reshape((N * N, 2))
+    X_new_ = np.zeros((N * N, D))
+    X_new_[:, :2] = X_new
+
+    Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
+                                       noise_variance, X_new_, Lambda, vectorised=True)
+    Z_new = Z.reshape((N, N, K))
+    print(np.sum(Z, axis=1), 'sum')
+    for i in range(K):
+        fig, axs = plt.subplots(1, figsize=(6, 6))
+        plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
+        plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
+        # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
+        plt.xlabel(r"$x_1$", fontsize=16)
+        plt.ylabel(r"$x_2$", fontsize=16)
+        plt.title("Contour plot - Expectation propagation")
+        plt.savefig("contour_EP_{}.png".format(i))
+        plt.show()
+
+
+def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, K, D,
                 steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
     print("scale={}".format(scale))
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    variational_classifier = EPMultinomialOrderedGP(X, t, kernel)
     steps = variational_classifier.N
     error = np.inf
     iteration = 0
@@ -333,8 +400,8 @@ def EP_plotting(dataset, X_train, t_train, Y_true, gamma, varphi, noise_variance
          precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
             steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
-        plt.scatter(X_train, posterior_mean)
-        plt.scatter(X_train, Y_true)
+        plt.scatter(X, posterior_mean)
+        plt.scatter(X, Y_true)
         plt.ylim(-3, 3)
         plt.show()
         print("iteration {}, error={}".format(iteration, error / steps))
@@ -344,49 +411,20 @@ def EP_plotting(dataset, X_train, t_train, Y_true, gamma, varphi, noise_variance
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
 
-    if dataset in datasets:
-        lower_x1 = 15.0
-        upper_x1 = 65.0
-        lower_x2 = 15.0
-        upper_x2 = 70.0
-
-        N = 75
-        x1 = np.linspace(lower_x1, upper_x1, N)
-        x2 = np.linspace(lower_x2, upper_x2, N)
-        xx, yy = np.meshgrid(x1, x2)
-        X_new = np.dstack((xx, yy))
-        X_new = X_new.reshape((N * N, 2))
-        X_new_ = np.zeros((N * N, D))
-        X_new_[:, :2] = X_new
-
-        Z = variational_classifier.predict(gamma_0, Sigma, mean_EP, precision_EP, varphi,
-                                           noise_variance, X_new_, Lambda, vectorised=True)
-        Z_new = Z.reshape((N, N, K))
-        print(np.sum(Z, axis=1), 'sum')
-        for i in range(K):
-            fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
-            plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
-            # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
-            plt.xlabel(r"$x_1$", fontsize=16)
-            plt.ylabel(r"$x_2$", fontsize=16)
-            plt.title("Contour plot - Expectation propagation")
-            plt.show()
-    elif dataset == "tertile":
-        lower_x = -0.5
-        upper_x = 1.5
+    if dataset == "tertile":
+        x_lims = (-0.5, 1.5)
         N = 1000
-        x = np.linspace(lower_x, upper_x, N)
+        x = np.linspace(x_lims[0], x_lims[1], N)
         X_new = x.reshape((N, D))
         Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_new, Lambda,
                                            vectorised=True)
         print(np.sum(Z, axis=1), 'sum')
-        plt.xlim(lower_x, upper_x)
+        plt.xlim(x_lims)
         plt.ylim(0.0, 1.0)
         plt.xlabel(r"$x$", fontsize=16)
         plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
         plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
-                  .format(lower_x, upper_x))
+                  .format(x_lims[0], x_lims[1]))
         plt.stackplot(x, Z.T,
                       labels=(
                           r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$"),
@@ -400,23 +438,23 @@ def EP_plotting(dataset, X_train, t_train, Y_true, gamma, varphi, noise_variance
                     edgecolors='white')
         plt.scatter(X[np.where(t == 2)], np.zeros_like(X[np.where(t == 2)]) + val, facecolors=colors[2],
                     edgecolors='white')
+        plt.savefig("cumulative_stackplot.png")
         plt.show()
 
     elif dataset == "septile":
-        lower_x = -0.5
-        upper_x = 1.5
+        x_lims = (-0.5, 1.5)
         N = 1000
-        x = np.linspace(lower_x, upper_x, N)
+        x = np.linspace(x_lims[0], x_lims[1], N)
         X_new = x.reshape((N, D))
         Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_new, Lambda,
                                            vectorised=True)
         print(np.sum(Z, axis=1), 'sum')
-        plt.xlim(lower_x, upper_x)
+        plt.xlim(x_lims)
         plt.ylim(0.0, 1.0)
         plt.xlabel(r"$x$", fontsize=16)
         plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
         plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
-                  .format(lower_x, upper_x))
+                  .format(x_lims[1], x_lims[0]))
         plt.stackplot(x, Z.T,
                       labels=(
                           r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$", r"$p(t=3|x, X, t)$",
@@ -435,7 +473,7 @@ def EP_plotting(dataset, X_train, t_train, Y_true, gamma, varphi, noise_variance
 
 def EP_testing(
         X_train, t_train, X_test, t_test, gamma, varphi, noise_variance,
-        K, scale=1.0, sigma=10e-6, tau=10e-6):
+        K, D, scale=1.0, sigma=10e-6, tau=10e-6):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     print("varphi", kernel.varphi, varphi)
@@ -456,7 +494,8 @@ def EP_testing(
             steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
         print("iteration {}, error={}".format(iteration, error / steps))
-    weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+    weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
+        precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
     t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
@@ -466,19 +505,11 @@ def EP_testing(
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
-    # lower_x1 = 0.0
-    # upper_x1 = 16.0
-    # lower_x2 = -30
-    # upper_x2 = 0
-
-    lower_x1 = 15.0
-    upper_x1 = 65.0
-    lower_x2 = 15.0
-    upper_x2 = 70.0
+    (x_lims, y_lims) = plot_lims["dataset"]
 
     N = 75
-    x1 = np.linspace(lower_x1, upper_x1, N)
-    x2 = np.linspace(lower_x2, upper_x2, N)
+    x1 = np.linspace(x_lims[0], x_lims[1], N)
+    x2 = np.linspace(y_lims[0], y_lims[1], N)
     xx, yy = np.meshgrid(x1, x2)
     X_new = np.dstack((xx, yy))
     X_new = X_new.reshape((N * N, 2))
@@ -497,7 +528,7 @@ def EP_testing(
     mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
     print("mean_absolute_error ", mean_absolute_error)
 
-    Z = variational_classifier.predict(gamma_0, Sigma, mean_EP, precision_EP, varphi,
+    Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
                                        noise_variance, X_new_, Lambda, vectorised=True)
     Z_new = Z.reshape((N, N, K))
     print(np.sum(Z, axis=1), 'sum')
@@ -513,11 +544,12 @@ def EP_testing(
         plt.xlabel(r"$x_1$", fontsize=16)
         plt.ylabel(r"$x_2$", fontsize=16)
         plt.title("Contour plot - Expectation propagation")
+        plt.savefig("contour_EP_{}.png".format(i))
         plt.show()
     return fx, zero_one, predictive_likelihood, mean_absolute_error
 
 
-def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0, sigma=10e-6, tau=10e-6):
+def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
     """
     An example ordinal training function.
 
@@ -530,7 +562,7 @@ def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=
         theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
     theta.append(np.log(varphi_0))
     theta = np.array(theta)
-    kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
+    kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
@@ -573,7 +605,7 @@ def EP_training_varphi(X_train, t_train, varphi_0=1e-3, scale=1.0, sigma=10e-6, 
     return gamma, varphi, noise_variance
 
 
-def test(X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0, noise_variance_0, scale=1.0):
+def test(X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
@@ -583,7 +615,7 @@ def test(X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0, noise_v
         X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
 
     fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
-        X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
+        X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, D, scale=scale)
 
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
 
@@ -611,7 +643,7 @@ def test_varphi(X_trains, t_trains, X_tests, t_tests, K, scale=1.0):
     assert 0
 
 
-def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0):
+def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D):
     bounds = []
     zero_ones = []
     predictive_likelihoods = []
@@ -621,8 +653,8 @@ def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_v
     gammas = []
     for split in range(20):
         gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx = test(
-            split, gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0
-        )
+            X_trains, t_trains, X_tests, t_tests, split,
+            gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, K=K, D=D, scale = 1.0)
         bounds.append(fx)
         zero_ones.append(zero_one)
         predictive_likelihoods.append(predictive_likelihood)
@@ -630,7 +662,6 @@ def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_v
         varphis.append(varphi)
         noise_variances.append(noise_variance)
         gammas.append(gamma[1:-1])
-
     bounds = np.array(bounds)
     zero_ones = np.array(zero_ones)
     predictive_likelihoods = np.array(predictive_likelihoods)
@@ -639,7 +670,6 @@ def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_v
     varphis = np.array(varphis)
     noise_variances = np.array(noise_variances)
     gammas = np.array(gammas)
-
     avg_bound = np.average(bounds)
     std_bound = np.std(bounds)
     avg_predictive_likelihood = np.average(predictive_likelihoods)
@@ -656,8 +686,8 @@ def outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_v
     std_varphi = np.std(varphis)
     avg_noise_variances = np.average(noise_variances)
     std_noise_variances = np.std(noise_variances)
-    avg_gammas = np.average(gammas, axis=0)
-    std_gammas = np.std(gammas, axis=0)
+    avg_gammas = np.average(gammas, axis=1)
+    std_gammas = np.std(gammas, axis=1)
     print(avg_varphi, std_varphi, "varphi, std")
     print(avg_noise_variances, std_noise_variances, "noise_variances, std")
     print(avg_gammas, std_gammas, "gammas, std")
@@ -767,6 +797,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # plt.xlabel(r"$\log{\varphi}$", fontsize=16)
         # plt.ylabel(r"$\log{s}$", fontsize=16)
         # plt.title("Contour plot - Predictive likelihood of test set")
+        # plt.savefig("contour_predictive_likelihood.png")
         # plt.show()
 
         # fig, axs = plt.subplots(1, figsize=(6, 6))
@@ -777,6 +808,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # plt.xlabel(r"$\log{\varphi}$", fontsize=16)
         # plt.ylabel(r"$\log{s}$", fontsize=16)
         # plt.title("Contour plot - Variational lower bound")
+        # plt.savefig("variational_bound.png")
         # plt.show()
         #
         # fig, axs = plt.subplots(1, figsize=(6, 6))
@@ -787,6 +819,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # plt.xlabel(r"$\log{\varphi}$", fontsize=16)
         # plt.ylabel(r"$\log{s}$", fontsize=16)
         # plt.title("Contour plot - mean zero-one accuracy")
+        # plt.savefig("mean_zero_one.png")
         # plt.show()
 
     avg_max_bound = np.average(np.array(max_bounds))
@@ -842,6 +875,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
     plt.title("Contour plot - Predictive likelihood of test set")
+    plt.savefig("predictive_likelihood.png")
     plt.show()
 
     fig, axs = plt.subplots(1, figsize=(6, 6))
@@ -852,6 +886,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
     plt.title("Contour plot - Variational lower bound")
+    plt.savefig("variational_bound.png")
     plt.show()
 
     fig, axs = plt.subplots(1, figsize=(6, 6))
@@ -862,6 +897,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
     plt.title("Contour plot - mean zero-one accuracy")
+    plt.savefig("mean_zero_one.png")
     plt.show()
 
     fig, axs = plt.subplots(1, figsize=(6, 6))
@@ -872,6 +908,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
     plt.title("Contour plot - mean absolute error accuracy")
+    plt.savefig("mean_absolute.png")
     plt.show()
 
 def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, scale=1.0):
@@ -908,18 +945,19 @@ def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, sca
     plt.xlabel(r"$\sigma$", fontsize=16)
     plt.ylabel(r"$\varphi$", fontsize=16)
     plt.title("Contour plot - EP lower bound on the log likelihood")
+    plt.savefig("contour_bound.png")
     plt.show()
 
 
-def test_toy(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
+def test_toy(dataset, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
     """Test toy."""
-    # gamma, varphi, noise_variance = EP_training(
-    #     X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
-    # print(gamma, gamma_0)
-    # print(varphi, varphi_0)
-    # print(noise_variance, noise_variance_0)
-    # print(gamma_0, varphi_0, noise_variance_0)
-    fx = EP_plotting(X_train, t_train, gamma_0, varphi=varphi_0, noise_variance=noise_variance_0, K=K, D=D, scale=scale)
+    # gamma, varphi, noise_variance = EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0)
+    # print("gamma = {}, gamma_0 = {}".format(gamma, gamma_0))
+    # print("varphi = {}, varphi_0 = {}".format(varphi, varphi_0))
+    # print("noise_variance = {}, noise_variance_0 = {}".format(noise_variance, noise_variance_0))
+    # print("gamma_0 = {}, varphi_0 = {}, noise_variance_0 = {}".format(gamma_0, varphi_0, noise_variance_0))
+    fx = EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma_0,
+                     varphi=varphi_0, noise_variance=noise_variance_0, K=K, D=D, scale=scale)
     print("fx={}".format(fx))
 
 
@@ -1004,17 +1042,18 @@ def main():
     data_from_prior = args.data_from_prior
     write_path = pathlib.Path(__file__).parent.absolute()
     if dataset in datasets:
-        X_trains, t_trains, X_tests, t_tests, Y_trues = load_data(dataset, bins)
-        outer_loops(X_trains, t_trains, X_tests, t_tests)
-        # EP_training(X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma_0, K, steps=100,
-        #                     scale=1.0)
+        X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(
+            dataset, bins)
+        outer_loops(X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D)
+        # gamma, varphi, noise_variance = EP_training(
+        #     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma_0, varphi_0, noise_variance_0, K)
         # EP_testing(
-        #     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma, varphi, noise_variance, K, scale=scale)
+        #     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma, varphi, noise_variance, K, scale=1.0)
     else:
-        X, t, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data_synthetic(dataset, data_from_prior)
+        X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data_synthetic(dataset, data_from_prior)
         # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
         grid_toy(X, t, gamma_0, [-2, 2], [-1, 1], scale=1.0)
-        # test_toy(X, t, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
+        # test_toy(dataset, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
 
     if args.profile:
         profile = cProfile.Profile()
