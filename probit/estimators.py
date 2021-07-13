@@ -2729,6 +2729,12 @@ class EPMultinomialOrderedGP(Estimator):
         """
         noise_std = np.exp(theta[0])
         noise_variance = noise_std**2
+        if noise_variance < 1.0e-04:
+            warnings.warn("WARNING: noise variance is very low - numerical stability issues may arise "
+                          "(noise_variance={}).".format(noise_variance))
+        elif noise_variance > 1.0e3:
+            warnings.warn("WARNING: noise variance is very large - numerical stability issues may arise "
+                          "(noise_variance={}).".format(noise_variance))
         gamma = np.empty((self.K + 1,))  # including all of the cutpoints
         gamma[0] = np.NINF
         gamma[-1] = np.inf
@@ -2808,7 +2814,7 @@ class EPMultinomialOrderedGP(Estimator):
 
     def grid_over_hyperparameters(self, gamma, range_log_varphi,  range_log_noise_std,
                                   res, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None,
-                                  precision_EP_0=None, amplitude_EP_0=None, first_step=1, write=False):
+                                  precision_EP_0=None, amplitude_EP_0=None, first_step=1, write=False, verbose=False):
         """Return meshgrid values of fx over hyperparameter space."""
         steps = self.N
         log_noise_stds = np.logspace(range_log_noise_std[0], range_log_noise_std[1], res)
@@ -2848,9 +2854,10 @@ class EPMultinomialOrderedGP(Estimator):
             fxs[i] = fx
             gx = self.evaluate_function_gradient(
                 intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
-            print("function call {}, gradient vector {}".format(fx, gx))
             gxs[i, :] = gx[[0, -1]]
-            print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
+            if verbose:
+                print("function call {}, gradient vector {}".format(fx, gx))
+                print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
             # Reset parameters
             error = np.inf
             posterior_mean = posterior_mean_0
@@ -2864,7 +2871,7 @@ class EPMultinomialOrderedGP(Estimator):
             self, theta,
             gamma=np.array([-np.inf, -0.28436501, 0.36586332, 3.708507, 4.01687246, np.inf]),
             noise_variance=0.01, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, write=False):
+            amplitude_EP_0=None, first_step=1, write=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -2885,8 +2892,6 @@ class EPMultinomialOrderedGP(Estimator):
         """
         steps = self.N
         varphi, noise_variance = self._hyperparameter_training_step_not_gamma_initialise(theta)
-        print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
-        print("theta = {}".format(theta))
         posterior_mean = posterior_mean_0
         Sigma = Sigma_0
         mean_EP = mean_EP_0
@@ -2907,7 +2912,10 @@ class EPMultinomialOrderedGP(Estimator):
         fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
         gx = self.evaluate_function_gradient(
             intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
-        print("function call {}, gradient vector {}".format(fx, gx))
+        if verbose:
+            print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
+            print("theta = {}".format(theta))
+            print("function call {}, gradient vector {}".format(fx, gx))
         gx = gx[self.K]
         return fx, gx
 
@@ -2915,7 +2923,7 @@ class EPMultinomialOrderedGP(Estimator):
             self, theta,
             gamma=np.array([-np.inf, -0.28436501, 0.36586332, 3.708507, 4.01687246, np.inf]),
             noise_variance=0.01, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, write=False):
+            amplitude_EP_0=None, first_step=1, write=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -2937,8 +2945,6 @@ class EPMultinomialOrderedGP(Estimator):
         error = np.inf
         steps = self.N
         varphi = self._hyperparameter_training_step_varphi_initialise(theta)
-        print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
-        print("theta = {}".format(theta))
         posterior_mean = posterior_mean_0
         Sigma = Sigma_0
         mean_EP = mean_EP_0
@@ -2959,13 +2965,18 @@ class EPMultinomialOrderedGP(Estimator):
         fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
         gx = self.evaluate_function_gradient(
             intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
-        print("function call {}, gradient vector {}".format(fx, gx))
+        if verbose:
+            print("gamma={}, noise_variance={}, varphi={}\ntheta={}\nfunction_eval={}\n jacobian_eval={}".format(
+                gamma, noise_variance, self.kernel.varphi, theta, fx, gx))
+        else:
+            print("gamma={}, noise_variance={}, varphi={}\nfunction_eval={}".format(
+                gamma, noise_variance, self.kernel.varphi, fx))
         gx = gx[self.K]
         return fx, gx
 
     def hyperparameter_training_step(
             self, theta, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, write=False):
+            amplitude_EP_0=None, first_step=1, write=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -2988,8 +2999,6 @@ class EPMultinomialOrderedGP(Estimator):
         error = np.inf
         iteration = 0
         gamma, varphi, noise_variance = self._hyperparameter_training_step_initialise(theta)  # Update prior covariance
-        print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
-        print("theta = {}".format(theta))
         posterior_mean = posterior_mean_0
         Sigma = Sigma_0
         mean_EP = mean_EP_0
@@ -3002,7 +3011,8 @@ class EPMultinomialOrderedGP(Estimator):
              precision_EP, amplitude_EP, containers) = self.estimate(
                 steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, first_step=first_step, write=write)
-            print("({}), error={}".format(iteration, error))
+            if verbose:
+                print("({}), error={}".format(iteration, error))
         weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs, approximate_marginal_likelihoods) = containers
         # Try optimisation routine
@@ -3011,7 +3021,12 @@ class EPMultinomialOrderedGP(Estimator):
         fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
         gx = self.evaluate_function_gradient(
             intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
-        print("function call {}, gradient vector {}".format(fx, gx))
+        if verbose:
+            print("gamma={}, noise_variance={}, varphi={}\ntheta={}\nfunction_eval={}\n jacobian_eval={}".format(
+                gamma, noise_variance, self.kernel.varphi, theta, fx, gx))
+        else:
+            print("gamma={}, noise_variance={}, varphi={}\nfunction_eval={}".format(
+                gamma, noise_variance, self.kernel.varphi, fx))
         return fx, gx
 
     def compute_integrals(self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):

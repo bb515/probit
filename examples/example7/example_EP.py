@@ -15,6 +15,7 @@ import pathlib
 from scipy.optimize import minimize
 from probit.utilities import generate_prior_data, generate_synthetic_data
 import importlib.resources as pkg_resources
+import sys
 
 write_path = pathlib.Path()
 
@@ -121,7 +122,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(decile, 'auto.npz') as path:
                 data = np.load(path)
         gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-    elif dataset == "diabetes":  # lower bound best = 57.86 57.66 57.47
+    elif dataset == "diabetes":
         D = 2
         from probit.data import diabetes
         with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
@@ -155,7 +156,7 @@ def load_data(dataset, bins):
                     0.00813540519298387
                 ),
             }
-            (gamma_0, varphi_0, noise_variance_0) = hyperparameters["57.86"]
+            (gamma_0, varphi_0, noise_variance_0) = hyperparameters["57.66"]
             from probit.data.diabetes import quantile
             with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
                 data = np.load(path)
@@ -303,7 +304,7 @@ def load_data(dataset, bins):
                     1.0
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["NA1"]
             from probit.data.stocksdomain import quantile
             with pkg_resources.path(quantile, 'stock.npz') as path:
                 data = np.load(path)
@@ -447,6 +448,7 @@ def load_data_synthetic(dataset, data_from_prior):
             X = data["X"]  # Contains (90,) array of x values
             t = data["t"]  # Contains (90,) array of ordinal response variables, corresponding to Xs values
             Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+            X_true = None
             gamma_0 = data["gamma_0"]
             gamma = [-np.inf, - 0.43160987, 0.2652492, np.inf]
             # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
@@ -458,6 +460,7 @@ def load_data_synthetic(dataset, data_from_prior):
             X = data["X"]  # Contains (1792,) array of x values
             t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
             Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
+            X_true = None  # TODO
             N_total = int(N_per_class * K)
     elif dataset == "septile":
         from probit.data import septile
@@ -747,9 +750,9 @@ def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True)
-    # options = {
-    #     'maxfunc': 10}
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options = {
+        'ftol': 1e-3,
+        'maxfun': 20})
     theta = res.x
     noise_variance = np.exp(theta[0])
     gamma = np.empty((K + 1,))  # including all of the cutpoints
@@ -792,11 +795,11 @@ def test(dataset, X_trains, t_trains, X_tests, t_tests, split, gamma_0, varphi_0
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
-    gamma = gamma_0
-    varphi = varphi_0
-    noise_variance = noise_variance_0
-    # gamma, varphi, noise_variance = EP_training(
-    #     X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+    #gamma = gamma_0
+    #varphi = varphi_0
+    #noise_variance = noise_variance_0
+    gamma, varphi, noise_variance = EP_training(
+        X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
     fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
         dataset, X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, D, scale=scale)
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
@@ -1102,8 +1105,6 @@ def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, sca
     ax.plot(0.1, 30, 'm')
     plt.xscale("log")
     plt.yscale("log")
-    # plt.xlim(0, 2)
-    # plt.ylim(0, 2)
     plt.xlabel(r"$\sigma$", fontsize=16)
     plt.ylabel(r"$\varphi$", fontsize=16)
     plt.title("Contour plot - EP lower bound on the log likelihood")
@@ -1204,6 +1205,7 @@ def main():
     dataset = args.dataset_name
     bins = args.bins
     data_from_prior = args.data_from_prior
+    #sys.stdout = open("stdout.txt", "w")
     write_path = pathlib.Path(__file__).parent.absolute()
     if dataset in datasets:
         X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(
@@ -1222,7 +1224,7 @@ def main():
     if args.profile:
         profile = cProfile.Profile()
         profile.enable()
-
+    #sys.stdout.close()
 
 if __name__ == "__main__":
     main()

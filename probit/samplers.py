@@ -96,9 +96,14 @@ class GibbsMultinomialGP(Sampler):
         super().__init__(*args, **kwargs)
         self.I = np.eye(self.K)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        self.Sigma = np.linalg.inv(np.eye(self.N) + self.C)  # TODO: this is slightly the wrong notation when compared
-        # to the paper
+        self.Sigma = np.linalg.inv(np.eye(self.N) + self.C)  # Takes a different notation than in paper
         self.cov = self.C @ self.Sigma
+        self.cov_cholesky = np.empty(np.size(self.cov))
+        if self.kernel.general_kernel:
+            for k in range(self.K):
+                self.cov_cholesky[k] = np.linalg.cholesky(self.cov[k])
+        else:
+            self.cov_cholesky = np.linalg.cholesky(self.cov)
 
     def _sample_initiate(self, M_0):
         """Initialise variables for the sample method."""
@@ -138,7 +143,8 @@ class GibbsMultinomialGP(Sampler):
                 #  all the other values apart from itself, as that is the theory
                 while y_n[k_true] < np.max(y_n):
                     # sample Y jointly
-                    y_n = multivariate_normal.rvs(mean=m, cov=self.I)
+                    y_n = m + norm.rvs(size=self.N)
+                    # y_n = multivariate_normal.rvs(mean=m, cov=self.I)
                 # Add sample to the Y vector
                 Y[n, :] = y_n[:]
             # Calculate statistics, then sample other conditional
@@ -149,12 +155,14 @@ class GibbsMultinomialGP(Sampler):
             if self.kernel.general_kernel:
                 for k in range(self.K):
                     mean = self.cov[k] @ Y.T[k]
+                    # TODO: Factorize Cholesky
                     m_k = multivariate_normal.rvs(mean=mean, cov=self.cov[k])
                     # Add sample to the M vector
                     M_T[k, :] = m_k
             else:
                 for k in range(self.K):
                     mean = self.cov @ Y.T[k]  # TODO: Note the different notation to the paper.
+                    # TODO: Factorize Cholesky
                     m_k = multivariate_normal.rvs(mean=mean, cov=self.cov)
                     # Add sample to the M vector
                     M_T[k, :] = m_k
@@ -404,6 +412,7 @@ class GibbsBinomial(Sampler):
                 Y.append(yi)
             # Calculate statistics, then sample other conditional
             mean = self.cov @ self.X_train_T @ np.array(Y)
+            # TODO: Factorize cholesky
             beta = multivariate_normal.rvs(mean=mean, cov=self.cov)
             beta_samples.append(beta)
             Y_samples.append(Y)
@@ -598,6 +607,7 @@ class GibbsMultinomialOrderedGPTemp(Sampler):
                 gamma = gamma_prev
             # Calculate statistics, then sample other conditional
             # TODO: Explore if this needs a regularisation trick (Covariance matrices are poorly conditioned)
+            # TODO: Factorize cholesky
             mean = self.cov @ y
             m = multivariate_normal.rvs(mean=mean, cov=self.cov)
             m_samples.append(m)
@@ -665,6 +675,7 @@ class GibbsMultinomialOrderedGPTemp(Sampler):
                 y[n] = y_n
             # Calculate statistics, then sample other conditional
             # TODO: Explore if this needs a regularisation trick (Covariance matrices are poorly conditioned)
+            # TODO: Factorize cholesky
             mean = self.cov @ y
             m = multivariate_normal.rvs(mean=mean, cov=self.cov)
             # print(m, 'm')
@@ -1039,6 +1050,7 @@ class GibbsMultinomialOrderedGP(Sampler):
                 gamma = gamma_prev
             # Calculate statistics, then sample other conditional
             # TODO: Explore if this needs a regularisation trick (Covariance matrices are poorly conditioned)
+            # TODO: Factorize cholesky
             mean = self.cov @ y
             m = multivariate_normal.rvs(mean=mean, cov=self.cov)
             m_samples.append(m)
@@ -1107,6 +1119,7 @@ class GibbsMultinomialOrderedGP(Sampler):
                 y[n] = y_n
             # Calculate statistics, then sample other conditional
             # TODO: Explore if this needs a regularisation trick (Covariance matrices are poorly conditioned)
+            # TODO: Can clearly factorize the Cholesky decomposition here
             mean = self.cov @ y
             m = multivariate_normal.rvs(mean=mean, cov=self.cov)
             # print(m, 'm')
