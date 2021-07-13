@@ -3082,8 +3082,8 @@ class EPMultinomialOrderedGP(Estimator):
         # Update gx
         # For gx[0] -- ln\sigma
         gx[0] += np.sum(t5 - t4)
-        # gx[0] *= -0.5 * noise_variance  # This is not what is written in the paper. Unless typo in paper
-        gx[0] *= - 0.5 * np.sqrt(noise_variance)
+        # gx[0] *= -0.5 * noise_variance  # This is not what is written in the paper. It is a typo in Chu code
+        gx[0] *= np.sqrt(noise_variance)
         # For gx[1] -- \b_1
         gx[1] += np.sum(t3 - t2)
         # For gx[2] -- ln\Delta^r

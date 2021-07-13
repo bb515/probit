@@ -16,6 +16,8 @@ from scipy.optimize import minimize
 from probit.utilities import generate_prior_data, generate_synthetic_data
 import importlib.resources as pkg_resources
 import sys
+import time
+now = time.ctime()
 
 write_path = pathlib.Path()
 
@@ -51,6 +53,7 @@ plot_lims = {
     "triazines": ((15.0, 65.0), (15.0, 70.0)),
     "wpbc": ((15.0, 65.0), (15.0, 70.0)),
 }
+
 
 def load_data(dataset, bins):
     if dataset == "abalone":
@@ -393,119 +396,125 @@ def load_data(dataset, bins):
             with pkg_resources.path(decile, 'wpbc.npz') as path:
                 data = np.load(path)
             K = 10
-
     X_trains = data["X_train"]
     t_trains = data["t_train"]
     X_tests = data["X_test"]
     t_tests = data["t_test"]
-
     # Python indexing
     t_tests = t_tests - 1
     t_trains = t_trains - 1
     t_tests = t_tests.astype(int)
     t_trains = t_trains.astype(int)
-
     # Number of splits
     N_splits = len(X_trains)
     assert len(X_trains) == len(X_tests)
-
     X_true = data_continuous["X"]
-    Y_true = data_continuous["y"]  # this is not going to be the correct one
-    # Y_trues = []
-    #
-    # for k in range(20):
-    #     y = []
-    #     for i in range(len(X_trains[0, :, :])):
-    #         for j, two in enumerate(X_true):
-    #             one = X_trains[k, i]
-    #             if np.allclose(one, two):
-    #                 y.append(Y_true[j])
-    #     Y_trues.append(y)
-    # Y_trues = np.array(Y_trues)
+    Y_true = data_continuous["y"]  # this is not going to be the correct one(?) - see next line
+    # Y_trues = get_Y_trues(X_trains, X_true, Y_true)
     return X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
 
 
-def load_data_synthetic(dataset, data_from_prior):
+def get_Y_trues(X_trains, X_true, Y_true):
+    """Get Y_trues (N/K, K) from full array of true y values."""
+    Y_trues = []
+    for k in range(20):
+        y = []
+        for i in range(len(X_trains[0, :, :])):
+            for j, two in enumerate(X_true):
+                one = X_trains[k, i]
+                if np.allclose(one, two):
+                    y.append(Y_true[j])
+        Y_trues.append(y)
+    Y_trues = np.array(Y_trues)
+    return Y_trues
+
+
+def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, scale=1.0):
+    """Generate synthetic dataset."""
+    # Generate the synethetic data
+    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
+    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+        N_per_class, K, D, kernel, noise_variance=noise_variance)
+    np.savez(
+        write_path / "data_tertile_prior.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+    return X_k, Y_true, X, Y_true, t, gamma_0
+
+
+def load_data_synthetic(dataset, data_from_prior, plot=False):
+    """Load synethetic data."""
     if dataset == "tertile":
         from probit.data import tertile
         K = 3
         D = 1
-        N_per_class = 30  # 64
-        varphi_0 = 28.247881910538307  # 7.0 #  19.59821963518377  # 30.0
-        scale = 1.0
-        noise_variance_0 = 0.11103503642649291  # 1.0 #  0.07548142258576254  #0.1
-        kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
-        # gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
         if data_from_prior == True:
             with pkg_resources.path(tertile, 'tertile_prior.npz') as path:
                 data = np.load(path)
-            # Generate the synethetic data
-            # X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
-            #     N_per_class, K, D, kernel, noise_variance=noise_variance_0)
-            # np.savez(write_path / "data_tertile_prior.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
-            X_k = data["X_k"]  # Contains (90,) array of binned x values
-            # Y_true_k = data["Y_k"]  # Contains (90,) array of binned y values
+            N_per_class = 30
+            X_k = data["X_k"]  # Contains (90, 3) array of binned x values
+            Y_true_k = data["Y_k"]  # Contains (90, 3) array of binned y values
             X = data["X"]  # Contains (90,) array of x values
             t = data["t"]  # Contains (90,) array of ordinal response variables, corresponding to Xs values
             Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-            X_true = None
-            gamma_0 = data["gamma_0"]
-            gamma = [-np.inf, - 0.43160987, 0.2652492, np.inf]
-            # gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+            X_true = X
+            gamma_0 = data["gamma_0"]  # [-np.inf, - 0.43160987, 0.2652492, np.inf]
+            varphi_0 = 28.247881910538307  # 7.0 #  19.59821963518377  # 30.0
+            noise_variance_0 = 0.11103503642649291  # 1.0 #  0.07548142258576254  #0.1
         else:
             with pkg_resources.path(tertile, 'tertile.npz') as path:
                 data = np.load(path)
-            X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-            # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-            X = data["X"]  # Contains (1792,) array of x values
-            t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-            Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-            X_true = None  # TODO
+            N_per_class = 64
+            X_k = data["X_k"]  # Contains (172, 3) array of binned x values
+            Y_true_k = data["Y_k"]  # Contains (172, 3) array of binned y values
+            X = data["X"]  # Contains (172,) array of x values
+            t = data["t"]  # Contains (172,) array of ordinal response variables, corresponding to Xs values
+            Y_true = data["Y"]  # Contains (172,) array of y values, corresponding to Xs values
+            X_true = X
             N_total = int(N_per_class * K)
+            gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
+            varphi_0 = 30.0
+            noise_variance_0 = 0.1
     elif dataset == "septile":
+        K = 7
+        D = 1
         from probit.data import septile
         with pkg_resources.path(septile, 'septile.npz') as path:
             data = np.load(path)
-        K = 7
-        D = 1
         N_per_class = 32
-        varphi_0 = 30.0
+        # The scale was not 1.0, it was 20.0(?)
         scale = 20.0
-        noise_variance_0 = 1.0
-        # Generate the synethetic data
-        #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
-        #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
         gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
+        varphi_0 = 30.0
+        noise_variance_0 = 1.0
         X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-        # Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
+        Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
         X = data["X"]  # Contains (1792,) array of x values
         t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-        X_true = None  # TODO
+        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values
+        X_true = X
         N_total = int(N_per_class * K)
-
-    # # Plot
-    # colors_ = [colors[i] for i in t]
-    # plt.scatter(X, Y_true, color=colors_)
-    # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-    # plt.xlabel(r"$x$", fontsize=16)
-    # plt.ylabel(r"$y$", fontsize=16)
-    # plt.show() 
-    # plt.close()
-
-    # # Plot from the binned arrays
-    # for k in range(K):
-    #     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
-    # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-    # plt.legend()
-    # plt.xlabel(r"$x$", fontsize=16)
-    # plt.ylabel(r"$y$", fontsize=16)
-    # plt.show()
-    # plt.close()
+    if plot:
+        # Plot
+        colors_ = [colors[i] for i in t]
+        plt.scatter(X, Y_true, color=colors_)
+        plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+        plt.xlabel(r"$x$", fontsize=16)
+        plt.ylabel(r"$y$", fontsize=16)
+        plt.show()
+        plt.close()
+        # Plot from the binned arrays
+        for k in range(K):
+            plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
+        plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+        plt.legend()
+        plt.xlabel(r"$x$", fontsize=16)
+        plt.ylabel(r"$y$", fontsize=16)
+        plt.show()
+        plt.close()
     return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
 
 
 def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_variance, K, D, scale):
+    """Plots for Chu data."""
     kernel = SEIso(varphi, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
@@ -523,11 +532,6 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
          precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
             steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
-        plt.scatter(X_train, posterior_mean)
-        plt.scatter(X_true, Y_true)  # TODO: I changed X_train to X_true, correct?
-        plt.ylim(-3, 3)
-        plt.show()
-        plt.close() 
         print("iteration {}, error={}".format(iteration, error / steps))
     weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
@@ -535,7 +539,6 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     (xlims, ylims) = plot_lims[dataset]
-
     N = 75
     x1 = np.linspace(xlims[0], xlims[1], N)
     x2 = np.linspace(ylims[0], ylims[1], N)
@@ -560,11 +563,12 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
         plt.savefig("contour_EP_{}.png".format(i))
         plt.show() 
         plt.close()
+    return fx
 
 
-def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, K, D,
-                steps=5000, scale=1.0, sigma=10e-6, tau=10e-6):
-    print("scale={}".format(scale))
+def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_variance, K, D,
+                          scale=1.0, sigma=10e-6, tau=10e-6):
+    """Plots for synthetic data."""
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X, t, kernel)
@@ -583,8 +587,9 @@ def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, 
             steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
         plt.scatter(X, posterior_mean)
-        plt.scatter(X, Y_true)
+        plt.scatter(X_true, Y_true)
         plt.ylim(-3, 3)
+        plt.savefig("scatter_versus_posterior_mean.png")
         plt.show() 
         plt.close()
         print("iteration {}, error={}".format(iteration, error / steps))
@@ -593,7 +598,6 @@ def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, 
     t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
-
     if dataset == "tertile":
         x_lims = (-0.5, 1.5)
         N = 1000
@@ -615,16 +619,12 @@ def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, 
                           colors[0], colors[1], colors[2])
                       )
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
-        plt.scatter(X[np.where(t == 0)], np.zeros_like(X[np.where(t == 0)]) + val, facecolors=colors[0],
-                    edgecolors='white')
-        plt.scatter(X[np.where(t == 1)], np.zeros_like(X[np.where(t == 1)]) + val, facecolors=colors[1],
-                    edgecolors='white')
-        plt.scatter(X[np.where(t == 2)], np.zeros_like(X[np.where(t == 2)]) + val, facecolors=colors[2],
-                    edgecolors='white')
+        for k in range(K):
+            plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, facecolors=colors[k],
+                        edgecolors='white')
         plt.savefig("cumulative_stackplot.png")
         plt.show() 
         plt.close()
-
     elif dataset == "septile":
         x_lims = (-0.5, 1.5)
         N = 1000
@@ -648,7 +648,7 @@ def EP_plotting_synthetic(dataset, X, t, Y_true, gamma, varphi, noise_variance, 
                       )
         plt.legend()
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
-        for i in range(7):
+        for i in range(K):
             plt.scatter(
                 X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
         plt.show() 
@@ -1077,7 +1077,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.show() 
     plt.close()
 
-def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, scale=1.0):
+def grid_synthetic(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, scale=1.0):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     sigma = 10e-6
     tau = 10e-6
@@ -1113,17 +1113,18 @@ def grid_toy(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, sca
     plt.close()
 
 
-def test_toy(dataset, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
+def test_synthetic(dataset, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
     """Test toy."""
-    # gamma, varphi, noise_variance = EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0)
-    # print("gamma = {}, gamma_0 = {}".format(gamma, gamma_0))
-    # print("varphi = {}, varphi_0 = {}".format(varphi, varphi_0))
-    # print("noise_variance = {}, noise_variance_0 = {}".format(noise_variance, noise_variance_0))
+    gamma, varphi, noise_variance = EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0)
+    print("gamma = {}, gamma_0 = {}".format(gamma, gamma_0))
+    print("varphi = {}, varphi_0 = {}".format(varphi, varphi_0))
+    print("noise_variance = {}, noise_variance_0 = {}".format(noise_variance, noise_variance_0))
     # print("gamma_0 = {}, varphi_0 = {}, noise_variance_0 = {}".format(gamma_0, varphi_0, noise_variance_0))
-    fx = EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma_0,
-                     varphi=varphi_0, noise_variance=noise_variance_0, K=K, D=D, scale=scale)
+    fx = EP_plotting_synthetic(
+        dataset, X_train, t_train, X_true, Y_true, gamma,
+        varphi=varphi, noise_variance=noise_variance, K=K, D=D, scale=scale)
     print("fx={}".format(fx))
-
+    return fx
 
 def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance, K):
     grid = np.ogrid[0:len(X_test)]
@@ -1205,8 +1206,8 @@ def main():
     dataset = args.dataset_name
     bins = args.bins
     data_from_prior = args.data_from_prior
-    #sys.stdout = open("stdout.txt", "w")
     write_path = pathlib.Path(__file__).parent.absolute()
+    sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets:
         X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(
             dataset, bins)
@@ -1218,13 +1219,13 @@ def main():
     else:
         X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data_synthetic(dataset, data_from_prior)
         # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
-        grid_toy(X, t, gamma_0, [-2, 2], [-1, 1], scale=1.0)
-        # test_toy(dataset, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
+        # grid_synthetic(X, t, gamma_0, [-2, 2], [-1, 1], scale=1.0)
+        test_synthetic(dataset, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
 
     if args.profile:
         profile = cProfile.Profile()
         profile.enable()
-    #sys.stdout.close()
+    sys.stdout.close()
 
 if __name__ == "__main__":
     main()
