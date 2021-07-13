@@ -456,9 +456,19 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
             t = data["t"]  # Contains (90,) array of ordinal response variables, corresponding to Xs values
             Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
             X_true = X
-            gamma_0 = data["gamma_0"]  # [-np.inf, - 0.43160987, 0.2652492, np.inf]
-            varphi_0 = 28.247881910538307  # 7.0 #  19.59821963518377  # 30.0
-            noise_variance_0 = 0.11103503642649291  # 1.0 #  0.07548142258576254  #0.1
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+                "true": (
+                    data["gamma_0"],  # [-np.inf, - 0.43160987, 0.2652492, np.inf]
+                    30.0,
+                    0.1
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
         else:
             with pkg_resources.path(tertile, 'tertile.npz') as path:
                 data = np.load(path)
@@ -470,9 +480,19 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
             Y_true = data["Y"]  # Contains (172,) array of y values, corresponding to Xs values
             X_true = X
             N_total = int(N_per_class * K)
-            gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
-            varphi_0 = 30.0
-            noise_variance_0 = 0.1
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0
+                ),
+                "true": (
+                    np.array([-np.inf, 0.0, 2.29, np.inf]),
+                    30.0,
+                    0.1
+                ),
+            }
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
     elif dataset == "septile":
         K = 7
         D = 1
@@ -482,9 +502,6 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         N_per_class = 32
         # The scale was not 1.0, it was 20.0(?)
         scale = 20.0
-        gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
-        varphi_0 = 30.0
-        noise_variance_0 = 1.0
         X_k = data["X_k"]  # Contains (256, 7) array of binned x values
         Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
         X = data["X"]  # Contains (1792,) array of x values
@@ -492,6 +509,20 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values
         X_true = X
         N_total = int(N_per_class * K)
+        hyperparameters = {
+            "init": (
+                np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                          -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, np.inf]),
+                0.5 / D,
+                1.0
+            ),
+            "true": (
+                np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf]),
+                30.0,
+                0.1
+            ),
+        }
+        gamma_0, varphi_0, noise_variance_0 = hyperparameters["True"]
     if plot:
         # Plot
         colors_ = [colors[i] for i in t]
@@ -651,7 +682,8 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         for i in range(K):
             plt.scatter(
                 X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
-        plt.show() 
+        plt.savefig("cumulative_stackplot.png")
+        plt.show()
         plt.close()
     return fx
 
