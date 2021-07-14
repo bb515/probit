@@ -2937,7 +2937,7 @@ class EPMultinomialOrderedGP(Estimator):
         if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
             return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
         elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
-            return fxs, gxs, xx, yy, xlabel, ylabel, xscale, yscale
+            return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
         elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
             return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
 
