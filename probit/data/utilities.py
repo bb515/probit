@@ -609,9 +609,9 @@ def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, 
     X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
         N_per_class, K, D, kernel, noise_variance=noise_variance)
     from probit.data import tertile
-        with pkg_resources.path(tertile, 'data_tertile_prior_.npz') as path:
-            np.savez(
-                path, X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+    with pkg_resources.path(tertile, 'data_tertile_prior_.npz') as path:
+        np.savez(
+            path, X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
     return X_k, Y_true_k, X, Y_true, t, gamma_0
 
 
