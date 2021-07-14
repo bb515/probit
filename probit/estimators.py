@@ -1325,7 +1325,7 @@ class VBMultinomialGP(Estimator):
             return bound
 
 
-class VBMultinomialOrderedGPSS(Estimator):
+class VBOrderedGPSS(Estimator):
     """
     TODO: Superceded since it is not required that gamma_1 = 0.
 
@@ -1338,9 +1338,9 @@ class VBMultinomialOrderedGPSS(Estimator):
     """
     def __init__(self, *args, **kwargs):
         """
-        Create an :class:`VBMultinomialOrderedGP` Estimator object.
+        Create an :class:`VBOrderedGP` Estimator object.
 
-        :returns: An :class:`VBMultinomialOrderedGP` object.
+        :returns: An :class:`VBOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
         self.IN = np.eye(self.N)
@@ -1689,7 +1689,7 @@ class VBMultinomialOrderedGPSS(Estimator):
         return bound
 
 
-class VBMultinomialOrderedGP(Estimator):
+class VBOrderedGP(Estimator):
     """
     A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
 
@@ -1700,7 +1700,7 @@ class VBMultinomialOrderedGP(Estimator):
     """
     def __init__(self, *args, **kwargs):
         """
-        Create an :class:`VBMultinomialOrderedGP` Estimator object.
+        Create an :class:`VBOrderedGP` Estimator object.
 
         :returns: An :class:`VBMultinimoalOrderedGP` object.
         """
@@ -1871,6 +1871,7 @@ class VBMultinomialOrderedGP(Estimator):
         """
         Return the w values of the sample
 
+        TODO: Is this the correct reference?
         Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
         Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
         Page 9 Eq.(7).
@@ -2100,7 +2101,7 @@ class VBMultinomialOrderedGP(Estimator):
         return fx, gx
 
 
-class EPMultinomialOrderedGP(Estimator):
+class EPOrderedGP(Estimator):
     """
     An Expectation Propagation classifier for ordered likelihood. Inherits the Estimator ABC.
 
@@ -2115,9 +2116,9 @@ class EPMultinomialOrderedGP(Estimator):
     """
     def __init__(self, *args, **kwargs):
         """
-        Create an :class:`EPMultinomialOrderedGP` Estimator object.
+        Create an :class:`EPOrderedGP` Estimator object.
 
-        :returns: An :class:`EPMultinomialOrderedGP` object.
+        :returns: An :class:`EPOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
         self.IN = np.eye(self.N)
@@ -2868,7 +2869,7 @@ class EPMultinomialOrderedGP(Estimator):
             Phi_new = np.dstack((xx, yy))
             Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
             fxs = np.empty(len(Phi_new))
-            gxs = np.empty(len(Phi_new))
+            gxs = np.empty((len(Phi_new),2))
         else:
             raise ValueError("Couldn't infer what you wanted to plot from the input arguments (gamma_0={}, varphi_0={}, noise_variance_0={})".format(
                 gamma_0, varphi_0, noise_variance_0))
@@ -3158,7 +3159,7 @@ class EPMultinomialOrderedGP(Estimator):
         # For gx[0] -- ln\sigma
         gx[0] += np.sum(t5 - t4)
         # gx[0] *= -0.5 * noise_variance  # This is not what is written in the paper. It is a typo in Chu code
-        gx[0] *= -np.sqrt(noise_variance)
+        gx[0] *= np.sqrt(noise_variance)
         # For gx[1] -- \b_1
         gx[1] += np.sum(t3 - t2)
         # For gx[2] -- ln\Delta^r

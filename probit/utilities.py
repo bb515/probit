@@ -1,167 +1,8 @@
-"""Utility functions."""
+"""Utility functions for probit."""
 import numpy as np
 from scipy.stats import norm, expon
 import math
 import matplotlib.pyplot as plt
-
-
-# For plotting
-colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-
-
-def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
-    """
-    Generate data from the GP prior, and choose some cutpoints that approximately divides data into equal bins.
-
-    :arg int N_per_class: The number of data points per class.
-    :arg int K: The number of bins/classes/quantiles.
-    :arg int D: The number of data dimensions.
-    :arg kernel: The GP prior.
-    """
-    N_total = int(K * N_per_class)
-    # Sample from the real line, uniformly
-    # X = np.random.uniform(0, 12, N_total)
-    X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
-    X = X[:, None]  # reshape X to make it n*D
-    mu = np.zeros((N_total))  # vector of the means
-    C = kernel.kernel_matrix(X, X)
-    Z = np.random.multivariate_normal(mu, C)
-    plt.figure()  # open new plotting window
-    plt.plot(X[:], Z[:])
-    plt.show()
-    epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
-    # Model latent variable responses
-    Y_true = epsilons + Z
-    sort_indeces = np.argsort(Y_true)
-    plt.scatter(X, Y_true)
-    plt.show()
-    # Sort the responses
-    Y_true = Y_true[sort_indeces]
-    X = X[sort_indeces]
-    X_k = []
-    Y_true_k = []
-    t_k = []
-    gamma = np.empty(K + 1)
-    for k in range(K):
-        X_k.append(X[N_per_class * k:N_per_class * (k + 1)])
-        Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
-        t_k.append(k * np.ones(N_per_class, dtype=int))
-    for k in range(1, K):
-        # Find the first cutpoint and set it equal to 0.0
-        cutpoint_k_min = Y_true_k[k - 1][-1]
-        cutpoint_k_max = Y_true_k[k][0]
-        gamma[k] = np.average([cutpoint_k_max, cutpoint_k_min])
-    gamma[0] = -np.inf
-    gamma[-1] = np.inf
-    print("gamma={}".format(gamma))
-    for k in range(K):
-        plt.scatter(X_k[k], Y_true_k[k], color=colors[k])
-    plt.show()
-    Xs_k = np.array(X_k)
-    Ys_k = np.array(Y_true_k)
-    t_k = np.array(t_k, dtype=int)
-    X = Xs_k.flatten()
-    Y = Ys_k.flatten()
-    t = t_k.flatten()
-    # Prepare data
-    Xt = np.c_[Y, X, t]
-    print(np.shape(Xt))
-    np.random.shuffle(Xt)
-    Y_true = Xt[:, :1]
-    X = Xt[:, 1:D + 1]
-    t = Xt[:, -1]
-    print(np.shape(X))
-    print(np.shape(t))
-    print(np.shape(Y_true))
-    t = np.array(t, dtype=int)
-    print(t)
-    colors_ = [colors[i] for i in t]
-    print(colors_)
-    plt.scatter(X, Y_true, color=colors_)
-    plt.show()
-    return X_k, Y_true_k, X, Y_true, t, gamma
-
-
-def generate_synthetic_data(N_per_class, K, D, kernel, noise_variance):
-    """
-    Generate synthetic data for this model.
-
-    This function will generate data such that the ground truth of the first cutpoint is at zero.
-
-    :arg int N_per_class: The number of data points per class.
-    :arg int K: The number of bins/classes/quantiles.
-    :arg int D: The number of data dimensions.
-    :arg kernel: The GP prior.
-    """
-    N_total = int(K * N_per_class)
-
-    # Sample from the real line, uniformly
-    #X = np.random.uniform(0, 12, N_total)
-    X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
-    X = X[:, None]  # reshape X to make it n*D
-    mu = np.zeros((N_total))  # vector of the means
-
-    C = kernel.kernel_matrix(X, X)
-
-    print(np.shape(mu))
-    print(np.shape(C))
-    print("1")
-    cutpoint_0 = np.inf
-    while np.abs(cutpoint_0) > 5.0:
-        print(cutpoint_0)
-        Z = np.random.multivariate_normal(mu, C)
-        plt.figure()  # open new plotting window
-        plt.plot(X[:], Z[:])
-        plt.show()
-        epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
-        # Model latent variable responses
-        Y_true = epsilons + Z
-        sort_indeces = np.argsort(Y_true)
-        plt.scatter(X, Y_true)
-        plt.show()
-        # Sort the responses
-        Y_true = Y_true[sort_indeces]
-        X = X[sort_indeces]
-        X_k = []
-        Y_true_k = []
-        t_k = []
-        for k in range(K):
-            X_k.append(X[N_per_class * k:N_per_class * (k + 1)])
-            Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
-            t_k.append(k * np.ones(N_per_class, dtype=int))
-        # Find the first cutpoint and set it equal to 0.0
-        cutpoint_0_min = Y_true_k[0][-1]
-        cutpoint_0_max = Y_true_k[1][0]
-        print(cutpoint_0_max, cutpoint_0_min)
-        cutpoint_0 = np.mean([cutpoint_0_max, cutpoint_0_min])
-    Y_true = np.subtract(Y_true, cutpoint_0)
-    Y_true_k = np.subtract(Y_true_k, cutpoint_0)
-    for k in range(K):
-        plt.scatter(X_k[k], Y_true_k[k], color=colors[k])
-    plt.show()
-    Xs_k = np.array(X_k)
-    Ys_k = np.array(Y_true_k)
-    t_k = np.array(t_k, dtype=int)
-    X = Xs_k.flatten()
-    Y = Ys_k.flatten()
-    t = t_k.flatten()
-    # Prepare data
-    Xt = np.c_[Y, X, t]
-    print(np.shape(Xt))
-    np.random.shuffle(Xt)
-    Y_true = Xt[:, :1]
-    X = Xt[:, 1:D + 1]
-    t = Xt[:, -1]
-    print(np.shape(X))
-    print(np.shape(t))
-    print(np.shape(Y_true))
-    t = np.array(t, dtype=int)
-    print(t)
-    colors_ = [colors[i] for i in t]
-    print(colors_)
-    plt.scatter(X, Y_true, color=colors_)
-    plt.show()
-    return X_k, Y_true_k, X, Y_true, t
 
 
 def return_prob(b, t, K, gamma, noise_std, numerically_stable=True):
@@ -179,6 +20,7 @@ def return_prob(b, t, K, gamma, noise_std, numerically_stable=True):
         phi1 = norm.cdf((gamma[t] - b) / noise_std)
         phi2 = norm.cdf((gamma[t + 1] - b) / noise_std)
     return phi1 - phi2
+
 
 def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     """
@@ -809,4 +651,3 @@ def matrix_of_valuess(nu, K, N_test):
     # Tile along the rows, as they are the elements of interest
     Lambdas_Ts = np.tile(nu, (1, 1, K))
     return Lambdas_Ts  # (N_test, K, K)
-

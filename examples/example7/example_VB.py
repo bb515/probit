@@ -8,17 +8,15 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.estimators import VBMultinomialOrderedGPSS, VBMultinomialOrderedGP
+from probit.estimators import VBOrderedGPSS, VBOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
 import importlib.resources as pkg_resources
-from probit.utilities import generate_prior_data, generate_synthetic_data
-from . import data
+from probit.data.utilities import generate_prior_data, generate_synthetic_data, get_Y_trues, colors, datasets, metadata
 
 
 write_path = pathlib.Path()
-colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 
 
 def split(list, K):
@@ -266,7 +264,7 @@ def ordinal_VB_training(X_train, t_train, X_test, t_test, gamma_0, K, varphi_0=1
     print("theta_0", theta)
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = VBMultinomialOrderedGP(X_train, t_train, kernel)
+    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
     res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options={
         'maxiter':25})
     theta = res.x
@@ -322,8 +320,8 @@ def outer_loops():
             print(x_new)
             kernel = SEIso(x_new[0], x_new[1], sigma=sigma, tau=tau)
             # Initiate classifier
-            variational_classifier = VBMultinomialOrderedGP(X_train, t_train, kernel)
-            #variational_classifier = VBMultinomialOrderedGP(X, t, kernel)
+            variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+            #variational_classifier = VBOrderedGP(X, t, kernel)
             steps = 50
             y_0 = Y_true.flatten()
             m_0 = y_0
@@ -501,8 +499,8 @@ def test_plots(X_test, X_train, t_test, t_train, Y_true):
     tau = 10e-6
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = VBMultinomialOrderedGP(X_train, t_train, kernel)
-    #variational_classifier = VBMultinomialOrderedGP(X, t, kernel)
+    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+    #variational_classifier = VBOrderedGP(X, t, kernel)
     steps = 50
     y_0 = Y_true.flatten()
     m_0 = y_0

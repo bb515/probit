@@ -5,550 +5,28 @@ Variational inference implementation.
 import argparse
 import cProfile
 from io import StringIO
-#from pstats import Stats, SortKey
+from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.estimators import EPMultinomialOrderedGP
+from probit.estimators import EPOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
 from scipy.optimize import minimize
-from probit.utilities import generate_prior_data, generate_synthetic_data
-import importlib.resources as pkg_resources
+from probit.data.utilities import generate_prior_data, generate_synthetic_data, get_Y_trues, colors, datasets, metadata, load_data, load_data_synthetic
 import sys
 import time
+
+
 now = time.ctime()
-
 write_path = pathlib.Path()
-
-colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-
-
-def split(list, K):
-    """Split a list into quantiles."""
-    divisor, remainder = divmod(len(list), K)
-    return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
-
-datasets = [
-    "abalone",
-    "auto",
-    "diabetes",
-    "housing",
-    "machine",
-    "pyrim",
-    "stocks",
-    "triazines",
-    "wpbc"
-]
-
-
-plot_lims = {
-    "abalone": ((15.0, 65.0), (15.0, 70.0)),
-    "auto": ((15.0, 65.0), (15.0, 70.0)),
-    "diabetes": ((15.0, 65.0), (15.0, 70.0)),
-    "housing": ((15.0, 65.0), (15.0, 70.0)),
-    "machine": ((15.0, 65.0), (15.0, 70.0)),
-    "pyrim": ((15.0, 65.0), (15.0, 70.0)),
-    "stocks": ((15.0, 65.0), (15.0, 70.0)),
-    "triazines": ((15.0, 65.0), (15.0, 70.0)),
-    "wpbc": ((15.0, 65.0), (15.0, 70.0)),
-}
-
-
-def load_data(dataset, bins):
-    if dataset == "abalone":
-        from probit.data import abalone
-        with pkg_resources.path(abalone, 'abalone.npz') as path:
-            data_continuous = np.load(path)
-        D = 10
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.abalone import quantile
-            with pkg_resources.path(quantile, 'abalone.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            from probit.data.abalone import decile
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            with pkg_resources.path(decile, 'abalone.npz') as path:
-                data = np.load(path)
-    elif dataset == "auto":
-        from probit.data import auto
-        with pkg_resources.path(auto, 'auto.npz') as path:
-            data_continuous = np.load(path)
-        D = 7
-        varphi_0 = 2.0/D
-        noise_variance_0 = 2.0
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.auto import quantile
-            with pkg_resources.path(quantile, 'auto.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.auto import decile
-            with pkg_resources.path(decile, 'auto.npz') as path:
-                data = np.load(path)
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
-    elif dataset == "diabetes":
-        D = 2
-        from probit.data import diabetes
-        with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
-            data_continuous = np.load(path)
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-                "57.86": (
-                    np.array([-np.inf, -0.92761785, -0.71569034, -0.23952063, 0.05546283, np.inf]),
-                    7.0e-06,
-                    0.137
-                ),
-                "57.66": (
-                    [-np.inf, -0.96965513, -0.59439608, 0.10485131, 0.55336265, np.inf],
-                    7.05301883339537e-06,
-                    0.33582851890990895
-                ),
-                "56.47": (
-                    [-np.inf, -0.47585805, -0.41276548, -0.25253468, -0.15562599, np.inf],
-                    1.1701782815822784e-05,
-                    0.009451605099929043
-                ),
-                "53.07": (
-                    [-np.inf, -0.39296099, -0.34374783, -0.26326698, -0.20514771, np.inf],
-                    1.8099468519640467e-05,
-                    0.00813540519298387
-                ),
-            }
-            (gamma_0, varphi_0, noise_variance_0) = hyperparameters["57.66"]
-            from probit.data.diabetes import quantile
-            with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.diabetes import decile
-            with pkg_resources.path(decile, 'diabetes.data.npz') as path:
-                data = np.load(path)
-    elif dataset == "housing":
-        D = 13
-        varphi_0 = 2.0/D
-        noise_variance_0 = 2.0
-        from probit.data import bostonhousing
-        with pkg_resources.path(bostonhousing, 'housing.npz') as path:
-            data_continuous = np.load(path)
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.bostonhousing import quantile
-            with pkg_resources.path(quantile, 'housing.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.bostonhousing import decile
-            with pkg_resources.path(decile, 'housing.npz') as path:
-                data = np.load(path)
-    elif dataset == "machine":
-        D = 6
-        varphi_0 = 2.0 / D
-        noise_variance_0 = 2.0
-        from probit.data import machinecpu
-        with pkg_resources.path(machinecpu, 'machine.npz') as path:
-            data_continuous = np.load(path)
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.machinecpu import quantile
-            with pkg_resources.path(quantile, 'machine.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.machinecpu import decile
-            with pkg_resources.path(decile, 'machine.npz') as path:
-                data = np.load(path)
-    elif dataset == "pyrim":
-        from probit.data import pyrimidines
-        with pkg_resources.path(pyrimidines, 'pyrim.npz') as path:
-            data_continuous = np.load(path)
-        D = 27
-        varphi_0 = 2.0/D
-        noise_variance_0 = 2.0
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.pyrimidines import quantile
-            with pkg_resources.path(quantile, 'pyrim.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.pyrimidines import decile
-            with pkg_resources.path(decile, 'pyrim.npz') as path:
-                data = np.load(path)
-    elif dataset == "stocks":
-        from probit.data import stocksdomain
-        with pkg_resources.path(stocksdomain, 'stock.npz') as path:
-            data_continuous = np.load(path)
-        D = 9
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "NA1": (
-                    np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf]),
-                    0.03,
-                    0.0001
-                ),
-                "NA0" : (
-                    [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf],
-                    0.00045,
-                    0.01
-                ),
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["NA1"]
-            from probit.data.stocksdomain import quantile
-            with pkg_resources.path(quantile, 'stock.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.stocksdomain import decile
-            with pkg_resources.path(decile, 'stock.npz') as path:
-                data = np.load(path)
-    elif dataset == "triazines":
-        from probit.data import triazines
-        with pkg_resources.path(triazines, 'triazines.npz') as path:
-            data_continuous = np.load(path)
-        D = 60
-        varphi_0 = 2.0/D
-        noise_variance_0 = 2.0
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.triazines import quantile
-            with pkg_resources.path(quantile, 'triazines.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            data = np.load(write_path / "./data/10bin/triazines.npz")
-    elif dataset == "wpbc":
-        D = 32
-        varphi_0 = 2.0/D
-        noise_variance_0 = 2.0
-        from probit.data import wisconsin
-        with pkg_resources.path(wisconsin, 'wpbc.npz') as path:
-            data_continuous = np.load(path)
-        data_continuous = np.load(write_path / "./data/continuous/wpbc.npz")
-        if bins == "quantile":
-            K = 5
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.wisconsin import quantile
-            with pkg_resources.path(quantile, 'wpbc.npz') as path:
-                data = np.load(path)
-        elif bins == "decile":
-            K = 10
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.wisconsin import decile
-            with pkg_resources.path(decile, 'wpbc.npz') as path:
-                data = np.load(path)
-            K = 10
-    X_trains = data["X_train"]
-    t_trains = data["t_train"]
-    X_tests = data["X_test"]
-    t_tests = data["t_test"]
-    # Python indexing
-    t_tests = t_tests - 1
-    t_trains = t_trains - 1
-    t_tests = t_tests.astype(int)
-    t_trains = t_trains.astype(int)
-    # Number of splits
-    N_splits = len(X_trains)
-    assert len(X_trains) == len(X_tests)
-    X_true = data_continuous["X"]
-    Y_true = data_continuous["y"]  # this is not going to be the correct one(?) - see next line
-    # Y_trues = get_Y_trues(X_trains, X_true, Y_true)
-    return X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
-
-
-def get_Y_trues(X_trains, X_true, Y_true):
-    """Get Y_trues (N/K, K) from full array of true y values."""
-    Y_trues = []
-    for k in range(20):
-        y = []
-        for i in range(len(X_trains[0, :, :])):
-            for j, two in enumerate(X_true):
-                one = X_trains[k, i]
-                if np.allclose(one, two):
-                    y.append(Y_true[j])
-        Y_trues.append(y)
-    Y_trues = np.array(Y_trues)
-    return Y_trues
-
-
-def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, scale=1.0):
-    """Generate synthetic dataset."""
-    # Generate the synethetic data
-    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
-    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
-        N_per_class, K, D, kernel, noise_variance=noise_variance)
-    np.savez(
-        write_path / "data_tertile_prior.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
-    return X_k, Y_true, X, Y_true, t, gamma_0
-
-
-def load_data_synthetic(dataset, data_from_prior, plot=False):
-    """Load synethetic data."""
-    if dataset == "tertile":
-        from probit.data import tertile
-        K = 3
-        D = 1
-        if data_from_prior == True:
-            with pkg_resources.path(tertile, 'tertile_prior.npz') as path:
-                data = np.load(path)
-            N_per_class = 30
-            X_k = data["X_k"]  # Contains (90, 3) array of binned x values
-            Y_true_k = data["Y_k"]  # Contains (90, 3) array of binned y values
-            X = data["X"]  # Contains (90,) array of x values
-            t = data["t"]  # Contains (90,) array of ordinal response variables, corresponding to Xs values
-            Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-            X_true = X
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-                "true": (
-                    data["gamma_0"],  # [-np.inf, - 0.43160987, 0.2652492, np.inf]
-                    30.0,
-                    0.1
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-        else:
-            with pkg_resources.path(tertile, 'tertile.npz') as path:
-                data = np.load(path)
-            N_per_class = 64
-            X_k = data["X_k"]  # Contains (172, 3) array of binned x values
-            Y_true_k = data["Y_k"]  # Contains (172, 3) array of binned y values
-            X = data["X"]  # Contains (172,) array of x values
-            t = data["t"]  # Contains (172,) array of ordinal response variables, corresponding to Xs values
-            Y_true = data["Y"]  # Contains (172,) array of y values, corresponding to Xs values
-            X_true = X
-            N_total = int(N_per_class * K)
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-                "true": (
-                    np.array([-np.inf, 0.0, 2.29, np.inf]),
-                    30.0,
-                    0.1
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-    elif dataset == "septile":
-        K = 7
-        D = 1
-        from probit.data import septile
-        with pkg_resources.path(septile, 'septile.npz') as path:
-            data = np.load(path)
-        N_per_class = 32
-        # The scale was not 1.0, it was 20.0(?)
-        scale = 20.0
-        X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-        Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-        X = data["X"]  # Contains (1792,) array of x values
-        t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values
-        X_true = X
-        N_total = int(N_per_class * K)
-        hyperparameters = {
-            "init": (
-                np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                          -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, np.inf]),
-                0.5 / D,
-                1.0
-            ),
-            "true": (
-                np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf]),
-                30.0,
-                0.1
-            ),
-        }
-        gamma_0, varphi_0, noise_variance_0 = hyperparameters["True"]
-    if plot:
-        # Plot
-        colors_ = [colors[i] for i in t]
-        plt.scatter(X, Y_true, color=colors_)
-        plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$y$", fontsize=16)
-        plt.show()
-        plt.close()
-        # Plot from the binned arrays
-        for k in range(K):
-            plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
-        plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-        plt.legend()
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$y$", fontsize=16)
-        plt.show()
-        plt.close()
-    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
 
 
 def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_variance, K, D, scale):
     """Plots for Chu data."""
     kernel = SEIso(varphi, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
-    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     steps = variational_classifier.N
     error = np.inf
     iteration = 0
@@ -569,7 +47,7 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
     t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
-    (xlims, ylims) = plot_lims[dataset]
+    (xlims, ylims) =  metadata[dataset]["plot_lims"]
     N = 75
     x1 = np.linspace(xlims[0], xlims[1], N)
     x2 = np.linspace(ylims[0], ylims[1], N)
@@ -590,9 +68,7 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
         # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
         plt.xlabel(r"$x_1$", fontsize=16)
         plt.ylabel(r"$x_2$", fontsize=16)
-        plt.title("Contour plot - Expectation propagation")
         plt.savefig("contour_EP_{}.png".format(i))
-        plt.show() 
         plt.close()
     return fx
 
@@ -602,7 +78,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
     """Plots for synthetic data."""
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = EPMultinomialOrderedGP(X, t, kernel)
+    variational_classifier = EPOrderedGP(X, t, kernel)
     steps = variational_classifier.N
     error = np.inf
     iteration = 0
@@ -621,7 +97,6 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         plt.scatter(X_true, Y_true)
         plt.ylim(-3, 3)
         plt.savefig("scatter_versus_posterior_mean.png")
-        plt.show() 
         plt.close()
         print("iteration {}, error={}".format(iteration, error / steps))
     weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
@@ -641,8 +116,6 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         plt.ylim(0.0, 1.0)
         plt.xlabel(r"$x$", fontsize=16)
         plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
-        plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
-                  .format(x_lims[0], x_lims[1]))
         plt.stackplot(x, Z.T,
                       labels=(
                           r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$"),
@@ -653,8 +126,8 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         for k in range(K):
             plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, facecolors=colors[k],
                         edgecolors='white')
-        plt.savefig("cumulative_stackplot.png")
-        plt.show() 
+        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].png"
+                  .format(x_lims[0], x_lims[1]))
         plt.close()
     elif dataset == "septile":
         x_lims = (-0.5, 1.5)
@@ -668,8 +141,6 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         plt.ylim(0.0, 1.0)
         plt.xlabel(r"$x$", fontsize=16)
         plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
-        plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
-                  .format(x_lims[1], x_lims[0]))
         plt.stackplot(x, Z.T,
                       labels=(
                           r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$", r"$p(t=3|x, X, t)$",
@@ -682,8 +153,8 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         for i in range(K):
             plt.scatter(
                 X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
-        plt.savefig("cumulative_stackplot.png")
-        plt.show()
+        plt.savefig("Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}].png"
+                  .format(x_lims[1], x_lims[0]))
         plt.close()
     return fx
 
@@ -695,7 +166,7 @@ def EP_testing(
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     print("varphi", kernel.varphi, varphi)
     # Initiate classifier
-    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     steps = variational_classifier.N
     error = np.inf
     iteration = 0
@@ -722,7 +193,7 @@ def EP_testing(
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
-    (x_lims, y_lims) = plot_lims[dataset]
+    (x_lims, y_lims) = metadata[dataset]["plot_lims"]
 
     N = 75
     x1 = np.linspace(x_lims[0], x_lims[1], N)
@@ -758,9 +229,7 @@ def EP_testing(
         # plt.ylim(0, 2)
         plt.xlabel(r"$x_1$", fontsize=16)
         plt.ylabel(r"$x_2$", fontsize=16)
-        plt.title("Contour plot - Expectation propagation")
         plt.savefig("contour_EP_{}.png".format(i))
-        plt.show() 
         plt.close()
     return fx, zero_one, predictive_likelihood, mean_absolute_error
 
@@ -780,7 +249,7 @@ def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=
     theta = np.array(theta)
     kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
-    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
     res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options = {
         'ftol': 1e-5,
@@ -814,7 +283,7 @@ def EP_training_varphi(X_train, t_train, varphi_0=1e-3, scale=1.0, sigma=10e-6, 
     print("theta_0", theta)
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
     res = minimize(variational_classifier.hyperparameter_training_step_varphi, theta, method='L-BFGS-B', jac=True,
                    options={'maxiter':10})
@@ -947,7 +416,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
             print(x_new)
             kernel = SEIso(x_new[0], x_new[1], sigma=sigma, tau=tau)
             # Initiate classifier
-            variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+            variational_classifier = EPOrderedGP(X_train, t_train, kernel)
             steps = 50
             y_0 = Y_true.flatten()
             m_0 = y_0
@@ -999,9 +468,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # axs.set_yscale('log')
         # plt.xlabel(r"$\log{\varphi}$", fontsize=16)
         # plt.ylabel(r"$\log{s}$", fontsize=16)
-        # plt.title("Contour plot - Predictive likelihood of test set")
-        # plt.savefig("contour_predictive_likelihood.png")
-        # plt.show() 
+        # plt.savefig("Contour plot - Predictive likelihood of test set.png")
         # plt.close()
         # fig, axs = plt.subplots(1, figsize=(6, 6))
         # plt.contourf(x1, x2, bounds_Z)
@@ -1010,9 +477,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # axs.set_yscale('log')
         # plt.xlabel(r"$\log{\varphi}$", fontsize=16)
         # plt.ylabel(r"$\log{s}$", fontsize=16)
-        # plt.title("Contour plot - Variational lower bound")
-        # plt.savefig("variational_bound.png")
-        # plt.show() 
+        # plt.savefig("Contour plot - Variational lower bound.png")
         # plt.close()
         # fig, axs = plt.subplots(1, figsize=(6, 6))
         # plt.contourf(x1, x2, zero_one_Z)
@@ -1021,9 +486,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
         # axs.set_yscale('log')
         # plt.xlabel(r"$\log{\varphi}$", fontsize=16)
         # plt.ylabel(r"$\log{s}$", fontsize=16)
-        # plt.title("Contour plot - mean zero-one accuracy")
-        # plt.savefig("mean_zero_one.png")
-        # plt.show() 
+        # plt.savefig("Contour plot - mean zero-one accuracy.png")
         # plt.close()
     avg_max_bound = np.average(np.array(max_bounds))
     std_max_bound = np.std(np.array(max_bounds))
@@ -1072,9 +535,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.title("Contour plot - Predictive likelihood of test set")
-    plt.savefig("predictive_likelihood.png")
-    plt.show() 
+    plt.savefig("Contour plot - Predictive likelihood of test set.png")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_bounds_Z)
@@ -1083,9 +544,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.title("Contour plot - Variational lower bound")
-    plt.savefig("variational_bound.png")
-    plt.show() 
+    plt.savefig("Contour plot - Variational lower bound.png")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_zero_one_Z)
@@ -1094,9 +553,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.title("Contour plot - mean zero-one accuracy")
-    plt.savefig("mean_zero_one.png")
-    plt.show() 
+    plt.savefig("Contour plot - mean zero-one accuracy.png")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_mean_abs_Z)
@@ -1105,9 +562,7 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.title("Contour plot - mean absolute error accuracy")
-    plt.savefig("mean_absolute.png")
-    plt.show() 
+    plt.savefig("Contour plot - mean absolute error accuracy.png")
     plt.close()
 
 def grid_synthetic(X_train, t_train, range_x1, range_x2,
@@ -1119,35 +574,34 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
     varphi_0 = 1.0
     kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(
         range_x1, range_x2, res, gamma_0=gamma, varphi_0=varphi, noise_variance_0=noise_variance)
 
     if ylabel is None:
         plt.plot(x, Z)
         plt.savefig("grid_over_hyperparameters.png")
-        plt.show()
         plt.close()
         # norm = np.abs(np.max(grad))
         # u = grad / norm
         plt.plot(x, Z)
         plt.xscale(xscale)
-        plt.savefig("bound.png")
         plt.ylabel(r"\mathcal{F}(\varphi)")
-        plt.show()
+        plt.savefig("bound.png")
         plt.close()
         plt.plot(x, grad)
         plt.xscale(xscale)
         plt.xlabel(xlabel)
         plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
         plt.savefig("grad.png")
-        plt.show()
+        plt.close()
     else:
         fig, axs = plt.subplots(1, figsize=(6, 6))
         ax = plt.axes(projection='3d')
         ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
                         cmap='viridis', edgecolor='none')
-        plt.show()
+        plt.xscale(xscale)
+        plt.yscale(yscale)
         plt.savefig("grid_over_hyperparameters.png")
         plt.close()
         norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
@@ -1162,9 +616,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.yscale(yscale)
         plt.xlabel(xlabel, fontsize=16)
         plt.ylabel(ylabel, fontsize=16)
-        plt.title("Contour plot - EP lower bound on the log likelihood")
-        plt.savefig("contour_bound.png")
-        plt.show()
+        plt.savefig("Contour plot - EP lower bound on the log likelihood.png")
         plt.close()
 
 
@@ -1188,7 +640,7 @@ def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi,
     tau = 10e-6
     kernel = SEIso(varphi, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
+    variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     steps = 50
     y_0 = Y_true.flatten()
     m_0 = y_0
@@ -1242,8 +694,7 @@ def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi,
             # plt.ylim(0, 2)
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
-            plt.title("Contour plot - Variational")
-            plt.show() 
+            plt.savefig("Contour plot - Variational.png")
             plt.close()
 
 
@@ -1263,6 +714,9 @@ def main():
     bins = args.bins
     data_from_prior = args.data_from_prior
     write_path = pathlib.Path(__file__).parent.absolute()
+    if args.profile:
+        profile = cProfile.Profile()
+        profile.enable()
     #sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets:
         X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(
@@ -1282,12 +736,14 @@ def main():
         # # Two of the cutpoints
         # grid_synthetic(X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=1.0)
         # test_synthetic(dataset, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
-
     if args.profile:
-        profile = cProfile.Profile()
-        profile.enable()
+        profile.disable()
+        s = StringIO()
+        stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
+        stats.print_stats(.05)
+        print(s.getvalue())
     #sys.stdout.close()
+
 
 if __name__ == "__main__":
     main()
-
