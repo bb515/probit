@@ -783,10 +783,11 @@ def EP_training(X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
     # Use L-BFGS-B
     res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options = {
-        'ftol': 1e-3,
+        'ftol': 1e-5,
         'maxfun': 20})
     theta = res.x
-    noise_variance = np.exp(theta[0])
+    noise_std = np.exp(theta[0])
+    noise_variance = noise_std**2
     gamma = np.empty((K + 1,))  # including all of the cutpoints
     gamma[0] = np.NINF
     gamma[-1] = np.inf
@@ -1109,7 +1110,8 @@ def SSouter_loops(X_trains, t_trains, X_tests, t_tests, Y_true, gamma_0):
     plt.show() 
     plt.close()
 
-def grid_synthetic(X_train, t_train, gamma, range_log_varphi, range_log_noise_std, scale=1.0):
+def grid_synthetic(X_train, t_train, range_x1, range_x2,
+                   gamma=None, varphi=None, noise_variance=None, scale=1.0):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     sigma = 10e-6
     tau = 10e-6
@@ -1118,31 +1120,38 @@ def grid_synthetic(X_train, t_train, gamma, range_log_varphi, range_log_noise_st
     kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPMultinomialOrderedGP(X_train, t_train, kernel)
-    Z, grad, x, y = variational_classifier.grid_over_hyperparameters(
-        gamma, range_log_varphi, range_log_noise_std, res)
-    fig, axs = plt.subplots(1, figsize=(6, 6))
-    ax = plt.axes(projection='3d')
-    ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
-                    cmap='viridis', edgecolor='none')
-    ax.set_title('surface')
-    plt.show() 
-    plt.close()
-    norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
-    u = grad[:, 0] / norm
-    v = grad[:, 1] / norm
-    fig, ax = plt.subplots(1, 1)
-    ax.set_aspect(1)
-    ax.contourf(x, y, np.log(Z), 100, cmap='viridis', zorder=1)
-    ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
-    ax.plot(0.1, 30, 'm')
-    plt.xscale("log")
-    plt.yscale("log")
-    plt.xlabel(r"$\sigma$", fontsize=16)
-    plt.ylabel(r"$\varphi$", fontsize=16)
-    plt.title("Contour plot - EP lower bound on the log likelihood")
-    plt.savefig("contour_bound.png")
-    plt.show() 
-    plt.close()
+    Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(
+        range_x1, range_x2, res, gamma_0=gamma, varphi_0=varphi, noise_variance_0=noise_variance)
+
+    if ylabel is None:
+        plt.plot(x, Z)
+        plt.savefig("grid_over_hyperparameters.png")
+        plt.show()
+        plt.close()
+    else:
+        fig, axs = plt.subplots(1, figsize=(6, 6))
+        ax = plt.axes(projection='3d')
+        ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
+                        cmap='viridis', edgecolor='none')
+        plt.show()
+        plt.savefig("grid_over_hyperparameters.png")
+        plt.close()
+        norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
+        u = grad[:, 0] / norm
+        v = grad[:, 1] / norm
+        fig, ax = plt.subplots(1, 1)
+        ax.set_aspect(1)
+        ax.contourf(x, y, np.log(Z), 100, cmap='viridis', zorder=1)
+        ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
+        ax.plot(0.1, 30, 'm')
+        plt.xscale(xscale)
+        plt.yscale(yscale)
+        plt.xlabel(xlabel, fontsize=16)
+        plt.ylabel(ylabel, fontsize=16)
+        plt.title("Contour plot - EP lower bound on the log likelihood")
+        plt.savefig("contour_bound.png")
+        plt.show()
+        plt.close()
 
 
 def test_synthetic(dataset, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
@@ -1157,6 +1166,7 @@ def test_synthetic(dataset, X_train, t_train, X_true, Y_true, gamma_0, varphi_0,
         varphi=varphi, noise_variance=noise_variance, K=K, D=D, scale=scale)
     print("fx={}".format(fx))
     return fx
+
 
 def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance, K):
     grid = np.ogrid[0:len(X_test)]
@@ -1239,7 +1249,7 @@ def main():
     bins = args.bins
     data_from_prior = args.data_from_prior
     write_path = pathlib.Path(__file__).parent.absolute()
-    sys.stdout = open("{}.txt".format(now), "w")
+    #sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets:
         X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(
             dataset, bins)
@@ -1251,13 +1261,18 @@ def main():
     else:
         X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data_synthetic(dataset, data_from_prior)
         # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
-        # grid_synthetic(X, t, gamma_0, [-2, 2], [-1, 1], scale=1.0)
-        test_synthetic(dataset, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
+        # varphi and std
+        # grid_synthetic(X, t, [-1, 1], [-2, 2], gamma=gamma_0, scale=1.0)
+        # # Just varphi
+        grid_synthetic(X, t, [-2, 2], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=1.0)
+        # # Two of the cutpoints
+        # grid_synthetic(X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=1.0)
+        # test_synthetic(dataset, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
 
     if args.profile:
         profile = cProfile.Profile()
         profile.enable()
-    sys.stdout.close()
+    #sys.stdout.close()
 
 if __name__ == "__main__":
     main()

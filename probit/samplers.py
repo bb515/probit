@@ -85,6 +85,7 @@ class Sampler(ABC):
 
 class GibbsMultinomialGP(Sampler):
     """
+    TODO: was refactored to factor out the cholesky decomposition on 13/07 without testing
     Multinomial Probit regression using Gibbs sampling with GP priors. Inherits the sampler ABC
     """
     def __init__(self, *args, **kwargs):
@@ -155,15 +156,15 @@ class GibbsMultinomialGP(Sampler):
             if self.kernel.general_kernel:
                 for k in range(self.K):
                     mean = self.cov[k] @ Y.T[k]
-                    # TODO: Factorize Cholesky
-                    m_k = multivariate_normal.rvs(mean=mean, cov=self.cov[k])
+                    m_k = mean + self.cov_cholesky[k] @ norm.rvs(size=self.N)
+                    # m_k = multivariate_normal.rvs(mean=mean, cov=self.cov[k])
                     # Add sample to the M vector
                     M_T[k, :] = m_k
             else:
                 for k in range(self.K):
-                    mean = self.cov @ Y.T[k]  # TODO: Note the different notation to the paper.
-                    # TODO: Factorize Cholesky
-                    m_k = multivariate_normal.rvs(mean=mean, cov=self.cov)
+                    mean = self.cov @ Y.T[k]
+                    m_k = mean + self.cov_cholesky @ norm.rvs(size=self.N)
+                    # m_k = multivariate_normal.rvs(mean=mean, cov=self.cov)
                     # Add sample to the M vector
                     M_T[k, :] = m_k
             M = M_T.T
@@ -370,6 +371,7 @@ class GibbsBinomial(Sampler):
         self.K = int(np.max(t_train) + 1)  # the number of classes
         self.t_train = t_train
         self.cov = np.linalg.inv(self.X_train_T @ self.X_train)  # From Mark's lecture notes
+        self.cov_cholesky = np.linalg.cholesky(self.cov)
 
     def _sample_initiate(self, beta_0):
         """Initialise variables for the sample method."""
@@ -412,8 +414,8 @@ class GibbsBinomial(Sampler):
                 Y.append(yi)
             # Calculate statistics, then sample other conditional
             mean = self.cov @ self.X_train_T @ np.array(Y)
-            # TODO: Factorize cholesky
-            beta = multivariate_normal.rvs(mean=mean, cov=self.cov)
+            beta = mean + self.cov_cholesky @ norm.rvs(size=self.N)
+            # beta = multivariate_normal.rvs(mean=mean, cov=self.cov)
             beta_samples.append(beta)
             Y_samples.append(Y)
         beta_samples = np.array(beta_samples, dtype=np.float64)
@@ -451,7 +453,9 @@ class GibbsMultinomialOrderedGPTemp(Sampler):
     def _sample_initiate(self, m_0, y_0, gamma_0):
         """
         Initialise variables for the sample method.
-        TODO: 04/06/2021 The zero cutpoint is not necessary, so in this 'Temp' version, I recmove it.
+        TODO: 13/07/2021 Got around to removing the zero cutpoint, and consider implimenting Elliptical slice sampling
+        # Try to get code for Elliptical slice sampling
+        TODO: 04/06/2021 The zero cutpoint is not necessary, so in this 'Temp' version, I remove it.
         TODO: 03/03/2021 The first Gibbs step is not robust to a poor choice of m_0 (it will never sample a y_1 within
             range of the cutpoints). Idea: just initialise y_0 and m_0 close to another.
             Start with an initial guess for m_0 based on a linear regression and then initialise y_0 with random N(0,1)
@@ -1275,3 +1279,99 @@ class GibbsMultinomialOrderedGP(Sampler):
                 return self._predict_vector(y_samples, gamma_samples, X_test)
             else:
                 return self._predict_scalar(y_samples, gamma_samples, X_test)
+
+
+class EllipticalSliceMultinomialOrderedGP(Sampler):
+    """
+    TODO: was refactored to factor out the cholesky decomposition on 13/07 without testing
+    Multinomial Probit regression using Gibbs sampling with GP priors. Inherits the sampler ABC
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        Create an :class:`Gibbs_GP` sampler object.
+
+        :returns: An :class:`Gibbs_GP` object.
+        """
+        super().__init__(*args, **kwargs)
+        self.I = np.eye(self.K)
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        self.Sigma = np.linalg.inv(np.eye(self.N) + self.C)  # Takes a different notation than in paper
+        self.cov = self.C @ self.Sigma
+        self.cov_cholesky = np.empty(np.size(self.cov))
+        if self.kernel.general_kernel:
+            for k in range(self.K):
+                self.cov_cholesky[k] = np.linalg.cholesky(self.cov[k])
+        else:
+            self.cov_cholesky = np.linalg.cholesky(self.cov)
+
+    def _sample_initiate(self, M_0):
+        """Initialise variables for the sample method."""
+        K = np.shape(M_0)[1]
+        if K != self.K:
+            raise ValueError("Shape of axis 0 of M_0 must equal K (the number of classes)"
+                             " (expected {}, got {})".format(
+                self.K, K))
+        M_samples = []
+        Y_samples = []
+        return M_0, M_samples, Y_samples
+
+    def _elliptical(self, xx, chol_Sigma, log_like_fn, cur_log_like, angle_range):
+        """
+        Elliptical slice Gaussian prior posterior update attributed to Iain Murray, September 2009.
+`
+        -------------------------------------------------------------------------------
+        The standard MIT License for gppu_elliptical.m and other code in this
+        distribution that was written by Iain Murray and/or Ryan P. Adams.
+        http://www.opensource.org/licenses/mit-license.php
+        -------------------------------------------------------------------------------
+        Copyright (c) 2010 Iain Murray, Ryan P. Adams
+
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to
+        deal in the Software without restriction, including without limitation the
+        rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+
+        The above copyright notice and this permission notice shall be included in
+        all copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+        FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+        IN THE SOFTWARE.
+        -------------------------------------------------------------------------------
+
+        Here is the original docstring from the original matlab implementation by Iain Murray:
+        % GPPU_ELLIPTICAL Gaussian prior posterior update - slice sample on random ellipses
+        %
+        % [xx, cur_log_like] = gppu_elliptical(xx, chol_Sigma, log_like_fn[, cur_log_like])
+        %
+        % A Dx1 vector xx with prior N(0, Sigma) is updated leaving the posterior
+        % distribution invariant.
+        %
+        % Inputs:
+        % xx Dx1 initial vector (can be any array with D elements)
+        % chol_Sigma DxD chol(Sigma).Sigma is the prior covariance of xx
+        % log_like_fn @ fn log_like_fn(xx) returns 1x1 log likelihood
+        % cur_log_like 1x1 Optional: log_like_fn(xx) of initial vector.
+        % You can omit this argument or pass [].
+        % angle_range 1x1 Default 0: explore whole ellipse with break point at
+        % first rejection.Set in (0, 2 * pi] to explore a bracket of
+        % the specified width centred uniformly at randomly.
+        %
+        % Outputs:
+        % xx Dx1(size matches input) perturbed vector
+        % cur_log_like 1x1 log_like_fn(xx) of final vector
+        %
+        % See also: GPPU_UNDERRELAX, GPPU_LINESLICE
+        %
+        % Iain Murray, September 2009
+        """
+        N = len(xx)
+
+

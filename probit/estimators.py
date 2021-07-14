@@ -2029,7 +2029,8 @@ class VBMultinomialOrderedGP(Estimator):
         :return: (gamma, noise_variance) the updated cutpoints and noise variance.
         :rtype: (2,) tuple
         """
-        noise_variance = np.exp(theta[0])
+        noise_std = np.exp(theta[0])
+        noise_variance = noise_std**2
         gamma = np.empty((self.K + 1,))  # including all of the cutpoints
         gamma[0] = np.NINF
         gamma[-1] = np.inf
@@ -2769,6 +2770,7 @@ class EPMultinomialOrderedGP(Estimator):
         :return: varphi
         :rtype: float
         """
+        # Note that we are just training over varphi here, so theta is only as large as varphi
         if self.kernel.general_kernel and self.kernel.ARD_kernel:
             # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
             # and lengthscales parameter for each dimension and class
@@ -2788,7 +2790,7 @@ class EPMultinomialOrderedGP(Estimator):
 
         :arg theta: The set of (log-)hyperparameters
             .. math::
-                [\log{\varphi}, \log(\sigma)],
+                [\log(\sigma), \log{\varphi}],
 
             where :math:`\sigma` is the noise standard deviation, :math:`\b_{1}` is the first cutpoint,
             :math:`\Delta_{l}` is the :math:`l`th cutpoint interval, :math:`\varphi` is the single shared lengthscale
@@ -2800,30 +2802,76 @@ class EPMultinomialOrderedGP(Estimator):
         if self.kernel.general_kernel and self.kernel.ARD_kernel:
             # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
             # and lengthscales parameter for each dimension and class
-            varphi = np.exp(np.reshape(theta[0:self.K + self.K * self.D], (self.K, self.D)))
+            noise_std = np.exp(theta[0])
+            noise_variance = noise_std**2
+            varphi = np.exp(np.reshape(theta[1:1 + self.K * self.D], (self.K, self.D)))
         else:
             # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
             # and a single, shared lengthscale parameter
-            varphi = np.exp(theta[0])
+            noise_std = np.exp(theta[0])
+            noise_variance = noise_std**2
+            varphi = np.exp(theta[1])
         # Update prior covariance
         self.kernel.hyperparameter_update(varphi=varphi)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        noise_std = np.exp(theta[1])
-        noise_variance = noise_std**2
         return varphi, noise_variance
 
-    def grid_over_hyperparameters(self, gamma, range_log_varphi,  range_log_noise_std,
-                                  res, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None,
-                                  precision_EP_0=None, amplitude_EP_0=None, first_step=1, write=False, verbose=False):
-        """Return meshgrid values of fx over hyperparameter space."""
+    def grid_over_hyperparameters(self, range_x1, range_x2, res, gamma_0=None, varphi_0=None, noise_variance_0=None,
+                                  posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
+                                  amplitude_EP_0=None, first_step=1, write=False, verbose=False):
+        """
+        Return meshgrid values of fx and directions of gx over hyperparameter space.
+
+        The particular hyperparameter space is inferred from the user inputs.
+        """
         steps = self.N
-        log_noise_stds = np.logspace(range_log_noise_std[0], range_log_noise_std[1], res)
-        log_varphis = np.logspace(range_log_varphi[0], range_log_varphi[1], res)
-        xx, yy = np.meshgrid(log_noise_stds, log_varphis)
-        Phi_new = np.dstack((xx, yy))
-        Phi_new = Phi_new.reshape((len(log_noise_stds) * len(log_varphis), 2))
-        fxs = np.empty(len(Phi_new))
-        gxs = np.empty((len(Phi_new), 2))
+        # Infer the hyperparameter space to grid over
+        if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
+            gamma = gamma_0
+            # Grid over log varphi and log noise_std
+            xlabel = r"$\sigma$"
+            ylabel = r"$\varphi$"
+            xscale = "log"
+            yscale = "log"
+            x1s = np.logspace(range_x1[0], range_x1[1], res)
+            x2s = np.logspace(range_x2[0], range_x2[1], res)
+            xx, yy = np.meshgrid(x1s, x2s)
+            Phi_new = np.dstack((xx, yy))
+            Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty((len(Phi_new), 2))
+        elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
+            gamma = gamma_0
+            noise_variance = noise_variance_0
+            # Grid over log varphi only
+            xlabel = r"$\varphi$"
+            ylabel = None
+            xscale = "log"
+            yscale = None
+            x1s = np.logspace(range_x1[0], range_x1[1], res)
+            Phi_new = x1s
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty(len(Phi_new))
+            print(len(Phi_new))
+        elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
+            gamma = gamma_0
+            noise_variance = noise_variance_0
+            varphi = varphi_0
+            # Grid first two gamma variables
+            xlabel = r"$\gamma_{1}$"
+            ylabel = r"$\gamma_{2} - \gamma{1}$"
+            xscale = "linear"
+            yscale = "log"
+            x1s = np.linspace(range_x1[0], range_x1[1], res)
+            x2s = np.logspace(range_x2[0], range_x2[1], res)
+            xx, yy = np.meshgrid(x1s, x2s)
+            Phi_new = np.dstack((xx, yy))
+            Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty(len(Phi_new))
+        else:
+            raise ValueError("Couldn't infer what you wanted to plot from the input arguments (gamma_0={}, varphi_0={}, noise_variance_0={})".format(
+                gamma_0, varphi_0, noise_variance_0))
         error = np.inf
         posterior_mean = posterior_mean_0
         Sigma = Sigma_0
@@ -2832,21 +2880,37 @@ class EPMultinomialOrderedGP(Estimator):
         amplitude_EP = amplitude_EP_0
         intervals = gamma[2:self.K] - gamma[1:self.K - 1]
         for i, phi in enumerate(Phi_new):
-            noise_variance = phi[0]**2
-            varphi = phi[1]
-            # Update prior covariance
-            self.kernel.hyperparameter_update(varphi=varphi)
-            self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+            if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
+                noise_variance = phi[0]**2
+                varphi = phi[1]
+                # Update prior covariance
+                self.kernel.hyperparameter_update(varphi=varphi)
+                self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+            elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
+                varphi = phi
+                # Update prior covariance
+                self.kernel.hyperparameter_update(varphi=varphi)
+                self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+            elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
+                gamma[1] = phi[0]
+                gamma[2] = phi[1] + phi[0]
+                # noise_variance = noise_variance
+                # varphi = varphi
+            iteration = 0
             while error / steps > self.EPS**2:
+                iteration += 1
                 (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
                  precision_EP, amplitude_EP, containers) = self.estimate(
                     steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
                     mean_EP_0=mean_EP, precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
                     first_step=first_step, write=write)
+                if verbose:
+                    print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
             weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(
                 precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-            (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs, approximate_marginal_likelihoods) = containers
+            (posterior_means, Sigmas, mean_EPs, precision_EPs,
+             amplitude_EPs, approximate_marginal_likelihoods) = containers
             # Try optimisation routine
             t1, t2, t3, t4, t5 = self.compute_integrals(
                 gamma, Sigma, precision_EP, posterior_mean, noise_variance)
@@ -2854,7 +2918,12 @@ class EPMultinomialOrderedGP(Estimator):
             fxs[i] = fx
             gx = self.evaluate_function_gradient(
                 intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
-            gxs[i, :] = gx[[0, -1]]
+            if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
+                gxs[i, :] = gx[[0, -1]]
+            elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
+                gxs[i] = gx[-1]
+            elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
+                gxs[i, :] = gx[[1, 2]]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
                 print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
@@ -2865,7 +2934,12 @@ class EPMultinomialOrderedGP(Estimator):
             mean_EP = mean_EP_0
             precision_EP = precision_EP_0
             amplitude_EP = amplitude_EP_0
-        return fxs.reshape((len(log_noise_stds), len(log_varphis))), gxs, xx, yy
+        if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
+            return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
+        elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
+            return fxs, gxs, xx, yy, xlabel, ylabel, xscale, yscale
+        elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
+            return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
 
     def hyperparameter_training_step_not_gamma(
             self, theta,
@@ -3013,7 +3087,8 @@ class EPMultinomialOrderedGP(Estimator):
                 precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, first_step=first_step, write=write)
             if verbose:
                 print("({}), error={}".format(iteration, error))
-        weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+        weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(
+            precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs, approximate_marginal_likelihoods) = containers
         # Try optimisation routine
         t1, t2, t3, t4, t5 = self.compute_integrals(
@@ -3083,7 +3158,7 @@ class EPMultinomialOrderedGP(Estimator):
         # For gx[0] -- ln\sigma
         gx[0] += np.sum(t5 - t4)
         # gx[0] *= -0.5 * noise_variance  # This is not what is written in the paper. It is a typo in Chu code
-        gx[0] *= np.sqrt(noise_variance)
+        gx[0] *= -np.sqrt(noise_variance)
         # For gx[1] -- \b_1
         gx[1] += np.sum(t3 - t2)
         # For gx[2] -- ln\Delta^r
