@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
 from probit.kernels import SEIso
 from scipy.optimize import minimize
+import warnings
+import time
 
 
 # For plotting
@@ -29,60 +31,76 @@ metadata = {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (4177, 10),
         "init": None,
+        "max_sec": 500,
     },
     "auto": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (392, 7),
         "init": None,
+        "max_sec": 100,
     },
     "diabetes": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (43, 2),
         "init": None,
+        "max_sec": 100,
     },
     "housing": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (506, 13),
         "init": None,
+        "max_sec": 100,
     },
     "machine": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (209, 6),
         "init": None,
+        "max_sec":100,
     },
     "pyrim": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (74, 27),
         "init": None,
+        "max_sec":100,
     },
     "stocks": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (950, 9),
         "init": None,
+        "max_sec":500,
     },
     "triazines": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (186, 60),
         "init": None,
+        "max_sec": 100,
     },
     "wpbc": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
-        "size": (194, 32,),
+        "size": (194, 32),
         "init": None,
+        "max_sec":100,
+    },
+    "tertile": {
+        "plot_lims": (-0.5, 1.5),
+        "size": (90, 3),
+        "init": None,
+        "max_sec":500,
+    },
+    "septile": {
+        "plot_lims": (-0.5, 1.5),
+        "size": (256, 7),
+        "init": None,
+        "max_sec":500,
     },
 }
 
 
-def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0,
-        method='L-BFGS-B', maxiter=20):
+def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, K):
     """
     An example ordinal training function.
     :arg variational_classifier:
     :type variational_classifier: :class:`probit.estimators.Estimator` or :class:`probit.samplers.Sampler`
-    :arg X_train:
-    :type X_train:
-    :arg t_train:
-    :type t_train:
     :arg gamma_0:
     :type gamma_0:
     :arg varphi_0:
@@ -98,6 +116,8 @@ def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_
     :arg int maxiter:
     :return:
     """
+    # init stopper
+    minimize_stopper = MinimizeStopper(max_sec=metadata[dataset]["max_sec"])
     theta = []
     theta.append(np.log(np.sqrt(noise_variance_0)))
     theta.append(gamma_0[1])
@@ -105,8 +125,8 @@ def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_
         theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
     theta.append(np.log(varphi_0))
     theta = np.array(theta)
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, method=method, jac=True, options = {
-        'maxiter': maxiter,})
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method=method, jac=True,
+        callback = minimize_stopper.__call__)
     theta = res.x
     noise_std = np.exp(theta[0])
     noise_variance = noise_std**2
@@ -120,16 +140,13 @@ def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_
     return gamma, varphi, noise_variance
 
 
-def training_varphi(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0,
-        method='L-BFGS-B', maxiter=20):
+def training_varphi(dataset, method, variational_classifier, gamma, varphi_0, noise_variance):
     """
     An example ordinal training function.
     :arg variational_classifier:
     :type variational_classifier: :class:`probit.estimators.Estimator` or :class:`probit.samplers.Sampler`
-    :arg X_train:
-    :type X_train:
-    :arg t_train:
-    :type t_train:
+    :arg method:
+    :type method:
     :arg gamma_0:
     :type gamma_0:
     :arg varphi_0:
@@ -140,18 +157,18 @@ def training_varphi(variational_classifier, X_train, t_train, gamma_0, varphi_0,
     :type K:
     :arg scale:
     :type scale:
-    :arg method:
-    :type method:
-    :arg int maxiter
+    
     :return
     """
+    minimize_stopper = MinimizeStopper(max_sec=metadata[dataset]["max_sec"])
     theta = np.array([np.log(varphi_0)])
-    res = minimize(variational_classifier.hyperparameter_training_step_varphi(
-                        gamma=gamma_0, noise_variance=noise_variance_0), theta, method=method, jac=True,
-                   options={'maxiter':maxiter})
+    args = (gamma, noise_variance)
+    res = minimize(
+        variational_classifier.hyperparameter_training_step_varphi, theta, args, method=method, jac=True,
+        callback = minimize_stopper.__call__)
     theta = res.x
     varphi = np.exp(theta[0])
-    return gamma_0, varphi, noise_variance_0
+    return gamma, varphi, noise_variance
 
 
 def get_Y_trues(X_trains, X_true, Y_true):
@@ -456,6 +473,11 @@ def load_data(dataset, bins):
                     1.8099468519640467e-05,
                     0.00813540519298387
                 ),
+                "52.66": (
+                    [-np.inf, -0.99914905, -0.49661647, 0.84539859, 1.66267616, np.inf],
+                    0.6800987545547965,
+                    0.1415239624095029
+                ),
             }
             (gamma_0, varphi_0, noise_variance_0) = hyperparameters["57.66"]
             from probit.data.diabetes import quantile
@@ -652,6 +674,11 @@ def load_data(dataset, bins):
                     100.0,
                     10.0
                 ),
+                "1245.4": (
+                     [-np.inf, -0.91005114, -0.28471923, 0.45182957, 1.14570708, np.inf],
+                    0.192573878772786,
+                    9.989576742047504
+                )
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["NA1"]
             from probit.data.stocksdomain import quantile
@@ -833,7 +860,7 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                     0.1
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
                     100.0,
                     10.0
                 ),
@@ -862,7 +889,7 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                     0.1
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
                     100.0,
                     10.0
                 ),
@@ -892,7 +919,8 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                 1.0
             ),
             "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                          -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, np.inf]),
                     100.0,
                     10.0
                 ),
@@ -922,3 +950,23 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         plt.show()
         plt.close()
     return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
+
+
+class TookTooLong(Warning):
+    pass
+
+
+class MinimizeStopper(object):
+    def __init__(self, max_sec=100):
+        self.max_sec = max_sec
+        self.start   = time.time()
+
+    def __call__(self, xk):
+        # callback to terminate if max_sec exceeded
+        elapsed = time.time() - self.start
+        if elapsed > self.max_sec:
+            warnings.warn("Terminating optimization: time limit reached",
+                          TookTooLong)
+        else:
+            # you might want to report other stuff here
+            print("Elapsed: %.3f sec" % elapsed)
