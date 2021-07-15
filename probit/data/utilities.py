@@ -476,7 +476,7 @@ def load_data(dataset, bins):
                     0.1247356560374994
                 ),
             }
-            (gamma_0, varphi_0, noise_variance_0) = hyperparameters["57.66"]
+            (gamma_0, varphi_0, noise_variance_0) = hyperparameters["52.44"]
             from probit.data.diabetes import quantile
             with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
                 data = np.load(path)
@@ -528,7 +528,7 @@ def load_data(dataset, bins):
                     0.2
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["538.6"]
             from probit.data.bostonhousing import quantile
             with pkg_resources.path(quantile, 'housing.npz') as path:
                 data = np.load(path)
@@ -580,7 +580,7 @@ def load_data(dataset, bins):
                     0.6297364232519436,
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["211.6"]
             from probit.data.machinecpu import quantile
             with pkg_resources.path(quantile, 'machine.npz') as path:
                 data = np.load(path)
@@ -637,7 +637,7 @@ def load_data(dataset, bins):
                     0.12213407601036991,
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["101.0"]
             from probit.data.pyrimidines import quantile
             with pkg_resources.path(quantile, 'pyrim.npz') as path:
                 data = np.load(path)
@@ -702,7 +702,7 @@ def load_data(dataset, bins):
                     9.989576742047504
                 )
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["NA1"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["565.0"]
             from probit.data.stocksdomain import quantile
             with pkg_resources.path(quantile, 'stock.npz') as path:
                 data = np.load(path)
@@ -754,7 +754,7 @@ def load_data(dataset, bins):
                     0.04633175816789728,
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["179.1"]
             from probit.data.triazines import quantile
             with pkg_resources.path(quantile, 'triazines.npz') as path:
                 data = np.load(path)
