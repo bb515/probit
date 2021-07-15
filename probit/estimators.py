@@ -3095,7 +3095,7 @@ class EPOrderedGP(Estimator):
 
     def hyperparameter_training_step(
             self, theta, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, write=False, verbose=False):
+            amplitude_EP_0=None, first_step=1, write=False, verbose=True):
         """
         Optimisation routine for hyperparameters.
 
@@ -3111,7 +3111,8 @@ class EPOrderedGP(Estimator):
         :arg grad_Z_wrt_cavity_mean_0:
         :arg first_step:
         :arg fix_hyperparameters:
-        :arg write:
+        :arg bool write:
+        :arg bool verbose:
         :return:
         """
         steps = self.N

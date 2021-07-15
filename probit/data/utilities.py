@@ -73,7 +73,8 @@ metadata = {
 }
 
 
-def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
+def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0,
+        method='L-BFGS-B', maxiter=20):
     """
     An example ordinal training function.
     :arg variational_classifier:
@@ -92,6 +93,9 @@ def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_
     :type K:
     :arg scale:
     :type scale:
+    :arg method:
+    :type method:
+    :arg int maxiter:
     :return:
     """
     theta = []
@@ -101,14 +105,12 @@ def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_
         theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
     theta.append(np.log(varphi_0))
     theta = np.array(theta)
-    # Use L-BFGS-B
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options = {
-        'ftol': 1e-5,
-        'maxfun': 20})
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method=method, jac=True, options = {
+        'maxiter': maxiter,})
     theta = res.x
     noise_std = np.exp(theta[0])
     noise_variance = noise_std**2
-    gamma = np.empty((K + 1,))  # including all of the cutpoints
+    gamma = np.empty((K + 1,))
     gamma[0] = np.NINF
     gamma[-1] = np.inf
     gamma[1] = theta[1]
@@ -118,7 +120,8 @@ def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_
     return gamma, varphi, noise_variance
 
 
-def training_varphi(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
+def training_varphi(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0,
+        method='L-BFGS-B', maxiter=20):
     """
     An example ordinal training function.
     :arg variational_classifier:
@@ -137,12 +140,15 @@ def training_varphi(variational_classifier, X_train, t_train, gamma_0, varphi_0,
     :type K:
     :arg scale:
     :type scale:
+    :arg method:
+    :type method:
+    :arg int maxiter
     :return
     """
     theta = np.array([np.log(varphi_0)])
-    # Use L-BFGS-B
-    res = minimize(variational_classifier.hyperparameter_training_step_varphi(gamma=gamma_0, noise_variance=noise_variance_0), theta, method='L-BFGS-B', jac=True,
-                   options={'maxiter':10})
+    res = minimize(variational_classifier.hyperparameter_training_step_varphi(
+                        gamma=gamma_0, noise_variance=noise_variance_0), theta, method=method, jac=True,
+                   options={'maxiter':maxiter})
     theta = res.x
     varphi = np.exp(theta[0])
     return gamma_0, varphi, noise_variance_0
@@ -332,6 +338,11 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.abalone import quantile
@@ -347,6 +358,13 @@ def load_data(dataset, bins):
                               -1.0 + 8. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -367,6 +385,11 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.auto import quantile
@@ -381,6 +404,13 @@ def load_data(dataset, bins):
                               -1.0 + 8. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -400,6 +430,11 @@ def load_data(dataset, bins):
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
                 ),
                 "57.86": (
                     np.array([-np.inf, -0.92761785, -0.71569034, -0.23952063, 0.05546283, np.inf]),
@@ -436,6 +471,13 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.diabetes import decile
@@ -456,6 +498,11 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.bostonhousing import quantile
@@ -470,6 +517,13 @@ def load_data(dataset, bins):
                               -1.0 + 8. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -491,6 +545,11 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.machinecpu import quantile
@@ -505,6 +564,13 @@ def load_data(dataset, bins):
                               -1.0 + 8. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -526,6 +592,11 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.pyrimidines import quantile
@@ -540,6 +611,13 @@ def load_data(dataset, bins):
                               -1.0 + 8. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -569,6 +647,11 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["NA1"]
             from probit.data.stocksdomain import quantile
@@ -583,6 +666,13 @@ def load_data(dataset, bins):
                               -1.0 + 8. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -604,6 +694,11 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.triazines import quantile
@@ -618,6 +713,13 @@ def load_data(dataset, bins):
                               -1.0 + 8. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -639,6 +741,11 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.wisconsin import quantile
@@ -653,6 +760,13 @@ def load_data(dataset, bins):
                               -1.0 + 8. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
+                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
+                              -1.0 + 8. * 2. / K, np.inf]), 
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -718,6 +832,11 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                     30.0,
                     0.1
                 ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
         else:
@@ -741,6 +860,11 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                     np.array([-np.inf, 0.0, 2.29, np.inf]),
                     30.0,
                     0.1
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -767,6 +891,11 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                 0.5 / D,
                 1.0
             ),
+            "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    100.0,
+                    10.0
+                ),
             "true": (
                 np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf]),
                 30.0,
