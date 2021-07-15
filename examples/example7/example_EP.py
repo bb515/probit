@@ -113,7 +113,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         print("iteration {}, error={}".format(iteration, error / steps))
     weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-    t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
+    t1, *_ = variational_classifier.compute_integrals(
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     if dataset == "tertile":
@@ -320,7 +320,6 @@ def test_varphi(dataset, method, X_trains, t_trains, X_tests, t_tests, split,
     print("predictive likelihood", predictive_likelihood)
     print("mean_abs", mean_abs)
     print("bound", bound)
-    assert 0
 
 
 def outer_loops(dataset, method, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D):

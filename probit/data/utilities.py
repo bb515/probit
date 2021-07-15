@@ -67,7 +67,7 @@ metadata = {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
         "size": (950, 9),
         "init": None,
-        "max_sec":500,
+        "max_sec":5000,
     },
     "triazines": {
         "plot_lims": ((15.0, 65.0), (15.0, 70.0)),
@@ -116,6 +116,8 @@ def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_v
     :arg int maxiter:
     :return:
     """
+    print("K", K)
+    print(gamma_0, "gamma")
     # init stopper
     minimize_stopper = MinimizeStopper(max_sec=metadata[dataset]["max_sec"])
     theta = []
@@ -350,7 +352,7 @@ def load_data(dataset, bins):
         if bins == "quantile":
             K = 5
             hyperparameters = {
-                "init": (
+                "init": (  # Unstable
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
                     0.5 / D,
                     1.0
@@ -361,7 +363,7 @@ def load_data(dataset, bins):
                     10.0
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
             from probit.data.abalone import quantile
             with pkg_resources.path(quantile, 'abalone.npz') as path:
                 data = np.load(path)
@@ -389,7 +391,7 @@ def load_data(dataset, bins):
                 data = np.load(path)
     elif dataset == "auto":
         from probit.data import auto
-        with pkg_resources.path(auto, 'auto.npz') as path:
+        with pkg_resources.path(auto, 'auto.DATA.npz') as path:
             data_continuous = np.load(path)
         D = 7
         varphi_0 = 2.0/D
@@ -410,7 +412,7 @@ def load_data(dataset, bins):
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.auto import quantile
-            with pkg_resources.path(quantile, 'auto.npz') as path:
+            with pkg_resources.path(quantile, 'auto.data.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
             K = 10
@@ -432,7 +434,7 @@ def load_data(dataset, bins):
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.auto import decile
-            with pkg_resources.path(decile, 'auto.npz') as path:
+            with pkg_resources.path(decile, 'auto.data.npz') as path:
                 data = np.load(path)
         gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
     elif dataset == "diabetes":
@@ -453,20 +455,10 @@ def load_data(dataset, bins):
                     100.0,
                     10.0
                 ),
-                "57.86": (
-                    np.array([-np.inf, -0.92761785, -0.71569034, -0.23952063, 0.05546283, np.inf]),
-                    7.0e-06,
-                    0.137
-                ),
                 "57.66": (
                     [-np.inf, -0.96965513, -0.59439608, 0.10485131, 0.55336265, np.inf],
                     7.05301883339537e-06,
                     0.33582851890990895
-                ),
-                "56.47": (
-                    [-np.inf, -0.47585805, -0.41276548, -0.25253468, -0.15562599, np.inf],
-                    1.1701782815822784e-05,
-                    0.009451605099929043
                 ),
                 "53.07": (
                     [-np.inf, -0.39296099, -0.34374783, -0.26326698, -0.20514771, np.inf],
@@ -477,6 +469,11 @@ def load_data(dataset, bins):
                     [-np.inf, -0.99914905, -0.49661647, 0.84539859, 1.66267616, np.inf],
                     0.6800987545547965,
                     0.1415239624095029
+                ),
+                 "52.44": (
+                    [-np.inf, -0.96503942, -0.47714042, 0.84183335, 1.63486816, np.inf],
+                    0.5550821248979108,
+                    0.1247356560374994
                 ),
             }
             (gamma_0, varphi_0, noise_variance_0) = hyperparameters["57.66"]
@@ -525,6 +522,11 @@ def load_data(dataset, bins):
                     100.0,
                     10.0
                 ),
+                "538.6": (
+                    [-np.inf, -0.9, 0.4, 0.7, 1.2, np.inf],
+                    0.01,
+                    0.2
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.bostonhousing import quantile
@@ -571,6 +573,11 @@ def load_data(dataset, bins):
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
                     100.0,
                     10.0
+                ),
+                "211.6": (
+                    [-np.inf, 0.86220899, 1.38172233, 1.76874495, 2.11477391, np.inf], 
+                    0.08212108678729564,
+                    0.6297364232519436,
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -619,6 +626,16 @@ def load_data(dataset, bins):
                     100.0,
                     10.0
                 ),
+                "99.0": (
+                    [-np.inf, -0.98319675, -0.3868538, 0.08027226, 0.51097654, np.inf],
+                    0.01852678001715496,
+                    0.16154620234905412
+                ),
+                "101.0": (
+                    [-np.inf, -1.11405451, -0.21082173, 0.36749149, 0.88030159, np.inf],
+                    10.0,
+                    0.12213407601036991,
+                ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
             from probit.data.pyrimidines import quantile
@@ -654,15 +671,20 @@ def load_data(dataset, bins):
         if bins == "quantile":
             K = 5
             hyperparameters = {
-                "NA1": (
+                "720.0": (
                     np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf]),
                     0.03,
                     0.0001
                 ),
-                "NA0" : (
+                "565.0" : (
                     [-np.inf, -1.17119928, -0.65961478, 0.1277627, 0.64710874, np.inf],
                     0.00045,
                     0.01
+                ),
+                "561.3" : (
+                    [-np.inf, -1.15383995, -0.77984497, -0.45804968, -0.0881168, np.inf],
+                    0.009998200271564093,
+                    0.00048598266740758345
                 ),
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -725,6 +747,11 @@ def load_data(dataset, bins):
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
                     100.0,
                     10.0
+                ),
+                "179.1": (
+                    [-np.inf, -1.01688376, -0.90419162, -0.76962449, -0.34357796, np.inf],
+                    0.008334663676431068,
+                    0.04633175816789728,
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
@@ -800,7 +827,6 @@ def load_data(dataset, bins):
             from probit.data.wisconsin import decile
             with pkg_resources.path(decile, 'wpbc.npz') as path:
                 data = np.load(path)
-            K = 10
     X_trains = data["X_train"]
     t_trains = data["t_train"]
     X_tests = data["X_test"]
