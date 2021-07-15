@@ -3150,7 +3150,7 @@ class EPOrderedGP(Estimator):
             print(self.kernel.varphi, ",")
             print(noise_variance, ",")
             print("\nfunction_eval={}\n jacobian_eval={}".format(
-                gamma, noise_variance, self.kernel.varphi, theta, fx, gx))
+                fx, gx))
         else:
             print("gamma={}, noise_variance={}, varphi={}\nfunction_eval={}".format(
                 gamma, noise_variance, self.kernel.varphi, fx))
