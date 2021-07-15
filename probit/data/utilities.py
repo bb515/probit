@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
 from probit.kernels import SEIso
+from scipy.optimize import minimize
 
 
 # For plotting
@@ -70,6 +71,81 @@ metadata = {
         "init": None,
     },
 }
+
+
+def training(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
+    """
+    An example ordinal training function.
+    :arg variational_classifier:
+    :type variational_classifier: :class:`probit.estimators.Estimator` or :class:`probit.samplers.Sampler`
+    :arg X_train:
+    :type X_train:
+    :arg t_train:
+    :type t_train:
+    :arg gamma_0:
+    :type gamma_0:
+    :arg varphi_0:
+    :type varphi_0:
+    :arg noise_variance_0:
+    :type noise_variance_0:
+    :arg K:
+    :type K:
+    :arg scale:
+    :type scale:
+    :return:
+    """
+    theta = []
+    theta.append(np.log(np.sqrt(noise_variance_0)))
+    theta.append(gamma_0[1])
+    for i in range(2, K):
+        theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
+    theta.append(np.log(varphi_0))
+    theta = np.array(theta)
+    # Use L-BFGS-B
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, method='L-BFGS-B', jac=True, options = {
+        'ftol': 1e-5,
+        'maxfun': 20})
+    theta = res.x
+    noise_std = np.exp(theta[0])
+    noise_variance = noise_std**2
+    gamma = np.empty((K + 1,))  # including all of the cutpoints
+    gamma[0] = np.NINF
+    gamma[-1] = np.inf
+    gamma[1] = theta[1]
+    for i in range(2, K):
+        gamma[i] = gamma[i - 1] + np.exp(theta[i])
+    varphi = np.exp(theta[K])
+    return gamma, varphi, noise_variance
+
+
+def training_varphi(variational_classifier, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
+    """
+    An example ordinal training function.
+    :arg variational_classifier:
+    :type variational_classifier: :class:`probit.estimators.Estimator` or :class:`probit.samplers.Sampler`
+    :arg X_train:
+    :type X_train:
+    :arg t_train:
+    :type t_train:
+    :arg gamma_0:
+    :type gamma_0:
+    :arg varphi_0:
+    :type varphi_0:
+    :arg noise_variance_0:
+    :type noise_variance_0:
+    :arg K:
+    :type K:
+    :arg scale:
+    :type scale:
+    :return
+    """
+    theta = np.array([np.log(varphi_0)])
+    # Use L-BFGS-B
+    res = minimize(variational_classifier.hyperparameter_training_step_varphi(gamma=gamma_0, noise_variance=noise_variance_0), theta, method='L-BFGS-B', jac=True,
+                   options={'maxiter':10})
+    theta = res.x
+    varphi = np.exp(theta[0])
+    return gamma_0, varphi, noise_variance_0
 
 
 def get_Y_trues(X_trains, X_true, Y_true):

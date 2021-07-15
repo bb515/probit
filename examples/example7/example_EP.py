@@ -1,19 +1,19 @@
 """
-Multiclass ordered probit regression 3 bin example from Cowles 1996 empirical study.
-Variational inference implementation.
+Ordinal regression concrete examples. Approximate inference: EP approximation.
 """
 import argparse
 import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
-from scipy.stats import multivariate_normal
 from probit.estimators import EPOrderedGP
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
 from scipy.optimize import minimize
-from probit.data.utilities import generate_prior_data, generate_synthetic_data, get_Y_trues, colors, datasets, metadata, load_data, load_data_synthetic
+from probit.data.utilities import (
+    generate_prior_data, generate_synthetic_data, get_Y_trues, colors,
+    datasets, metadata, load_data, load_data_synthetic)
 import sys
 import time
 
@@ -22,7 +22,9 @@ now = time.ctime()
 write_path = pathlib.Path()
 
 
-def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_variance, K, D, scale):
+def EP_plotting(
+        dataset, X_train, t_train, X_true, Y_true, gamma,
+        varphi, noise_variance, K, D, scale):
     """Plots for Chu data."""
     kernel = SEIso(varphi, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
@@ -37,17 +39,25 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
     amplitude_EP = None
     while error / steps > variational_classifier.EPS ** 2:
         iteration += 1
-        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
-         precision_EP, amplitude_EP, containers) = variational_classifier.estimate(
-            steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
-            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, write=True)
+        (
+            error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
+            mean_EP, precision_EP, amplitude_EP, containers
+        ) = variational_classifier.estimate(
+            steps, gamma, varphi, noise_variance,
+            posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
+            write=True)
         print("iteration {}, error={}".format(iteration, error / steps))
-    weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
-        precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+    (
+        weights, precision_EP,
+        Lambda_cholesky, Lambda,
+    ) = variational_classifier.compute_EP_weights(
+            precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
     t1, t2, t3, t4, t5 = variational_classifier.compute_integrals(
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
-    fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
-    (xlims, ylims) =  metadata[dataset]["plot_lims"]
+    fx = variational_classifier.evaluate_function(
+        precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
+    (xlims, ylims) = metadata[dataset]["plot_lims"]
     N = 75
     x1 = np.linspace(xlims[0], xlims[1], N)
     x2 = np.linspace(ylims[0], ylims[1], N)
@@ -57,15 +67,18 @@ def EP_plotting(dataset, X_train, t_train, X_true, Y_true, gamma, varphi, noise_
     X_new_ = np.zeros((N * N, D))
     X_new_[:, :2] = X_new
 
-    Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
-                                       noise_variance, X_new_, Lambda, vectorised=True)
+    Z = variational_classifier.predict(
+        gamma, Sigma, mean_EP, precision_EP, varphi,
+        noise_variance, X_new_, Lambda, vectorised=True)
     Z_new = Z.reshape((N, N, K))
     print(np.sum(Z, axis=1), 'sum')
     for i in range(K):
         fig, axs = plt.subplots(1, figsize=(6, 6))
         plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
-        plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
-        # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
+        plt.scatter(X_train[np.where(t_train == i)][:, 0],
+            X_train[np.where(t_train == i)][:, 1], color='red')
+        # plt.scatter(X_train[np.where(t == i + 1)][:, 0],
+        #   X_train[np.where(t == i + 1)][:, 1], color='blue')
         plt.xlabel(r"$x_1$", fontsize=16)
         plt.ylabel(r"$x_2$", fontsize=16)
         plt.savefig("contour_EP_{}.png".format(i))
@@ -164,7 +177,6 @@ def EP_testing(
         K, D, scale=1.0, sigma=10e-6, tau=10e-6):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
-    print("varphi", kernel.varphi, varphi)
     # Initiate classifier
     variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     steps = variational_classifier.N
@@ -189,7 +201,7 @@ def EP_testing(
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     # Test
     Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
-                                       noise_variance, X_test, Lambda, vectorised=True)  # (n_test, K)
+                                       noise_variance, X_test, Lambda, vectorised=True)  # (N_test, K)
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
