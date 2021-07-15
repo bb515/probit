@@ -2115,7 +2115,10 @@ class VBOrderedGP(Estimator):
         """
         steps = self.N
         gamma, noise_variance = self._hyperparameter_training_step_initialise(theta)
-        print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
+        print(repr(gamma), ",")
+        print(self.kernel.varphi, ",")
+        print(noise_variance, ",")
+        # print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
         print("theta  = {}".format(theta))
         error = np.inf
         iteration = 0
@@ -3143,7 +3146,10 @@ class EPOrderedGP(Estimator):
         gx = self.evaluate_function_gradient(
             intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
         if verbose:
-            print("gamma={}, noise_variance={}, varphi={}\ntheta={}\nfunction_eval={}\n jacobian_eval={}".format(
+            print(repr(gamma), ",")
+            print(self.kernel.varphi, ",")
+            print(noise_variance, ",")
+            print("\nfunction_eval={}\n jacobian_eval={}".format(
                 gamma, noise_variance, self.kernel.varphi, theta, fx, gx))
         else:
             print("gamma={}, noise_variance={}, varphi={}\nfunction_eval={}".format(
