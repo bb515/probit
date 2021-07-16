@@ -435,7 +435,7 @@ def load_data(dataset, bins):
                     0.15
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["390.0"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["389.0"]
             from probit.data.auto import quantile
             with pkg_resources.path(quantile, 'auto.data.npz') as path:
                 data = np.load(path)
