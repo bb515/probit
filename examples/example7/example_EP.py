@@ -375,7 +375,7 @@ def outer_loops(dataset, method, X_trains, t_trains, X_tests, t_tests, gamma_0, 
 
 
 def outer_loops_Rogers(
-    dataset, method, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D, verbose=False):
+    dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D, verbose=False):
     avg_bounds_Z = []
     avg_zero_one_Z = []
     avg_predictive_likelihood_Z = []
@@ -406,11 +406,9 @@ def outer_loops_Rogers(
         mean_abs_Z = []
         predictive_likelihood_Z = []
         for x_new in X_new:
-            kernel = SEIso(x_new[0], x_new[1], sigma=10e-6, tau=10e-6)
-            # Initiate classifier
-            variational_classifier = EPOrderedGP(X_train, t_train, kernel)
-            varphi = x_new[0]
-            noise_variance = x_new[1]
+            noise_std = x_new[0]
+            noise_variance = noise_std**2
+            varphi = x_new[1]
             fx, zero_one, predictive_likelihood, mean_absolute_error = EP_testing(
                 dataset, X_train, t_train, X_test, t_test, gamma_0, varphi, noise_variance, K, D, plot=False)
             bounds_Z.append(fx)

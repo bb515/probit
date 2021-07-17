@@ -419,23 +419,23 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
-                "init_alt": (
+                "init_alt": (  # Trying lower varphi to find local minima there
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    100.0,
-                    10.0
+                    0.0001,
+                    0.15
                 ),
                 "390.7": (
                     [-np.inf, -0.75623025, 0.17624028, 0.97368228, 1.76188594, np.inf],
                     0.0709125443999348,
                     0.20713212477690768
                 ),
-                "389.0": (
+                "389.0": (  # gives a zo of 0.64 and ma of 0.822, varphi tended downwards. pl 0.25
                     [-np.inf, -0.75623025, 0.17624028, 0.97368228, 1.76188594, np.inf],
                     0.065,
                     0.15
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["389.0"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
             from probit.data.auto import quantile
             with pkg_resources.path(quantile, 'auto.data.npz') as path:
                 data = np.load(path)
@@ -542,23 +542,23 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
-                "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    100.0,
-                    10.0
-                ),
                 "538.6": (
                     [-np.inf, -0.9, 0.4, 0.7, 1.2, np.inf],
                     0.01,
                     0.2
                 ),
-                "462.9": (
+                "462.9": (  # Tried to find local minima here but its not good m0 0.40, ma 0.519
                     [-np.inf, -0.65824624, 0.71570933, 1.2696072, 1.65280723, np.inf],
                     0.0015,
                     0.1,
+                ),
+                "init_alt": (
+                    [-np.inf, -0.65824624, 0.71570933, 1.2696072, 1.65280723, np.inf],
+                    0.00001,
+                    1.0,
                 )
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["462.9"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
             from probit.data.bostonhousing import quantile
             with pkg_resources.path(quantile, 'housing.npz') as path:
                 data = np.load(path)
@@ -601,7 +601,7 @@ def load_data(dataset, bins):
                 ),
                 "init_alt": (
                     np.array([-np.inf, 0.82762696, 1.3234133 , 1.69382192, 2.02491639, np.inf]) ,
-                    1.0,
+                    0.0008,
                     0.2,
                 ),
                 "211.6": (
@@ -671,8 +671,13 @@ def load_data(dataset, bins):
                     0.018,
                     0.006 ,
                 ),
+                "89.9": (
+                    np.array([-np.inf, -0.41399957, -0.25391163, -0.15800952, -0.0700965, np.inf]) ,
+                    0.005,
+                    0.001 ,
+                ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["92.4"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["89.9"]
             from probit.data.pyrimidines import quantile
             with pkg_resources.path(quantile, 'pyrim.npz') as path:
                 data = np.load(path)
@@ -795,15 +800,15 @@ def load_data(dataset, bins):
                 ),
                 "init_alt": (
                     [-np.inf, -1.0157062, -0.908891, -0.78201205, -0.45461363, np.inf],
-                    0.0833,
-                    0.0475
+                    0.0008,
+                    0.0004
                 ),
                 "179.1": (
                     [-np.inf, -1.01688376, -0.90419162, -0.76962449, -0.34357796, np.inf],
                     0.008334663676431068,
                     0.04633175816789728,
                 ),
-                "175.2": (
+                "175.2": (  # m0 -0.02, ma -0.05
                     [-np.inf, -1.0157062, -0.908891, -0.78201205, -0.45461363, np.inf],
                     0.00833,
                     0.0475,
@@ -852,16 +857,16 @@ def load_data(dataset, bins):
                 ),
                 "init_alt": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
-                    100.0,
-                    10.0
+                    0.001,
+                    0.02
                 ),
-                "266.4": (
+                "266.4": (  #m0 0.64 ma1.35 nearly there need ma1.0
                     [-np.inf, -0.32841066, 0.17593563, 0.76336227, 1.21093938, np.inf],
                     0.0155,
                     0.2,
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["266.4"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
             from probit.data.wisconsin import quantile
             with pkg_resources.path(quantile, 'wpbc.npz') as path:
                 data = np.load(path)

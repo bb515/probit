@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from operator import pos
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
@@ -1831,7 +1832,7 @@ class VBOrderedGP(Estimator):
         containers = (ms, ys, varphis, psis, fxs)
         return m_tilde, self.Sigma_tilde, self.C_tilde, calligraphic_Z, y_tilde, varphi_tilde, containers
 
-    def _predict_vector(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test):
+    def _predict_vector(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, noise_variance, X_test):
         """
         Make variational Bayes prediction over classes of X_test given the posterior samples.
         :arg Sigma_tilde:
@@ -1847,26 +1848,25 @@ class VBOrderedGP(Estimator):
         # C_news[:, i] is C_new for X_test[i]
         C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
         # TODO: this is a bottleneck
-        c_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
+        c_news = np.diag(self.kernel.kernel_matrix(X_test, X_test)) # (N_test, )
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
         intermediate_vectors = Sigma_tilde @ C_news  # (N, N_test)
         intermediate_vectors_T = np.transpose(intermediate_vectors)  # (N_test, N)
         intermediate_scalars = np.sum(np.multiply(C_news, intermediate_vectors), axis=0)  # (N_test, )
         # Calculate m_tilde_new # TODO: test this.
-        m_new_tilde = np.dot(intermediate_vectors_T, y_tilde)  # (N_test, N) (N, ) = (N_test, )
-        var_new_tilde = np.subtract(c_news, intermediate_scalars)  # (N_test, )
-        var_new_tilde = np.reshape(var_new_tilde, (N_test, 1))  # TODO: do in place shape changes - quicker(?) and memor
+        posterior_predictive_m = np.dot(intermediate_vectors_T, y_tilde)  # (N_test, N) (N, ) = (N_test, )
+        posterior_predictive_var = np.subtract(c_news, intermediate_scalars)  # (N_test, )
+        posterior_predictive_var += noise_variance
+        posterior_predictive_std = np.sqrt(posterior_predictive_var)
+        posterior_predictive_std = np.reshape(posterior_predictive_std, (N_test, 1))
         predictive_distributions = np.empty((N_test, self.K))
-        # TODO: vectorise
-        for n in range(N_test):
-            for k in range(self.K):
-                gamma_k = gamma[k + 1]
-                gamma_k_minus_1 = gamma[k]
-                var = var_new_tilde[n]
-                m_n = m_new_tilde[n]
-                predictive_distributions[n, k] = (
-                        norm.cdf((gamma_k - m_n) / var) - norm.cdf((gamma_k_minus_1 - m_n) / var)
-                )
+        for k in range(self.K):
+            gamma_k = gamma[k + 1]
+            gamma_k_minus_1 = gamma[k]
+            predictive_distributions[:, k] = (
+                norm.cdf((gamma_k - posterior_predictive_m) / posterior_predictive_std)
+                - norm.cdf((gamma_k_minus_1 - posterior_predictive_m) / posterior_predictive_std)
+            )
         return predictive_distributions  # (N_test, K)
 
     def predict(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test, vectorised=True):
@@ -2136,8 +2136,6 @@ class VBOrderedGP(Estimator):
                 precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, noise_variance=noise_variance,
                 first_step=first_step, write=write)
         self.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-        (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs,
-         approximate_marginal_likelihoods) = containers
         # Try optimisation routine
         t1, t2, t3, t4, t5, Lambda_cholesky, Lambda, weights = self.compute_integrals(
             gamma, Sigma, mean_EP, precision_EP, posterior_mean, noise_variance)
