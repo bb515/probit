@@ -194,7 +194,8 @@ def test(dataset, X_trains, t_trains, X_tests, t_tests, split, m_0, gamma_0, var
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
 
 
-def test_varphi(dataset, method, gamma, varphi_0, noise_variance, X_trains, t_trains, X_tests, t_tests, K, scale=1.0):
+def test_varphi(dataset, variational_classifier, method, gamma, varphi_0, noise_variance, X_trains, t_trains, X_tests,
+        t_tests, K, scale=1.0):
     split = 2
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
@@ -510,6 +511,44 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.close()
 
 
+def VB_training(dataset, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
+    """
+    An example ordinal training function.
+
+    Returns the hyperparameters trained via gradient descent of the ELBO.
+
+    :return: gamma, varphi, noise_variance
+    """
+    # Initiate kernel
+    kernel = SEIso(varphi_0, scale=scale, sigma=10e-6, tau=10e-6)
+    # Initiate classifier
+    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+    gamma, varphi, noise_variance = training(
+        dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, K)
+    return gamma, varphi, noise_variance
+
+
+def VB_training_varphi(dataset, method, X_train, t_train, gamma, varphi_0, noise_variance, scale=1.0):
+    """
+    An example ordinal training function.
+
+    :return: gamma, varphi, noise_variance
+    """
+    varphi = varphi_0
+    gamma = np.array([-np.inf, -0.28436501, 0.36586332, 3.708507, 4.01687246, np.inf])
+    noise_variance = 0.01
+    theta = []
+    theta.append(np.log(varphi))
+    theta = np.array(theta)
+    print("theta_0", theta)
+    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
+    # Initiate classifier
+    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+    gamma, varphi, noise_variance = training_varphi(
+        dataset, method, variational_classifier, gamma, varphi_0, noise_variance)
+    return gamma, varphi, noise_variance
+
+
 def test_synthetic(
     dataset, method, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
     """Test toy."""
@@ -599,6 +638,8 @@ def main():
     parser.add_argument(
         "bins", help="quantile or decile")
     parser.add_argument(
+        "method", help="L-BFGS-B or CG or Newton-CG or BFGS")
+    parser.add_argument(
         "--data_from_prior", help="data is from prior?", action='store_const', const=True)
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
@@ -606,6 +647,7 @@ def main():
     dataset = args.dataset_name
     bins = args.bins
     data_from_prior = args.data_from_prior
+    method = args.method
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
         profile = cProfile.Profile()
@@ -615,17 +657,18 @@ def main():
         X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(
             dataset, bins)
         outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D)
-        # gamma, varphi, noise_variance = EP_training(
-        #     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma_0, varphi_0, noise_variance_0, K)
-        # EP_testing(
-        #     X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma, varphi, noise_variance, K, scale=1.0)
+        # gamma, varphi, noise_variance = VB_training(dataset, method, X_trains[2], t_trains[2], gamma_0, varphi_0,
+        #     noise_variance_0, K)
+        # VB_testing(
+        #     dataset, X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma=gamma, varphi=varphi,
+        #     noise_variance=noise_variance, K)
     else:
         X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data_synthetic(dataset, data_from_prior)
         # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
         # varphi and std
         # grid_synthetic(X, t, [-1, 1], [-2, 2], gamma=gamma_0, scale=1.0)
         # # Just varphi
-        grid_synthetic(X, t, [-2, 2], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=1.0)
+        # grid_synthetic(X, t, [-2, 2], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=1.0)
         # # Two of the cutpoints
         # grid_synthetic(X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=1.0)
         # test_synthetic(dataset, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)

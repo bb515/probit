@@ -419,7 +419,7 @@ def load_data(dataset, bins):
                     0.5 / D,
                     1.0
                 ),
-                "init_alt": (  # Trying lower varphi to find local minima there
+                "init_alt": (  # Trying lower varphi to find local minima there - this worked
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
                     0.0001,
                     0.15
@@ -434,8 +434,13 @@ def load_data(dataset, bins):
                     0.065,
                     0.15
                 ),
+                "300.9": (
+                    np.array([-np.inf, -0.01715729,  0.99812162,  1.42527213,  1.80608152, np.inf]),
+                    1.0e-05,
+                    0.01,
+                ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["300.9"]
             from probit.data.auto import quantile
             with pkg_resources.path(quantile, 'auto.data.npz') as path:
                 data = np.load(path)
@@ -554,8 +559,8 @@ def load_data(dataset, bins):
                 ),
                 "init_alt": (
                     [-np.inf, -0.65824624, 0.71570933, 1.2696072, 1.65280723, np.inf],
-                    0.00001,
-                    1.0,
+                    10.0,
+                    0.1,
                 )
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
@@ -601,13 +606,18 @@ def load_data(dataset, bins):
                 ),
                 "init_alt": (
                     np.array([-np.inf, 0.82762696, 1.3234133 , 1.69382192, 2.02491639, np.inf]) ,
-                    0.0008,
-                    0.2,
+                    0.000008,
+                    0.6,
                 ),
                 "211.6": (
                     [-np.inf, 0.86220899, 1.38172233, 1.76874495, 2.11477391, np.inf], 
                     0.08212108678729564,
                     0.6297364232519436,
+                ),
+                "199.7": (
+                    np.array([-np.inf, 0.82481368, 1.31287655, 1.67778397, 2.00289883, np.inf]),
+                    0.0007963123721287592,
+                    0.20036340095411048,
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
