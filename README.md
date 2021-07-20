@@ -10,6 +10,11 @@ Features
 - Exact inference with MCMC
 - Approximate inference with Variational Bayes
 - Approximate inference with Expectation Propagation (and ADF with informative sampling)
+- Gaussian, ADF, linear and polynomial kernel functions
+
+Planned Features
+--------
+- Fully Bayesian pseudo-marginal inference
 
 
 Get started (preferred)
