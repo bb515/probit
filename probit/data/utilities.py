@@ -1046,14 +1046,17 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                 0.1
             ),
         }
-        gamma_0, varphi_0, noise_variance_0 = hyperparameters["True"]
+        gamma_0, varphi_0, noise_variance_0 = hyperparameters["true"]
     if plot:
         # Plot
+
         colors_ = [colors[i] for i in t]
-        plt.scatter(X, Y_true, color=colors_)
+        fig, ax = plt.subplots()
+        plt.scatter(X, t, color=colors_)
         plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
         plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$y$", fontsize=16)
+        ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
+        plt.ylabel(r"$t$", fontsize=16)
         plt.show()
         plt.close()
         # Plot from the binned arrays

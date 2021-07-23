@@ -55,10 +55,10 @@ class Estimator(ABC):
             self.write_path = pathlib.Path(write_path)
         self.D = np.shape(X_train)[1]
         self.N = np.shape(X_train)[0]
+        self.IN = np.eye(self.N)
         self.X_train = X_train
         self.X_train_T = X_train.T
-        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        self.mean_0 = np.zeros(self.N)
+        # 20/07 removed self.C here since it is not general. It changes during each initialisation.
         self.grid = np.ogrid[0:self.N]
         if np.all(np.mod(t_train, 1) == 0):
             t_train = t_train.astype(int)
@@ -68,7 +68,7 @@ class Estimator(ABC):
             raise ValueError("t must contain only integer values (got {})".format(t_train))
         else:
             self.t_train = t_train
-        self.K = int(np.max(self.t_train) + 1)  # the number of classes (from -1 +1 indexing)
+        self.K = int(np.max(self.t_train) + 1)  # the number of classes (from 0 indexing)
         if self.kernel.ARD_kernel:
             sigma = np.reshape(self.kernel.sigma, (self.K, 1))
             tau = np.reshape(self.kernel.tau, (self.K, 1))
@@ -322,6 +322,7 @@ class Estimator(ABC):
 
 class VBBinomialGP(Estimator):
     """
+    # TODO put in noise_variance
     A binary Variational Bayes classfier. Inherits the Estimator ABC.
 
     This class allows users to define a binary classification problem, get predictions
@@ -336,7 +337,7 @@ class VBBinomialGP(Estimator):
         :returns: An :class:`VBBinomialGP` estimator object.
         """
         super().__init__(*args, **kwargs)
-        self.IN = np.eye(self.N)
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         if self.K != 2:
             raise ValueError("t_train must only contain +1 or -1 class labels, got {}".format(self.t_train))
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
@@ -578,6 +579,8 @@ class VBBinomialGP(Estimator):
 
 class VBMultinomialSparseGP(Estimator):
     """
+    # TODO: This is likely deprecated by more general EP approach.
+    # TODO: put in noise_variance parameter.
     A Sparse Variational Bayes classifier via ADF with optional informative samping. Inherits the Estimator ABC.
 
     This class allows users to define a classification problem, get predictions using approximate Bayesian inference of
@@ -591,13 +594,13 @@ class VBMultinomialSparseGP(Estimator):
 
         :returns: An :class:`VBMultinomialSparseGP` object.
         """
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         super().__init__(*args, **kwargs)
         # All indeces are initially in the inactive set
         self.inactive_set = list(range(self.N))
         # For random inducing point selection
         random.shuffle(self.inactive_set)
         self.active_set = []
-        self.IN = np.eye(self.N)
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
         self.cov = self.C @ self.Sigma
 
@@ -1014,6 +1017,7 @@ class VBMultinomialSparseGP(Estimator):
 
 class VBMultinomialGP(Estimator):
     """
+    # TODO: put in noise_variance. I think I will just not support noise variance here.
     A Variational Bayes classifier. Inherits the Estimator ABC.
 
     This class allows users to define a classification problem, get predictions
@@ -1021,14 +1025,17 @@ class VBMultinomialGP(Estimator):
 
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, noise_variance=None, *args, **kwargs):
         """
         Create an :class:`VBMultinomialGP` estimator object.
 
         :returns: An :class:`VBMultinomialGP` object.
         """
+        if noise_variance is not None:
+            raise ValueError("noise_variance is not supported for this classifier. (expected `None`, got {})".format(
+                noise_variance))
         super().__init__(*args, **kwargs)
-        self.IN = np.eye(self.N)
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
         self.cov = self.C @ self.Sigma
 
@@ -1329,6 +1336,7 @@ class VBMultinomialGP(Estimator):
 class VBOrderedGPSS(Estimator):
     """
     TODO: Superceded since it is not required that gamma_1 = 0.
+    TODO: Include noise_variance parameter.
 
     A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
 
@@ -1344,7 +1352,7 @@ class VBOrderedGPSS(Estimator):
         :returns: An :class:`VBOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
-        self.IN = np.eye(self.N)
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
         self.cov = self.C @ self.Sigma
         if self.kernel.ARD_kernel:
@@ -1692,6 +1700,8 @@ class VBOrderedGPSS(Estimator):
 
 class VBOrderedGP(Estimator):
     """
+    TODO: On 20/07 applied refactoring to including noise variance parameter.
+    TODO: On 20/07 applied refactoring to be able to call __init__ method at each hyperparameter update and it work.
     A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
 
     This class allows users to define a classification problem, get predictions
@@ -1699,15 +1709,22 @@ class VBOrderedGP(Estimator):
 
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, noise_variance=None, *args, **kwargs):
         """
         Create an :class:`VBOrderedGP` Estimator object.
 
         :returns: An :class:`VBMultinimoalOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
-        self.IN = np.eye(self.N)
-        self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        # Initalise the noise variance
+        if noise_variance is None:
+            self.noise_variance = 1.0
+        else:
+            self.noise_variance = noise_variance
+        # TODO: might need cholesky factor later on. 20/07 depricated Sigma_tilde since self.Sigma and self.C were not
+        # used.
+        self.Sigma = np.linalg.inv(np.add(self.IN, self.noise_variance * self.C))  # derivation of this in report
         self.cov = self.C @ self.Sigma
         if self.kernel.ARD_kernel:
             raise ValueError('The kernel must not be ARD type (kernel.ARD_kernel=1),'
@@ -1779,7 +1796,6 @@ class VBOrderedGP(Estimator):
                 gamma[i] <= gamma[i + 1]
                 for i in range(self.K)):
             raise CutpointValueError(gamma)
-
         return m_0, gamma, varphi_0, psi_0, noise_variance, containers
 
     def estimate(self, steps, gamma, varphi_tilde_0=None, psi_tilde_0=None, noise_variance=None, m_tilde_0=None,
@@ -1823,14 +1839,14 @@ class VBOrderedGP(Estimator):
                 psi_tilde = self._psi_tilde(varphi_tilde)
             if write:
                 fx = self.evaluate_fx(
-                    m_tilde, self.Sigma_tilde, self.C_tilde, calligraphic_Z, numerical_stability=True)
+                    m_tilde, self.Sigma, self.C, calligraphic_Z, numerical_stability=True)
                 ms.append(m_tilde)
                 ys.append(y_tilde)
                 varphis.append(varphi_tilde)
                 psis.append(psi_tilde)
                 fxs.append(fx)
         containers = (ms, ys, varphis, psis, fxs)
-        return m_tilde, self.Sigma_tilde, self.C_tilde, calligraphic_Z, y_tilde, varphi_tilde, containers
+        return m_tilde, self.Sigma, self.C, calligraphic_Z, y_tilde, varphi_tilde, containers
 
     def _predict_vector(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, noise_variance, X_test):
         """
@@ -1897,10 +1913,9 @@ class VBOrderedGP(Estimator):
         """
         Return the w values of the sample
 
-        TODO: Is this the correct reference?
         Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
         Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
-        Page 9 Eq.(7).
+        Page 9 Eq.(9).
 
         :arg m_tilde: Posterior mean estimate of M_tilde.
         :arg psi_tilde: Posterior mean estimate of psi.
@@ -1922,7 +1937,7 @@ class VBOrderedGP(Estimator):
             # Scalar version
             for i in range(n_samples):
                 log_ws[i] = unnormalised_log_multivariate_normal_pdf(m_tilde, mean=None, cov=Cs_samples[i])
-            # Normalise the w vectors
+        # Normalise the w vectors
         max_log_ws = np.max(log_ws)
         log_normalising_constant = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws), axis=0))
         log_ws = np.subtract(log_ws, log_normalising_constant)
@@ -1932,7 +1947,7 @@ class VBOrderedGP(Estimator):
         print("varphi_tilde", magic_number * np.sum(element_prod, axis=0))
         return magic_number * np.sum(element_prod, axis=0)
 
-    def _m_tilde(self, y_tilde, varphi_tilde):
+    def _m_tilde(self, y_tilde, varphi_tilde, noise_variance):
         """
         Return the posterior mean estimate of m.
 
@@ -1945,10 +1960,11 @@ class VBOrderedGP(Estimator):
         """
         # Update the varphi with new values
         self.kernel.varphi = varphi_tilde
-        # Calculate updated C and sigma
-        self.C_tilde = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
-        self.Sigma_tilde = np.linalg.inv(np.add(self.IN, self.C_tilde))  # (K, N, N)
-        return self.C_tilde @ self.Sigma_tilde @ y_tilde  # (N, K)
+        # TODO: 20/07 depricated self.C and self.Sigma_tilde.
+        # Calculate updated C and sigma ... can just reinitialise?
+        # Updated self.C, self.Sigma
+        self.__init__(noise_variance)
+        return self.C @ self.Sigma @ y_tilde  # (N, K)
 
     def _y_tilde(self, m_tilde, gamma):
         """
@@ -1963,7 +1979,7 @@ class VBOrderedGP(Estimator):
         y_tilde = np.add(m_tilde, p)
         return y_tilde, calligraphic_z
 
-    def _p(self, m_tilde, gamma):
+    def _p(self, m_tilde, gamma, noise_std):
         """
         Estimate the rightmost term of 2021 Page 3 Eq.(11), a ratio of Monte Carlo estimates of the expectation of a
             functions of M wrt to the distribution p.
@@ -1974,13 +1990,15 @@ class VBOrderedGP(Estimator):
         # TODO: check this maths is correct or if it is out by one error
         gamma_ks = gamma[self.t_train + 1]
         gamma_k_minus_1s = gamma[self.t_train]
-        calligraphic_z = norm.cdf(gamma_ks - m_tilde) - norm.cdf(gamma_k_minus_1s - m_tilde)
-        p = (norm.pdf(gamma_k_minus_1s - m_tilde) - norm.pdf(gamma_ks - m_tilde)) / calligraphic_z
+        calligraphic_z = norm.cdf((gamma_ks - m_tilde) / noise_std) - norm.cdf(
+            (gamma_k_minus_1s - m_tilde) / noise_std)
+        p = (norm.pdf((gamma_k_minus_1s - m_tilde) / noise_std) - norm.pdf(
+            (gamma_ks - m_tilde) / noise_std)) / calligraphic_z
         return p, calligraphic_z  # (N, ) (N, )
 
     def evaluate_function(self, m, Sigma, C, calligraphic_Z, numerical_stability=True, verbose=True):
         """
-        Calculate fx, the variational lower bound of the log marginal likelihood.
+        Calculate fx, the variational lower bound of the log marginal likelihood. #TODO Typing this up
 
         :arg m_tilde:
         :arg Sigma_tilde:
@@ -2065,7 +2083,7 @@ class VBOrderedGP(Estimator):
 
         :arg theta: The set of (log-)hyperparameters
             .. math::
-                [\log{\sigma} \gamma_{1} \gamma_{1} \gamma_{2} ... \gamma_{K-1} \log{\varphi}],
+                [\log{\sigma} \log{b_{1}} \log{\Delta_{1}} \log{\Delta_{2}} ... \log{\Delta_{K-2}} \log{\varphi}],
 
             where :math:`\sigma` is the noise standard deviation, :math:`\b_{1}` is the first cutpoint,
             :math:`\Delta_{l}` is the :math:`l`th cutpoint interval, :math:`\varphi` is the single shared lengthscale
@@ -2076,27 +2094,37 @@ class VBOrderedGP(Estimator):
         """
         noise_std = np.exp(theta[0])
         noise_variance = noise_std**2
+        if noise_variance < 1.0e-04:
+            warnings.warn("WARNING: noise variance is very low - numerical stability issues may arise "
+                        "(noise_variance={}).".format(noise_variance))
+        elif noise_variance > 1.0e3:
+            warnings.warn("WARNING: noise variance is very large - numerical stability issues may arise "
+                        "(noise_variance={}).".format(noise_variance))
         gamma = np.empty((self.K + 1,))  # including all of the cutpoints
         gamma[0] = np.NINF
         gamma[-1] = np.inf
         gamma[1] = theta[1]
         for i in range(2, self.K):
-            gamma[i] = gamma[i-1] + np.exp(theta[i])  # TODO: won't need this since not threshold.
+            gamma[i] = gamma[i - 1] + np.exp(theta[i])
         if self.kernel.general_kernel and self.kernel.ARD_kernel:
             # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
             # and lengthscales parameter for each dimension and class
-            self.kernel.varphi = np.exp(np.reshape(theta[self.K:self.K + self.K * self.D], (self.K, self.D)))
+            varphi = np.exp(np.reshape(theta[self.K:self.K + self.K * self.D], (self.K, self.D)))
         else:
             # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
             # and a single, shared lengthscale parameter
-            self.kernel.varphi = np.exp(theta[self.K])
-        return gamma, noise_variance
+            varphi = np.exp(theta[self.K])
+        # Update prior covariance
+        self.kernel.hyperparameter_update(varphi=varphi)
+        # Update covariances... this will also update varphi???
+        self.__init__(noise_variance)
+        return gamma, varphi, noise_variance
 
     def hyperparameter_training_step(
             self, theta, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, write=False):
+            amplitude_EP_0=None, first_step=1, write=False, verbose=True):
         """
-        Optimisation routine for hyperparameters. !! FOR VB
+        Optimisation routine for hyperparameters.
 
         :arg theta: (log-)hyperparameters to be optimised.
         :arg steps:
@@ -2110,18 +2138,14 @@ class VBOrderedGP(Estimator):
         :arg grad_Z_wrt_cavity_mean_0:
         :arg first_step:
         :arg fix_hyperparameters:
-        :arg write:
+        :arg bool write:
+        :arg bool verbose:
         :return:
         """
         steps = self.N
-        gamma, noise_variance = self._hyperparameter_training_step_initialise(theta)
-        print(repr(gamma), ",")
-        print(self.kernel.varphi, ",")
-        print(noise_variance, ",")
-        # print("gamma = {}, noise_variance = {}, varphi = {}".format(gamma, noise_variance, self.kernel.varphi))
-        print("theta  = {}".format(theta))
         error = np.inf
         iteration = 0
+        gamma, varphi, noise_variance = self._hyperparameter_training_step_initialise(theta)  # Update prior covariance
         posterior_mean = posterior_mean_0
         Sigma = Sigma_0
         mean_EP = mean_EP_0
@@ -2132,17 +2156,30 @@ class VBOrderedGP(Estimator):
             iteration += 1
             (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
              precision_EP, amplitude_EP, containers) = self.estimate(
-                steps, gamma, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
-                precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, noise_variance=noise_variance,
-                first_step=first_step, write=write)
-        self.compute_EP_weights(precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+                steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+                precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, first_step=first_step, write=write)
+            if verbose:
+                print("({}), error={}".format(iteration, error))
+        weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(
+            precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
+        if write:
+            (posterior_means, Sigmas, mean_EPs, precision_EPs,
+            amplitude_EPs, approximate_marginal_likelihoods) = containers
         # Try optimisation routine
-        t1, t2, t3, t4, t5, Lambda_cholesky, Lambda, weights = self.compute_integrals(
-            gamma, Sigma, mean_EP, precision_EP, posterior_mean, noise_variance)
+        t1, t2, t3, t4, t5 = self.compute_integrals(
+            gamma, Sigma, precision_EP, posterior_mean, noise_variance)
         fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
-        gx = self.evaluate_function_gradient(intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda,
-                                             weights)
-        print("function call {}, gradient vector {}".format(fx, gx))
+        gx = self.evaluate_function_gradient(
+            intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
+        if verbose:
+            print(repr(gamma), ",")
+            print(self.kernel.varphi, ",")
+            print(noise_variance, ",")
+            print("\nfunction_eval={}\n jacobian_eval={}".format(
+                fx, gx))
+        else:
+            print("gamma={}, noise_variance={}, varphi={}\nfunction_eval={}".format(
+                gamma, noise_variance, self.kernel.varphi, fx))
         return fx, gx
 
 
@@ -2166,7 +2203,7 @@ class EPOrderedGP(Estimator):
         :returns: An :class:`EPOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
-        self.IN = np.eye(self.N)
+        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         if self.kernel.ARD_kernel:
             raise ValueError('The kernel must not be ARD type (kernel.ARD_kernel=1),'
                              ' but ISO type (kernel.ARD_kernel=0). (got {}, expected)'.format(
@@ -2182,7 +2219,7 @@ class EPOrderedGP(Estimator):
         self.upper_bound = 4  # No. of single sided standard deviations that normal cdf can be approximated to 0 or 1
 
     def _estimate_initiate(
-            self, steps, gamma, varphi, noise_variance=None, posterior_mean_0=None, Sigma_0=None,
+            self, gamma, varphi, noise_variance=None, posterior_mean_0=None, Sigma_0=None,
             mean_EP_0=None, precision_EP_0=None, amplitude_EP_0=None):
         """
         Initialise the Estimator.
@@ -2326,7 +2363,7 @@ class EPOrderedGP(Estimator):
             return ValueError("fix_hyperparameters must be True (got False, expected True)")
         (gamma, noise_variance, posterior_mean, Sigma, mean_EP, precision_EP,
          amplitude_EP, grad_Z_wrt_cavity_mean, containers, error) = self._estimate_initiate(
-            steps, gamma, varphi, noise_variance, posterior_mean_0, Sigma_0, mean_EP_0, precision_EP_0, amplitude_EP_0)
+            gamma, varphi, noise_variance, posterior_mean_0, Sigma_0, mean_EP_0, precision_EP_0, amplitude_EP_0)
         (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs,
          approximate_log_marginal_likelihoods) = containers
         for step in trange(first_step, first_step + steps,
@@ -3136,7 +3173,9 @@ class EPOrderedGP(Estimator):
                 print("({}), error={}".format(iteration, error))
         weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-        (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs, approximate_marginal_likelihoods) = containers
+        if write:
+            (posterior_means, Sigmas, mean_EPs, precision_EPs,
+            amplitude_EPs, approximate_marginal_likelihoods) = containers
         # Try optimisation routine
         t1, t2, t3, t4, t5 = self.compute_integrals(
             gamma, Sigma, precision_EP, posterior_mean, noise_variance)

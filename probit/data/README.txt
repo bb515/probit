@@ -20,3 +20,7 @@ root folder contains the original continuous data
 >>> data_continuous = np.load(diabetes.npz)
 >>> X_true = data_continuous["X"]
 >>> Y_true = data_continuous["y"]
+
+data_parse.py contains code for parsing the data from its original format given by Chu Wei.
+data_plot.py contains code for plotting the data.
+utilities.py contains many useful utility functions for parsing and handling the data.
