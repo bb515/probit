@@ -5,7 +5,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import VBMultinomialGP
-from probit.kernels import SEARDMultinomial
+from probit.kernels import SEARDMultinomialSS as SEARDMultinomial  # TODO: 23/07 changed this and not sure if it is the correct kernel
 import matplotlib.pyplot as plt
 
 def main():

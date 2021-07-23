@@ -7,7 +7,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import EPOrderedGP
-from probit.kernels import SEIso
+from probit.kernels import SEARD
 import matplotlib.pyplot as plt
 import pathlib
 from scipy.optimize import minimize
@@ -26,7 +26,7 @@ def EP_plotting(
         dataset, X_train, t_train, X_true, Y_true, gamma,
         varphi, noise_variance, K, D, scale):
     """Plots for Chu data."""
-    kernel = SEIso(varphi, scale, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     steps = variational_classifier.N
@@ -88,7 +88,7 @@ def EP_plotting(
 def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_variance, K, D,
                           scale=1.0, sigma=10e-6, tau=10e-6):
     """Plots for synthetic data."""
-    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    kernel = SEARD(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPOrderedGP(X, t, kernel)
     steps = variational_classifier.N
@@ -178,7 +178,7 @@ def EP_testing(
     Test the trained model.
     """
     grid = np.ogrid[0:len(X_test[:, :])]
-    kernel = SEIso(varphi, scale=scale, sigma=sigma, tau=tau)
+    kernel = SEARD(varphi, scale=scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     steps = variational_classifier.N
@@ -256,7 +256,7 @@ def EP_training(dataset, method, X_train, t_train, gamma_0, varphi_0, noise_vari
     :return: gamma, varphi, noise_variance
     """
     # Initiate kernel
-    kernel = SEIso(varphi_0, scale=scale, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi_0, scale=scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     gamma, varphi, noise_variance = training(
@@ -277,7 +277,7 @@ def EP_training_varphi(dataset, method, X_train, t_train, gamma, varphi_0, noise
     theta.append(np.log(varphi))
     theta = np.array(theta)
     print("theta_0", theta)
-    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi, scale=scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     gamma, varphi, noise_variance = training_varphi(
@@ -550,7 +550,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
     tau = 10e-6
     res = 30
     varphi_0 = 1.0
-    kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
+    kernel = SEARD(varphi_0, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(
@@ -616,7 +616,7 @@ def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi,
     grid = np.ogrid[0:len(X_test)]
     sigma = 10e-6
     tau = 10e-6
-    kernel = SEIso(varphi, sigma=sigma, tau=tau)
+    kernel = SEARD(varphi, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = EPOrderedGP(X_train, t_train, kernel)
     steps = 50
@@ -627,7 +627,6 @@ def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi,
         steps, gamma, varphi, noise_variance, fix_hyperparameters=False, write=True)
     weights, precision_EP, L, Lambda = variational_classifier.compute_EP_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-
     if dataset in datasets:
         lower_x1 = 0.0
         upper_x1 = 16.0

@@ -5,7 +5,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.samplers import GibbsMultinomialGP
-from probit.kernels import SEARDMultinomial
+from probit.kernels import SEARDMultinomialSS as SEARDMultinomial  # TODO: 23/07 changed this not sure if correct
 import matplotlib.pyplot as plt
 
 def main():

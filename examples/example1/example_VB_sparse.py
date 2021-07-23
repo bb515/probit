@@ -5,7 +5,8 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import VBMultinomialSparseGP
-from probit.kernels import SEIso, SEARDMultinomial
+from probit.kernels import SEIso
+from probit.kernels import SEARDMultinomialSS as SEARDMultinomial
 from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
 import pathlib

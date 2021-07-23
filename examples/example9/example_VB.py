@@ -7,7 +7,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import VBOrderedGP
-from probit.kernels import SEIso
+from probit.kernels import SEARD
 import matplotlib.pyplot as plt
 import pathlib
 from scipy.optimize import minimize
@@ -23,7 +23,7 @@ write_path = pathlib.Path()
 
 def VB_plot(dataset, X_train, t_train, X_true, Y_true, m_0, gamma, steps, varphi, noise_variance, K, D, scale):
     """Plots for Chu data."""
-    kernel = SEIso(varphi, scale, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
     y_0 = Y_true.flatten()
@@ -58,7 +58,7 @@ def VB_plot(dataset, X_train, t_train, X_true, Y_true, m_0, gamma, steps, varphi
 def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, varphi, noise_variance, K, D,
                           scale=1.0, sigma=10e-6, tau=10e-6):
     """Plots for synthetic data."""
-    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    kernel = SEARD(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X, t, kernel)
     gamma, m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, *_ = variational_classifier.estimate(
@@ -125,7 +125,7 @@ def VB_testing(
         dataset, X_train, t_train, X_test, t_test, m_tilde_0, gamma, steps, varphi, noise_variance,
         K, D, scale=1.0, sigma=10e-6, tau=10e-6):
     grid = np.ogrid[0:len(X_test[:, :])]
-    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    kernel = SEARD(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
     m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, y_tilde, varphi_tilde, *_ = variational_classifier.estimate(
@@ -183,7 +183,7 @@ def test(dataset, X_trains, t_trains, X_tests, t_tests, split, m_0, gamma_0, var
     #varphi = varphi_0
     #noise_variance = noise_variance_0
 
-    kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi_0, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
 
@@ -304,7 +304,7 @@ def outer_loops_Rogers(X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot
             noise_std = x_new[0]
             noise_variance = noise_std**2
             varphi = x_new[1]
-            kernel = SEIso(varphi, scale=1.0, sigma=sigma, tau=tau)
+            kernel = SEARD(varphi, scale=1.0, sigma=sigma, tau=tau)
             # Initiate classifier
             y_0 = Y_true.flatten()
             m_0 = y_0
@@ -463,7 +463,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
     tau = 10e-6
     res = 30
     varphi_0 = 1.0
-    kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
+    kernel = SEARD(varphi_0, scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
     Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(
@@ -520,7 +520,7 @@ def VB_training(dataset, method, X_train, t_train, gamma_0, varphi_0, noise_vari
     :return: gamma, varphi, noise_variance
     """
     # Initiate kernel
-    kernel = SEIso(varphi_0, scale=scale, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi_0, scale=scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
     gamma, varphi, noise_variance = training(
@@ -541,7 +541,7 @@ def VB_training_varphi(dataset, method, X_train, t_train, gamma, varphi_0, noise
     theta.append(np.log(varphi))
     theta = np.array(theta)
     print("theta_0", theta)
-    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi, scale=scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
     gamma, varphi, noise_variance = training_varphi(
@@ -552,7 +552,7 @@ def VB_training_varphi(dataset, method, X_train, t_train, gamma, varphi_0, noise
 def test_synthetic(
     dataset, method, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
     """Test toy."""
-    kernel = SEIso(varphi_0, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi_0, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
     gamma, varphi, noise_variance = training(
@@ -570,7 +570,7 @@ def test_synthetic(
 
 def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance, K):
     grid = np.ogrid[0:len(X_test)]
-    kernel = SEIso(varphi, sigma=10e-6, tau=10e-6)
+    kernel = SEARD(varphi, sigma=10e-6, tau=10e-6)
     # Initiate classifier
     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
     steps = 50
