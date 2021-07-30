@@ -13,7 +13,7 @@ class Kernel(ABC):
     """
 
     @abstractmethod
-    def __init__(self, varphi, scale=1.0, sigma=None, tau=None):
+    def __init__(self, varphi=None, scale=1.0, sigma=None, tau=None):
         """
         Create an :class:`Kernel` object.
 
@@ -22,7 +22,8 @@ class Kernel(ABC):
 
         :arg varphi: The kernel lengthscale hyperparameters as an (L, M) numpy array. Note that
             L=K in the most general case, but it is more common to have a single and shared GP kernel over all classes,
-            in which case L=1.
+            in which case L=1. If set to `None`, then implies the kernel is not a Matern kernel (loosely defined as a
+            kernel with a length scale parameter). Default `None`.
         :type varphi: :class:`numpy.ndarray` or float
         :arg float scale: The kernel scale hyperparameters as a numpy array. Default 1.0.
         :arg sigma: The (K, ) array or float or None (location/ scale) hyper-hyper-parameters that define psi prior.
@@ -40,6 +41,8 @@ class Kernel(ABC):
         # Boolean field that if `True` then the kernel has a unique kernel for each and every class, if `False` then
         # there is a single and shared kernel for each class. Default `False`.
         self.general_kernel = False
+        # Initialise as Matern type kernel (loosely defined here as a kernel with a length scale)
+        self.Matern_kernel = True
         if ((type(varphi) is list) or
                 (type(varphi) is np.ndarray)):
             if np.shape(varphi) == (1,):
@@ -68,13 +71,17 @@ class Kernel(ABC):
             L = 1
             M = 1
             varphi = np.float64(varphi)
+        elif varphi is None:
+            # this is not a Gaussian kernel
+            self.Matern_kernel = False
         else:
             raise TypeError(
                 "Type of varphi is not supported "
                 "(expected {} or {}, got {})".format(
                     float, np.ndarray, type(varphi)))
-        self.L = L
-        self.M = M
+        if self.Matern_kernel is True:
+            self.L = L
+            self.M = M
         self.varphi = varphi
         scale = np.float64(scale)
         self.scale = scale
@@ -213,14 +220,14 @@ class Linear(Kernel):
         :returns: An :class:`Linear` object
         """
         super().__init__(*args, **kwargs)
+        if self.Matern_kernel is True:
+            raise ValueError('Lengthscale was supplied, but this is a Linear kernel. (expected {}, got {})'.format(
+                None, self.varphi
+            ))
         # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
         # all data dims (i.e. non-ARD) is assumed.
         self.ARD_kernel = False
         self.general_kernel = False
-        if self.L != 1:
-            raise ValueError('L wrong for simple kernel (expected {}, got {})'.format(1, self.L))
-        if self.M != 1:
-            raise ValueError('M wrong for non-ARD kernel (expected {}, got {})'.format(1, self.M))
         self.intercept = intercept
 
     def kernel(self, X_i, X_j):
@@ -234,7 +241,7 @@ class Linear(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * X_i.T @ X_j + self.intercept
+        return self.scale * X_j.T @ X_i + self.intercept
 
     def kernel_vector(self, x_new, X):
         """
@@ -320,14 +327,14 @@ class Polynomial(Kernel):
         :returns: An :class:`Polynomial` object
         """
         super().__init__(*args, **kwargs)
+        if self.Matern_kernel is True:
+            raise ValueError('Lengthscale was supplied, but this is a Polynomial kernel. (expected {}, got {})'.format(
+                None, self.varphi
+            ))
         # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
         # all data dims (i.e. non-ARD) is assumed.
         self.ARD_kernel = False
         self.general_kernel = False
-        if self.L != 1:
-            raise ValueError('L wrong for simple kernel (expected {}, got {})'.format(1, self.L))
-        if self.M != 1:
-            raise ValueError('M wrong for non-ARD kernel (expected {}, got {})'.format(1, self.M))
         self.intercept = intercept
         self.order = order
 

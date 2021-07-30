@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
 from operator import pos
+from unicodedata import numeric
+
+from numpy.core import numerictypes
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
@@ -77,6 +80,7 @@ class Estimator(ABC):
         else:
             self.sigma = self.kernel.sigma
             self.tau = self.kernel.tau
+        self.jitter = 1e-8  # default jitter (See GPML by Williams et al. for a good explanation of jitter)
 
     @abstractmethod
     def _estimate_initiate(self):
@@ -134,7 +138,7 @@ class Estimator(ABC):
         # ISO case, which will depend on the shape of the hyperhyperparameters psi_tilde.
         Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)
         # Nugget regularisation for numerical stability. 1e-5 or 1e-6 typically used - important to keep the same
-        Cs_samples = np.add(Cs_samples, 1e-8 * np.eye(self.N))
+        Cs_samples = np.add(Cs_samples, self.jitter * np.eye(self.N))
         if numerical_stability is True:
             if self.kernel.general_kernel and self.kernel.ARD_kernel:
                 if vectorised is True:
@@ -319,6 +323,95 @@ class Estimator(ABC):
         var_new_tilde = np.tile(var_new_tilde, (1, self.K))  # (N_test, K)
         return self._vector_expectation_wrt_u(M_new_tilde, var_new_tilde, n_samples)
 
+    def _calligraphic_Z(self, gamma, noise_std, m, upper_bound, numerical_stability=True, verbose=False):
+        """
+        Return the normalising constants for the truncated normal distribution in a numerically stable manner.
+
+        :arg gamma: The cutpoints.
+        :type gamma: :class:`numpy.array`
+        :arg float noise_std: The noise standard deviation.
+        :arg m: The mean vector.
+        :type m: :class:`numpy.ndarray`
+        :arg upper_bound: The threshold of the normal z value for which the pdf is close enough to zero.
+        :type upper_bound: :class:`numpy.ndarray`
+        :arg bool numerical_stability: If set to true, will calculate in a numerically stable way. If set to false,
+            will calculate in a faster, but less numerically stable way.
+        :returns: (
+            calligraphic_Z,
+            norm_pdf_z1s, norm_pdf_z2s,
+            norm_cdf_z1s, norm_cdf_z2s,
+            gamma_1s, gamma_2s,
+            z1s, z2s)
+        :rtype: tuple (
+            :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`)
+        """
+        gamma_1s = gamma[self.t_train + 1]
+        gamma_2s = gamma[self.t_train]
+        if numerical_stability is True:
+            # TODO: Warning: This sometimes seems to return nan as calligraphic_Z
+            norm_cdf_z2s = np.zeros(self.N)
+            norm_cdf_z1s = np.ones(self.N)
+            norm_pdf_z1s = np.zeros(self.N)
+            norm_pdf_z2s = np.zeros(self.N)
+            calligraphic_Z = np.zeros(self.N)
+            z1s = np.zeros(self.N)
+            z2s = np.zeros(self.N)
+            # Get those indeces whos targets are zeros
+            indeces_0 = np.where(self.t_train==0)
+            z1s_indeces = (gamma[1] - m[indeces_0]) / noise_std
+            z1s_indeces[z1s_indeces > upper_bound] = upper_bound
+            z1s_indeces[z1s_indeces < -upper_bound] = -upper_bound
+            z1s[indeces_0] = z1s_indeces
+            norm_pdf_z1s[indeces_0] = norm.pdf(z1s_indeces)   
+            norm_cdf_z1s[indeces_0] = norm.cdf(z1s_indeces)
+            # Get those indeces whos targets are the maximum class
+            indeces_K = np.where(self.t_train==self.K - 1)
+            z2s_indeces = (gamma[self.K - 1] - m[indeces_K]) / noise_std
+            z2s_indeces[z2s_indeces > upper_bound] = upper_bound
+            z2s_indeces[z2s_indeces < -upper_bound] = -upper_bound
+            z2s[indeces_K] = z2s_indeces
+            norm_pdf_z2s[indeces_K] = norm.pdf(z2s_indeces)
+            norm_cdf_z2s[indeces_K] = norm.cdf(z2s_indeces)
+            # Otherwise TODO: could be inefficient
+            indeces = np.setxor1d(self.grid, indeces_0)
+            indeces = np.setxor1d(indeces, indeces_K)
+            z1s_indeces = (gamma_1s[indeces] - m[indeces]) / noise_std
+            z2s_indeces = (gamma_2s[indeces] - m[indeces]) / noise_std
+            z1s[indeces] = z1s_indeces
+            z1s[indeces] = z2s_indeces
+            norm_pdf_z1s[indeces] = norm.pdf(z1s_indeces)
+            norm_pdf_z2s[indeces] = norm.pdf(z2s_indeces)
+            norm_cdf_z1s[indeces] = norm.cdf(z1s_indeces)
+            norm_cdf_z2s[indeces] = norm.cdf(z2s_indeces)
+            calligraphic_Z = norm_cdf_z1s - norm_cdf_z2s
+            number_small_densities = len(calligraphic_Z[calligraphic_Z < self.EPS])
+            if number_small_densities != 0:
+                warnings.warn("Some Z_ns were very small, numerical instability is expected. (got {} Z_n < {})".format(
+                    number_small_densities, self.EPS))
+        else:
+            # TODO: This seems more stable
+            z1s = (gamma_1s - m) / noise_std
+            z2s = (gamma_2s - m) / noise_std
+            norm_pdf_z1s = norm.pdf(z1s)
+            norm_pdf_z2s = norm.pdf(z2s)
+            norm_cdf_z1s = norm.cdf(z1s)
+            norm_cdf_z2s = norm.cdf(z2s)
+            calligraphic_Z = norm_cdf_z1s - norm_cdf_z2s
+            number_small_densities = len(calligraphic_Z[calligraphic_Z < self.EPS])
+            if number_small_densities != 0:
+                if verbose:
+                    warnings.warn(
+                        "calligraphic_Z (normalising constants for truncated normal) "
+                        "must be greater than tolerance={} (got {}): SETTING to Z_ns[Z_ns<tolerance]=tolerance\n"
+                                "z1s={}, z2s={}".format(
+                        self.EPS, calligraphic_Z, z1s, z2s))
+                calligraphic_Z[calligraphic_Z < self.EPS] = self.EPS
+        return calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s, gamma_1s, gamma_2s
+
 
 class VBBinomialGP(Estimator):
     """
@@ -340,6 +433,7 @@ class VBBinomialGP(Estimator):
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
         if self.K != 2:
             raise ValueError("t_train must only contain +1 or -1 class labels, got {}".format(self.t_train))
+        # TODO: swap this notation
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
         self.cov = self.C @ self.Sigma
 
@@ -1036,6 +1130,7 @@ class VBMultinomialGP(Estimator):
                 noise_variance))
         super().__init__(*args, **kwargs)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        # TODO: Swap this notation
         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
         self.cov = self.C @ self.Sigma
 
@@ -1236,6 +1331,8 @@ class VBMultinomialGP(Estimator):
         """
         Calculate the variational lower bound of the log marginal likelihood.
 
+        # TODO: Calculating det(C) is numerically instable. Need to use the trick given in GPML.
+
         :arg M_tilde:
         :arg Sigma_tilde:
         :arg C_tilde:
@@ -1244,7 +1341,7 @@ class VBMultinomialGP(Estimator):
         """
         if numerical_stability is True:
             if self.kernel.general_kernel:
-                C = C + 1e-8 * np.eye(N)
+                C = C + self.jitter * np.eye(N)
                 L = np.linalg.cholesky(C)
                 L_inv = np.linalg.inv(L)
                 C_inv = L_inv.transpose((0, 2, 1)) @ L_inv  # (K, N, N) (K, N, N) -> (K, N, N)
@@ -1262,7 +1359,7 @@ class VBMultinomialGP(Estimator):
                 )
             else:
                 # Case when Sigma is (N, N)
-                C = C + 1e-8 * np.eye(N)
+                C = C + self.jitter * np.eye(N)
                 L = np.linalg.cholesky(C)
                 L_inv = np.linalg.inv(L)
                 C_inv = L_inv.T @ L_inv  # (N, N) (N, N) -> (N, N)
@@ -1333,375 +1430,378 @@ class VBMultinomialGP(Estimator):
             return bound
 
 
-class VBOrderedGPSS(Estimator):
-    """
-    TODO: Superceded since it is not required that gamma_1 = 0.
-    TODO: Include noise_variance parameter.
+# class VBOrderedGPSS(Estimator):
+#     """
+#     TODO: Superceded since it is not required that gamma_1 = 0.
+#     TODO: Include noise_variance parameter.
 
-    A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
+#     A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
 
-    This class allows users to define a classification problem, get predictions
-    using approximate Bayesian inference. It is for the ordered likelihood.
+#     This class allows users to define a classification problem, get predictions
+#     using approximate Bayesian inference. It is for the ordered likelihood.
 
-    For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
-    """
-    def __init__(self, *args, **kwargs):
-        """
-        Create an :class:`VBOrderedGP` Estimator object.
+#     For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
+#     """
+#     def __init__(self, *args, **kwargs):
+#         """
+#         Create an :class:`VBOrderedGP` Estimator object.
 
-        :returns: An :class:`VBOrderedGP` object.
-        """
-        super().__init__(*args, **kwargs)
-        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
-        self.cov = self.C @ self.Sigma
-        if self.kernel.ARD_kernel:
-            raise ValueError('The kernel must not be ARD type (kernel.ARD_kernel=1),'
-                             ' but ISO type (kernel.ARD_kernel=0). (got {}, expected)'.format(
-                self.kernel.ARD_kernel, 0))
-        if self.kernel.general_kernel:
-            raise ValueError('The kernel must not be general type (kernel.general_kernel=1),'
-                             ' but simple type (kernel.general_kernel=0). (got {}, expected)'.format(
-                self.kernel.general_kernel, 0))
+#         :returns: An :class:`VBOrderedGP` object.
+#         """
+#         super().__init__(*args, **kwargs)
+#         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+#         # TODO: Swap this notation
+#         self.Sigma = np.linalg.inv(np.add(self.IN, self.C))
+#         self.cov = self.C @ self.Sigma
+#         if self.kernel.ARD_kernel:
+#             raise ValueError('The kernel must not be ARD type (kernel.ARD_kernel=1),'
+#                              ' but ISO type (kernel.ARD_kernel=0). (got {}, expected)'.format(
+#                 self.kernel.ARD_kernel, 0))
+#         if self.kernel.general_kernel:
+#             raise ValueError('The kernel must not be general type (kernel.general_kernel=1),'
+#                              ' but simple type (kernel.general_kernel=0). (got {}, expected)'.format(
+#                 self.kernel.general_kernel, 0))
 
-    def _estimate_initiate(self, m_0, gamma_0, varphi_0=None, psi_0=None):
-        """
-        Initialise the estimator.
+#     def _estimate_initiate(self, m_0, gamma_0, varphi_0=None, psi_0=None):
+#         """
+#         Initialise the estimator.
 
-        # TODO: Allow None initialisation of m_0 (and gamma?)
-        """
-        if varphi_0 is None:
-            varphi_0 = np.ones(np.shape(self.kernel.varphi))
-        if psi_0 is None:
-            psi_0 = np.ones(np.shape(self.kernel.varphi))
-        ys = []
-        ms = []
-        varphis = []
-        psis = []
-        bounds = []
-        containers = (ms, ys, varphis, psis, bounds)
-        # Treat user parsing of cutpoint parameters with just the upper cutpoints for each class
-        # The first class t=0 is for y<=0
-        if np.shape(gamma_0)[0] == self.K - 2:  # not including any of the fixed cutpoints: -\infty, 0, \infty
-            gamma_0 = np.append(gamma_0, np.inf)  # append the infinity cutpoint
-            gamma_0 = np.insert(gamma_0, 0.0)  # insert the zero cutpoint at index 0
-            gamma_0 = np.insert(gamma_0, np.NINF)  # insert the negative infinity cutpoint at index 0
-            pass  # correct format
-        elif np.shape(gamma_0)[0] == self.K:  # not including one of the infinity cutpoints
-            if gamma_0[-1] != np.inf:
-                if gamma_0[0] != np.NINF:
-                    raise ValueError('The last cutpoint parameter must be numpy.inf, or the first cutpoint parameter'
-                                     ' must be numpy.NINF (got {}, expected {})'.format(
-                        [gamma_0[0], gamma_0[-1]], [np.inf, np.NINF]))
-                else:  # gamma_0[0] is negative infinity
-                    if gamma_0[1] == 0.0:
-                        gamma_0.append(np.inf)
-                        pass  # correct format
-                    else:
-                        raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
-                            gamma_0[1], 0.0))
-            else:
-                if gamma_0[0] != 0.0:
-                    raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
-                        gamma_0[0], 0.0))
-                gamma_0 = np.insert(gamma_0, np.NINF)
-                pass  # correct format
-        elif np.shape(gamma_0)[0] == self.K - 1:  # not including two of the cutpoints
-            if gamma_0[0] != np.NINF:  # not including negative infinity cutpoint
-                if gamma_0[-1] != np.inf:
-                    raise ValueError('The cutpoint paramter \gamma_K must be numpy.inf (got {}, expected {})'.format(
-                        gamma_0[-1], np.inf))
-                elif gamma_0[0] != 0.0:
-                    raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
-                        gamma_0[0], 0.0))
-                else:
-                    gamma_0 = np.insert(gamma_0, np.NINF)
-                    pass  # correct format
-            elif gamma_0[1] != 0.0:  # Including \gamma_0 = np.NINF but not \gamma_1 = 0.0
-                raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
-                    gamma_0[1], 0.0))
-            else:
-                if gamma_0[-1] == np.inf:
-                    raise ValueError('Length of gamma_0 seems to be one less than it needs to be. Missing a cutpoint! ('
-                                     'got {}, expected {})'.format(len(gamma_0), len(gamma_0) + 1))
-                else:
-                    gamma_0 = np.append(gamma_0, np.inf)
-                    pass  # correct format
-        elif np.shape(gamma_0)[0] == self.K + 1:  # including all of the cutpoints
-            if gamma_0[0] != np.NINF:
-                raise ValueError('The cutpoint parameter \gamma_0 must be numpy.NINF (got {}, expected {})'.format(
-                    gamma_0[0], np.NINF))
-            if gamma_0[1] != 0.0:
-                raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
-                    gamma_0[1], 0.0))
-            if gamma_0[-1] != np.inf:
-                raise ValueError('The cutpoint parameter \gamma_K must be numpy.inf (got {}, expected {})'.format(
-                    gamma_0[-1], np.inf))
-            pass  # correct format
-        else:
-            raise ValueError('Could not recognise gamma_0 shape. (np.shape(gamma_0) was {})'.format(np.shape(gamma_0)))
-        assert gamma_0[0] == np.NINF
-        assert gamma_0[1] == 0.0
-        assert gamma_0[-1] == np.inf
-        if not np.all(gamma_0[2:-1] > 0):
-            raise ValueError('The cutpoint parameters must be positive. (got {})'.format(gamma_0))
-        assert np.shape(gamma_0)[0] == self.K + 1
-        if not all(
-                gamma_0[i] <= gamma_0[i + 1]
-                for i in range(self.K)):
-            raise CutpointValueError(gamma_0)
+#         # TODO: Allow None initialisation of m_0 (and gamma?)
+#         """
+#         if varphi_0 is None:
+#             varphi_0 = np.ones(np.shape(self.kernel.varphi))
+#         if psi_0 is None:
+#             psi_0 = np.ones(np.shape(self.kernel.varphi))
+#         ys = []
+#         ms = []
+#         varphis = []
+#         psis = []
+#         bounds = []
+#         containers = (ms, ys, varphis, psis, bounds)
+#         # Treat user parsing of cutpoint parameters with just the upper cutpoints for each class
+#         # The first class t=0 is for y<=0
+#         if np.shape(gamma_0)[0] == self.K - 2:  # not including any of the fixed cutpoints: -\infty, 0, \infty
+#             gamma_0 = np.append(gamma_0, np.inf)  # append the infinity cutpoint
+#             gamma_0 = np.insert(gamma_0, 0.0)  # insert the zero cutpoint at index 0
+#             gamma_0 = np.insert(gamma_0, np.NINF)  # insert the negative infinity cutpoint at index 0
+#             pass  # correct format
+#         elif np.shape(gamma_0)[0] == self.K:  # not including one of the infinity cutpoints
+#             if gamma_0[-1] != np.inf:
+#                 if gamma_0[0] != np.NINF:
+#                     raise ValueError('The last cutpoint parameter must be numpy.inf, or the first cutpoint parameter'
+#                                      ' must be numpy.NINF (got {}, expected {})'.format(
+#                         [gamma_0[0], gamma_0[-1]], [np.inf, np.NINF]))
+#                 else:  # gamma_0[0] is negative infinity
+#                     if gamma_0[1] == 0.0:
+#                         gamma_0.append(np.inf)
+#                         pass  # correct format
+#                     else:
+#                         raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+#                             gamma_0[1], 0.0))
+#             else:
+#                 if gamma_0[0] != 0.0:
+#                     raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+#                         gamma_0[0], 0.0))
+#                 gamma_0 = np.insert(gamma_0, np.NINF)
+#                 pass  # correct format
+#         elif np.shape(gamma_0)[0] == self.K - 1:  # not including two of the cutpoints
+#             if gamma_0[0] != np.NINF:  # not including negative infinity cutpoint
+#                 if gamma_0[-1] != np.inf:
+#                     raise ValueError('The cutpoint paramter \gamma_K must be numpy.inf (got {}, expected {})'.format(
+#                         gamma_0[-1], np.inf))
+#                 elif gamma_0[0] != 0.0:
+#                     raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+#                         gamma_0[0], 0.0))
+#                 else:
+#                     gamma_0 = np.insert(gamma_0, np.NINF)
+#                     pass  # correct format
+#             elif gamma_0[1] != 0.0:  # Including \gamma_0 = np.NINF but not \gamma_1 = 0.0
+#                 raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+#                     gamma_0[1], 0.0))
+#             else:
+#                 if gamma_0[-1] == np.inf:
+#                     raise ValueError('Length of gamma_0 seems to be one less than it needs to be. Missing a cutpoint! ('
+#                                      'got {}, expected {})'.format(len(gamma_0), len(gamma_0) + 1))
+#                 else:
+#                     gamma_0 = np.append(gamma_0, np.inf)
+#                     pass  # correct format
+#         elif np.shape(gamma_0)[0] == self.K + 1:  # including all of the cutpoints
+#             if gamma_0[0] != np.NINF:
+#                 raise ValueError('The cutpoint parameter \gamma_0 must be numpy.NINF (got {}, expected {})'.format(
+#                     gamma_0[0], np.NINF))
+#             if gamma_0[1] != 0.0:
+#                 raise ValueError('The cutpoint parameter \gamma_1 must be 0.0 (got {}, expected {})'.format(
+#                     gamma_0[1], 0.0))
+#             if gamma_0[-1] != np.inf:
+#                 raise ValueError('The cutpoint parameter \gamma_K must be numpy.inf (got {}, expected {})'.format(
+#                     gamma_0[-1], np.inf))
+#             pass  # correct format
+#         else:
+#             raise ValueError('Could not recognise gamma_0 shape. (np.shape(gamma_0) was {})'.format(np.shape(gamma_0)))
+#         assert gamma_0[0] == np.NINF
+#         assert gamma_0[1] == 0.0
+#         assert gamma_0[-1] == np.inf
+#         if not np.all(gamma_0[2:-1] > 0):
+#             raise ValueError('The cutpoint parameters must be positive. (got {})'.format(gamma_0))
+#         assert np.shape(gamma_0)[0] == self.K + 1
+#         if not all(
+#                 gamma_0[i] <= gamma_0[i + 1]
+#                 for i in range(self.K)):
+#             raise CutpointValueError(gamma_0)
 
-        return m_0, gamma_0, varphi_0, psi_0, containers
+#         return m_0, gamma_0, varphi_0, psi_0, containers
 
-    def estimate(self, m_0, gamma_0, steps, varphi_0=None, psi_0=None,
-                 first_step=1, fix_hyperparameters=False, write=False):
-        """
-        Estimating the posterior means are a 3 step iteration over M_tilde, varphi_tilde and psi_tilde
-            Eq.(8), (9), (10), respectively.
+#     def estimate(self, m_0, gamma_0, steps, varphi_0=None, psi_0=None,
+#                  first_step=1, fix_hyperparameters=False, write=False):
+#         """
+#         Estimating the posterior means are a 3 step iteration over M_tilde, varphi_tilde and psi_tilde
+#             Eq.(8), (9), (10), respectively.
 
-        :arg m_0: (N, ) numpy.ndarray of the initial location of the posterior mean.
-        :type m_0: :class:`np.ndarray`
-        :arg int steps: The number of steps in the Estimator.
-        :arg int first_step: The first step. Useful for burn in algorithms.
+#         :arg m_0: (N, ) numpy.ndarray of the initial location of the posterior mean.
+#         :type m_0: :class:`np.ndarray`
+#         :arg int steps: The number of steps in the Estimator.
+#         :arg int first_step: The first step. Useful for burn in algorithms.
 
-        :return: Posterior mean and covariance estimates.
-        :rtype: (5, ) tuple of :class:`numpy.ndarrays`
-        """
-        m_tilde, gamma, varphi_tilde, psi_tilde, containers = self._estimate_initiate(
-            m_0, gamma_0, varphi_0, psi_0)
-        ms, ys, varphis, psis, bounds = containers
-        for _ in trange(first_step, first_step + steps,
-                        desc="GP priors Sampler Progress", unit="samples"):
-            y_tilde, calligraphic_Z = self._y_tilde(m_tilde, gamma)
-            m_tilde = self._m_tilde(y_tilde, varphi_tilde)
-            if not fix_hyperparameters:
-                varphi_tilde = self._varphi_tilde(m_tilde, psi_tilde, n_samples=1000)
-                psi_tilde = self._psi_tilde(varphi_tilde)
-            if write:
-                bound = self.variational_lower_bound(
-                    self.N, self.K, m_tilde, self.Sigma_tilde, self.C_tilde, calligraphic_Z, numerical_stability=True)
-                ms.append(m_tilde)
-                ys.append(y_tilde)
-                varphis.append(varphi_tilde)
-                psis.append(psi_tilde)
-                bounds.append(bound)
-        containers = (ms, ys, varphis, psis, bounds)
-        return gamma, m_tilde, self.Sigma_tilde, self.C_tilde, y_tilde, varphi_tilde, containers
+#         :return: Posterior mean and covariance estimates.
+#         :rtype: (5, ) tuple of :class:`numpy.ndarrays`
+#         """
+#         m_tilde, gamma, varphi_tilde, psi_tilde, containers = self._estimate_initiate(
+#             m_0, gamma_0, varphi_0, psi_0)
+#         ms, ys, varphis, psis, bounds = containers
+#         for _ in trange(first_step, first_step + steps,
+#                         desc="GP priors Sampler Progress", unit="samples"):
+#             y_tilde, calligraphic_Z = self._y_tilde(m_tilde, gamma)
+#             m_tilde = self._m_tilde(y_tilde, varphi_tilde)
+#             if not fix_hyperparameters:
+#                 varphi_tilde = self._varphi_tilde(m_tilde, psi_tilde, n_samples=1000)
+#                 psi_tilde = self._psi_tilde(varphi_tilde)
+#             if write:
+#                 bound = self.variational_lower_bound(
+#                     self.N, self.K, m_tilde, self.Sigma_tilde, self.C_tilde, calligraphic_Z, numerical_stability=True)
+#                 ms.append(m_tilde)
+#                 ys.append(y_tilde)
+#                 varphis.append(varphi_tilde)
+#                 psis.append(psi_tilde)
+#                 bounds.append(bound)
+#         containers = (ms, ys, varphis, psis, bounds)
+#         return gamma, m_tilde, self.Sigma_tilde, self.C_tilde, y_tilde, varphi_tilde, containers
 
-    def _predict_vector(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test):
-        """
-        TODO: investigate if this could be simplified: use m_tilde and not y_tilde.
-        Make variational Bayes prediction over classes of X_test given the posterior samples.
-        :arg Sigma_tilde:
-        :arg Y_tilde: The posterior mean estimate of the latent variable Y.
-        :arg varphi_tilde:
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg n_samples: The number of samples in the Monte Carlo estimate.
-        :return: A Monte Carlo estimate of the class probabilities.
-        """
-        N_test = np.shape(X_test)[0]
-        # Update the kernel with new varphi
-        self.kernel.varphi = varphi_tilde
-        # C_news[:, i] is C_new for X_test[i]
-        C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-        # TODO: this is a bottleneck
-        c_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
-        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = Sigma_tilde @ C_news  # (N, N_test)
-        intermediate_vectors_T = np.transpose(intermediate_vectors)  # (N_test, N)
-        intermediate_scalars = np.sum(np.multiply(C_news, intermediate_vectors), axis=0)  # (N_test, )
-        # Calculate m_tilde_new # TODO: test this.
-        m_new_tilde = np.dot(intermediate_vectors_T, y_tilde)  # (N_test, N) (N, ) = (N_test, )
-        var_new_tilde = np.subtract(c_news, intermediate_scalars)  # (N_test, )
-        var_new_tilde = np.reshape(var_new_tilde, (N_test, 1))  # TODO: do in place shape changes - quicker(?) and memor
-        predictive_distributions = np.empty((N_test, self.K))
-        # TODO: vectorise
-        for n in range(N_test):
-            for k in range(self.K):
-                gamma_k = gamma[k + 1]
-                gamma_k_minus_1 = gamma[k]
-                var = var_new_tilde[n]
-                m_n = m_new_tilde[n]
-                predictive_distributions[n, k] = (
-                        norm.cdf((gamma_k - m_n) / var) - norm.cdf((gamma_k_minus_1 - m_n) / var)
-                )
-        return predictive_distributions  # (N_test, K)
+#     def _predict_vector(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test):
+#         """
+#         TODO: investigate if this could be simplified: use m_tilde and not y_tilde.
+#         Make variational Bayes prediction over classes of X_test given the posterior samples.
+#         :arg Sigma_tilde:
+#         :arg Y_tilde: The posterior mean estimate of the latent variable Y.
+#         :arg varphi_tilde:
+#         :arg X_test: The new data points, array like (N_test, D).
+#         :arg n_samples: The number of samples in the Monte Carlo estimate.
+#         :return: A Monte Carlo estimate of the class probabilities.
+#         """
+#         N_test = np.shape(X_test)[0]
+#         # Update the kernel with new varphi
+#         self.kernel.varphi = varphi_tilde
+#         # C_news[:, i] is C_new for X_test[i]
+#         C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
+#         # TODO: this is a bottleneck
+#         c_news = np.diag(self.kernel.kernel_matrix(X_test, X_test))  # (N_test, )
+#         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
+#         intermediate_vectors = Sigma_tilde @ C_news  # (N, N_test)
+#         intermediate_vectors_T = np.transpose(intermediate_vectors)  # (N_test, N)
+#         intermediate_scalars = np.sum(np.multiply(C_news, intermediate_vectors), axis=0)  # (N_test, )
+#         # Calculate m_tilde_new # TODO: test this.
+#         m_new_tilde = np.dot(intermediate_vectors_T, y_tilde)  # (N_test, N) (N, ) = (N_test, )
+#         var_new_tilde = np.subtract(c_news, intermediate_scalars)  # (N_test, )
+#         var_new_tilde = np.reshape(var_new_tilde, (N_test, 1))  # TODO: do in place shape changes - quicker(?) and memor
+#         predictive_distributions = np.empty((N_test, self.K))
+#         # TODO: vectorise
+#         for n in range(N_test):
+#             for k in range(self.K):
+#                 gamma_k = gamma[k + 1]
+#                 gamma_k_minus_1 = gamma[k]
+#                 var = var_new_tilde[n]
+#                 m_n = m_new_tilde[n]
+#                 predictive_distributions[n, k] = (
+#                         norm.cdf((gamma_k - m_n) / var) - norm.cdf((gamma_k_minus_1 - m_n) / var)
+#                 )
+#         return predictive_distributions  # (N_test, K)
 
-    def predict(self, gamma, Sigma_tilde, Y_tilde, varphi_tilde, X_test, vectorised=True):
-        """
-        Return the posterior predictive distribution over classes.
+#     def predict(self, gamma, Sigma_tilde, Y_tilde, varphi_tilde, X_test, vectorised=True):
+#         """
+#         Return the posterior predictive distribution over classes.
 
-        :arg Sigma_tilde: The posterior mean estimate of the marginal posterior covariance.
-        :arg Y_tilde: The posterior mean estimate of the latent variable Y.
-        :arg varphi_tilde: The posterior mean estimate of the hyper-parameters varphi.
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg n_samples: The number of samples in the Monte Carlo estimate.
-        :return: A Monte Carlo estimate of the class probabilities.
-        """
-        if self.kernel.ARD_kernel:
-            # This is the general case where there are hyper-parameters
-            # varphi (K, D) for all dimensions and classes.
-            raise ValueError('For the ordered likelihood estimator, the kernel must not be ARD type'
-                             ' (kernel.ARD_kernel=1), but ISO type (kernel.ARD_kernel=0). (got {}, expected)'.format(
-                self.kernel.ARD_kernel, 0))
-        else:
-            if vectorised:
-                return self._predict_vector(gamma, Sigma_tilde, Y_tilde, varphi_tilde, X_test)
-            else:
-                return ValueError("The scalar implementation has been superseded. Please use "
-                                  "the vector implementation.")
+#         :arg Sigma_tilde: The posterior mean estimate of the marginal posterior covariance.
+#         :arg Y_tilde: The posterior mean estimate of the latent variable Y.
+#         :arg varphi_tilde: The posterior mean estimate of the hyper-parameters varphi.
+#         :arg X_test: The new data points, array like (N_test, D).
+#         :arg n_samples: The number of samples in the Monte Carlo estimate.
+#         :return: A Monte Carlo estimate of the class probabilities.
+#         """
+#         if self.kernel.ARD_kernel:
+#             # This is the general case where there are hyper-parameters
+#             # varphi (K, D) for all dimensions and classes.
+#             raise ValueError('For the ordered likelihood estimator, the kernel must not be ARD type'
+#                              ' (kernel.ARD_kernel=1), but ISO type (kernel.ARD_kernel=0). (got {}, expected)'.format(
+#                 self.kernel.ARD_kernel, 0))
+#         else:
+#             if vectorised:
+#                 return self._predict_vector(gamma, Sigma_tilde, Y_tilde, varphi_tilde, X_test)
+#             else:
+#                 return ValueError("The scalar implementation has been superseded. Please use "
+#                                   "the vector implementation.")
 
-    def _varphi_tilde(self, m_tilde, psi_tilde, n_samples=10, vectorised=True):
-        """
-        Return the w values of the sample on
+#     def _varphi_tilde(self, m_tilde, psi_tilde, n_samples=10, vectorised=True):
+#         """
+#         Return the w values of the sample on
 
 
-        Page 9 Eq.(7).
+#         Page 9 Eq.(7).
 
-        :arg m_tilde: Posterior mean estimate of M_tilde.
-        :arg psi_tilde: Posterior mean estimate of psi.
-        :arg int n_samples: The number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
-        """
-        # Vector draw from
-        # (n_samples, K, D) in general and ARD, (n_samples, ) for single shared kernel and ISO case. Depends on the
-        # shape of psi_tilde.
-        varphis = sample_varphis(psi_tilde, n_samples)  # (n_samples, )
-        log_varphis = np.log(varphis)
-        # (n_samples, K, N, N) in general and ARD, (n_samples, N, N) for single shared kernel and ISO case. Depends on
-        # the shape of psi_tilde.
-        Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)  # (n_samples, N, N)
-        Cs_samples = np.add(Cs_samples, 1e-5 * np.eye(self.N))
-        if vectorised:
-            log_ws = vectorised_unnormalised_log_multivariate_normal_pdf(m_tilde, mean=None, covs=Cs_samples)
-        else:
-            log_ws = np.empty((n_samples,))
-            # Scalar version
-            for i in range(n_samples):
-                log_ws[i] = unnormalised_log_multivariate_normal_pdf(m_tilde, mean=None, cov=Cs_samples[i])
-            # Normalise the w vectors
-        max_log_ws = np.max(log_ws)
-        log_normalising_constant = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws), axis=0))
-        log_ws = np.subtract(log_ws, log_normalising_constant)
-        element_prod = np.add(log_varphis, log_ws)
-        element_prod = np.exp(element_prod)
-        magic_number = 2.0
-        print("varphi_tilde", magic_number * np.sum(element_prod, axis=0))
-        return magic_number * np.sum(element_prod, axis=0)
+#         :arg m_tilde: Posterior mean estimate of M_tilde.
+#         :arg psi_tilde: Posterior mean estimate of psi.
+#         :arg int n_samples: The number of samples for the importance sampling estimate, 500 is used in 2005 Page 13.
+#         """
+#         # Vector draw from
+#         # (n_samples, K, D) in general and ARD, (n_samples, ) for single shared kernel and ISO case. Depends on the
+#         # shape of psi_tilde.
+#         varphis = sample_varphis(psi_tilde, n_samples)  # (n_samples, )
+#         log_varphis = np.log(varphis)
+#         # (n_samples, K, N, N) in general and ARD, (n_samples, N, N) for single shared kernel and ISO case. Depends on
+#         # the shape of psi_tilde.
+#         Cs_samples = self.kernel.kernel_matrices(self.X_train, self.X_train, varphis)  # (n_samples, N, N)
+#         Cs_samples = np.add(Cs_samples, 1e-5 * np.eye(self.N))
+#         if vectorised:
+#             log_ws = vectorised_unnormalised_log_multivariate_normal_pdf(m_tilde, mean=None, covs=Cs_samples)
+#         else:
+#             log_ws = np.empty((n_samples,))
+#             # Scalar version
+#             for i in range(n_samples):
+#                 log_ws[i] = unnormalised_log_multivariate_normal_pdf(m_tilde, mean=None, cov=Cs_samples[i])
+#             # Normalise the w vectors
+#         max_log_ws = np.max(log_ws)
+#         log_normalising_constant = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws), axis=0))
+#         log_ws = np.subtract(log_ws, log_normalising_constant)
+#         element_prod = np.add(log_varphis, log_ws)
+#         element_prod = np.exp(element_prod)
+#         magic_number = 2.0
+#         print("varphi_tilde", magic_number * np.sum(element_prod, axis=0))
+#         return magic_number * np.sum(element_prod, axis=0)
 
-    def _m_tilde(self, y_tilde, varphi_tilde):
-        """
-        Return the posterior mean estimate of m.
+#     def _m_tilde(self, y_tilde, varphi_tilde):
+#         """
+#         Return the posterior mean estimate of m.
 
-        2020 Page 4 Eq.(14)
+#         2021 Page Eq.()
 
-        :arg y_tilde: (N, K) array
-        :type y_tilde: :class:`np.ndarray`
-        :arg varphi_tilde: array whose size depends on the kernel.
-        :type y_tilde: :class:`np.ndarray`
-        """
-        # Update the varphi with new values
-        self.kernel.varphi = varphi_tilde
-        # Calculate updated C and sigma
-        self.C_tilde = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
-        self.Sigma_tilde = np.linalg.inv(np.add(self.IN, self.C_tilde))  # (K, N, N)
-        return self.C_tilde @ self.Sigma_tilde @ y_tilde  # (N, K)
+#         :arg y_tilde: (N, K) array
+#         :type y_tilde: :class:`np.ndarray`
+#         :arg varphi_tilde: array whose size depends on the kernel.
+#         :type y_tilde: :class:`np.ndarray`
+#         """
+#         # Update the varphi with new values
+#         self.kernel.varphi = varphi_tilde
+#         # Calculate updated C and sigma
+#         self.C_tilde = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (K, N, N)
+#         self.Sigma_tilde = np.linalg.inv(np.add(self.IN, self.C_tilde))  # (K, N, N)
+#         return self.C_tilde @ self.Sigma_tilde @ y_tilde  # (N, K)
 
-    def _y_tilde(self, m_tilde, gamma):
-        """
-        Calculate Y_tilde elements 2021 Page 3 Eq.(11).
+#     def _y_tilde(self, m_tilde, gamma):
+#         """
+#         Calculate Y_tilde elements 2021 Page Eq.().
 
-        :arg M_tilde: The posterior expectations for M (N, ).
-        :type M_tilde: :class:`numpy.ndarray`
-        :return: Y_tilde (N, ) containing \tilde(y)_{n} values.
-        """
-        p, calligraphic_z = self._p(m_tilde, gamma)
-        # Eq. (11)
-        y_tilde = np.add(m_tilde, p)
-        return y_tilde, calligraphic_z
+#         :arg M_tilde: The posterior expectations for M (N, ).
+#         :type M_tilde: :class:`numpy.ndarray`
+#         :return: Y_tilde (N, ) containing \tilde(y)_{n} values.
+#         """
+#         p, calligraphic_z = self._p(m_tilde, gamma)
+#         # Eq. (11)
+#         y_tilde = np.add(m_tilde, p)
+#         return y_tilde, calligraphic_z
 
-    def _p(self, m_tilde, gamma):
-        """
-        Estimate the rightmost term of 2021 Page 3 Eq.(11), a ratio of Monte Carlo estimates of the expectation of a
-            functions of M wrt to the distribution p.
+#     def _p(self, m_tilde, gamma):
+#         """
+#         Estimate the rightmost term of 2021 Page Eq.(), a ratio of Monte Carlo estimates of the expectation of a
+#             functions of M wrt to the distribution p.
 
-        :arg M_tilde: The posterior expectations for M (N, K).
-        :arg n_samples: The number of samples to take.
-        """
-        # TODO: check this maths is correct or if it is out by one error
-        gamma_ks = gamma[self.t_train + 1]
-        gamma_k_minus_1s = gamma[self.t_train]
-        calligraphic_z = norm.cdf(gamma_ks - m_tilde) - norm.cdf(gamma_k_minus_1s - m_tilde)
-        p = (norm.pdf(gamma_k_minus_1s - m_tilde) - norm.pdf(gamma_ks - m_tilde)) / calligraphic_z
-        return p, calligraphic_z  # (N, ) (N, )
+#         :arg M_tilde: The posterior expectations for M (N, K).
+#         :arg n_samples: The number of samples to take.
+#         """
+#         # TODO: check this maths is correct or if it is out by one error
+#         gamma_ks = gamma[self.t_train + 1]
+#         gamma_k_minus_1s = gamma[self.t_train]
+#         calligraphic_z = norm.cdf(gamma_ks - m_tilde) - norm.cdf(gamma_k_minus_1s - m_tilde)
+#         p = (norm.pdf(gamma_k_minus_1s - m_tilde) - norm.pdf(gamma_ks - m_tilde)) / calligraphic_z
+#         return p, calligraphic_z  # (N, ) (N, )
 
-    def variational_lower_bound(self, N, K, M, Sigma, C, calligraphic_Z, numerical_stability=True):
-        """
-        Calculate the variational lower bound of the log marginal likelihood.
+#     def variational_lower_bound(self, N, K, M, Sigma, C, calligraphic_Z, numerical_stability=True):
+#         """
+#         Calculate the variational lower bound of the log marginal likelihood.
 
-        :arg M_tilde:
-        :arg Sigma_tilde:
-        :arg C_tilde:
-        :arg calligraphic_Z:
-        :arg bool numerical_stability:
-        """
-        if numerical_stability is True:
-            # Will always only have one GP, Sigma is (N, N)
-            C = C + 1e-8 * np.eye(N)
-            L = np.linalg.cholesky(C)
-            L_inv = np.linalg.inv(L)
-            C_inv = L_inv.T @ L_inv  # (N, N) (N, N) -> (N, N)
-            L_Sigma = np.linalg.cholesky(Sigma)
-            half_log_det_C = np.trace(np.log(L))
-            half_log_det_Sigma = np.trace(np.log(L_Sigma))
-            summation = np.einsum('ik, k->i', C_inv, M)
-            summation = np.dot(M, summation)
-            # one = - np.trace(Sigma) / 2
-            # two = - np.trace(C_inv @ Sigma) / 2
-            # three = - half_log_det_C
-            # four = half_log_det_Sigma
-            # five = np.sum(np.log(calligraphic_Z))
-            # print("one ", one)
-            # print("two ", two)
-            # print("three ", three)
-            # print("four ", four)
-            # print("five ", five)
-            bound = (
-                    - (N * np.log(2 * np.pi) / 2)
-                    + (N / 2) - np.trace(Sigma) / 2
-                    - (summation / 2) - (np.trace(C_inv @ Sigma) / 2)
-                    - half_log_det_C + half_log_det_Sigma
-                    + np.sum(np.log(calligraphic_Z))
-            )
-        elif numerical_stability is False:
-            # Will always only have one GP, Sigma is (N, N)
-            C = C + 1e-4 * np.eye(N)
-            C_inv = np.linalg.inv(C)
-            summation = np.sum(np.multiply(M, C_inv @ M))
-            # one = - (np.sum(np.trace(Sigma)) / 2)
-            # two = - (np.sum(np.trace(C_inv @ Sigma)) / 2)
-            # three = - (np.sum(np.log(np.linalg.det(C))) / 2)
-            # four = (np.sum(np.log(np.linalg.det(Sigma))) / 2)
-            # five = np.sum(np.log(calligraphic_Z))
-            # print("one ", one)
-            # print("two ", two)
-            # print("three ", three)
-            # print("four ", four)
-            # print("five ", five)
-            bound = (
-                    - (N * K * np.log(2 * np.pi) / 2) + (N * np.log(2 * np.pi) / 2)
-                    + (N * K / 2) - (np.sum(np.trace(Sigma)) / 2)
-                    - (summation / 2) - (np.sum(np.trace(C_inv @ Sigma)) / 2)
-                    - (np.sum(np.log(np.linalg.det(C))) / 2) + (np.sum(np.log(np.linalg.det(Sigma))) / 2)
-                    + np.sum(np.log(calligraphic_Z))
-            )
-        print('bound = ', bound)
-        return bound
+#         :arg M_tilde:
+#         :arg Sigma_tilde:
+#         :arg C_tilde:
+#         :arg calligraphic_Z:
+#         :arg bool numerical_stability:
+#         """
+#         if numerical_stability is True:
+#             # Will always only have one GP, Sigma is (N, N)
+#             C = C + self.jitter * np.eye(N)
+#             L = np.linalg.cholesky(C)
+#             L_inv = np.linalg.inv(L)
+#             C_inv = L_inv.T @ L_inv  # (N, N) (N, N) -> (N, N)
+#             L_Sigma = np.linalg.cholesky(Sigma)
+#             half_log_det_C = np.trace(np.log(L))
+#             half_log_det_Sigma = np.trace(np.log(L_Sigma))
+#             summation = np.einsum('ik, k->i', C_inv, M)
+#             summation = np.dot(M, summation)
+#             # one = - np.trace(Sigma) / 2
+#             # two = - np.trace(C_inv @ Sigma) / 2
+#             # three = - half_log_det_C
+#             # four = half_log_det_Sigma
+#             # five = np.sum(np.log(calligraphic_Z))
+#             # print("one ", one)
+#             # print("two ", two)
+#             # print("three ", three)
+#             # print("four ", four)
+#             # print("five ", five)
+#             bound = (
+#                     - (N * np.log(2 * np.pi) / 2)
+#                     + (N / 2) - np.trace(Sigma) / 2
+#                     - (summation / 2) - (np.trace(C_inv @ Sigma) / 2)
+#                     - half_log_det_C + half_log_det_Sigma
+#                     + np.sum(np.log(calligraphic_Z))
+#             )
+#         elif numerical_stability is False:
+#             # Will always only have one GP, Sigma is (N, N)
+#             C = C + 1e-4 * np.eye(N)
+#             C_inv = np.linalg.inv(C)
+#             summation = np.sum(np.multiply(M, C_inv @ M))
+#             # one = - (np.sum(np.trace(Sigma)) / 2)
+#             # two = - (np.sum(np.trace(C_inv @ Sigma)) / 2)
+#             # three = - (np.sum(np.log(np.linalg.det(C))) / 2)
+#             # four = (np.sum(np.log(np.linalg.det(Sigma))) / 2)
+#             # five = np.sum(np.log(calligraphic_Z))
+#             # print("one ", one)
+#             # print("two ", two)
+#             # print("three ", three)
+#             # print("four ", four)
+#             # print("five ", five)
+#             bound = (
+#                     - (N * K * np.log(2 * np.pi) / 2) + (N * np.log(2 * np.pi) / 2)
+#                     + (N * K / 2) - (np.sum(np.trace(Sigma)) / 2)
+#                     - (summation / 2) - (np.sum(np.trace(C_inv @ Sigma)) / 2)
+#                     - (np.sum(np.log(np.linalg.det(C))) / 2) + (np.sum(np.log(np.linalg.det(Sigma))) / 2)
+#                     + np.sum(np.log(calligraphic_Z))
+#             )
+#         print('bound = ', bound)
+#         return bound
 
 
 class VBOrderedGP(Estimator):
     """
     TODO: On 20/07 applied refactoring to including noise variance parameter.
     TODO: On 20/07 applied refactoring to be able to call __init__ method at each hyperparameter update and it work.
+    TODO: Why do I need to initiate it with a noise variance? Can't this be done as estimate time? A: init self.Sigma
+    INPROGRESS: Change cov to Sigma, and Sigma to cov. Since Sigma should be reserved for posterior covariance.
     A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
 
     This class allows users to define a classification problem, get predictions
@@ -1709,6 +1809,7 @@ class VBOrderedGP(Estimator):
 
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
+
     def __init__(self, noise_variance=None, *args, **kwargs):
         """
         Create an :class:`VBOrderedGP` Estimator object.
@@ -1724,8 +1825,13 @@ class VBOrderedGP(Estimator):
             self.noise_variance = noise_variance
         # TODO: might need cholesky factor later on. 20/07 depricated Sigma_tilde since self.Sigma and self.C were not
         # used.
-        self.Sigma = np.linalg.inv(np.add(self.IN, self.noise_variance * self.C))  # derivation of this in report
-        self.cov = self.C @ self.Sigma
+        # TODO: 26/07 refactor the way self.cov is used. Swap it with self.Sigma.
+        # TODO: NEED TO BE VERY CAREFUL - THIS IS NOT THE SAME THING AS THE GP POSTERIOR - POSSIBLE MISTAKE?
+        self.cov = np.linalg.inv(np.add(self.IN, self.noise_variance * self.C))  # an intermediate matrix
+        self.Sigma = self.C @ self.cov  # derivation of this in report
+        # C_inv = np.linalg.inv(self.C + self.jitter * np.eye(self.N))
+        # Sigma_2 = np.linalg.inv(np.add(self.noise_variance * self.IN, C_inv))
+        # assert np.allclose(self.Sigma, Sigma_2)
         if self.kernel.ARD_kernel:
             raise ValueError('The kernel must not be ARD type (kernel.ARD_kernel=1),'
                              ' but ISO type (kernel.ARD_kernel=0). (got {}, expected)'.format(
@@ -1734,24 +1840,54 @@ class VBOrderedGP(Estimator):
             raise ValueError('The kernel must not be general type (kernel.general_kernel=1),'
                              ' but simple type (kernel.general_kernel=0). (got {}, expected)'.format(
                 self.kernel.general_kernel, 0))
+        self.grid = np.ogrid[0:self.N]  # All the indeces for indexing sets of self.t_train
+        self.EPS = 0.000001  # Acts as a machine tolerance
+        # Threshold of single sided standard deviations that normal cdf can be approximated to 0 or 1
+        self.upper_bound = 4
+        self.jitter = 1e-8  # Regularisation for matrix inversion (see GPML by Williams et al. for a good explanation)
+
+    def _reset_hyperparameters(self, varphi=None, noise_variance=None):
+        """
+        Reset kernel hyperparameters, generating new prior and posterior covariances.
+        """
+        if varphi is not None:
+            self.kernel.hyperparameter_update(varphi=varphi)
+            # Update prior covariance
+            self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        # Initalise the noise variance
+        if noise_variance is None:
+            self.noise_variance = 1.0
+        else:
+            self.noise_variance = noise_variance
+        # Update posterior covariance
+        self.cov = np.linalg.inv(np.add(self.IN, self.noise_variance * self.C))  # an intermediate matrix
+        self.Sigma = self.C @ self.cov  # derivation of this in report
+        # C_inv = np.linalg.inv(self.C + self.jitter * np.eye(self.N))
+        # Sigma_2 = np.linalg.inv(np.add(self.noise_variance * self.IN, C_inv))
+        # assert np.allclose(self.Sigma, Sigma_2)
 
     def _estimate_initiate(self, m_0, gamma, varphi_0, psi_0, noise_variance):
         """
         Initialise the estimator.
 
-        :arg m_0:
-        :type m_0:
-        :arg gamma:
-        :type gamma:
-        :arg varphi_0:
-        :type varphi_0:
-        :arg psi_0:
-        :type psi_0:
-        :arg noise_variance_0:
-        :type noise_variance_0:
+        :arg m_0: The initial state of the approximate posterior mean (N,). If `None` then initialised to
+            zeros, default `None`. 
+        :type m_0: :class:`numpy.ndarray`
+        :arg gamma:  The (K + 1, ) array of cutpoint parameters \bm{gamma}.
+        :type gamma: :class:`numpy.ndarray`
+        :arg varphi_0: Initialisation of hyperparameter posterior mean estimates. If `None` then initialised
+            to ones, default `None`.
+        :type varphi_0: :class:`numpy.ndarray` or float
+        :arg psi_0: Initialisation of the mean estimate of the parameter controlling the hyperparameter prior.
+            If `None` then initialised to ones, default `None`.
+        :type psi_0: :class:`numpy.ndarray` or float
+        :arg float noise_variance_0:
         """
+        if m_0 is None:
+            m_0 = np.zeros(self.N)
         if noise_variance is None:
             noise_variance = 1.0
+        noise_std = np.sqrt(noise_variance)
         if varphi_0 is None:
             varphi_0 = np.ones(np.shape(self.kernel.varphi))
         if psi_0 is None:
@@ -1796,7 +1932,7 @@ class VBOrderedGP(Estimator):
                 gamma[i] <= gamma[i + 1]
                 for i in range(self.K)):
             raise CutpointValueError(gamma)
-        return m_0, gamma, varphi_0, psi_0, noise_variance, containers
+        return m_0, gamma, varphi_0, psi_0, noise_variance, noise_std, containers
 
     def estimate(self, steps, gamma, varphi_tilde_0=None, psi_tilde_0=None, noise_variance=None, m_tilde_0=None,
                     first_step=1, fix_hyperparameters=False, write=False):
@@ -1827,26 +1963,29 @@ class VBOrderedGP(Estimator):
         :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate posterior means, other statistics and
             tuple of lists of per-step evolution of those statistics.
         """
-        m_tilde, gamma, varphi_tilde, psi_tilde, noise_variance, containers = self._estimate_initiate(
+        m_tilde, gamma, varphi_tilde, psi_tilde, noise_variance, noise_std, containers = self._estimate_initiate(
             m_tilde_0, gamma, varphi_tilde_0, psi_tilde_0, noise_variance)
         ms, ys, varphis, psis, fxs = containers
         for _ in trange(first_step, first_step + steps,
-                        desc="GP priors Sampler Progress", unit="samples"):
-            y_tilde, calligraphic_Z = self._y_tilde(m_tilde, gamma)
-            m_tilde = self._m_tilde(y_tilde, varphi_tilde)
+                        desc="GP priors Sampler Progress", unit="samples", disable=True):
+            y_tilde = self._y_tilde(m_tilde, gamma, noise_std, write=write)
+            m_tilde = self._m_tilde(y_tilde, varphi_tilde, noise_variance)
             if not fix_hyperparameters:
                 varphi_tilde = self._varphi_tilde(m_tilde, psi_tilde, n_samples=1000)
                 psi_tilde = self._psi_tilde(varphi_tilde)
             if write:
-                fx = self.evaluate_fx(
-                    m_tilde, self.Sigma, self.C, calligraphic_Z, numerical_stability=True)
+                calligraphic_Z, *_ = self._calligraphic_Z(
+                    gamma, noise_std, m_tilde,
+                    upper_bound=self.upper_bound, numerical_stability=True)
+                fx = self.evaluate_function(self.N, m_tilde, self.Sigma, self.C, calligraphic_Z,
+                    numerical_stability=True, verbose=False)
                 ms.append(m_tilde)
                 ys.append(y_tilde)
                 varphis.append(varphi_tilde)
                 psis.append(psi_tilde)
                 fxs.append(fx)
         containers = (ms, ys, varphis, psis, fxs)
-        return m_tilde, self.Sigma, self.C, calligraphic_Z, y_tilde, varphi_tilde, containers
+        return (m_tilde, self.Sigma, self.C, y_tilde, varphi_tilde, containers)
 
     def _predict_vector(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, noise_variance, X_test):
         """
@@ -1951,131 +2090,454 @@ class VBOrderedGP(Estimator):
         """
         Return the posterior mean estimate of m.
 
-        2020 Page 4 Eq.(14)
+        2021 Page Eq.()
 
         :arg y_tilde: (N, K) array
         :type y_tilde: :class:`np.ndarray`
         :arg varphi_tilde: array whose size depends on the kernel.
         :type y_tilde: :class:`np.ndarray`
         """
-        # Update the varphi with new values
-        self.kernel.varphi = varphi_tilde
-        # TODO: 20/07 depricated self.C and self.Sigma_tilde.
-        # Calculate updated C and sigma ... can just reinitialise?
-        # Updated self.C, self.Sigma
-        self.__init__(noise_variance)
-        return self.C @ self.Sigma @ y_tilde  # (N, K)
+        if self.kernel.varphi != varphi_tilde:
+            # TODO: test this works as expected and in all cases.
+            # Update the varphi with new values, updated self.C, self.Sigma
+            self._reset_hyperparameters(varphi=varphi_tilde, noise_variance=noise_variance)
+        # Else, no need to perform update on posterior covariance
+        return self.Sigma @ y_tilde  # (N, K)
 
-    def _y_tilde(self, m_tilde, gamma):
+    def _y_tilde(self, m_tilde, gamma, noise_std, write):
         """
-        Calculate Y_tilde elements 2021 Page 3 Eq.(11).
+        Calculate Y_tilde elements 2021 Page Eq.().
 
         :arg M_tilde: The posterior expectations for M (N, ).
         :type M_tilde: :class:`numpy.ndarray`
         :return: Y_tilde (N, ) containing \tilde(y)_{n} values.
         """
-        p, calligraphic_z = self._p(m_tilde, gamma)
+        p = self._p(m_tilde, gamma, noise_std)
         # Eq. (11)
-        y_tilde = np.add(m_tilde, p)
-        return y_tilde, calligraphic_z
+        return np.add(m_tilde, p)
 
-    def _p(self, m_tilde, gamma, noise_std):
+    def _p(self, m, gamma, noise_std):
         """
-        Estimate the rightmost term of 2021 Page 3 Eq.(11), a ratio of Monte Carlo estimates of the expectation of a
+        Estimate the rightmost term of 2021 Page Eq.(), a ratio of Monte Carlo estimates of the expectation of a
             functions of M wrt to the distribution p.
 
-        :arg M_tilde: The posterior expectations for M (N, K).
-        :arg n_samples: The number of samples to take.
+        :arg m: The current posterior mean estimate.
+        :type m: :class:`numpy.ndarray`
+        :arg gamma: The threshold parameters.
+        :type gamma: :class:`numpy.ndarray`
+        :arg float noise_std: The noise standard deviation.
+        :returns: (p, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s)
+        :rtype: tuple (
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`, :class:`numpy.ndarray`)
         """
         # TODO: check this maths is correct or if it is out by one error
-        gamma_ks = gamma[self.t_train + 1]
-        gamma_k_minus_1s = gamma[self.t_train]
-        calligraphic_z = norm.cdf((gamma_ks - m_tilde) / noise_std) - norm.cdf(
-            (gamma_k_minus_1s - m_tilde) / noise_std)
-        p = (norm.pdf((gamma_k_minus_1s - m_tilde) / noise_std) - norm.pdf(
-            (gamma_ks - m_tilde) / noise_std)) / calligraphic_z
-        return p, calligraphic_z  # (N, ) (N, )
+        # Perform calligraphic_Z call here.
+        (calligraphic_Z,
+        norm_pdf_z1s, norm_pdf_z2s,
+        *_) = self._calligraphic_Z(
+            gamma, noise_std, m, upper_bound=self.upper_bound, numerical_stability=False)
+        p = (norm_pdf_z2s - norm_pdf_z1s) / calligraphic_Z
+        # TODO: SS
+        # calligraphic_Z = norm.cdf((gamma_ks - m_tilde) / noise_std) - norm.cdf(
+        #     (gamma_k_minus_1s - m_tilde) / noise_std)
+        # p = (norm.pdf((gamma_k_minus_1s - m_tilde) / noise_std) - norm.pdf(
+        #     (gamma_ks - m_tilde) / noise_std)) / calligraphic_Z
+        return p
 
-    def evaluate_function(self, m, Sigma, C, calligraphic_Z, numerical_stability=True, verbose=True):
+    def evaluate_function(
+        self, N, m, Sigma, C, calligraphic_Z, C_inv=None, C_chol=None, numerical_stability=True, verbose=True):
         """
-        Calculate fx, the variational lower bound of the log marginal likelihood. #TODO Typing this up
+        Calculate fx, the variational lower bound of the log marginal likelihood.
 
-        :arg m_tilde:
-        :arg Sigma_tilde:
-        :arg C_tilde:
-        :arg calligraphic_Z:
-        :arg bool numerical_stability:
-        :return fx:
+        .. math::
+                \mathcal{F(\Phi)} =,
+
+            where :math:`F(\Phi)` is the variational lower bound of the log marginal likelihood at the EP equilibrium,
+            :math:`h`, :math:`\Pi`, :math:`K`. #TODO
+
+        :arg int N: The number of datapoints.
+        :arg m: The posterior mean.
+        :type m: :class:`numpy.ndarray`
+        :arg Sigma: The posterior covariance.
+        :type Sigma: :class:`numpy.ndarray`
+        :arg C: The prior covariance.
+        :type C: :class:`numpy.ndarray`
+        :arg calligraphic_Z: The array of normalising constants.
+        :type calligraphic_Z: :class:`numpy.ndarray`
+        :arg bool numerical_stability: If the function is evaluated in a numerically stable way, default `True`. `False`
+            is NOT recommended as often np.linalg.det(C) returns a value 0.0.
+        :return: fx
+        :rtype: float
         """
+        trace_Sigma = np.trace(Sigma)
         if numerical_stability is True:
-            # Will always only have one GP, Sigma is (N, N)
-            C = C + 1e-8 * np.eye(self.N)
-            L = np.linalg.cholesky(C)
-            L_inv = np.linalg.inv(L)
-            C_inv = L_inv.T @ L_inv  # (N, N) (N, N) -> (N, N)
-            L_Sigma = np.linalg.cholesky(Sigma)
-            half_log_det_C = np.trace(np.log(L))
-            half_log_det_Sigma = np.trace(np.log(L_Sigma))
-            summation = np.einsum('ik, k->i', C_inv, m)
-            summation = np.dot(m, summation)
-            if verbose:
-                one = - np.trace(Sigma) / 2
-                two = - np.trace(C_inv @ Sigma) / 2
-                three = - half_log_det_C
-                four = half_log_det_Sigma
-                five = np.sum(np.log(calligraphic_Z))
-                print("one ", one)
-                print("two ", two)
-                print("three ", three)
-                print("four ", four)
-                print("five ", five)
-            fx = (
-                    - (self.N * np.log(2 * np.pi) / 2)
-                    + (self.N / 2) - np.trace(Sigma) / 2
-                    - (summation / 2) - (np.trace(C_inv @ Sigma) / 2)
-                    - half_log_det_C + half_log_det_Sigma
-                    + np.sum(np.log(calligraphic_Z))
-            )
+            if C_chol is None:
+                C_chol = np.linalg.cholesky(C + self.jitter * np.eye(self.N))
+            if C_inv is None:
+                C_chol_inv = np.linalg.inv(C_chol)
+                # NOTE this is mostly the same as np.linalg.inv(C + self.jitter * np.eye(self.N))
+                # within a small tolerance, but with a few outliers. It may not be stable, but it may be faster
+                C_inv = C_chol_inv.T @ C_chol_inv
+            log_det_C = 2. * np.sum(np.log(np.diag(C_chol)))
+            trace_C_inv_Sigma = np.einsum('ij, ij->', C_inv, Sigma)
+            Sigma_tilde = Sigma + self.jitter * np.eye(self.N)
+            Sigma_chol = np.linalg.cholesky(Sigma_tilde)
+            log_det_Sigma = 2. * np.sum(np.log(np.diag(Sigma_chol)))
         elif numerical_stability is False:
-            # Will always only have one GP, Sigma is (N, N)
-            C = C + 1e-4 * np.eye(self.N)
-            C_inv = np.linalg.inv(C)
-            summation = np.sum(np.multiply(m, C_inv @ m))
+            warnings.warn("This is numerically unstable and should not be used (expected numerically_stable=True).")
+            if C_inv is None:
+                C_inv = np.linalg.inv(C + self.jitter * np.eye(self.N))
+            log_det_C = np.log(np.linalg.det(C + self.jitter * np.eye(self.N)))
+            trace_C_inv_Sigma = np.trace(C_inv @ Sigma) 
+            log_det_Sigma = np.log(np.linalg.det(Sigma + self.jitter * np.eye(self.N)))
+        one = - trace_Sigma / 2
+        two = - log_det_C / 2
+        three = - trace_C_inv_Sigma / 2
+        four = -m.T @ C_inv @ m
+        five = log_det_Sigma / 2
+        six = N / 2.
+        seven = np.sum(calligraphic_Z)
+        fx = one + two + three + four + five + six + seven
+        if verbose:
+            print("one ", one)
+            print("two ", two)
+            print("three ", three)
+            print("four ", four)  # Usually largest contribution
+            print("five ", five)
+            print("six ", six)
+            print("seven ", seven)
+            print('fx = {}'.format(fx))
+        return -fx, C_inv
+
+    def evaluate_function_gradient(
+            self, intervals, varphi, noise_variance, noise_std, m, cov, Sigma, C_inv,
+            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+            numerical_stability=True, verbose=True):
+        """
+        # TODO: for the moment only testing one dimensional gradient with fixed cutpoints and sigma to see if it works
+        # TODO: and to get the environment set up.
+        Calculate gx, the jacobian of the variational lower bound of the log marginal likelihood at the VB equilibrium,
+
+        .. math::
+                \mathcal{\frac{\partial F(\Phi)}{\partial \Phi}}
+
+            where :math:`F(\Phi)` is the variational lower bound of the log marginal likelihood at the EP equilibrium,
+            :math:`\Phi` is the set of hyperparameters, :math:`h`, :math:`\Pi`, :math:`K`. #TODO
+
+        :arg intervals: The vector of the first cutpoint and the intervals between cutpoints for
+            unconstrained optimisation of the cutpoint parameters.
+        :type intervals: :class:`numpy.ndarray`
+        :arg varphi: The lengthscale parameters.
+        :type varphi: :class:`numpy.ndarray` or float
+        :arg float noise_variance:
+        :arg float noise_std:
+        :arg m: The posterior mean.
+        :type m: :class:`numpy.ndarray`
+        :arg cov: An intermediate matrix in calculating the posterior covariance, Sigma.
+        :type cov: :class:`numpy.ndarray`
+        :arg Sigma: The posterior covariance.
+        :type Sigma: :class:`numpy.ndarray`
+        :arg C: The prior covariance.
+        :type C: :class:`numpy.ndarray`
+        :arg C_inv: The inverse of the prior covariance.
+        :type C_inv: :class:`numpy.ndarray`
+        # :arg partial_C: The partial derivative of the prior covariance with respect to the lengthscale hyperparameters.
+        # :type partial_C: :class:`numpy.ndarray`
+        :arg calligraphic_Z_tuple: The array of normalising constants.
+        :type calligraphic_Z_tuple: :class:`numpy.ndarray`
+        :arg bool numerical_stability: If the function is evaluated in a numerically stable way, default `True`.
+        :return: fx
+        :rtype: float
+        """
+        partial_C = self.kernel.kernel_partial_derivative(self.X_train, self.X_train)
+        # Initiate or reset gx
+        if self.kernel.general_kernel and self.kernel.ARD_kernel:
+            # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+            # and lengthscales parameter for each dimension and class
+            gx = np.zeros((1+1+(self.K-2)+(self.D*self.K)))
+            raise ValueError("TODO")
+        else:
+            # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+            # and a single, shared lengthscale parameter
+            gx = np.zeros((1+1+(self.K-2)+1,))
+        # Update gx
+        # For gx[0] -- ln\sigma
+        if numerical_stability is True:
+            one = noise_variance * np.einsum('ij, ij ->', Sigma, Sigma)
+            two = noise_variance * np.einsum('ij, ij ->', cov, Sigma)
+            three = - noise_variance * np.trace(Sigma)
+            intermediate_vector_2 = np.divide(z2s, calligraphic_Z)
+            intermediate_vector_1 = np.divide(z1s, calligraphic_Z)
+            # four = np.dot(intermediate_vector_2, norm_pdf_z2s) - np.dot(intermediate_vector_1, norm_pdf_z1s) # TODO: Numerical instability
+            four = 0
+        if numerical_stability is False:
+            one = noise_variance * np.trace(Sigma @ Sigma)
+            two = noise_variance * np.trace(cov @ Sigma)
+            three = - noise_variance * np.trace(Sigma)
+            intermediate_vector_2 = np.divide(z2s, calligraphic_Z)
+            intermediate_vector_1 = np.divide(z1s, calligraphic_Z)
+            four = np.dot(intermediate_vector_2, norm_pdf_z2s) - np.dot(intermediate_vector_1, norm_pdf_z1s)  # TODO: Numerical instability
+        if verbose:
+            print("one ", one)
+            print("two ", two)
+            print("three ", three)
+            print("four ", four)
+        gx[0] = one + two + three + four
+        intermediate_vector_1s = np.divide(norm_pdf_z1s, calligraphic_Z)
+        intermediate_vector_2s = np.divide(norm_pdf_z2s, calligraphic_Z)
+        # For gx[1] -- \b_1
+        indeces = np.where(self.t_train == 0)
+        gx[1] += np.sum(intermediate_vector_1s[indeces])
+        for k in range(2, self.K):
+            indeces = np.where(self.t_train == k - 1)
+            gx[k - 1] -= np.sum(intermediate_vector_2s[indeces])
+            gx[k] += np.sum(intermediate_vector_1s[indeces])
+        # gx[self.K] -= 0  # Since K is number of classes
+        gx[1:self.K] /= noise_std
+        # For gx[2:self.K] -- ln\Delta^r
+        gx[2:self.K] *= intervals
+        if verbose:
+            print(gx[2:self.K])
+        # For kernel parameters
+        if self.kernel.general_kernel and self.kernel.ARD_kernel:
+            raise ValueError("TODO")
+        else:
+            if numerical_stability is True:
+                intermediate_matrix_B1 = C_inv @ partial_C
+                intermediate_matrix_A1 = intermediate_matrix_B1 @ cov
+                intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
+                intermediate_matrix_C1 = intermediate_matrix_B2 @ Sigma  # Likely to be numerically instable
+                intermediate_matrix_C2 = Sigma @ intermediate_matrix_C1
+                one = -varphi * np.einsum('ij, ij ->', Sigma, intermediate_matrix_C1) / 2
+                two = -varphi * np.einsum('ij, ij ->', C_inv, partial_C) / 2
+                # Here lies the difference between numerical_stability is True and is False
+                if numerical_stability is True:
+                    three = -varphi * np.einsum('ij, ij ->', cov, intermediate_matrix_A1) / 2  # Trust this and below line result more
+                    four = varphi * np.trace(intermediate_matrix_A1)
+                elif numerical_stability is False:
+                    three = -varphi * np.einsum('ij, ij ->', C_inv, intermediate_matrix_C2) / 2  # Unstable operation C_inv @ C
+                    four = varphi * np.einsum('ij, ij ->', intermediate_matrix_B2, Sigma)  # Not meant to be divided by 2  # Unstable operation C_inv @ C
+                five = varphi * m.T @ intermediate_matrix_B2 @ m / 2
+                if 0:
+                    # Alternate and equivalent method
+                    intermediate_matrix_A1 = partial_C @ cov  # Necessary to calculate intermediate_matrix_A2
+                    intermediate_matrix_A2 = Sigma @ intermediate_matrix_A1
+                    intermediate_matrix_A3 = cov @ intermediate_matrix_A1
+                    intermediate_matrix_B1 = C_inv @ partial_C
+                    intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
+                    one = - varphi * np.trace(intermediate_matrix_A1) / 2
+                    two = varphi * noise_variance * np.trace(intermediate_matrix_A2) / 2
+                    three = - varphi * np.trace(intermediate_matrix_B1) / 2
+                    four = varphi * noise_variance * np.trace(intermediate_matrix_A3) / 2
+                    five = varphi * m.T @ intermediate_matrix_B2 @ m / 2
+                    six = varphi * np.trace(C_inv @ intermediate_matrix_A1) / 2
+                if 0:
+                    # Alternate and equivalent method
+                    intermediate_matrix_A1 = partial_C @ cov  # Necessary to calculate intermediate_matrix_A2
+                    intermediate_matrix_B1 = C_inv @ partial_C
+                    intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
+                    one = - varphi * np.trace(intermediate_matrix_A1) / 2
+                    two = varphi * noise_variance * np.einsum('ij, ij ->', Sigma, intermediate_matrix_A1) / 2
+                    three = - varphi * np.einsum('ij, ij ->', C_inv, partial_C) / 2
+                    # equivalent to varphi * noise_variance * np.trace(cov @ intermediate_matrix_A1) / 2
+                    four = varphi * noise_variance * np.einsum('ij, ij ->', cov, intermediate_matrix_A1) / 2  # Equivalent
+                    # four_ = -varphi * np.einsum('ij, ij ->', cov @ C_inv - C_inv, intermediate_matrix_A1) / 2  # Equivalent
+                    five = varphi * m.T @ intermediate_matrix_B2 @ m / 2
+                    # equivalent to varphi * np.trace(C_inv @ intermediate_matrix_A1)
+                    six = varphi * np.einsum('ij, ij ->', C_inv, intermediate_matrix_A1) / 2
+            elif numerical_stability is False:
+                intermediate_matrix_B1 = C_inv @ partial_C
+                intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
+                intermediate_matrix_C1 = intermediate_matrix_B2 @ Sigma  # Unstable operation C_inv @ C
+                intermediate_matrix_C2 = Sigma @ intermediate_matrix_C1
+                intermediate_matrix_D1 = C_inv @ intermediate_matrix_C2  # Unstable operation C_inv @ C
+                one = - varphi * np.trace(intermediate_matrix_C2) / 2
+                two = - varphi * np.trace(intermediate_matrix_B1) / 2
+                three = - varphi * np.trace(intermediate_matrix_D1) / 2
+                four = varphi * np.trace(intermediate_matrix_C1)
+                five = varphi * m.T @ intermediate_matrix_B2 @ m / 2
+            # Update gx[-1], the partial derivative of the lower bound wrt to the lengthscale
             if verbose:
-                one = - (np.sum(np.trace(Sigma)) / 2)
-                two = - (np.sum(np.trace(C_inv @ Sigma)) / 2)
-                three = - (np.sum(np.log(np.linalg.det(C))) / 2)
-                four = (np.sum(np.log(np.linalg.det(Sigma))) / 2)
-                five = np.sum(np.log(calligraphic_Z))
                 print("one ", one)
                 print("two ", two)
                 print("three ", three)
                 print("four ", four)
                 print("five ", five)
-            fx = (
-                    - (self.N * self.K * np.log(2 * np.pi) / 2) + (self.N * np.log(2 * np.pi) / 2)
-                    + (self.N * self.K / 2) - (np.sum(np.trace(Sigma)) / 2)
-                    - (summation / 2) - (np.sum(np.trace(C_inv @ Sigma)) / 2)
-                    - (np.sum(np.log(np.linalg.det(C))) / 2) + (np.sum(np.log(np.linalg.det(Sigma))) / 2)
-                    + np.sum(np.log(calligraphic_Z))
-            )
-        if verbose:
-            print('fx = {}'.format(fx))
-        return fx
+                print("six ", six)
+            gx[self.K] = one + two + three + four + five  # + six
+        return -gx  # TODO: Correct direction for negative log likelihood minimisation
 
-    def evaluate_function_gradient(self, m, Sigma, C, calligraphic_Z, numerical_stability=True, verbose=True):
+    def grid_over_hyperparameters(
+            self, range_x1, range_x2, res, gamma_0=None, varphi_0=None, noise_variance_0=None,
+            m_0=None, write=False, verbose=False):
         """
-        Calculate gx, the jacobian of the variational lower bound of the log marginal likelihood.
+        Return meshgrid values of fx and directions of gx over hyperparameter space.
 
-        :arg m
-        :arg Sigma:
-        :arg C_tilde:
-        :arg calligraphic_Z:
-        :arg bool numerical_stability:
-        :return fx:
+        The particular hyperparameter space is inferred from the user inputs.
         """
-        #TODO
-        return 0
+        steps = self.N
+        # Infer the hyperparameter space to grid over
+        if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
+            gamma = gamma_0
+            # Grid over log varphi and log noise_std
+            xlabel = r"$\sigma$"
+            ylabel = r"$\varphi$"
+            xscale = "log"
+            yscale = "log"
+            x1s = np.logspace(range_x1[0], range_x1[1], res)
+            x2s = np.logspace(range_x2[0], range_x2[1], res)
+            xx, yy = np.meshgrid(x1s, x2s)
+            Phi_new = np.dstack((xx, yy))
+            Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty((len(Phi_new), 2))
+            C_inv = None  # placeholder
+            C_chol = None # placeholder
+        elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
+            gamma = gamma_0
+            noise_variance = noise_variance_0
+            noise_std = np.sqrt(noise_variance)
+            # Grid over log varphi only
+            xlabel = r"$\varphi$"
+            ylabel = None
+            xscale = "log"
+            yscale = None
+            x1s = np.logspace(range_x1[0], range_x1[1], res)
+            Phi_new = x1s
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty(len(Phi_new))
+            print(len(Phi_new))
+            C_inv = None  # placeholder
+            C_chol = None  # placeholder
+        elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
+            gamma = gamma_0
+            noise_variance = noise_variance_0
+            noise_std = np.sqrt(noise_variance)
+            varphi = varphi_0
+            # Grid first two gamma variables
+            xlabel = r"$\gamma_{1}$"
+            ylabel = r"$\gamma_{2} - \gamma{1}$"
+            xscale = "linear"
+            yscale = "log"
+            x1s = np.linspace(range_x1[0], range_x1[1], res)
+            x2s = np.logspace(range_x2[0], range_x2[1], res)
+            xx, yy = np.meshgrid(x1s, x2s)
+            Phi_new = np.dstack((xx, yy))
+            Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty((len(Phi_new),2))
+            C_chol = np.linalg.cholesky(self.C + self.jitter * np.eye(self.N))
+            C_chol_inv = np.linalg.inv(C_chol)
+            C_inv = C_chol_inv.T @ C_chol_inv
+        elif (gamma_0 is not None) and (noise_variance_0 is None) and (varphi_0 is not None):
+            gamma = gamma_0
+            varphi = varphi_0
+            # Grid over log std only
+            xlabel = r"$\sigma$"
+            ylabel = None
+            xscale = "log"
+            yscale = None
+            x1s = np.logspace(range_x1[0], range_x1[1], res)
+            Phi_new = x1s
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty(len(Phi_new))
+            print(len(Phi_new))
+            C_chol = np.linalg.cholesky(self.C + self.jitter * np.eye(self.N))
+            C_chol_inv = np.linalg.inv(C_chol)
+            C_inv = C_chol_inv.T @ C_chol_inv
+        else:
+            raise ValueError(
+                "Couldn't infer what you wanted to plot from the input arguments"
+                " (gamma_0={}, varphi_0={}, noise_variance_0={})".format(
+                gamma_0, varphi_0, noise_variance_0))
+        error = np.inf
+        fx_old = np.inf
+        intervals = gamma[2:self.K] - gamma[1:self.K - 1]
+        for i, phi in enumerate(Phi_new):
+            if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
+                noise_std = phi[0]
+                noise_variance = noise_std**2
+                varphi = phi[1]
+                # Update kernel parameters, update prior and posterior covariance
+                self._reset_hyperparameters(varphi=varphi, noise_variance=noise_variance)
+                #C_chol = np.linalg.cholesky(self.C + self.jitter * np.eye(self.N))
+                #C_chol_inv = np.linalg.inv(C_chol)
+                #C_inv = C_chol_inv.T @ C_chol_inv
+                C_chol = None
+                C_inv = None
+            elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
+                varphi = phi
+                # Update kernel parameters,update prior and posterior covariance - noise_variance stays the same
+                self._reset_hyperparameters(varphi=varphi, noise_variance=noise_variance)
+                #C_chol = np.linalg.cholesky(self.C + self.jitter * np.eye(self.N))
+                #C_chol_inv = np.linalg.inv(C_chol)
+                #C_inv = C_chol_inv.T @ C_chol_inv
+                C_chol = None
+                C_inv = None
+            elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
+                gamma[1] = phi[0]
+                gamma[2] = phi[1] + phi[0]  # TODO: Check if this is correct domain (log?)
+                # No update of prior and posterior covariance
+            elif (gamma_0 is not None) and (noise_variance_0 is None) and (varphi_0 is not None):
+                noise_std = phi
+                noise_variance = noise_std**2
+                # Update posterior covariance - varphi stays the same
+                self._reset_hyperparameters(noise_variance=noise_variance)
+                C_chol = np.linalg.cholesky(self.C + self.jitter * np.eye(self.N))
+                C_chol_inv = np.linalg.inv(C_chol)
+                C_inv = C_chol_inv.T @ C_chol_inv
+            # Reset error and posterior mean
+            iteration = 0
+            error = np.inf
+            fx_old = np.inf
+            m_tilde = m_0
+            # Convergence is sometimes very fast so this may not be necessary
+            while error / steps > self.EPS:
+                iteration += 1
+                (m_tilde, Sigma, C, *_) = self.estimate(
+                    steps, gamma, varphi_tilde_0=varphi, noise_variance=noise_variance, m_tilde_0=m_tilde,
+                    first_step=1, fix_hyperparameters=True, write=False)
+                calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, *_ = self._calligraphic_Z(
+                    gamma, noise_std, m_tilde, upper_bound=self.upper_bound, numerical_stability=True)
+                fx, C_inv = self.evaluate_function(
+                    self.N, m_tilde, Sigma, C, calligraphic_Z, C_chol=C_chol, C_inv=C_inv,
+                    numerical_stability=True, verbose=False)
+                # for i in range(self.N):
+                #     if math.isnan(m_tilde[i]):
+                #         print(calligraphic_Z)
+                #         print(m_tilde)
+                #         assert 0
+                error = np.abs(fx_old - fx)
+                fx_old = fx
+                if verbose:
+                    print("({}), error={}".format(iteration, error))
+            print("{}/{}".format(i + 1, len(Phi_new)))
+            fx, C_inv = self.evaluate_function(
+                self.N, m_tilde, Sigma, C, calligraphic_Z, numerical_stability=True, verbose=False)
+            gx = self.evaluate_function_gradient(intervals, varphi, noise_variance, noise_std, m_tilde,
+                self.cov, Sigma, C_inv, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+                numerical_stability=True, verbose=False)
+            fxs[i] = fx
+            if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
+                gxs[i, :] = gx[[0, -1]]
+            elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
+                gxs[i] = gx[-1]
+            elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
+                gxs[i, :] = gx[[1, 2]]
+            elif (gamma_0 is not None) and (noise_variance_0 is None) and (varphi_0 is not None):
+                gxs[i] = gx[0]
+            if verbose:
+                print("function call {}, gradient vector {}".format(fx, gx))
+                print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
+        if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
+            return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
+        elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
+            return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
+        elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
+            return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
+        elif (gamma_0 is not None) and (noise_variance_0 is None) and (varphi_0 is not None):
+            return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
 
     def _hyperparameter_training_step_initialise(self, theta):
         """
@@ -2115,9 +2577,7 @@ class VBOrderedGP(Estimator):
             # and a single, shared lengthscale parameter
             varphi = np.exp(theta[self.K])
         # Update prior covariance
-        self.kernel.hyperparameter_update(varphi=varphi)
-        # Update covariances... this will also update varphi???
-        self.__init__(noise_variance)
+        self._reset_hyperparameters(varphi=varphi, noise_variance=noise_variance)
         return gamma, varphi, noise_variance
 
     def hyperparameter_training_step(
@@ -2165,7 +2625,6 @@ class VBOrderedGP(Estimator):
         if write:
             (posterior_means, Sigmas, mean_EPs, precision_EPs,
             amplitude_EPs, approximate_marginal_likelihoods) = containers
-        # Try optimisation routine
         t1, t2, t3, t4, t5 = self.compute_integrals(
             gamma, Sigma, precision_EP, posterior_mean, noise_variance)
         fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
@@ -2212,11 +2671,10 @@ class EPOrderedGP(Estimator):
             raise ValueError('The kernel must not be general type (kernel.general_kernel=1),'
                              ' but simple type (kernel.general_kernel=0). (got {}, expected)'.format(
                 self.kernel.general_kernel, 0))
-        # All indeces for sequential message passing
-        self.grid = np.ogrid[0:self.N]
+        self.grid = np.ogrid[0:self.N] # All indeces for sequential message passing
         self.EPS = 0.000001  # Acts as a machine tolerance
-        # Threshold of upper bound z-score
-        self.upper_bound = 4  # No. of single sided standard deviations that normal cdf can be approximated to 0 or 1
+        # Threshold of single sided standard deviations that normal cdf can be approximated to 0 or 1
+        self.upper_bound = 4 
 
     def _estimate_initiate(
             self, gamma, varphi, noise_variance=None, posterior_mean_0=None, Sigma_0=None,
@@ -2495,7 +2953,7 @@ class EPOrderedGP(Estimator):
         variance = cavity_variance_n + noise_variance
         std_dev = np.sqrt(variance)
         target = self.t_train[index]
-        # TODO: implement this method in other implementations.
+        # TODO: implement this method in other implementations.<<<
         if numerically_stable:
             # Compute Z
             norm_cdf_z2 = 0.0
@@ -2724,13 +3182,13 @@ class EPOrderedGP(Estimator):
             return np.sum(approximate_marginal_likelihood)
         else:
             approximate_marginal_likelihood = np.add(
-                log_amplitude_EP, 0.5 * np.log(np.linalg.det(inverse_precision_matrix)))
+                log_amplitude_EP, 0.5 * np.log(np.linalg.det(inverse_precision_matrix)))  # TODO: use log det C trick
             approximate_marginal_likelihood = np.add(
                 approximate_marginal_likelihood, B/2
             )
             approximate_marginal_likelihood = np.add(
                 approximate_marginal_likelihood, 0.5 * np.log(np.linalg.det(self.C + inverse_precision_matrix))
-            )
+            )  # TODO: use log det C trick
             return np.sum(approximate_marginal_likelihood)
 
     def _predict_vector(self, gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda):
@@ -2836,6 +3294,7 @@ class EPOrderedGP(Estimator):
         # Update prior covariance
         self.kernel.hyperparameter_update(varphi=varphi)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        # TODO: Calculate partial_C here?
         return gamma, varphi, noise_variance
 
     def _hyperparameter_training_step_varphi_initialise(self, theta):
@@ -2953,14 +3412,10 @@ class EPOrderedGP(Estimator):
             fxs = np.empty(len(Phi_new))
             gxs = np.empty((len(Phi_new),2))
         else:
-            raise ValueError("Couldn't infer what you wanted to plot from the input arguments (gamma_0={}, varphi_0={}, noise_variance_0={})".format(
+            raise ValueError(
+                "Couldn't infer what you wanted to plot from the input arguments"
+                " (gamma_0={}, varphi_0={}, noise_variance_0={})".format(
                 gamma_0, varphi_0, noise_variance_0))
-        error = np.inf
-        posterior_mean = posterior_mean_0
-        Sigma = Sigma_0
-        mean_EP = mean_EP_0
-        precision_EP = precision_EP_0
-        amplitude_EP = amplitude_EP_0
         intervals = gamma[2:self.K] - gamma[1:self.K - 1]
         for i, phi in enumerate(Phi_new):
             if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
@@ -2979,7 +3434,14 @@ class EPOrderedGP(Estimator):
                 gamma[2] = phi[1] + phi[0]
                 # noise_variance = noise_variance
                 # varphi = varphi
+            # Reset parameters
             iteration = 0
+            error = np.inf
+            posterior_mean = posterior_mean_0
+            Sigma = Sigma_0
+            mean_EP = mean_EP_0
+            precision_EP = precision_EP_0
+            amplitude_EP = amplitude_EP_0
             while error / steps > self.EPS**2:
                 iteration += 1
                 (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
@@ -2992,9 +3454,6 @@ class EPOrderedGP(Estimator):
             print("{}/{}".format(i + 1, len(Phi_new)))
             weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(
                 precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-            (posterior_means, Sigmas, mean_EPs, precision_EPs,
-             amplitude_EPs, approximate_marginal_likelihoods) = containers
-            # Try optimisation routine
             t1, t2, t3, t4, t5 = self.compute_integrals(
                 gamma, Sigma, precision_EP, posterior_mean, noise_variance)
             fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
@@ -3010,13 +3469,6 @@ class EPOrderedGP(Estimator):
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
                 print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
-            # Reset parameters
-            error = np.inf
-            posterior_mean = posterior_mean_0
-            Sigma = Sigma_0
-            mean_EP = mean_EP_0
-            precision_EP = precision_EP_0
-            amplitude_EP = amplitude_EP_0
         if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
             return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
         elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
@@ -3248,8 +3700,7 @@ class EPOrderedGP(Estimator):
         fx += np.sum(t1)
         # Regularisation - penalise large varphi (overfitting)
         # fx -= 0.1 * self.kernel.varphi
-        fx = -fx
-        return fx
+        return -fx
 
     def evaluate_function_gradient(self, intervals, varphi, noise_variance, t2, t3, t4, t5, Lambda, weights):
         """
@@ -3306,22 +3757,20 @@ class EPOrderedGP(Estimator):
             gx[j] -= np.sum(t2[targets == self.K - 1])
             gx[j] += np.sum(t3[targets > j - 1] - t2[targets > j - 1])
             gx[j] *= intervals[j - 2]
-        # For kernel parameters
-        # Calculate for each varphi GP prior parameter
+        # For kernel hyperparameters
+        # TODO: best to calculate partial_C here since it is not calculated elsewhere and this is point of use?
         partial_C = self.kernel.kernel_partial_derivative(self.X_train, self.X_train)
         if self.kernel.general_kernel and self.kernel.ARD_kernel:
             raise ValueError("TODO")
         else:
             # VC * VC * a' * partial_C * a / 2
-            # Partial
             gx[self.K] += varphi * 0.5 * weights.T @ partial_C @ weights  # That's wrong. not the same calculation.
             # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_C)
             gx[self.K] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_C))
             # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
             # gx[self.K] -= 0.1 * varphi
             gx[self.K] *= 2.0  # since varphi = kappa / 2
-        gx = -gx
-        return gx
+        return -gx
 
     def approximate_evidence(self, mean_EP, precision_EP, amplitude_EP, Sigma):
         """

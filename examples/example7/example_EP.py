@@ -573,6 +573,27 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
         plt.savefig("grad.png")
         plt.close()
+        #Normalization:
+        dx = np.diff(x) # use np.diff(x) if x is not uniform
+        #First derivatives:
+        dZ = np.diff(Z) / dx
+        cf = np.convolve(Z, [1,-1])[1:-1] / dx
+        plt.figure()
+        plt.plot(x[:-1], dZ, 'r.', label='np.diff, 1')
+        plt.plot(x[:-1], cf, 'r--', label='np.convolve, [1,-1]')
+        plt.xscale(xscale)
+        plt.xlabel(xlabel)
+        plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
+        plt.savefig("grad_finite_diff.png")
+        plt.close()
+        plt.plot(x, grad)
+        plt.xscale(xscale)
+        plt.xlabel(xlabel)
+        plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
+        plt.plot(x[:-1], dZ, 'r.', label='np.diff, 1')
+        plt.plot(x[:-1], cf, 'r--', label='np.convolve, [1,-1]')
+        plt.savefig("both.png")
+        plt.close()
     else:
         fig, axs = plt.subplots(1, figsize=(6, 6))
         ax = plt.axes(projection='3d')
@@ -587,7 +608,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         v = grad[:, 1] / norm
         fig, ax = plt.subplots(1, 1)
         ax.set_aspect(1)
-        ax.contourf(x, y, np.log(Z), 100, cmap='viridis', zorder=1)
+        ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
         ax.plot(0.1, 30, 'm')
         plt.xscale(xscale)

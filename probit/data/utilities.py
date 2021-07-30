@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
-from probit.kernels import SEIso
+from probit.kernels import SEIso, SEARD, Linear, Polynomial
 from scipy.optimize import minimize
 import warnings
 import time
@@ -206,10 +206,12 @@ def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
     C = kernel.kernel_matrix(X, X)
     Z = np.random.multivariate_normal(mu, C)
     plt.figure()  # open new plotting window
+    plt.title("Sample from prior GP")
     plt.plot(X[:], Z[:])
     plt.show()
     epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
     # Model latent variable responses
+    plt.title("Sample from prior GP")
     Y_true = epsilons + Z
     sort_indeces = np.argsort(Y_true)
     plt.scatter(X, Y_true)
@@ -256,8 +258,9 @@ def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
     print(t)
     colors_ = [colors[i] for i in t]
     print(colors_)
-    plt.scatter(X, Y_true, color=colors_)
+    plt.scatter(X[:, 0], Y_true, color=colors_)
     plt.show()
+    plot_ordinal(X, t, X_k, Y_true_k, K, D)
     return X_k, Y_true_k, X, Y_true, t, gamma
 
 
@@ -381,6 +384,42 @@ def load_data(dataset, bins):
                     np.array([-np.inf, -0.60729699, -0.3207209 , -0.2210021 , -0.10743028, np.inf]) ,
                     0.11,
                     0.005,
+                ),
+            }
+            linear_hyperperameters = {
+                "init": (
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    0.5 / D,
+                    np.ones((10,))
+                ),
+                "init_alt": (
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    100.0,
+                    np.ones((10,))
+                ),
+            }
+            polynomial_hyperparameters = {
+                "init": (  # Unstable
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    0.5 / D,
+                    np.ones((10,))
+                ),
+                "init_alt": (
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    100.0,
+                    np.ones((10,))
+                ),
+            }
+            ARD_hyperparameters = {
+                "init": (  # Unstable
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    0.5 / D,
+                    np.ones((10,))
+                ),
+                "init_alt": (
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    100.0,
+                    np.ones((10,))
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["1046.0"]
@@ -935,6 +974,47 @@ def load_data(dataset, bins):
     return X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
 
 
+def generate_synthetic_data_SEARD(N_per_class, K, D, varphi=[30.0, 20.0], noise_variance=1.0, scale=1.0):
+    """Generate synthetic SEARD dataset."""
+    # Generate the synethetic data
+    kernel = SEARD(varphi, scale=scale, sigma=10e-6, tau=10e-6)
+    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+        N_per_class, K, D, kernel, noise_variance=noise_variance)
+    from probit.data import tertile
+    with pkg_resources.path(tertile) as path:
+        np.savez(
+            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, K), X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+    return X_k, Y_true_k, X, Y_true, t, gamma_0
+
+
+def generate_synthetic_data_polynomial(N_per_class, K, D, noise_variance=1.0, scale=1.0,
+        intercept=0.0, order=2.0):
+    """Generate synthetic Polynomial dataset."""
+    # Generate the synethetic data
+    kernel = Polynomial(intercept=intercept, order=order, scale=scale, sigma=10e-6, tau=10e-6)
+    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+        N_per_class, K, D, kernel, noise_variance=noise_variance)
+    from probit.data import tertile
+    with pkg_resources.path(tertile) as path:
+        np.savez(
+            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, K), X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+    return X_k, Y_true_k, X, Y_true, t, gamma_0
+
+
+def generate_synthetic_data_linear(N_per_class, K, D, noise_variance=1.0, scale=1.0, intercept=0.0):
+    """Generate synthetic Linear dataset."""
+    # Generate the synethetic data
+    kernel = Linear(intercept=intercept, scale=scale, sigma=10e-6, tau=10e-6)
+    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+        N_per_class, K, D, kernel, noise_variance=noise_variance)
+    from probit.data import tertile
+    with pkg_resources.path(tertile) as path:
+        np.savez(
+            path / 'data_linear_{}dim_{}bin_prior.npz'.format(D, K), X_k=X_k,
+            Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+    return X_k, Y_true_k, X, Y_true, t, gamma_0
+
+
 def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, scale=1.0):
     """Generate synthetic dataset."""
     # Generate the synethetic data
@@ -942,9 +1022,9 @@ def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, 
     X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
         N_per_class, K, D, kernel, noise_variance=noise_variance)
     from probit.data import tertile
-    with pkg_resources.path(tertile, 'data_tertile_prior_.npz') as path:
+    with pkg_resources.path(tertile) as path:
         np.savez(
-            path, X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+            path / 'data_tertile_prior_.npz', X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
     return X_k, Y_true_k, X, Y_true, t, gamma_0
 
 
@@ -1048,27 +1128,43 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         }
         gamma_0, varphi_0, noise_variance_0 = hyperparameters["true"]
     if plot:
-        # Plot
-
-        colors_ = [colors[i] for i in t]
-        fig, ax = plt.subplots()
-        plt.scatter(X, t, color=colors_)
-        plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-        plt.xlabel(r"$x$", fontsize=16)
-        ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
-        plt.ylabel(r"$t$", fontsize=16)
-        plt.show()
-        plt.close()
-        # Plot from the binned arrays
-        for k in range(K):
-            plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
-        plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-        plt.legend()
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$y$", fontsize=16)
-        plt.show()
-        plt.close()
+        plot_ordinal(X, t, X_k, Y_true_k, K, D)
     return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
+
+
+def plot_s(kernel, N_total=500, n_samples=10):
+    for i in range(n_samples):
+        X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
+        X = X[:, None]  # reshape X to make it n*D
+        mu = np.zeros((N_total))  # vector of the means
+        C = kernel.kernel_matrix(X, X)
+        Z = np.random.multivariate_normal(mu, C)
+        plt.plot(X[:], Z[:])
+    plt.show()
+
+
+def plot_ordinal(X, t, X_k, Y_k, K, D):
+    N_total = len(t)
+    colors_ = [colors[i] for i in t]
+    fig, ax = plt.subplots()
+    plt.scatter(X[:, 0], t, color=colors_)
+    plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+    plt.xlabel(r"$x$", fontsize=16)
+    ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
+    plt.ylabel(r"$t$", fontsize=16)
+    plt.show()
+    # plt.savefig("N_total={}, K={}, D={} Ordinal response data.png".format(N_total, K, D))
+    plt.close()
+    # Plot from the binned arrays
+    for k in range(K):
+        plt.scatter(X_k[k][:, 0], Y_k[k], color=colors[k], label=r"$t={}$".format(k))
+    plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+    plt.legend()
+    plt.xlabel(r"$x$", fontsize=16)
+    plt.ylabel(r"$y$", fontsize=16)
+    plt.show()
+    # plt.savefig("N_total={}, K={}, D={} Ordinal response data_.png".format(N_total, K, D)
+    plt.close()
 
 
 class TookTooLong(Warning):
@@ -1089,3 +1185,17 @@ class MinimizeStopper(object):
         else:
             # you might want to report other stuff here
             print("Elapsed: %.3f sec" % elapsed)
+
+
+
+if __name__ == "__main__":
+    print("Hello")
+    generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
+    kernel = Linear(intercept=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
+    plot_s(kernel)
+    # generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
+    print("HELLO")
+
+# generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
+
+# generate_synthetic_data_SEARD(30, 3, 2, noise_variance=1.0)
