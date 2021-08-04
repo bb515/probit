@@ -1,8 +1,5 @@
 from abc import ABC, abstractmethod
 from operator import pos
-from unicodedata import numeric
-
-from numpy.core import numerictypes
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
@@ -11,6 +8,7 @@ from scipy.stats import norm, multivariate_normal
 from tqdm import trange
 import warnings
 import math
+import matplotlib.pyplot as plt
 from .utilities import (
     sample_Us, sample_varphis,
     matrix_of_differencess, matrix_of_valuess, matrix_of_VB_differencess, matrix_of_VB_differences,
@@ -349,8 +347,8 @@ class Estimator(ABC):
             :class:`numpy.ndarray`, :class:`numpy.ndarray`,
             :class:`numpy.ndarray`, :class:`numpy.ndarray`)
         """
-        gamma_1s = gamma[self.t_train + 1]
-        gamma_2s = gamma[self.t_train]
+        gamma_1s = gamma[self.t_train]
+        gamma_2s = gamma[self.t_train + 1]
         if numerical_stability is True:
             # TODO: Warning: This sometimes seems to return nan as calligraphic_Z
             norm_cdf_z2s = np.zeros(self.N)
@@ -387,7 +385,7 @@ class Estimator(ABC):
             norm_pdf_z2s[indeces] = norm.pdf(z2s_indeces)
             norm_cdf_z1s[indeces] = norm.cdf(z1s_indeces)
             norm_cdf_z2s[indeces] = norm.cdf(z2s_indeces)
-            calligraphic_Z = norm_cdf_z1s - norm_cdf_z2s
+            calligraphic_Z = norm_cdf_z2s - norm_cdf_z1s
             number_small_densities = len(calligraphic_Z[calligraphic_Z < self.EPS])
             if number_small_densities != 0:
                 warnings.warn("Some Z_ns were very small, numerical instability is expected. (got {} Z_n < {})".format(
@@ -400,7 +398,7 @@ class Estimator(ABC):
             norm_pdf_z2s = norm.pdf(z2s)
             norm_cdf_z1s = norm.cdf(z1s)
             norm_cdf_z2s = norm.cdf(z2s)
-            calligraphic_Z = norm_cdf_z1s - norm_cdf_z2s
+            calligraphic_Z = norm_cdf_z2s - norm_cdf_z1s
             number_small_densities = len(calligraphic_Z[calligraphic_Z < self.EPS])
             if number_small_densities != 0:
                 if verbose:
@@ -409,7 +407,10 @@ class Estimator(ABC):
                         "must be greater than tolerance={} (got {}): SETTING to Z_ns[Z_ns<tolerance]=tolerance\n"
                                 "z1s={}, z2s={}".format(
                         self.EPS, calligraphic_Z, z1s, z2s))
-                calligraphic_Z[calligraphic_Z < self.EPS] = self.EPS
+                # calligraphic_Z[calligraphic_Z < self.EPS] = self.EPS
+        # for i, value in enumerate(calligraphic_Z):
+        #     if value < 0.01:
+        #         print("call_Z={}, z1 = {}, z2 = {}".format(value, z1s[i], z2s[i]))
         return calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s, gamma_1s, gamma_2s
 
 
@@ -1798,6 +1799,7 @@ class VBMultinomialGP(Estimator):
 
 class VBOrderedGP(Estimator):
     """
+    TODO: On 03/08 Tried to find and fix the numerical stability bug.
     TODO: On 20/07 applied refactoring to including noise variance parameter.
     TODO: On 20/07 applied refactoring to be able to call __init__ method at each hyperparameter update and it work.
     TODO: Why do I need to initiate it with a noise variance? Can't this be done as estimate time? A: init self.Sigma
@@ -1826,10 +1828,10 @@ class VBOrderedGP(Estimator):
         # TODO: might need cholesky factor later on. 20/07 depricated Sigma_tilde since self.Sigma and self.C were not
         # used.
         # TODO: 26/07 refactor the way self.cov is used. Swap it with self.Sigma.
-        # TODO: NEED TO BE VERY CAREFUL - THIS IS NOT THE SAME THING AS THE GP POSTERIOR - POSSIBLE MISTAKE?
+        # TODO: NEED TO BE VERY CAREFUL - THIS IS NOT THE SAME THING AS THE GP POSTERIOR - predictions requires different GP inversion
         self.cov = np.linalg.inv(np.add(self.IN, self.noise_variance * self.C))  # an intermediate matrix
         self.Sigma = self.C @ self.cov  # derivation of this in report
-        # C_inv = np.linalg.inv(self.C + self.jitter * np.eye(self.N))
+        self.C_inv = np.linalg.inv(self.C + self.jitter * np.eye(self.N))
         # Sigma_2 = np.linalg.inv(np.add(self.noise_variance * self.IN, C_inv))
         # assert np.allclose(self.Sigma, Sigma_2)
         if self.kernel.ARD_kernel:
@@ -1843,8 +1845,8 @@ class VBOrderedGP(Estimator):
         self.grid = np.ogrid[0:self.N]  # All the indeces for indexing sets of self.t_train
         self.EPS = 0.000001  # Acts as a machine tolerance
         # Threshold of single sided standard deviations that normal cdf can be approximated to 0 or 1
-        self.upper_bound = 4
-        self.jitter = 1e-8  # Regularisation for matrix inversion (see GPML by Williams et al. for a good explanation)
+        self.upper_bound = 6
+        self.jitter = 1e-8  #TODO # Regularisation for matrix inversion (see GPML by Williams et al. for a good explanation)
 
     def _reset_hyperparameters(self, varphi=None, noise_variance=None):
         """
@@ -1862,8 +1864,8 @@ class VBOrderedGP(Estimator):
         # Update posterior covariance
         self.cov = np.linalg.inv(np.add(self.IN, self.noise_variance * self.C))  # an intermediate matrix
         self.Sigma = self.C @ self.cov  # derivation of this in report
-        # C_inv = np.linalg.inv(self.C + self.jitter * np.eye(self.N))
-        # Sigma_2 = np.linalg.inv(np.add(self.noise_variance * self.IN, C_inv))
+        #C_inv = np.linalg.inv(self.C + self.jitter * np.eye(self.N))
+        #self.Sigma = np.linalg.inv(np.add(self.noise_variance * self.IN, C_inv))
         # assert np.allclose(self.Sigma, Sigma_2)
 
     def _estimate_initiate(self, m_0, gamma, varphi_0, psi_0, noise_variance):
@@ -1884,7 +1886,8 @@ class VBOrderedGP(Estimator):
         :arg float noise_variance_0:
         """
         if m_0 is None:
-            m_0 = np.zeros(self.N)
+            m_0 = np.random.rand(self.N)
+            # m_0 = np.zeros(self.N)
         if noise_variance is None:
             noise_variance = 1.0
         noise_std = np.sqrt(noise_variance)
@@ -1966,10 +1969,19 @@ class VBOrderedGP(Estimator):
         m_tilde, gamma, varphi_tilde, psi_tilde, noise_variance, noise_std, containers = self._estimate_initiate(
             m_tilde_0, gamma, varphi_tilde_0, psi_tilde_0, noise_variance)
         ms, ys, varphis, psis, fxs = containers
+        # plt.title("m_tilde")
+        # plt.scatter(self.X_train, m_tilde)
+        # plt.show()
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples", disable=True):
-            y_tilde = self._y_tilde(m_tilde, gamma, noise_std, write=write)
+            y_tilde = self._y_tilde(m_tilde, gamma, noise_std)
+            # plt.scatter(self.X_train, y_tilde)
+            # plt.title("y_tilde")
+            # plt.show()
             m_tilde = self._m_tilde(y_tilde, varphi_tilde, noise_variance)
+            # plt.scatter(self.X_train, m_tilde)
+            # plt.title("m_tilde")
+            # plt.show()
             if not fix_hyperparameters:
                 varphi_tilde = self._varphi_tilde(m_tilde, psi_tilde, n_samples=1000)
                 psi_tilde = self._psi_tilde(varphi_tilde)
@@ -1985,7 +1997,7 @@ class VBOrderedGP(Estimator):
                 psis.append(psi_tilde)
                 fxs.append(fx)
         containers = (ms, ys, varphis, psis, fxs)
-        return (m_tilde, self.Sigma, self.C, y_tilde, varphi_tilde, containers)
+        return m_tilde, self.Sigma, self.C, y_tilde, varphi_tilde, containers
 
     def _predict_vector(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, noise_variance, X_test):
         """
@@ -1998,33 +2010,35 @@ class VBOrderedGP(Estimator):
         :return: A Monte Carlo estimate of the class probabilities.
         """
         N_test = np.shape(X_test)[0]
-        # Update the kernel with new varphi
-        self.kernel.varphi = varphi_tilde
+        # Lambda = np.linalg.inv(np.add(Pi_inv, self.C))  # (N, N)
+        Lambda_chol = np.linalg.cholesky(noise_variance * self.IN + self.C)
+        Lambda_chol_inv = np.linalg.inv(Lambda_chol)
+        Lambda = Lambda_chol_inv.T @ Lambda_chol_inv
+        # Update the kernel
+        self._reset_hyperparameters(varphi=varphi_tilde)
         # C_news[:, i] is C_new for X_test[i]
         C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
         # TODO: this is a bottleneck
         c_news = np.diag(self.kernel.kernel_matrix(X_test, X_test)) # (N_test, )
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = Sigma_tilde @ C_news  # (N, N_test)
-        intermediate_vectors_T = np.transpose(intermediate_vectors)  # (N_test, N)
+        intermediate_vectors = Lambda @ C_news  # (N, N_test)
         intermediate_scalars = np.sum(np.multiply(C_news, intermediate_vectors), axis=0)  # (N_test, )
         # Calculate m_tilde_new # TODO: test this.
-        posterior_predictive_m = np.dot(intermediate_vectors_T, y_tilde)  # (N_test, N) (N, ) = (N_test, )
-        posterior_predictive_var = np.subtract(c_news, intermediate_scalars)  # (N_test, )
-        posterior_predictive_var += noise_variance
+        posterior_predictive_m = np.einsum('ij, i -> j', intermediate_vectors, y_tilde)  # (N, N_test) (N, ) = (N_test,)
+        # plt.scatter(self.X_train, y_tilde)
+        # plt.plot(X_test, posterior_predictive_m)
+        # plt.hlines(gamma[[1, 2]], -0.5, 1.5)
+        # plt.show()
+        posterior_predictive_var = c_news - intermediate_scalars + noise_variance  # (N_test, )
         posterior_predictive_std = np.sqrt(posterior_predictive_var)
-        posterior_predictive_std = np.reshape(posterior_predictive_std, (N_test, 1))
         predictive_distributions = np.empty((N_test, self.K))
         for k in range(self.K):
-            gamma_k = gamma[k + 1]
-            gamma_k_minus_1 = gamma[k]
-            predictive_distributions[:, k] = (
-                norm.cdf((gamma_k - posterior_predictive_m) / posterior_predictive_std)
-                - norm.cdf((gamma_k_minus_1 - posterior_predictive_m) / posterior_predictive_std)
-            )
+            Z1 = np.divide(np.subtract(gamma[k + 1], posterior_predictive_m), posterior_predictive_std)
+            Z2 = np.divide(np.subtract(gamma[k], posterior_predictive_m), posterior_predictive_std)
+            predictive_distributions[:, k] = norm.cdf(Z1) - norm.cdf(Z2)
         return predictive_distributions  # (N_test, K)
 
-    def predict(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test, vectorised=True):
+    def predict(self, gamma, Sigma_tilde, y_tilde, varphi_tilde, noise_variance, X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
 
@@ -2043,7 +2057,7 @@ class VBOrderedGP(Estimator):
                 self.kernel.ARD_kernel, 0))
         else:
             if vectorised:
-                return self._predict_vector(gamma, Sigma_tilde, y_tilde, varphi_tilde, X_test)
+                return self._predict_vector(gamma, Sigma_tilde, y_tilde, varphi_tilde, noise_variance, X_test)
             else:
                 return ValueError("The scalar implementation has been superseded. Please use "
                                   "the vector implementation.")
@@ -2102,9 +2116,12 @@ class VBOrderedGP(Estimator):
             # Update the varphi with new values, updated self.C, self.Sigma
             self._reset_hyperparameters(varphi=varphi_tilde, noise_variance=noise_variance)
         # Else, no need to perform update on posterior covariance
-        return self.Sigma @ y_tilde  # (N, K)
 
-    def _y_tilde(self, m_tilde, gamma, noise_std, write):
+        # What happens if do a solve here, instead?
+        return np.linalg.solve(noise_variance * self.IN + self.C_inv, y_tilde)
+        # return self.Sigma @ y_tilde  # (N, K)
+
+    def _y_tilde(self, m_tilde, gamma, noise_std):
         """
         Calculate Y_tilde elements 2021 Page Eq.().
 
@@ -2112,11 +2129,115 @@ class VBOrderedGP(Estimator):
         :type M_tilde: :class:`numpy.ndarray`
         :return: Y_tilde (N, ) containing \tilde(y)_{n} values.
         """
-        p = self._p(m_tilde, gamma, noise_std)
+        #p = self._p(gamma, noise_std, m_tilde, upper_bound=self.upper_bound, numerical_stability=True)
+        p = self._p(m_tilde, gamma, noise_std, numerically_stable=False)
         # Eq. (11)
-        return np.add(m_tilde, p)
+        y_tilde = np.add(m_tilde, noise_std * p)
+        for i, value in enumerate(y_tilde):
+            gamma_k = gamma[self.t_train[i]]
+            gamma_kplus1 = gamma[self.t_train[i] + 1]
+            m_i = m_tilde[i]
+            z1 = (gamma_k - m_i) / noise_std
+            z2 = (gamma_kplus1 - m_i) / noise_std
+            # if (value < gamma_k) or (value > gamma_kplus1):
+            #     print("gamma_k, y, gamma_kplus1=[{}, {}, {}], z1 = {}, z2 = {}, m={}, i={}".format(
+            #         gamma_k, value, gamma_kplus1, z1, z2, m_i, i))
+            # if (value == np.inf) or (value == -np.inf):
+            #     print("gamma_k, y, gamma_kplus1=[{}, {}, {}], z1 = {}, z2 = {}, m={}, i={}".format(
+            #         gamma_k, value, gamma_kplus1, z1, z2, m_i, i))
+        # print(y_tilde)
+        return np.add(m_tilde, 1./noise_std * p)
 
-    def _p(self, m, gamma, noise_std):
+    def _p_SS(self, gamma, noise_std, m, upper_bound, numerical_stability=True, verbose=False):
+        """
+        Return the normalising constants for the truncated normal distribution in a numerically stable manner.
+
+        :arg gamma: The cutpoints.
+        :type gamma: :class:`numpy.array`
+        :arg float noise_std: The noise standard deviation.
+        :arg m: The mean vector.
+        :type m: :class:`numpy.ndarray`
+        :arg upper_bound: The threshold of the normal z value for which the pdf is close enough to zero.
+        :type upper_bound: :class:`numpy.ndarray`
+        :arg bool numerical_stability: If set to true, will calculate in a numerically stable way. If set to false,
+            will calculate in a faster, but less numerically stable way.
+        :returns: (
+            calligraphic_Z,
+            norm_pdf_z1s, norm_pdf_z2s,
+            norm_cdf_z1s, norm_cdf_z2s,
+            gamma_1s, gamma_2s,
+            z1s, z2s)
+        :rtype: tuple (
+            :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`)
+        """
+        gamma_1s = gamma[self.t_train + 1]
+        gamma_2s = gamma[self.t_train]
+        if numerical_stability is True:
+            # TODO: Warning: This sometimes seems to return nan as calligraphic_Z
+            norm_cdf_z2s = np.zeros(self.N)
+            norm_cdf_z1s = np.ones(self.N)
+            norm_pdf_z1s = np.zeros(self.N)
+            norm_pdf_z2s = np.zeros(self.N)
+            calligraphic_Z = np.zeros(self.N)
+            z1s = np.zeros(self.N)
+            z2s = np.zeros(self.N)
+            # Get those indeces whos targets are zeros
+            indeces_0 = np.where(self.t_train==0)
+            z1s_indeces = (gamma[1] - m[indeces_0]) / noise_std
+            z1s_indeces[z1s_indeces > upper_bound] = upper_bound
+            z1s_indeces[z1s_indeces < -upper_bound] = -upper_bound
+            z1s[indeces_0] = z1s_indeces
+            norm_pdf_z1s[indeces_0] = norm.pdf(z1s_indeces)   
+            norm_cdf_z1s[indeces_0] = norm.cdf(z1s_indeces)
+            # Get those indeces whos targets are the maximum class
+            indeces_K = np.where(self.t_train==self.K - 1)
+            z2s_indeces = (gamma[self.K - 1] - m[indeces_K]) / noise_std
+            z2s_indeces[z2s_indeces > upper_bound] = upper_bound
+            z2s_indeces[z2s_indeces < -upper_bound] = -upper_bound
+            z2s[indeces_K] = z2s_indeces
+            norm_pdf_z2s[indeces_K] = norm.pdf(z2s_indeces)
+            norm_cdf_z2s[indeces_K] = norm.cdf(z2s_indeces)
+            # Otherwise TODO: could be inefficient
+            indeces = np.setxor1d(self.grid, indeces_0)
+            indeces = np.setxor1d(indeces, indeces_K)
+            z1s_indeces = (gamma_1s[indeces] - m[indeces]) / noise_std
+            z2s_indeces = (gamma_2s[indeces] - m[indeces]) / noise_std
+            z1s[indeces] = z1s_indeces
+            z1s[indeces] = z2s_indeces
+            norm_pdf_z1s[indeces] = norm.pdf(z1s_indeces)
+            norm_pdf_z2s[indeces] = norm.pdf(z2s_indeces)
+            norm_cdf_z1s[indeces] = norm.cdf(z1s_indeces)
+            norm_cdf_z2s[indeces] = norm.cdf(z2s_indeces)
+            calligraphic_Z = norm_cdf_z1s - norm_cdf_z2s
+            p = (norm_pdf_z2s - norm_pdf_z1s) / calligraphic_Z
+            # indeces_1 = np.where(z1s_indeces > self.upper_bound)
+            # indeces_2 = np.where(z2s_indeces > self.upper_bound)
+            # indeces_ = np.intersect1d(indeces_1, indeces_2)
+            # indeces_ = indeces[indeces_]
+            # p[indeces] = (gamma[self.t_train[indeces] + 1] - m[indeces]) / noise_std
+            # indeces_1 = np.where(z1s < -self.upper_bound)
+            # indeces_2 = np.where(z2s < -self.upper_bound)
+            # indeces_ = np.intersect1d(indeces_1, indeces_2)
+            # indeces_ = indeces[indeces_]
+            # p[indeces] = (gamma[self.t_train[indeces]] - m[indeces]) / noise_std
+        else:
+            # TODO: This seems more stable
+            z1s = (gamma_1s - m) / noise_std
+            z2s = (gamma_2s - m) / noise_std
+            norm_pdf_z1s = norm.pdf(z1s)
+            norm_pdf_z2s = norm.pdf(z2s)
+            norm_cdf_z1s = norm.cdf(z1s)
+            norm_cdf_z2s = norm.cdf(z2s)
+            calligraphic_Z = norm_cdf_z1s - norm_cdf_z2s
+            # calligraphic_Z[calligraphic_Z < self.EPS] = self.EPS
+            p = (norm_pdf_z2s - norm_pdf_z1s) / calligraphic_Z
+        return p
+
+    def _p(self, m, gamma, noise_std, numerically_stable=True):
         """
         Estimate the rightmost term of 2021 Page Eq.(), a ratio of Monte Carlo estimates of the expectation of a
             functions of M wrt to the distribution p.
@@ -2131,19 +2252,30 @@ class VBOrderedGP(Estimator):
             :class:`numpy.ndarray`, :class:`numpy.ndarray`, :class:`numpy.ndarray`,
             :class:`numpy.ndarray`, :class:`numpy.ndarray`, :class:`numpy.ndarray`)
         """
-        # TODO: check this maths is correct or if it is out by one error
-        # Perform calligraphic_Z call here.
         (calligraphic_Z,
         norm_pdf_z1s, norm_pdf_z2s,
+        z1s, z2s,
+        norm_cdf_z1s, norm_cdf_z2s,
         *_) = self._calligraphic_Z(
             gamma, noise_std, m, upper_bound=self.upper_bound, numerical_stability=False)
-        p = (norm_pdf_z2s - norm_pdf_z1s) / calligraphic_Z
-        # TODO: SS
-        # calligraphic_Z = norm.cdf((gamma_ks - m_tilde) / noise_std) - norm.cdf(
-        #     (gamma_k_minus_1s - m_tilde) / noise_std)
-        # p = (norm.pdf((gamma_k_minus_1s - m_tilde) / noise_std) - norm.pdf(
-        #     (gamma_ks - m_tilde) / noise_std)) / calligraphic_Z
-        return p
+        p = (norm_pdf_z1s - norm_pdf_z2s)/calligraphic_Z
+        indeces1 = np.where(z1s > self.upper_bound)
+        indeces2 = np.where(z2s > self.upper_bound)
+        indeces = np.intersect1d(indeces1, indeces2)
+        z1_indeces = z1s[indeces]
+        p[indeces] = np.exp(np.log(z1_indeces) + 1/(z1_indeces**2) - 5/(2 * z1_indeces**4)) #  
+        indeces1 = np.where(z1s < -self.upper_bound)
+        indeces2 = np.where(z2s < -self.upper_bound)
+        indeces = np.intersect1d(indeces1, indeces2)
+        # print("indeces", indeces)
+        z2_indeces = z2s[indeces]
+        # print("z2[indeces]", z2_indeces)
+        p[indeces] = -np.exp(np.log(-z2_indeces) + 1/(z2_indeces**2) - 5/(2 * z2_indeces**4)) #  - 5/(2 * z2_indeces**4))
+        # print("p[indeces]", p[indeces])
+        # print("y[indeces]", p[indeces]*noise_std + m[indeces])
+        # print("m[indeces]", m[indeces])
+        # plt.scatter(self.X_train, p)
+        return p 
 
     def evaluate_function(
         self, N, m, Sigma, C, calligraphic_Z, C_inv=None, C_chol=None, numerical_stability=True, verbose=True):
@@ -2194,10 +2326,10 @@ class VBOrderedGP(Estimator):
         one = - trace_Sigma / 2
         two = - log_det_C / 2
         three = - trace_C_inv_Sigma / 2
-        four = -m.T @ C_inv @ m
+        four = -m.T @ C_inv @ m  # This is unstable for small noise variances. Is this because of convergence?
         five = log_det_Sigma / 2
         six = N / 2.
-        seven = np.sum(calligraphic_Z)
+        seven = np.sum(calligraphic_Z)  # Perhaps an approximation here reverts to number of data points
         fx = one + two + three + four + five + six + seven
         if verbose:
             print("one ", one)
@@ -2213,10 +2345,9 @@ class VBOrderedGP(Estimator):
     def evaluate_function_gradient(
             self, intervals, varphi, noise_variance, noise_std, m, cov, Sigma, C_inv,
             calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+            fix_s=True,
             numerical_stability=True, verbose=True):
         """
-        # TODO: for the moment only testing one dimensional gradient with fixed cutpoints and sigma to see if it works
-        # TODO: and to get the environment set up.
         Calculate gx, the jacobian of the variational lower bound of the log marginal likelihood at the VB equilibrium,
 
         .. math::
@@ -2238,19 +2369,15 @@ class VBOrderedGP(Estimator):
         :type cov: :class:`numpy.ndarray`
         :arg Sigma: The posterior covariance.
         :type Sigma: :class:`numpy.ndarray`
-        :arg C: The prior covariance.
-        :type C: :class:`numpy.ndarray`
         :arg C_inv: The inverse of the prior covariance.
         :type C_inv: :class:`numpy.ndarray`
-        # :arg partial_C: The partial derivative of the prior covariance with respect to the lengthscale hyperparameters.
-        # :type partial_C: :class:`numpy.ndarray`
-        :arg calligraphic_Z_tuple: The array of normalising constants.
-        :type calligraphic_Z_tuple: :class:`numpy.ndarray`
+        :arg calligraphic_Z: The array of normalising constants.
+        :type calligraphic_Z: :class:`numpy.ndarray`
         :arg bool numerical_stability: If the function is evaluated in a numerically stable way, default `True`.
         :return: fx
         :rtype: float
         """
-        partial_C = self.kernel.kernel_partial_derivative(self.X_train, self.X_train)
+        partial_C_varphi = self.kernel.kernel_partial_derivative_varphi(self.X_train, self.X_train)
         # Initiate or reset gx
         if self.kernel.general_kernel and self.kernel.ARD_kernel:
             # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
@@ -2262,28 +2389,49 @@ class VBOrderedGP(Estimator):
             # and a single, shared lengthscale parameter
             gx = np.zeros((1+1+(self.K-2)+1,))
         # Update gx
-        # For gx[0] -- ln\sigma
-        if numerical_stability is True:
-            one = noise_variance * np.einsum('ij, ij ->', Sigma, Sigma)
-            two = noise_variance * np.einsum('ij, ij ->', cov, Sigma)
-            three = - noise_variance * np.trace(Sigma)
-            intermediate_vector_2 = np.divide(z2s, calligraphic_Z)
-            intermediate_vector_1 = np.divide(z1s, calligraphic_Z)
-            # four = np.dot(intermediate_vector_2, norm_pdf_z2s) - np.dot(intermediate_vector_1, norm_pdf_z1s) # TODO: Numerical instability
-            four = 0
-        if numerical_stability is False:
-            one = noise_variance * np.trace(Sigma @ Sigma)
-            two = noise_variance * np.trace(cov @ Sigma)
-            three = - noise_variance * np.trace(Sigma)
-            intermediate_vector_2 = np.divide(z2s, calligraphic_Z)
-            intermediate_vector_1 = np.divide(z1s, calligraphic_Z)
-            four = np.dot(intermediate_vector_2, norm_pdf_z2s) - np.dot(intermediate_vector_1, norm_pdf_z1s)  # TODO: Numerical instability
-        if verbose:
-            print("one ", one)
-            print("two ", two)
-            print("three ", three)
-            print("four ", four)
-        gx[0] = one + two + three + four
+        if fix_s is True:
+            # For gx[0] -- ln\sigma
+            if numerical_stability is True:
+                one = noise_variance * np.einsum('ij, ij ->', Sigma, Sigma)
+                two = noise_variance * np.einsum('ij, ij ->', cov, Sigma)
+                three = - noise_variance * np.trace(Sigma)
+                intermediate_vector_2 = np.divide(z2s, calligraphic_Z)
+                intermediate_vector_1 = np.divide(z1s, calligraphic_Z)
+                # four = np.dot(intermediate_vector_2, norm_pdf_z2s) - np.dot(intermediate_vector_1, norm_pdf_z1s) # TODO: Numerical instability
+                four = 0
+            if numerical_stability is False:
+                one = noise_variance * np.trace(Sigma @ Sigma)
+                two = noise_variance * np.trace(cov @ Sigma)
+                three = - noise_variance * np.trace(Sigma)
+                intermediate_vector_2 = np.divide(z2s, calligraphic_Z)
+                intermediate_vector_1 = np.divide(z1s, calligraphic_Z)
+                four = np.dot(intermediate_vector_2, norm_pdf_z2s) - np.dot(intermediate_vector_1, norm_pdf_z1s)  # TODO: Numerical instability
+            if verbose:
+                print("one ", one)
+                print("two ", two)
+                print("three ", three)
+                print("four ", four)
+            gx[0] = one + two + three + four
+        elif fix_s is False:
+            partial_C_s = self.kernel.kernel_partial_derivative_s(self.X_train, self.X_train)
+            # For gx[0] -- ln\s
+            # TODO: if ln\varphi changes, this changes.
+            intermediate_matrix_B1 = C_inv @ partial_C_s
+            intermediate_matrix_A1 = intermediate_matrix_B1 @ cov
+            intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
+            intermediate_matrix_C1 = intermediate_matrix_B2 @ Sigma  # Likely to be numerically instable
+            one = -varphi * np.einsum('ij, ij ->', Sigma, intermediate_matrix_C1) / 2
+            two = -varphi * np.einsum('ij, ij ->', C_inv, partial_C_varphi) / 2
+            three = -varphi * np.einsum('ij, ij ->', cov, intermediate_matrix_A1) / 2  # Trust this and below line result more
+            four = varphi * np.trace(intermediate_matrix_A1)
+            five = varphi * m.T @ intermediate_matrix_B2 @ m / 2
+            if verbose:
+                print("one ", one)
+                print("two ", two)
+                print("three ", three)
+                print("four ", four)
+                print("five ", five)
+            gx[0] = one + two + three + four + five
         intermediate_vector_1s = np.divide(norm_pdf_z1s, calligraphic_Z)
         intermediate_vector_2s = np.divide(norm_pdf_z2s, calligraphic_Z)
         # For gx[1] -- \b_1
@@ -2304,27 +2452,27 @@ class VBOrderedGP(Estimator):
             raise ValueError("TODO")
         else:
             if numerical_stability is True:
-                intermediate_matrix_B1 = C_inv @ partial_C
+                intermediate_matrix_B1 = C_inv @ partial_C_varphi
                 intermediate_matrix_A1 = intermediate_matrix_B1 @ cov
                 intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
                 intermediate_matrix_C1 = intermediate_matrix_B2 @ Sigma  # Likely to be numerically instable
-                intermediate_matrix_C2 = Sigma @ intermediate_matrix_C1
                 one = -varphi * np.einsum('ij, ij ->', Sigma, intermediate_matrix_C1) / 2
-                two = -varphi * np.einsum('ij, ij ->', C_inv, partial_C) / 2
+                two = -varphi * np.einsum('ij, ij ->', C_inv, partial_C_varphi) / 2
                 # Here lies the difference between numerical_stability is True and is False
                 if numerical_stability is True:
                     three = -varphi * np.einsum('ij, ij ->', cov, intermediate_matrix_A1) / 2  # Trust this and below line result more
                     four = varphi * np.trace(intermediate_matrix_A1)
                 elif numerical_stability is False:
+                    intermediate_matrix_C2 = Sigma @ intermediate_matrix_C1  # Not needed if use numerically stable option
                     three = -varphi * np.einsum('ij, ij ->', C_inv, intermediate_matrix_C2) / 2  # Unstable operation C_inv @ C
                     four = varphi * np.einsum('ij, ij ->', intermediate_matrix_B2, Sigma)  # Not meant to be divided by 2  # Unstable operation C_inv @ C
                 five = varphi * m.T @ intermediate_matrix_B2 @ m / 2
                 if 0:
                     # Alternate and equivalent method
-                    intermediate_matrix_A1 = partial_C @ cov  # Necessary to calculate intermediate_matrix_A2
+                    intermediate_matrix_A1 = partial_C_varphi @ cov  # Necessary to calculate intermediate_matrix_A2
                     intermediate_matrix_A2 = Sigma @ intermediate_matrix_A1
                     intermediate_matrix_A3 = cov @ intermediate_matrix_A1
-                    intermediate_matrix_B1 = C_inv @ partial_C
+                    intermediate_matrix_B1 = C_inv @ partial_C_varphi
                     intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
                     one = - varphi * np.trace(intermediate_matrix_A1) / 2
                     two = varphi * noise_variance * np.trace(intermediate_matrix_A2) / 2
@@ -2334,12 +2482,12 @@ class VBOrderedGP(Estimator):
                     six = varphi * np.trace(C_inv @ intermediate_matrix_A1) / 2
                 if 0:
                     # Alternate and equivalent method
-                    intermediate_matrix_A1 = partial_C @ cov  # Necessary to calculate intermediate_matrix_A2
-                    intermediate_matrix_B1 = C_inv @ partial_C
+                    intermediate_matrix_A1 = partial_C_varphi @ cov  # Necessary to calculate intermediate_matrix_A2
+                    intermediate_matrix_B1 = C_inv @ partial_C_varphi
                     intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
                     one = - varphi * np.trace(intermediate_matrix_A1) / 2
                     two = varphi * noise_variance * np.einsum('ij, ij ->', Sigma, intermediate_matrix_A1) / 2
-                    three = - varphi * np.einsum('ij, ij ->', C_inv, partial_C) / 2
+                    three = - varphi * np.einsum('ij, ij ->', C_inv, partial_C_varphi) / 2
                     # equivalent to varphi * noise_variance * np.trace(cov @ intermediate_matrix_A1) / 2
                     four = varphi * noise_variance * np.einsum('ij, ij ->', cov, intermediate_matrix_A1) / 2  # Equivalent
                     # four_ = -varphi * np.einsum('ij, ij ->', cov @ C_inv - C_inv, intermediate_matrix_A1) / 2  # Equivalent
@@ -2347,7 +2495,7 @@ class VBOrderedGP(Estimator):
                     # equivalent to varphi * np.trace(C_inv @ intermediate_matrix_A1)
                     six = varphi * np.einsum('ij, ij ->', C_inv, intermediate_matrix_A1) / 2
             elif numerical_stability is False:
-                intermediate_matrix_B1 = C_inv @ partial_C
+                intermediate_matrix_B1 = C_inv @ partial_C_varphi
                 intermediate_matrix_B2 = intermediate_matrix_B1 @ C_inv
                 intermediate_matrix_C1 = intermediate_matrix_B2 @ Sigma  # Unstable operation C_inv @ C
                 intermediate_matrix_C2 = Sigma @ intermediate_matrix_C1
@@ -2407,7 +2555,6 @@ class VBOrderedGP(Estimator):
             Phi_new = x1s
             fxs = np.empty(len(Phi_new))
             gxs = np.empty(len(Phi_new))
-            print(len(Phi_new))
             C_inv = None  # placeholder
             C_chol = None  # placeholder
         elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is not None):
@@ -2442,7 +2589,6 @@ class VBOrderedGP(Estimator):
             Phi_new = x1s
             fxs = np.empty(len(Phi_new))
             gxs = np.empty(len(Phi_new))
-            print(len(Phi_new))
             C_chol = np.linalg.cholesky(self.C + self.jitter * np.eye(self.N))
             C_chol_inv = np.linalg.inv(C_chol)
             C_inv = C_chol_inv.T @ C_chol_inv
@@ -2514,7 +2660,7 @@ class VBOrderedGP(Estimator):
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
             fx, C_inv = self.evaluate_function(
-                self.N, m_tilde, Sigma, C, calligraphic_Z, numerical_stability=True, verbose=False)
+                self.N, m_tilde, Sigma, C, calligraphic_Z, numerical_stability=True, verbose=True)
             gx = self.evaluate_function_gradient(intervals, varphi, noise_variance, noise_std, m_tilde,
                 self.cov, Sigma, C_inv, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
                 numerical_stability=True, verbose=False)
@@ -2529,7 +2675,7 @@ class VBOrderedGP(Estimator):
                 gxs[i] = gx[0]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
-                print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
+            print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
         if (gamma_0 is not None) and (varphi_0 is None) and (noise_variance_0 is None):
             return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
         elif (gamma_0 is not None) and (noise_variance_0 is not None) and (varphi_0 is None):
@@ -3294,7 +3440,7 @@ class EPOrderedGP(Estimator):
         # Update prior covariance
         self.kernel.hyperparameter_update(varphi=varphi)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        # TODO: Calculate partial_C here?
+        # TODO: Calculate partial_C_varphi here?
         return gamma, varphi, noise_variance
 
     def _hyperparameter_training_step_varphi_initialise(self, theta):
@@ -3702,7 +3848,10 @@ class EPOrderedGP(Estimator):
         # fx -= 0.1 * self.kernel.varphi
         return -fx
 
-    def evaluate_function_gradient(self, intervals, varphi, noise_variance, t2, t3, t4, t5, Lambda, weights):
+    def evaluate_function_gradient(
+            self, intervals, varphi, noise_variance, t2, t3, t4, t5, Lambda, weights,
+            fix_s=True
+        ):
         """
         Calculate gx, the jacobian of the variational lower bound of the log marginal likelihood at the EP equilibrium.
 
@@ -3744,10 +3893,21 @@ class EPOrderedGP(Estimator):
             # and a single, shared lengthscale parameter
             gx = np.zeros((1+1+(self.K-2)+1,))
         # Update gx
-        # For gx[0] -- ln\sigma
-        gx[0] += np.sum(t5 - t4)
-        # gx[0] *= -0.5 * noise_variance  # This is not what is written in the paper. It is a typo in Chu code
-        gx[0] *= np.sqrt(noise_variance)
+        if fix_s is True:
+            # For gx[0] -- ln\sigma
+            gx[0] += np.sum(t5 - t4)
+            # gx[0] *= -0.5 * noise_variance  # This is not what is written in the paper. It is a typo in Chu code
+            gx[0] *= np.sqrt(noise_variance)
+        elif fix_s is False:
+            # TODO: Need to check this is correct: is it directly analogous to gradient wrt log varphi?
+            partial_C_s = self.kernel.kernel_partial_derivative_s(self.X_train, self.X_train)
+            # VC * VC * a' * partial_C_varphi * a / 2
+            gx[0] += varphi * 0.5 * weights.T @ partial_C_s @ weights  # That's wrong. not the same calculation.
+            # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_C_varphi)
+            gx[0] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_C_s))
+            # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
+            # gx[self.K] -= 0.1 * varphi
+            gx[0] *= 2.0  # since varphi = kappa / 2
         # For gx[1] -- \b_1
         gx[1] += np.sum(t3 - t2)
         # For gx[2] -- ln\Delta^r
@@ -3758,15 +3918,15 @@ class EPOrderedGP(Estimator):
             gx[j] += np.sum(t3[targets > j - 1] - t2[targets > j - 1])
             gx[j] *= intervals[j - 2]
         # For kernel hyperparameters
-        # TODO: best to calculate partial_C here since it is not calculated elsewhere and this is point of use?
-        partial_C = self.kernel.kernel_partial_derivative(self.X_train, self.X_train)
+        # TODO: best to calculate partial_C_varphi here since it is not calculated elsewhere and this is point of use?
+        partial_C_varphi = self.kernel.kernel_partial_derivative_varphi(self.X_train, self.X_train)
         if self.kernel.general_kernel and self.kernel.ARD_kernel:
             raise ValueError("TODO")
         else:
-            # VC * VC * a' * partial_C * a / 2
-            gx[self.K] += varphi * 0.5 * weights.T @ partial_C @ weights  # That's wrong. not the same calculation.
-            # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_C)
-            gx[self.K] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_C))
+            # VC * VC * a' * partial_C_varphi * a / 2
+            gx[self.K] += varphi * 0.5 * weights.T @ partial_C_varphi @ weights  # That's wrong. not the same calculation.
+            # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_C_varphi)
+            gx[self.K] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_C_varphi))
             # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
             # gx[self.K] -= 0.1 * varphi
             gx[self.K] *= 2.0  # since varphi = kappa / 2

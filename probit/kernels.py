@@ -291,7 +291,7 @@ class Linear(Kernel):
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_partial_derivative(self, X1, X2):
+    def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -304,6 +304,20 @@ class Linear(Kernel):
         """
         # TODO check this.
         return np.einsum('ik, jk -> ij', X1, X2)
+
+    def kernel_partial_derivative_s(self, X1, X2):
+        """
+        Get Gram matrix efficiently using numpy's einsum function.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return np.einsum('ik, jk -> ij', X1, X2)
+
 
 
 class Polynomial(Kernel):
@@ -399,7 +413,7 @@ class Polynomial(Kernel):
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_partial_derivative(self, X1, X2):
+    def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -411,6 +425,19 @@ class Polynomial(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         # TODO check this.
+        return pow(np.einsum('ik, jk -> ij', X1, X2) + self.intercept, self.order)
+
+    def kernel_partial_derivative_s(self, X1, X2):
+        """
+        Get Gram matrix efficiently using numpy's einsum function.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
         return pow(np.einsum('ik, jk -> ij', X1, X2) + self.intercept, self.order)
 
 
@@ -472,7 +499,7 @@ class SEIso(Kernel):
         X_new = np.tile(x_new, (N, 1))
         # This is probably horribly inefficient
         D = distance.cdist(X_new, X)[0]
-        return np.multiply(self.scale, np.exp(-1. * self.varphi * pow(D, 2)))
+        return np.multiply(self.scale, np.exp(-1. * self.varphi * D**2))
 
     def kernel_matrix(self, X1, X2):
         """
@@ -486,7 +513,7 @@ class SEIso(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         distance_mat = self.distance_mat(X1, X2)
-        return np.multiply(self.scale, np.exp(-1. * self.varphi * pow(distance_mat, 2)))
+        return np.multiply(self.scale, np.exp(-1. * self.varphi * distance_mat**2))
 
     def kernel_matrices(self, X1, X2, varphis):
         """
@@ -510,7 +537,7 @@ class SEIso(Kernel):
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_partial_derivative(self, X1, X2):
+    def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -527,6 +554,20 @@ class SEIso(Kernel):
         # TODO check this.
         partial_C = (-1./D) * np.multiply(pow(distance_matrix(X1, X2), 2), C)  # TODO: reason for this dimension?
         return partial_C
+
+    def kernel_matrix(self, X1, X2):
+        """
+        Get Gram matrix efficiently using scipy's distance matrix function.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        distance_mat = self.distance_mat(X1, X2)
+        return np.exp(-1. * self.varphi * distance_mat**2)
 
 
 class SSSEARDMultinomial(Kernel):
@@ -647,7 +688,7 @@ class SSSEARDMultinomial(Kernel):
             Cs_samples[i, :, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_partial_derivative(self, X1, X2):
+    def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -799,7 +840,7 @@ class SEARDMultinomial(Kernel):
             Cs_samples[i, :, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_partial_derivative(self, X1, X2):
+    def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -821,6 +862,31 @@ class SEARDMultinomial(Kernel):
             # TODO: check this
             partial_Cs[d, :, :, :] = (-1. / self.D) * np.multiply(pow(distance_matrix(X1d, X2d), 2), Cs)
         return partial_Cs
+
+    def kernel_partial_derivative_s(self, X1, X2):
+        """
+        Get Gram matrix efficiently using scipy's distance matrix function.
+
+        This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
+        quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
+        e.g.
+        for k in range(K):
+            Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (K, N1, N2) array of K (N1, N2) Gram matrices.
+        :rtype: class:`numpy.ndarray`
+        """
+        # TODO: this has been tested (scratch 4), but best to make sure it works
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        Cs = np.empty((self.K, N1, N2))
+        for k in range(self.K):
+            Cs[k, :, :] = np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi[k, :]), 2))
+        return Cs
 
 
 class SEARD(Kernel):
@@ -946,7 +1012,7 @@ class SEARD(Kernel):
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_partial_derivative(self, X1, X2):
+    def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -968,6 +1034,26 @@ class SEARD(Kernel):
             # TODO: check this - unconfident in it.
             partial_C[d, :, :] = (-1. / self.D) * np.multiply(pow(distance_matrix(X1d, X2d), 2), C)
         return partial_C
+
+     def kernel_partial_derivative_s(self, X1, X2):
+        """
+        Get Gram matrix efficiently using scipy's distance matrix function.
+
+        This is a one of calculation that can't be factorised in the most general case, so we don't mind that is has a
+        quadruple nested for loop. In less general cases, then scipy.spatial.distance_matrix(x, x) could be used.
+        e.g.
+        for k in range(K):
+            Cs.append(np.exp(-pow(D, 2) * pow(phi[k])))
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (K, N1, N2) array of K (N1, N2) Gram matrices.
+        :rtype: class:`numpy.ndarray`
+        """
+        # TODO: this has been tested (scratch 4), but best to make sure it works
+        return np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi), 2))
 
 
 class InvalidKernel(Exception):

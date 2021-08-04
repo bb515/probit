@@ -60,10 +60,22 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
     """Plots for synthetic data."""
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = VBOrderedGP(X, t, kernel)
-    gamma, m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, *_ = variational_classifier.estimate(
-        steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=m_tilde_0, fix_hyperparameters=True, write=False)
-    fx = variational_classifier.evaluate_function(m_tilde, Sigma_tilde, C_tilde, calligraphic_Z)
+    print("noise_variance", noise_variance)
+    variational_classifier = VBOrderedGP(noise_variance, X, t, kernel)
+    (m_tilde, Sigma_tilde, C, y_tilde, varphi_tilde, _) = variational_classifier.estimate(
+        steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=None, fix_hyperparameters=True, write=False)
+    print(np.shape(X))
+    print(np.shape(m_tilde))
+    plt.scatter(X, m_tilde)
+    plt.show()
+    print(Sigma_tilde)
+    print(C)
+    print(varphi_tilde, "varphi")
+    noise_std = np.sqrt(noise_variance)
+    calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, *_ = variational_classifier._calligraphic_Z(
+                    gamma, noise_std, m_tilde, upper_bound=variational_classifier.upper_bound, numerical_stability=False)
+    N = variational_classifier.N
+    fx = variational_classifier.evaluate_function(N, m_tilde, Sigma_tilde, C, calligraphic_Z)
     plt.scatter(X, m_tilde)
     plt.scatter(X_true, Y_true)
     plt.ylim(-3, 3)
@@ -74,7 +86,10 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
         N = 1000
         x = np.linspace(x_lims[0], x_lims[1], N)
         X_new = x.reshape((N, D))
-        Z = variational_classifier.predict(m_tilde, Sigma_tilde, C_tilde, calligraphic_Z)
+        print("y", y_tilde)
+        print("varphi", varphi_tilde)
+        print("noisevar", noise_variance)
+        Z = variational_classifier.predict(gamma, Sigma_tilde, y_tilde, varphi_tilde, noise_variance, X_new)
         print(np.sum(Z, axis=1), 'sum')
         plt.xlim(x_lims)
         plt.ylim(0.0, 1.0)
@@ -92,6 +107,7 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
                         edgecolors='white')
         plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].png"
                   .format(x_lims[0], x_lims[1]))
+        plt.show()
         plt.close()
     elif dataset == "septile":
         x_lims = (-0.5, 1.5)
@@ -461,13 +477,14 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     sigma = 10e-6
     tau = 10e-6
-    res = 50
-    varphi_0 = 1.0
-    kernel = SEIso(varphi_0, scale, sigma=sigma, tau=tau)
+    res = 20
+    # Just for initiation
+    kernel = SEIso(varphi=1.0, scale=scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(
         range_x1, range_x2, res, gamma_0=gamma, varphi_0=varphi, noise_variance_0=noise_variance)
+    print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         plt.plot(x, Z)
         plt.savefig("grid_over_hyperparameters.png")
@@ -526,6 +543,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
         ax.plot(0.1, 30, 'm')
         plt.xscale(xscale)
+        plt.xlim(1, 100.0)
         plt.yscale(yscale)
         plt.xlabel(xlabel, fontsize=16)
         plt.ylabel(ylabel, fontsize=16)
@@ -584,19 +602,23 @@ def VB_training_varphi(dataset, method, X_train, t_train, gamma, varphi_0, noise
 
 def test_synthetic(
     dataset, method, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
-    """Test toy."""
-    kernel = SEIso(varphi_0, sigma=10e-6, tau=10e-6)
-    # Initiate classifier
-    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
-    gamma, varphi, noise_variance = training(
-        dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, K)
-    print("gamma = {}, gamma_0 = {}".format(gamma, gamma_0))
-    print("varphi = {}, varphi_0 = {}".format(varphi, varphi_0))
-    print("noise_variance = {}, noise_variance_0 = {}".format(noise_variance, noise_variance_0))
-    # print("gamma_0 = {}, varphi_0 = {}, noise_variance_0 = {}".format(gamma_0, varphi_0, noise_variance_0))
-    fx = VB_plot_synthetic(
-        dataset, X_train, t_train, X_true, Y_true, gamma,
-        varphi=varphi, noise_variance=noise_variance, K=K, D=D, scale=scale)
+    """Test some particular hyperparameters."""
+    gamma = gamma_0
+    varphi = varphi_0
+    noise_variance = noise_variance_0
+    noise_variance = 0.6
+    steps = 50
+    # kernel = SEIso(varphi_0, sigma=10e-6, tau=10e-6)
+    # # Initiate classifier
+    # variational_classifier = VBOrderedGP(noise_variance_0, X_train, t_train, kernel)
+    # gamma, varphi, noise_variance = VB_training(
+    #     dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, K)
+    # print("gamma = {}, gamma_0 = {}".format(gamma, gamma_0))
+    # print("varphi = {}, varphi_0 = {}".format(varphi, varphi_0))
+    # print("noise_variance = {}, noise_variance_0 = {}".format(noise_variance, noise_variance_0))
+    # # print("gamma_0 = {}, varphi_0 = {}, noise_variance_0 = {}".format(gamma_0, varphi_0, noise_variance_0))
+    fx = VB_plot_synthetic(dataset, X_train, t_train, X_true, Y_true, None, gamma, steps,
+        varphi, noise_variance, K, D, scale=1.0, sigma=10e-6, tau=10e-6)
     print("fx={}".format(fx))
     return fx
 
@@ -696,16 +718,22 @@ def main():
         #     noise_variance=noise_variance, K)
     else:
         X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data_synthetic(dataset, data_from_prior)
+        print(gamma_0)
+        print(varphi_0)
+        print(noise_variance_0)
+        # print(noise_variance_0)
+        # plt.scatter(X, Y_true)
+        # plt.show()
         # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
         # just std
-        # grid_synthetic(X, t, [-1, 2], None, gamma=gamma_0, varphi=varphi_0, scale=1.0)
+        # grid_synthetic(X, t, [-1., 1.], None, gamma=gamma_0, varphi=varphi_0, scale=1.0)
         # varphi and std
-        grid_synthetic(X, t, [-2, 1], [-1, 2], gamma=gamma_0, scale=1.0)
+        grid_synthetic(X, t, [0, 2], [0, 2], gamma=gamma_0, scale=30.0)
         # # Just varphi
         # grid_synthetic(X, t, [1, 2], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=1.0)
         # # Two of the cutpoints
         # grid_synthetic(X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=1.0)
-        # test_synthetic(dataset, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
+        # test_synthetic(dataset, method, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
     if args.profile:
         profile.disable()
         s = StringIO()
