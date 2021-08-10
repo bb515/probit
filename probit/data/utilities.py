@@ -1037,7 +1037,11 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         K = 3
         D = 1
         if data_from_prior == True:
-            with pkg_resources.path(tertile, 'tertile_prior_30.npz') as path:  # tertile_prior.npz
+
+            #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
+            #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=1_varphi=30.npz') as path:  # is varphi actually 1?
+            with pkg_resources.path(tertile, 'tertile_prior_s=30_sigma2=10_varphi=30.npz') as path:
+                #SS: tertile_prior_30.npz, tertile_prior.npz
                 data = np.load(path)
             N_per_class = 30
             X_k = data["X_k"]  # Contains (90, 3) array of binned x values
@@ -1050,20 +1054,25 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
                     0.5 / D,
-                    1.0
+                    1.0,
+                    1.0,
                 ),
                 "true": (
-                    data["gamma"],  # [-np.inf, - 0.43160987, 0.2652492, np.inf]
-                    data["varphi"],  # varphi
-                    data["noise_variance"]  # noise_variance np.sqrt(0.1) = 0.316
+                    data["gamma"],
+                    data["varphi"],
+                    data["noise_variance"],  # np.sqrt(0.1) = 0.316 
+                    data["scale"],
                 ),
                 "init_alt": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
                     100.0,
-                    10.0
+                    10.0,
+                    1.0
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["true"]
+            plt.scatter(X, Y_true)
+            plt.show()
+            gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
         else:
             with pkg_resources.path(tertile, 'tertile.npz') as path:
                 data = np.load(path)
@@ -1131,7 +1140,7 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         gamma_0, varphi_0, noise_variance_0 = hyperparameters["true"]
     if plot:
         plot_ordinal(X, t, X_k, Y_true_k, K, D)
-    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
+    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D
 
 
 def plot_s(kernel, N_total=500, n_samples=10):
@@ -1192,7 +1201,7 @@ class MinimizeStopper(object):
 
 if __name__ == "__main__":
     print("Hello")
-    generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=10.0, scale=30.0)
+    generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
     # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
     # kernel = Linear(intercept=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
     # plot_s(kernel)

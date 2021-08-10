@@ -305,7 +305,7 @@ class Linear(Kernel):
         # TODO check this.
         return np.einsum('ik, jk -> ij', X1, X2)
 
-    def kernel_partial_derivative_s(self, X1, X2):
+    def kernel_partial_derivative_scale(self, X1, X2):
         """
         Get Gram matrix efficiently using numpy's einsum function.
 
@@ -427,7 +427,7 @@ class Polynomial(Kernel):
         # TODO check this.
         return pow(np.einsum('ik, jk -> ij', X1, X2) + self.intercept, self.order)
 
-    def kernel_partial_derivative_s(self, X1, X2):
+    def kernel_partial_derivative_scale(self, X1, X2):
         """
         Get Gram matrix efficiently using numpy's einsum function.
 
@@ -555,7 +555,7 @@ class SEIso(Kernel):
         partial_C = (-1./D) * np.multiply(pow(distance_matrix(X1, X2), 2), C)  # TODO: reason for this dimension?
         return partial_C
 
-    def kernel_matrix(self, X1, X2):
+    def kernel_partial_derivative_scale(self, X1, X2):
         """
         Get Gram matrix efficiently using scipy's distance matrix function.
 
@@ -863,7 +863,7 @@ class SEARDMultinomial(Kernel):
             partial_Cs[d, :, :, :] = (-1. / self.D) * np.multiply(pow(distance_matrix(X1d, X2d), 2), Cs)
         return partial_Cs
 
-    def kernel_partial_derivative_s(self, X1, X2):
+    def kernel_partial_derivative_scale(self, X1, X2):
         """
         Get Gram matrix efficiently using scipy's distance matrix function.
 
@@ -1035,7 +1035,7 @@ class SEARD(Kernel):
             partial_C[d, :, :] = (-1. / self.D) * np.multiply(pow(distance_matrix(X1d, X2d), 2), C)
         return partial_C
 
-     def kernel_partial_derivative_s(self, X1, X2):
+    def kernel_partial_derivative_scale(self, X1, X2):
         """
         Get Gram matrix efficiently using scipy's distance matrix function.
 

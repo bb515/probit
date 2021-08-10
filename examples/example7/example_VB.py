@@ -62,20 +62,26 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
     # Initiate classifier
     print("noise_variance", noise_variance)
     variational_classifier = VBOrderedGP(noise_variance, X, t, kernel)
-    (m_tilde, Sigma_tilde, C, y_tilde, varphi_tilde, _) = variational_classifier.estimate(
-        steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=None, fix_hyperparameters=True, write=False)
+    (m_tilde, Sigma_tilde, C, y_tilde, varphi_tilde, containers) = variational_classifier.estimate(
+        steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=m_tilde_0, fix_hyperparameters=True, write=True)
     print(np.shape(X))
     print(np.shape(m_tilde))
     plt.scatter(X, m_tilde)
+    plt.scatter(X, Y_true)
     plt.show()
-    print(Sigma_tilde)
-    print(C)
-    print(varphi_tilde, "varphi")
+    (ms, ys, varphis, psis, fxs) = containers
+    plt.plot(fxs)
+    plt.title("Variational lower bound on the marginal likelihood")
+    plt.show()
+    # print(Sigma_tilde)
+    # print(C)
+    # print(varphi_tilde, "varphi")
     noise_std = np.sqrt(noise_variance)
     calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, *_ = variational_classifier._calligraphic_Z(
-                    gamma, noise_std, m_tilde, upper_bound=variational_classifier.upper_bound, numerical_stability=False)
+                    gamma, noise_std, m_tilde,
+                    upper_bound=variational_classifier.upper_bound, upper_bound2=variational_classifier.upper_bound2)
     N = variational_classifier.N
-    fx = variational_classifier.evaluate_function(N, m_tilde, Sigma_tilde, C, calligraphic_Z)
+    fx, _ = variational_classifier.evaluate_function(N, m_tilde, Sigma_tilde, C, calligraphic_Z, noise_variance)
     plt.scatter(X, m_tilde)
     plt.scatter(X_true, Y_true)
     plt.ylim(-3, 3)
@@ -473,21 +479,23 @@ def outer_loops_Rogers(X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot
     plt.close()
 
 def grid_synthetic(X_train, t_train, range_x1, range_x2,
-                   gamma=None, varphi=None, noise_variance=None, scale=1.0):
+                   gamma=None, varphi=None, noise_variance=None, scale=1.0, fix_s=True, show=False):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     sigma = 10e-6
     tau = 10e-6
-    res = 20
+    res = 50
     # Just for initiation
     kernel = SEIso(varphi=1.0, scale=scale, sigma=sigma, tau=tau)
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(
-        range_x1, range_x2, res, gamma_0=gamma, varphi_0=varphi, noise_variance_0=noise_variance)
+        range_x1, range_x2, res, gamma_0=gamma, varphi_0=varphi, noise_variance_0=noise_variance,
+        scale_0=scale, fix_s=fix_s)
     print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         plt.plot(x, Z)
         plt.savefig("grid_over_hyperparameters.png")
+        if show: plt.show()
         plt.close()
         # norm = np.abs(np.max(grad))
         # u = grad / norm
@@ -495,6 +503,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.xscale(xscale)
         plt.ylabel(r"\mathcal{F}(\varphi)")
         plt.savefig("bound.png")
+        if show: plt.show()
         plt.close()
         plt.plot(x, grad)
         plt.xscale(xscale)
@@ -514,9 +523,8 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.xlabel(xlabel)
         plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
         plt.savefig("grad_finite_diff.png")
+        if show: plt.show()
         plt.close()
-
-
         plt.plot(x, grad)
         plt.xscale(xscale)
         plt.xlabel(xlabel)
@@ -524,6 +532,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.plot(x[:-1], dZ, 'r.', label='np.diff, 1')
         plt.plot(x[:-1], cf, 'r--', label='np.convolve, [1,-1]')
         plt.savefig("both.png")
+        if show: plt.show()
         plt.close()
     else:
         fig, axs = plt.subplots(1, figsize=(6, 6))
@@ -533,6 +542,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.xscale(xscale)
         plt.yscale(yscale)
         plt.savefig("grid_over_hyperparameters.png")
+        if show: plt.show()
         plt.close()
         norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
         u = grad[:, 0] / norm
@@ -548,6 +558,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.xlabel(xlabel, fontsize=16)
         plt.ylabel(ylabel, fontsize=16)
         plt.savefig("Contour plot - VB lower bound on the log likelihood.png")
+        if show: plt.show()
         plt.close()
         # fig, ax = plt.subplots(1, 1)
         # ax.set_aspect(1)
@@ -559,6 +570,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         # plt.xlabel(xlabel, fontsize=16)
         # plt.ylabel(ylabel, fontsize=16)
         # plt.savefig("Contour plot - log VB lower bound on the log likelihood.png")
+        # if show: plt.show()
         # plt.close()
 
 
@@ -606,8 +618,7 @@ def test_synthetic(
     gamma = gamma_0
     varphi = varphi_0
     noise_variance = noise_variance_0
-    noise_variance = 0.6
-    steps = 50
+    steps = 1000
     # kernel = SEIso(varphi_0, sigma=10e-6, tau=10e-6)
     # # Initiate classifier
     # variational_classifier = VBOrderedGP(noise_variance_0, X_train, t_train, kernel)
@@ -717,20 +728,27 @@ def main():
         #     dataset, X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma=gamma, varphi=varphi,
         #     noise_variance=noise_variance, K)
     else:
-        X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data_synthetic(dataset, data_from_prior)
+        X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D = load_data_synthetic(dataset, data_from_prior)
         print(gamma_0)
         print(varphi_0)
         print(noise_variance_0)
+        print(scale_0)
+        #noise_variance_0 = 0.8
         # print(noise_variance_0)
         # plt.scatter(X, Y_true)
         # plt.show()
         # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
+        # just scale
+        # grid_synthetic(X, t, [0., 1.8], None, gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0,
+        #     fix_s=False)
         # just std
         # grid_synthetic(X, t, [-1., 1.], None, gamma=gamma_0, varphi=varphi_0, scale=1.0)
+        # varphi and scale
+        # grid_synthetic(X, t, [0, 2], [0, 2], gamma=gamma_0, noise_variance=noise_variance_0, fix_s=False)
         # varphi and std
-        grid_synthetic(X, t, [0, 2], [0, 2], gamma=gamma_0, scale=30.0)
+        # grid_synthetic(X, t, [0, 2], [0, 2], gamma=gamma_0, scale=30.0)
         # # Just varphi
-        # grid_synthetic(X, t, [1, 2], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=1.0)
+        grid_synthetic(X, t, [-8, 2], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0, fix_s=True, show=True)
         # # Two of the cutpoints
         # grid_synthetic(X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=1.0)
         # test_synthetic(dataset, method, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0)
