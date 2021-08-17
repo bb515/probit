@@ -66,7 +66,7 @@ def EP_plotting(
     X_new = X_new.reshape((N * N, 2))
     X_new_ = np.zeros((N * N, D))
     X_new_[:, :2] = X_new
-    Z = variational_classifier.predict(
+    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(
         gamma, Sigma, mean_EP, precision_EP, varphi,
         noise_variance, X_new_, Lambda, vectorised=True)
     Z_new = Z.reshape((N, N, K))
@@ -121,7 +121,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         N = 1000
         x = np.linspace(x_lims[0], x_lims[1], N)
         X_new = x.reshape((N, D))
-        Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_new, Lambda,
+        Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_new, Lambda,
                                            vectorised=True)
         print(np.sum(Z, axis=1), 'sum')
         plt.xlim(x_lims)
@@ -146,7 +146,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         N = 1000
         x = np.linspace(x_lims[0], x_lims[1], N)
         X_new = x.reshape((N, D))
-        Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_new, Lambda,
+        Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_new, Lambda,
                                            vectorised=True)
         print(np.sum(Z, axis=1), 'sum')
         plt.xlim(x_lims)
@@ -202,7 +202,7 @@ def EP_testing(
         gamma, Sigma, precision_EP, posterior_mean, noise_variance)
     fx = variational_classifier.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     # Test
-    Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
+    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
                                        noise_variance, X_test, Lambda, vectorised=True)  # (N_test, K)
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
@@ -227,7 +227,7 @@ def EP_testing(
     # Other error
     mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
     print("mean_absolute_error ", mean_absolute_error)
-    Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
+    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
                                        noise_variance, X_new_, Lambda, vectorised=True)
     Z_new = Z.reshape((N, N, K))
     print(np.sum(Z, axis=1), 'sum')
@@ -663,7 +663,7 @@ def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi,
         X_new = X_new.reshape((N * N, 2))
 
         # Test
-        Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda,
+        Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda,
                                            vectorised=True)
         predictive_likelihood = Z[grid, t_test]
         predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
@@ -678,7 +678,7 @@ def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi,
         mean_zero_one = np.sum(mean_zero_one) / len(t_test)
         print("mean_zero_one ", mean_zero_one)
 
-        Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda,
+        Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda,
                                            vectorised=True)
         Z_new = Z.reshape((N, N, K))
         print(np.sum(Z, axis=1), 'sum')

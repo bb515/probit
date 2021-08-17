@@ -7,10 +7,8 @@ from scipy.optimize import minimize
 import warnings
 import time
 
-
 # For plotting
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-
 
 # The names of the different synthetic datasets
 datasets = [
@@ -83,7 +81,13 @@ metadata = {
     },
     "tertile": {
         "plot_lims": (-0.5, 1.5),
-        "size": (90, 3),
+        "size": (135, 3),  # (90, 3) if not new
+        "init": None,
+        "max_sec":500,
+    },
+    "thirteen": {
+        "plot_lims": (-0.5, 1.5),
+        "size": (585, 13),
         "init": None,
         "max_sec":500,
     },
@@ -186,6 +190,142 @@ def get_Y_trues(X_trains, X_true, Y_true):
         Y_trues.append(y)
     Y_trues = np.array(Y_trues)
     return Y_trues
+
+
+def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_variance, N_show=2000):
+    """
+    Generate data from the GP prior, and choose some cutpoints that approximately divides data into equal bins.
+
+    :arg int N_per_class: The number of data points per class.
+    :arg int K: The number of bins/classes/quantiles.
+    :arg int D: The number of data dimensions.
+    :arg kernel: The GP prior.
+    """
+    epsilon = 1e-6
+    N_total = int(K * N_per_class)
+    # Sample from the real line, uniformly
+    # X = np.random.uniform(0, 12, N_total)
+    X_show = np.linspace(-0.5, 1.5, N_show)  # N_show points to show the predictive power
+    #X = np.random.random(N_total)  # N_total points unformly random over [0, 1]
+    # X_show = X_show[:, None]
+    #X = X[:, None]  # reshape X to make it n*D
+    C0_show = kernel.kernel_matrix(X_show, X_show)
+    #C0 = kernel.kernel_matrix(X, X)
+    C_show = C0_show + epsilon * np.identity(N_show)
+    #C = C0 + epsilon * np.identity(N_total)
+    # Cholesky
+    #Chol = np.linalg.cholesky(C)
+    Chol_show = np.linalg.cholesky(C_show)
+    # Generate normal samples
+    #z = np.random.normal(loc=0, scale=1, size=N_total)
+    z_show = np.random.normal(loc=0, scale=1, size=N_show)
+    Z_show = np.dot(Chol_show, z_show)
+    print(np.shape(Z_show), "Z_show")
+    print(np.shape(X_show), "X_show")
+    N_third = np.int(N_show/3)
+    Xt = np.c_[Z_show[N_third:-N_third], X_show[N_third:-N_third]]
+    print(np.shape(Xt), "Xt")
+    np.random.shuffle(Xt)
+    Z = Xt[:N_total, :1]
+    X = Xt[:N_total, 1:D + 1]
+    print(np.shape(Z))
+    print(np.shape(X))
+    #Z = np.dot(Chol, z)  # Mean zero
+    plt.title("Sample from prior GP")
+    plt.scatter(X[:], Z[:], c='b', s=4)
+    plt.plot(X_show[:], Z_show[:])
+    plt.show()
+    # Model latent variable responses
+    epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
+    epsilons = epsilons[:, None]
+    # Model latent variable responses
+    plt.title("Sample from prior GP")
+    Y_true = epsilons + Z
+    Y_true = Y_true.flatten()
+    sort_indeces = np.argsort(Y_true)
+    plt.scatter(X, Y_true, c='b', s=4)
+    plt.plot(X_show, Z_show)
+    plt.show()
+    # Sort the responses
+    Y_true = Y_true[sort_indeces]
+    X = X[sort_indeces]
+    print(np.shape(X), "X")
+    X_k = []
+    Y_true_k = []
+    t_k = []
+    gamma = np.empty(K + 1)
+    for k in range(K):
+        X_k.append(X[N_per_class * k:N_per_class * (k + 1), :D])
+        Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
+        t_k.append(k * np.ones(N_per_class, dtype=int))
+    for k in range(1, K):
+        # Find the first cutpoint and set it equal to 0.0
+        cutpoint_k_min = Y_true_k[k - 1][-1]
+        cutpoint_k_max = Y_true_k[k][0]
+        gamma[k] = np.average([cutpoint_k_max, cutpoint_k_min])
+    gamma[0] = -np.inf
+    gamma[-1] = np.inf
+    print("gamma={}".format(gamma))
+    cmap = plt.cm.get_cmap('PiYG', K)    # K discrete colors
+    colors = []
+    for k in range(K):
+        colors.append(cmap((k+0.5)/K))
+        plt.scatter(X_k[k], Y_true_k[k], color=cmap((k+0.5)/K))
+    plt.show()
+    Xs_k = np.array(X_k)
+    Ys_k = np.array(Y_true_k)
+    t_k = np.array(t_k, dtype=int)
+    X = Xs_k.flatten()
+    Y = Ys_k.flatten()
+    t = t_k.flatten()
+    # Prepare data
+    Y_tests = []
+    X_tests = []
+    t_tests = []
+    Y_trains = []
+    X_trains = []
+    t_trains = []
+    for i in range(splits):
+        Xt = np.c_[Y, X, t]
+        np.random.shuffle(Xt)
+        Y = Xt[:, :1]
+        X = Xt[:, 1:D + 1]
+        t = Xt[:, -1]
+        Y_test = Y[:N_test]
+        X_test = X[:N_test, :]
+        t_test = t[:N_test]
+        Y_train = Y[N_test:]
+        X_train = X[N_test:, :]
+        t_train = t[N_test:]
+        Y_tests.append(Y_test)
+        X_tests.append(X_test)
+        t_tests.append(t_test)
+        Y_trains.append(Y_train)
+        X_trains.append(X_train)
+        t_trains.append(t_train)
+    t = np.array(t, dtype=int)
+    t_tests = np.array(t_tests, dtype=int)
+    t_trains = np.array(t_trains, dtype=int)
+    X_tests = np.array(X_tests)
+    X_trains = np.array(X_trains)
+    Y_tests = np.array(Y_tests)
+    Y_trains = np.array(Y_trains)
+    print(np.shape(X_tests))
+    print(np.shape(X_trains))
+    print(np.shape(Y_tests))
+    print(np.shape(Y_trains))
+    print(np.shape(t_tests))
+    print(np.shape(t_trains))
+    print(np.shape(X_k))
+    print(np.shape(Y_true_k))
+    print(np.shape(t_k))
+    print(colors)
+    colors_ = [colors[i] for i in t_trains[0, :]]
+    plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
+    plt.show()
+    plot_ordinal(X, t, X_k, Y_true_k, K, D, colors=colors)
+    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests,
+        X_trains, Y_trains, t_trains, C0_show, X_show, Z_show, colors)
 
 
 def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
@@ -1030,6 +1170,29 @@ def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, 
     return X_k, Y_true_k, X, Y_true, t, gamma_0
 
 
+def generate_synthetic_data_new(N_per_class, N_test, splits, K, D, varphi=30.0, noise_variance=1.0, scale=1.0):
+    """Generate synthetic dataset."""
+    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
+    (X_k, Y_true_k, X, Y, t, gamma,
+    X_tests, Y_tests, t_tests,
+    X_trains, Y_trains, t_trains,
+    C0_show, X_show, Z_show, colors) = generate_prior_data_new(
+        N_per_class, N_test, splits, K, D, kernel, noise_variance=noise_variance)
+    np.savez('data_thirteen_prior_new.npz', X_k=X_k, Y_k=Y_true_k, X=X, Y=Y, t=t,
+        X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
+        X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
+        C0_show=C0_show,
+        X_show=X_show,
+        Z_show=Z_show,
+        noise_variance=noise_variance,
+        scale=scale,
+        varphi=varphi,
+        gamma=gamma,
+        colors=colors)
+    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, C0_show,
+        X_show, Z_show, colors)
+
+
 def load_data_synthetic(dataset, data_from_prior, plot=False):
     """Load synethetic data."""
     if dataset == "tertile":
@@ -1037,12 +1200,16 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         K = 3
         D = 1
         if data_from_prior == True:
-
+            with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=1_varphi=30.npz') as path:  # is varphi actually 1?
-            with pkg_resources.path(tertile, 'tertile_prior_s=30_sigma2=10_varphi=30.npz') as path:
+            #with pkg_resources.path(tertile, 'tertile_prior_s=30_sigma2=10_varphi=30.npz') as path:
                 #SS: tertile_prior_30.npz, tertile_prior.npz
                 data = np.load(path)
+            
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            
             N_per_class = 30
             X_k = data["X_k"]  # Contains (90, 3) array of binned x values
             Y_true_k = data["Y_k"]  # Contains (90, 3) array of binned y values
@@ -1073,6 +1240,7 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
             plt.scatter(X, Y_true)
             plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
+            colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
         else:
             with pkg_resources.path(tertile, 'tertile.npz') as path:
                 data = np.load(path)
@@ -1102,6 +1270,47 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
                 ),
             }
             gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
+            colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
+    elif dataset == "thirteen":
+        from probit.data import thirteen
+        K = 13
+        D = 1
+        if data_from_prior == True:
+            with pkg_resources.path(thirteen, 'thirteen_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
+                data = np.load(path)
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            N_per_class = 45
+            X_k = data["X_k"]  # Contains (13, 45) array of binned x values
+            Y_true_k = data["Y_k"]  # Contains (13, 45) array of binned y values
+            X = data["X"]  # Contains (585,) array of x values
+            t = data["t"]  # Contains (585,) array of ordinal response variables, corresponding to Xs values
+            Y_true = data["Y"]  # Contains (585,) array of y values, corresponding to Xs values (not in order)
+            colors = data["colors"]
+            X_true = X
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0,
+                    1.0,
+                ),
+                "true": (
+                    data["gamma"],
+                    data["varphi"],
+                    data["noise_variance"],  # np.sqrt(0.1) = 0.316 
+                    data["scale"],
+                ),
+                "init_alt": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    100.0,
+                    10.0,
+                    1.0
+                ),
+            }
+            plt.scatter(X, Y_true)
+            plt.show()
+            gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
     elif dataset == "septile":
         K = 7
         D = 1
@@ -1138,9 +1347,10 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
             ),
         }
         gamma_0, varphi_0, noise_variance_0 = hyperparameters["true"]
+        colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
     if plot:
         plot_ordinal(X, t, X_k, Y_true_k, K, D)
-    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D
+    return X, t, X_show, Z_show, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors
 
 
 def plot_s(kernel, N_total=500, n_samples=10):
@@ -1154,7 +1364,7 @@ def plot_s(kernel, N_total=500, n_samples=10):
     plt.show()
 
 
-def plot_ordinal(X, t, X_k, Y_k, K, D):
+def plot_ordinal(X, t, X_k, Y_k, K, D, colors=colors):
     N_total = len(t)
     colors_ = [colors[i] for i in t]
     fig, ax = plt.subplots()
@@ -1201,7 +1411,9 @@ class MinimizeStopper(object):
 
 if __name__ == "__main__":
     print("Hello")
-    generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
+    generate_synthetic_data_new(
+        N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
+    # generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
     # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
     # kernel = Linear(intercept=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
     # plot_s(kernel)
