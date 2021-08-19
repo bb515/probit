@@ -4079,6 +4079,7 @@ class EPOrderedGP(Estimator):
             # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
             # gx[self.K] -= 0.1 * varphi
             gx[self.K] *= 2.0  # since varphi = kappa / 2
+            gx[self.K] *= 2.0  # correction
         return -gx
 
     def approximate_evidence(self, mean_EP, precision_EP, amplitude_EP, Sigma):
