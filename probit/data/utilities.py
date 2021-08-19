@@ -1200,8 +1200,8 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         K = 3
         D = 1
         if data_from_prior == True:
-            #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
-            with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
+            with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
+            #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=1_varphi=30.npz') as path:  # is varphi actually 1?
             #with pkg_resources.path(tertile, 'tertile_prior_s=30_sigma2=10_varphi=30.npz') as path:
                 #SS: tertile_prior_30.npz, tertile_prior.npz
@@ -1420,6 +1420,3 @@ if __name__ == "__main__":
     # generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
     print("HELLO")
 
-# generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
-
-# generate_synthetic_data_SEARD(30, 3, 2, noise_variance=1.0)

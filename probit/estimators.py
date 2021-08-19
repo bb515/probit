@@ -1804,7 +1804,7 @@ class VBOrderedGP(Estimator):
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
 
-    def __init__(self, noise_variance=1.0, *args, **kwargs):
+    def __init__(self, noise_variance, *args, **kwargs):
         """
         Create an :class:`VBOrderedGP` Estimator object.
 
@@ -1830,9 +1830,13 @@ class VBOrderedGP(Estimator):
         # Less than this results in poor approximation due to neglected probability mass in the tails
         # Good values found between 18 and 30
         self.upper_bound2 = 30
-        self.jitter = 1e-8  #TODO # Regularisation for matrix inversion (see GPML by Williams et al. for a good explanation)
-        self.noise_variance = noise_variance
-        self.noise_std = np.sqrt(noise_variance)
+        #self.jitter = 1e-8  #TODO # Regularisation for matrix inversion (see GPML by Williams et al. for a good explanation)
+        self.jitter = 1e-6
+        if noise_variance is None:
+            self.noise_variance = 1.0
+        else:
+            self.noise_variance = noise_variance
+        self.noise_std = np.sqrt(self.noise_variance)
         self._update_prior()
         self._update_posterior()
         # TODO: might need cholesky factor later on. 20/07 depricated Sigma_tilde since self.Sigma and self.C were not
@@ -1860,8 +1864,8 @@ class VBOrderedGP(Estimator):
         # TODO: Convert everything to matrix inversion lemma rather than Searle identity
         self.cov = np.linalg.inv(np.add(self.IN, (1 / self.noise_variance) * self.C))  # an intermediate matrix
         # self.Sigma = np.linalg.inv((1 / self.noise_variance) * self.IN + np.linalg.inv(self.C + self.jitter * self.IN))
-        Sigma_2 = self.C @ self.cov  # derivation of this in report
-        assert np.allclose(self.Sigma, Sigma_2)
+        self.Sigma_2 = self.C @ self.cov  # derivation of this in report
+        assert np.allclose(self.Sigma, self.Sigma_2)
 
     def _hyperparameters_update(self, varphi=None, scale=None, noise_variance=None):
         """
@@ -1989,13 +1993,14 @@ class VBOrderedGP(Estimator):
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples", disable=True):
             # Eq. (11)
-            p, sigma_dp = self._p(m_tilde, gamma, self.noise_std, numerically_stable=True)
+            p = self._p(m_tilde, gamma, self.noise_std, numerically_stable=True)
             y_tilde = self._y_tilde(p, m_tilde, gamma, self.noise_std)
             # plt.scatter(self.X_train, y_tilde)
             # plt.title("y_tilde")
             # plt.show()
             m_tilde = self._m_tilde(y_tilde, self.Sigma_div_var)
-            dm_tilde = self._dm_tilde(dm_tilde, y_tilde, sigma_dp, self.partial_Sigma_div_var, self.Sigma_div_var)
+            dm_tilde = None
+            #dm_tilde = self._dm_tilde(dm_tilde, y_tilde, sigma_dp, self.partial_Sigma_div_var, self.Sigma_div_var)
             #dm2 = noise_variance * self.cov_ @ self.partial_C_varphi @ self.cov_ @ y_tilde
             #plt.scatter(self.X_train, dm_tilde)
             #plt.scatter(self.X_train, dm2)
@@ -2162,6 +2167,42 @@ class VBOrderedGP(Estimator):
         #             gamma_k, value, gamma_kplus1, z1, z2, m_i, i))
         return np.add(m_tilde, noise_std * p)
 
+    def _dp(self, m, gamma, noise_std, numerically_stable=True):
+        """
+        Estimate the rightmost term of 2021 partial bound partial log sigma.
+        """
+        (calligraphic_Z,
+        norm_pdf_z1s, norm_pdf_z2s,
+        z1s, z2s,
+        *_) = self._calligraphic_Z(
+            gamma, noise_std, m)
+        sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / calligraphic_Z
+        # Need to deal with the tails to prevent catestrophic cancellation
+        indeces1 = np.where(z1s > self.upper_bound)
+        indeces2 = np.where(z2s < -self.upper_bound)
+        indeces = np.union1d(indeces1, indeces2)
+        z1_indeces = z1s[indeces]
+        z2_indeces = z2s[indeces]
+        sigma_dp[indeces] = self._dp_tails(z1_indeces, z2_indeces)
+        # Define the derivative for when z2 and z1 values take a value of (+/-)infinity respectively
+        indeces = np.where(z1s==-np.inf)
+        sigma_dp[indeces] = - z2s[indeces] * norm_pdf_z2s[indeces] / calligraphic_Z[indeces]
+        indeces = np.intersect1d(indeces, indeces2)
+        sigma_dp[indeces] = self._dp_far_tails(z2s[indeces])
+        indeces = np.where(z2s==np.inf)
+        sigma_dp[indeces] = z1s[indeces] * norm_pdf_z1s[indeces] / calligraphic_Z[indeces]
+        indeces = np.intersect1d(indeces, indeces1)
+        sigma_dp[indeces] = self._dp_far_tails(z1s[indeces])
+        # Finally, get the far tails for the non-infinity case to prevent overflow
+        if numerically_stable is True:
+            indeces = np.where(z1s > self.upper_bound2)
+            z1_indeces = z1s[indeces]
+            sigma_dp[indeces] = self._dp_far_tails(z1_indeces)
+            indeces = np.where(z2s < -self.upper_bound2)
+            z2_indeces = z2s[indeces]
+            sigma_dp[indeces] = self._dp_far_tails(z2_indeces)
+        return sigma_dp
+
     def _p(self, m, gamma, noise_std, numerically_stable=True):
         """
         Estimate the rightmost term of 2021 Page Eq.(), a ratio of Monte Carlo estimates of the expectation of a
@@ -2183,7 +2224,7 @@ class VBOrderedGP(Estimator):
         *_) = self._calligraphic_Z(
             gamma, noise_std, m)
         p = (norm_pdf_z1s - norm_pdf_z2s) / calligraphic_Z
-        sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / calligraphic_Z
+        # sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / calligraphic_Z
         # Need to deal with the tails to prevent catestrophic cancellation
         indeces1 = np.where(z1s > self.upper_bound)
         indeces2 = np.where(z2s < -self.upper_bound)
@@ -2191,32 +2232,32 @@ class VBOrderedGP(Estimator):
         z1_indeces = z1s[indeces]
         z2_indeces = z2s[indeces]
         p[indeces] = self._p_tails(z1_indeces, z2_indeces)
-        sigma_dp[indeces] = self._dp_tails(z1_indeces, z2_indeces)
+        # sigma_dp[indeces] = self._dp_tails(z1_indeces, z2_indeces)
         # Define the derivative for when z2 and z1 values take a value of (+/-)infinity respectively
-        indeces = np.where(z1s==-np.inf)
-        sigma_dp[indeces] = - z2s[indeces] * norm_pdf_z2s[indeces] / calligraphic_Z[indeces]
-        indeces = np.intersect1d(indeces, indeces2)
-        sigma_dp[indeces] = self._dp_far_tails(z2s[indeces])
-        indeces = np.where(z2s==np.inf)
-        sigma_dp[indeces] = z1s[indeces] * norm_pdf_z1s[indeces] / calligraphic_Z[indeces]
-        indeces = np.intersect1d(indeces, indeces1)
-        sigma_dp[indeces] = self._dp_far_tails(z1s[indeces])
+        # indeces = np.where(z1s==-np.inf)
+        # sigma_dp[indeces] = - z2s[indeces] * norm_pdf_z2s[indeces] / calligraphic_Z[indeces]
+        # indeces = np.intersect1d(indeces, indeces2)
+        # sigma_dp[indeces] = self._dp_far_tails(z2s[indeces])
+        # indeces = np.where(z2s==np.inf)
+        # sigma_dp[indeces] = z1s[indeces] * norm_pdf_z1s[indeces] / calligraphic_Z[indeces]
+        # indeces = np.intersect1d(indeces, indeces1)
+        # sigma_dp[indeces] = self._dp_far_tails(z1s[indeces])
         # Finally, get the far tails for the non-infinity case to prevent overflow
         if numerically_stable is True:
             indeces = np.where(z1s > self.upper_bound2)
             z1_indeces = z1s[indeces]
             p[indeces] = self._p_far_tails(z1_indeces)
-            sigma_dp[indeces] = self._dp_far_tails(z1_indeces)
+            # sigma_dp[indeces] = self._dp_far_tails(z1_indeces)
             indeces = np.where(z2s < -self.upper_bound2)
             z2_indeces = z2s[indeces]
             p[indeces] = self._p_far_tails(z2_indeces)
-            sigma_dp[indeces] = self._dp_far_tails(z2_indeces)
-        sigma_dp -= p**2
+            # sigma_dp[indeces] = self._dp_far_tails(z2_indeces)
+        # sigma_dp -= p**2
         #plt.scatter(m, sigma_dp/noise_std)
         #plt.scatter(m, p)
         #plt.scatter(self.X_train, p)
         #plt.show()
-        return p, sigma_dp
+        return p # , sigma_dp
 
     def _dp_tails(self, z1, z2):
         """Series expansion at infinity."""
@@ -2274,18 +2315,19 @@ class VBOrderedGP(Estimator):
                 # within a small tolerance, but with a few outliers. It may not be stable, but it may be faster
                 C_inv = C_chol_inv.T @ C_chol_inv
             log_det_C = 2. * np.sum(np.log(np.diag(C_chol)))
-            trace_C_inv_Sigma = np.trace(self.cov)
-            # trace_C_inv_Sigma = np.einsum('ij, ij->', C_inv, Sigma)
-            Sigma_tilde = Sigma + self.jitter * np.eye(self.N)
+            trace_C_inv_Sigma = N - np.einsum('ij, ji ->', self.cov_, C)
+            #trace_C_inv_Sigma_2 = np.trace(self.IN - self.cov_ @ C)
+            #trace_C_inv_Sigma_3 = np.trace(self.cov)
+            Sigma_tilde = self.Sigma + self.jitter * np.eye(self.N)
             Sigma_chol = np.linalg.cholesky(Sigma_tilde)
-            log_det_Sigma = 2. * np.sum(np.log(np.diag(Sigma_chol)))  # TODO: Check is correct
+            log_det_Sigma = 2. * np.sum(np.log(np.diag(Sigma_chol)))
         elif numerical_stability is False:
-            warnings.warn("This is numerically unstable and should not be used (expected numerically_stable=True).")
+            raise ValueError("This is numerically unstable and should not be used (expected numerically_stable=True).")
             if C_inv is None:
                 C_inv = np.linalg.inv(C + self.jitter * self.IN)
             log_det_C = np.log(np.linalg.det(C + self.jitter * self.IN))
-            trace_C_inv_Sigma = np.trace(self.cov)
-            # trace_C_inv_Sigma = np.trace(C_inv @ Sigma)  # Here it is.
+            trace_C_inv_Sigma = np.trace(self.IN - self.cov_ @ C)
+            # trace_C_inv_Sigma = np.trace(C_inv @ Sigma)  # This is numerically unstable.
             log_det_Sigma = np.log(np.linalg.det(Sigma + self.jitter * self.IN))
         one = - trace_Sigma / (2 * noise_variance)
         two = - log_det_C / 2
@@ -2307,7 +2349,7 @@ class VBOrderedGP(Estimator):
         return -fx, C_inv
 
     def evaluate_function_gradient(
-            self, intervals, varphi, noise_variance, noise_std, m, dm, y, p, cov, Sigma, C_inv,
+            self, intervals, gamma, varphi, noise_variance, noise_std, m, dm, y, p, cov, Sigma, C_inv,
             calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
             fix_s=True,
             numerical_stability=True, verbose=True):
@@ -2356,29 +2398,15 @@ class VBOrderedGP(Estimator):
             # For gx[0] -- ln\sigma
             if numerical_stability is True:
                 one = 1/(noise_variance) * np.trace(Sigma)
-                
-
-
-                one = noise_variance * np.einsum('ij, ij ->', Sigma, Sigma)
-                two = noise_variance * np.einsum('ij, ij ->', cov, Sigma)
-                three = - noise_variance * np.trace(Sigma)
-                intermediate_vector_2 = np.divide(z2s, calligraphic_Z)
-                intermediate_vector_1 = np.divide(z1s, calligraphic_Z)
-                # four = np.dot(intermediate_vector_2, norm_pdf_z2s) - np.dot(intermediate_vector_1, norm_pdf_z1s) # TODO: Numerical instability
-                four = 0
+                sigma_dp = self._dp(m, gamma, noise_std, numerically_stable=True)
+                two = np.sum(sigma_dp)
             if numerical_stability is False:
-                one = noise_variance * np.trace(Sigma @ Sigma)
-                two = noise_variance * np.trace(cov @ Sigma)
-                three = - noise_variance * np.trace(Sigma)
-                intermediate_vector_2 = np.divide(z2s, calligraphic_Z)
-                intermediate_vector_1 = np.divide(z1s, calligraphic_Z)
-                four = np.dot(intermediate_vector_2, norm_pdf_z2s) - np.dot(intermediate_vector_1, norm_pdf_z1s)  # TODO: Numerical instability
-            if verbose:
+                raise ValueError("numerical_stability was set to False.")
+            if 1:
                 print("one ", one)
                 print("two ", two)
-                print("three ", three)
-                print("four ", four)
-            gx[0] = one + two + three + four
+                print("gx_sigma = ", one + two)
+            gx[0] = one + two
         elif fix_s is False:  # TODO: change to elif partial_C_scale is not None
             # For gx[0] -- ln\scale
             # TODO: if ln\varphi changes, this changes.
@@ -2427,20 +2455,20 @@ class VBOrderedGP(Estimator):
                 intermediate_matrix_3 = intermediate_matrix_1 @ C_inv
                 one = (varphi / 2) * m.T @ intermediate_matrix_3 @ m
                 two = - (varphi / 2) * np.einsum('ij, ji ->', intermediate_matrix_2, self.C)
-                #dm = noise_variance * cov_ @ self.partial_C_varphi @ cov_ @ y  # TODO dm2 this would sometimes work.
+                dm = noise_variance * cov_ @ self.partial_C_varphi @ cov_ @ y  # TODO
                 #plt.scatter(self.X_train, dm)
                 #plt.show()
                 #plt.scatter(self.X_train, dm2)
                 #plt.show()
-                #dm = self.partial_C_varphi @ cov_ @ y
-                #three = - varphi * dm.T @ C_inv @ m
-                #four = - varphi * (1 / noise_std) * p.T @ dm
-                gx[self.K] = one + two
-                if 1:
-                    #print("one", one)
-                    #print("two", two)
-                    print("three plus four", three + four)
-                    #print("gx = {}".format(gx[self.K]))
+                # dm = self.partial_C_varphi @ cov_ @ y
+                three = - varphi * m.T @ C_inv @ dm
+                #four = varphi * (1 / noise_std) * p.T @ dm
+                gx[self.K] = one + two + three # + four
+                if verbose:
+                    print("one", one)
+                    print("two", two)
+                    # print("three plus four", three + four)
+                    print("gx = {}".format(gx[self.K]))
             elif numerical_stability is False:
                 # Using Searle Identity after differentiation
                 intermediate_matrix_1 = C_inv @ self.partial_C_varphi
@@ -2512,7 +2540,7 @@ class VBOrderedGP(Estimator):
 
         The particular hyperparameter space is inferred from the user inputs.
         """
-        steps = self.N
+        steps = 100
         # Infer the hyperparameter space to grid over
         if (gamma_0 is not None
                 and varphi_0 is None
@@ -2718,12 +2746,12 @@ class VBOrderedGP(Estimator):
                     numerical_stability=True, verbose=False)
                 error = np.abs(fx_old - fx)  # TODO: usually converges pretty fast and anyway this is redundant.
                 fx_old = fx
-                if verbose:
+                if 1:
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
             fx, C_inv = self.evaluate_function(
                 self.N, m_0, Sigma, C, calligraphic_Z, noise_variance, numerical_stability=True, verbose=True)
-            gx = self.evaluate_function_gradient(intervals, varphi, noise_variance, noise_std, m_0, dm_0, y, p,
+            gx = self.evaluate_function_gradient(intervals, gamma, varphi, noise_variance, noise_std, m_0, dm_0, y, p,
                 self.cov, Sigma, C_inv, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
                 fix_s=fix_s,
                 numerical_stability=True, verbose=False)
@@ -2881,7 +2909,7 @@ class VBOrderedGP(Estimator):
             gamma, Sigma, precision_EP, posterior_mean, noise_variance)
         fx = self.evaluate_function(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
         gx = self.evaluate_function_gradient(
-            intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
+            intervals, gamma, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
         if verbose:
             print(repr(gamma), ",")
             print(self.kernel.varphi, ",")

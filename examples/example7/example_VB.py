@@ -548,6 +548,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         if show: plt.show()
         plt.close()
         plt.plot(x, Z, 'b')
+        plt.vlines(30.0, -80, 20, 'k', alpha=0.5, label="'true' varphi")
         plt.xlabel(xlabel)
         plt.xscale(xscale)
         plt.ylabel(r"$\mathcal{F}$")
@@ -555,6 +556,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         if show: plt.show()
         plt.close()
         plt.plot(x, grad, 'r')
+        plt.vlines(30.0, -20, 20, 'k', alpha=0.5, label="'true' varphi")
         plt.xscale(xscale)
         plt.xlabel(xlabel)
         plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
@@ -568,6 +570,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         dZ_ = np.gradient(Z, log_x)
         dZ = np.diff(Z) / dlog_x
         plt.plot(log_x, grad, 'r', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ analytic")
+        plt.vlines(np.log(30.0), -20, 20, 'k', alpha=0.5, label="'true' log varphi")
         plt.xlabel("log " + xlabel)
         plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
         plt.plot(log_x, dZ_, 'r--', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
@@ -575,6 +578,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.savefig("both.png")
         if show: plt.show()
         plt.close()
+        plt.vlines(np.log(30.0), -80, 20, 'k', alpha=0.5, label="'true' log varphi")
         plt.plot(log_x, Z, 'b', label=r"$\mathcal{F}}$")
         plt.plot(log_x, grad, 'r', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ analytic")
         plt.plot(log_x, dZ_, 'r--', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
@@ -789,7 +793,7 @@ def main():
         # grid_synthetic(X, t, [0., 1.8], None, gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0,
         #     fix_s=False)
         # just std
-        # grid_synthetic(X, t, [-1., 1.], None, gamma=gamma_0, varphi=varphi_0, scale=1.0)
+        # grid_synthetic(X, t, [-1., 4.], None, gamma=gamma_0, varphi=varphi_0, scale=scale_0, fix_s=True, show=True)
         # varphi and scale
         # grid_synthetic(X, t, [0, 2], [0, 2], gamma=gamma_0, noise_variance=noise_variance_0, fix_s=False)
         # varphi and std
