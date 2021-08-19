@@ -548,11 +548,14 @@ class SEIso(Kernel):
         :returns partial_C: A (N1, N2) array of the partial derivative of the covariance matrix.
         :rtype: class:`numpy.ndarray`
         """
-        D = np.shape(X1)[1]
-        C = self.kernel_matrix(X1, X2)  # (N1, N2)
-        # The general covariance function has a different length scale for each dimension.
-        # TODO check this.
-        partial_C = (-1./D) * np.multiply(pow(distance_matrix(X1, X2), 2), C)  # TODO: reason for this dimension?
+        distance_mat_2 = self.distance_mat(X1, X2)**2
+        C = np.multiply(self.scale, np.exp(-1. * self.varphi * distance_mat_2))
+        partial_C = -np.multiply(distance_mat_2, C)
+        # D = np.shape(X1)[1]
+        # # The general covariance function has a different length scale for each dimension.
+        # # TODO check this. I am not sure why the dimension parameter need be included here.
+        # partial_C = (-1./D) * np.multiply(distance_mat_2, C)  # TODO: reason for this dimension?
+        # return partial_C
         return partial_C
 
     def kernel_partial_derivative_scale(self, X1, X2):

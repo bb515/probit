@@ -1200,15 +1200,15 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         K = 3
         D = 1
         if data_from_prior == True:
-            with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
-            #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
+            #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
+            with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=1_varphi=30.npz') as path:  # is varphi actually 1?
             #with pkg_resources.path(tertile, 'tertile_prior_s=30_sigma2=10_varphi=30.npz') as path:
                 #SS: tertile_prior_30.npz, tertile_prior.npz
                 data = np.load(path)
             
-            X_show = data["X_show"]
-            Z_show = data["Z_show"]
+            # X_show = data["X_show"]
+            # Z_show = data["Z_show"]
             
             N_per_class = 30
             X_k = data["X_k"]  # Contains (90, 3) array of binned x values
@@ -1350,7 +1350,7 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
         colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
     if plot:
         plot_ordinal(X, t, X_k, Y_true_k, K, D)
-    return X, t, X_show, Z_show, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors
+    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors
 
 
 def plot_s(kernel, N_total=500, n_samples=10):

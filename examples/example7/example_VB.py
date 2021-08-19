@@ -97,26 +97,31 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
         plt.xlim(x_lims)
         plt.ylim(0.0, 1.0)
         plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
+        plt.ylabel(r"$p(\omega_{*}|x, X, \omega)$", fontsize=16)
         plt.stackplot(x, Z.T,
                       labels=(
-                          r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$"),
+                          r"$p(\omega_{*}=0|x, X, \omega)$", r"$p(\omega_{*}=1|x, X, \omega)$", r"$p(\omega_{*}=2|x, X, \omega)$"),
                       colors=(
                           colors[0], colors[1], colors[2])
                       )
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
         for k in range(K):
-            plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, facecolors=colors[k],
+            plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, s=15, facecolors=colors[k],
                         edgecolors='white')
         plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].png"
                   .format(x_lims[0], x_lims[1]))
         plt.show()
         plt.close()
+        np.savez("VB_tertile.npz", x=X_new, y=posterior_predictive_m, s=posterior_std)
         plt.plot(X_new, posterior_predictive_m, 'r')
         plt.fill_between(X_new[:, 0], posterior_predictive_m - 2*posterior_std, posterior_predictive_m + 2*posterior_std,
                  color='red', alpha=0.2)
         plt.plot(X_true, Y_true, 'b')
-        plt.ylim(-0.5, 1.5)
+        plt.ylim(-2.2, 2.2)
+        plt.xlim(-0.5, 1.5)
+        for i in range(K):
+            plt.scatter(
+                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, s=15, facecolors=colors[i], edgecolors='white')
         plt.savefig("scatter_versus_posterior_mean.png")
         plt.show()
         plt.close()
@@ -130,18 +135,18 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
         plt.xlim(x_lims)
         plt.ylim(0.0, 1.0)
         plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
+        plt.ylabel(r"$p(\omega_{*}={}|x, X, \omega)$", fontsize=16)
         plt.stackplot(x, Z.T,
             labels=(
-                r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$", r"$p(t=3|x, X, t)$",
-                r"$p(t=4|x, X, t)$", r"$p(t=5|x, X, t)$", r"$p(t=6|x, X, t)$"),
+                r"$p(\omega_{*}=0|x, X, \omega)$", r"$p(\omega_{*}=1|x, X, \omega)$", r"$p(\omega_{*}=2|x, X, \omega)$", r"$p(\omega_{*}=3|x, X, \omega)$",
+                r"$p(\omega_{*}=4|x, X, \omega)$", r"$p(\omega_{*}=5|x, X, \omega)$", r"$p(\omega_{*}=6|x, X, \omega)$"),
             colors=(
                 colors[0], colors[1], colors[2], colors[3], colors[4], colors[5], colors[6]))
         plt.legend()
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
         for i in range(K):
             plt.scatter(
-                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
+                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, s=15, facecolors=colors[i], edgecolors='white')
         plt.savefig("Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}].png"
                   .format(x_lims[1], x_lims[0]))
         plt.close()
@@ -150,33 +155,39 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
         N = 1000
         x = np.linspace(x_lims[0], x_lims[1], N)
         X_new = x.reshape((N, D))
-        print("y", y_tilde)
-        print("varphi", varphi_tilde)
-        print("noisevar", noise_variance)
         Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov, y_tilde, varphi_tilde, noise_variance, X_new)
         print(np.sum(Z, axis=1), 'sum')
         plt.xlim(x_lims)
         plt.ylim(0.0, 1.0)
         plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
+        plt.ylabel(r"$p(\omega_{*}|x, X, \omega)$", fontsize=16)
         plt.stackplot(x, Z.T,
                       labels=(
-                          r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$"),
+                          r"$p(\omega_{*}=0|x, X, \omega)$", r"$p(\omega_{*}=1|x, X, \omega)$", r"$p(\omega_{*}=2|x, X, \omega)$",
+                          r"$p(\omega_{*}=3|x, X, \omega)$", r"$p(\omega_{*}=4|x, X, \omega)$", r"$p(\omega_{*}=5|x, X, \omega)$",
+                          r"$p(\omega_{*}=6|x, X, \omega)$", r"$p(\omega_{*}=7|x, X, \omega)$", r"$p(\omega_{*}=8|x, X, \omega)$",
+                          r"$p(\omega_{*}=9|x, X, \omega)$", r"$p(\omega_{*}=10|x, X, \omega)$", r"$p(\omega_{*}=11|x, X, \omega)$",
+                          r"$p(\omega_{*}=12|x, X, \omega)$"),
                       colors=colors
                       )
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
         for k in range(K):
-            plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, facecolors=colors[k],
+            plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, s=15, facecolors=colors[k],
                         edgecolors='white')
         plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].png"
                   .format(x_lims[0], x_lims[1]))
         plt.show()
         plt.close()
+        np.savez("VB_thirteen.npz", x=X_new, y=posterior_predictive_m, s=posterior_std)
         plt.plot(X_new, posterior_predictive_m, 'r')
         plt.fill_between(X_new[:, 0], posterior_predictive_m - 2*posterior_std, posterior_predictive_m + 2*posterior_std,
                  color='red', alpha=0.2)
         plt.plot(X_true, Y_true, 'b')
-        plt.ylim(-0.5, 1.5)
+        plt.ylim(-2.2, 2.2)
+        plt.xlim(-0.5, 1.5)
+        for i in range(K):
+            plt.scatter(
+                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]), s=15, facecolors=colors[i], edgecolors='white')
         plt.savefig("scatter_versus_posterior_mean.png")
         plt.show()
         plt.close()
@@ -536,50 +547,39 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.savefig("grid_over_hyperparameters.png")
         if show: plt.show()
         plt.close()
-        # norm = np.abs(np.max(grad))
-        # u = grad / norm
         plt.plot(x, Z, 'b')
+        plt.xlabel(xlabel)
         plt.xscale(xscale)
-        plt.ylabel(r"\mathcal{F}(\varphi)")
+        plt.ylabel(r"$\mathcal{F}$")
         plt.savefig("bound.png")
         if show: plt.show()
         plt.close()
         plt.plot(x, grad, 'r')
         plt.xscale(xscale)
         plt.xlabel(xlabel)
-        plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
+        plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
         plt.savefig("grad.png")
+        if show: plt.show()
         plt.close()
         #Normalization:
-        dx = np.diff(x) # use np.diff(x) if x is not uniform
         #First derivatives: need to calculate them in the log domain
         log_x = np.log(x)
         dlog_x = np.diff(log_x)
-        print(dlog_x)
         dZ_ = np.gradient(Z, log_x)
         dZ = np.diff(Z) / dlog_x
-        plt.figure()
-        plt.plot(log_x, dZ_, 'r.', label='np.grad')
-        plt.plot(log_x[:-1], dZ, 'r--', label='np.diff, 1')
-        plt.xlabel(xlabel)
-        plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
-        plt.savefig("grad_finite_diff.png")
-        if show: plt.show()
-        plt.close()
-        plt.plot(log_x, grad)
-        plt.xlabel(xlabel)
-        plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
-        plt.plot(log_x, dZ_, 'r.', label='np.grad')
-        plt.plot(log_x[:-1], dZ, 'r', label='np.diff, 1')
+        plt.plot(log_x, grad, 'r', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ analytic")
+        plt.xlabel("log " + xlabel)
+        plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
+        plt.plot(log_x, dZ_, 'r--', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
+        plt.legend()
         plt.savefig("both.png")
         if show: plt.show()
         plt.close()
-        plt.plot(log_x, Z, 'b')
-        plt.plot(log_x, grad, 'r', label='grad')
-        plt.plot(log_x[:-1], dZ, 'r--', label='np.diff, 1')
-        plt.plot(log_x, dZ_, 'r.', label='np.grad')
-        plt.xlabel(xlabel)
-        plt.ylabel(r"\mathcal{F}(\varphi), \frac{\partial \mathcal{F}}{\partial varphi}")
+        plt.plot(log_x, Z, 'b', label=r"$\mathcal{F}}$")
+        plt.plot(log_x, grad, 'r', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ analytic")
+        plt.plot(log_x, dZ_, 'r--', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
+        plt.xlabel("log " + xlabel)
+        plt.legend()
         plt.savefig("bound_grad.png")
         if show: plt.show()
         plt.close()
@@ -602,7 +602,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
         ax.plot(0.1, 30, 'm')
         plt.xscale(xscale)
-        plt.xlim(1, 100.0)
+        plt.xlim(1, 100.0)  #TODO: What is this for?
         plt.yscale(yscale)
         plt.xlabel(xlabel, fontsize=16)
         plt.ylabel(ylabel, fontsize=16)
@@ -778,14 +778,12 @@ def main():
         #     dataset, X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma=gamma, varphi=varphi,
         #     noise_variance=noise_variance, K)
     else:
+        # TODO: will need to extract test/train data for outerloops
         X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors = load_data_synthetic(dataset, data_from_prior)
         print(gamma_0)
         print(varphi_0)
         print(noise_variance_0)
         print(scale_0)
-        # print(noise_variance_0)
-        # plt.scatter(X, Y_true)
-        # plt.show()
         # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
         # just scale
         # grid_synthetic(X, t, [0., 1.8], None, gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0,
@@ -797,10 +795,10 @@ def main():
         # varphi and std
         # grid_synthetic(X, t, [0, 2], [0, 2], gamma=gamma_0, scale=30.0)
         # # Just varphi
-        # grid_synthetic(X, t, [-8, 2], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0, fix_s=True, show=True)
+        grid_synthetic(X, t, [-4, 4], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0, fix_s=True, show=True)
         # # Two of the cutpoints
         # grid_synthetic(X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=1.0)
-        test_synthetic(dataset, method, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0, colors=colors)
+        # test_synthetic(dataset, method, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0, colors=colors)
     if args.profile:
         profile.disable()
         s = StringIO()
