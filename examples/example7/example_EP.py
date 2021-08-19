@@ -80,7 +80,7 @@ def EP_plotting(
         #   X_train[np.where(t == i + 1)][:, 1], color='blue')
         plt.xlabel(r"$x_1$", fontsize=16)
         plt.ylabel(r"$x_2$", fontsize=16)
-        plt.savefig("contour_EP_{}.png".format(i))
+        plt.savefig("contour_EP_{}.pdf".format(i))
         plt.close()
     return fx
 
@@ -109,7 +109,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         plt.scatter(X, posterior_mean)
         plt.scatter(X_true, Y_true)
         plt.ylim(-3, 3)
-        plt.savefig("scatter_versus_posterior_mean.png")
+        plt.savefig("scatter_versus_posterior_mean.pdf")
         plt.close()
         print("iteration {}, error={}".format(iteration, error / steps))
     weights, precision_EP, Lambda_cholesky, Lambda = variational_classifier.compute_EP_weights(
@@ -139,7 +139,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         for k in range(K):
             plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, s=15, facecolors=colors[k],
                         edgecolors='white')
-        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].png"
+        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].pdf"
                   .format(x_lims[0], x_lims[1]))
         plt.show()
         plt.close()
@@ -153,7 +153,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         for i in range(K):
             plt.scatter(
                 X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]), s=15, facecolors=colors[i], edgecolors='white')
-        plt.savefig("scatter_versus_posterior_mean.png")
+        plt.savefig("scatter_versus_posterior_mean.pdf")
         plt.show()
         plt.close()
     elif dataset == "septile":
@@ -180,7 +180,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         for i in range(K):
             plt.scatter(
                 X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, s=15, facecolors=colors[i], edgecolors='white')
-        plt.savefig("Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}].png"
+        plt.savefig("Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}].pdf"
                   .format(x_lims[1], x_lims[0]))
         plt.show()
         plt.close()
@@ -209,7 +209,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         for k in range(K):
             plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, s=15, facecolors=colors[k],
                         edgecolors='white')
-        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].png"
+        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].pdf"
                   .format(x_lims[0], x_lims[1]))
         plt.show()
         plt.close()
@@ -223,7 +223,7 @@ def EP_plotting_synthetic(dataset, X, t, X_true, Y_true, gamma, varphi, noise_va
         for i in range(K):
             plt.scatter(
                 X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]), s=15, facecolors=colors[i], edgecolors='white')
-        plt.savefig("scatter_versus_posterior_mean.png")
+        plt.savefig("scatter_versus_posterior_mean.pdf")
         plt.show()
         plt.close()
     return fx
@@ -300,7 +300,7 @@ def EP_testing(
             # plt.ylim(0, 2)
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("contour_EP_{}.png".format(i))
+            plt.savefig("contour_EP_{}.pdf".format(i))
             plt.close()
     return fx, zero_one, predictive_likelihood, mean_absolute_error
 
@@ -503,7 +503,7 @@ def outer_loops_Rogers(
             axs.set_yscale('log')
             plt.xlabel(r"$\log{\varphi}$", fontsize=16)
             plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - Predictive likelihood of test set.png")
+            plt.savefig("Contour plot - Predictive likelihood of test set.pdf")
             plt.close()
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, bounds_Z)
@@ -512,7 +512,7 @@ def outer_loops_Rogers(
             axs.set_yscale('log')
             plt.xlabel(r"$\log{\varphi}$", fontsize=16)
             plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - Variational lower bound.png")
+            plt.savefig("Contour plot - Variational lower bound.pdf")
             plt.close()
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, zero_one_Z)
@@ -521,7 +521,7 @@ def outer_loops_Rogers(
             axs.set_yscale('log')
             plt.xlabel(r"$\log{\varphi}$", fontsize=16)
             plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - mean zero-one accuracy.png")
+            plt.savefig("Contour plot - mean zero-one accuracy.pdf")
             plt.close()
     avg_max_bound = np.average(np.array(max_bounds))
     std_max_bound = np.std(np.array(max_bounds))
@@ -571,7 +571,7 @@ def outer_loops_Rogers(
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - Predictive likelihood of test set.png")
+    plt.savefig("Contour plot - Predictive likelihood of test set.pdf")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_bounds_Z)
@@ -580,7 +580,7 @@ def outer_loops_Rogers(
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - Variational lower bound.png")
+    plt.savefig("Contour plot - Variational lower bound.pdf")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_zero_one_Z)
@@ -589,7 +589,7 @@ def outer_loops_Rogers(
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - mean zero-one accuracy.png")
+    plt.savefig("Contour plot - mean zero-one accuracy.pdf")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_mean_abs_Z)
@@ -598,7 +598,7 @@ def outer_loops_Rogers(
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - mean absolute error accuracy.png")
+    plt.savefig("Contour plot - mean absolute error accuracy.pdf")
     plt.close()
 
 def grid_synthetic(X_train, t_train, range_x1, range_x2,
@@ -615,7 +615,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         range_x1, range_x2, res, gamma_0=gamma, varphi_0=varphi, noise_variance_0=noise_variance)
     if ylabel is None:
         plt.plot(x, Z)
-        plt.savefig("grid_over_hyperparameters.png")
+        plt.savefig("grid_over_hyperparameters.pdf")
         if show: plt.show()
         plt.close()
         plt.plot(x, Z, 'b')
@@ -623,7 +623,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.xscale(xscale)
         plt.ylabel(r"$\mathcal{F}$")
         plt.xlabel(xlabel)
-        plt.savefig("bound.png")
+        plt.savefig("bound.pdf")
         if show: plt.show()
         plt.close()
         plt.plot(x, grad, 'r')
@@ -631,7 +631,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.xscale(xscale)
         plt.xlabel(xlabel)
         plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
-        plt.savefig("grad.png")
+        plt.savefig("grad.pdf")
         if show: plt.show()
         plt.close()
         #Normalization:
@@ -646,7 +646,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
         plt.plot(log_x, dZ_, 'r--', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
         plt.legend()
-        plt.savefig("both.png")
+        plt.savefig("both.pdf")
         if show: plt.show()
         plt.close()
         plt.vlines(np.log(30.0), -80, 200, 'k', alpha=0.5, label=r"'true' $\varphi$")
@@ -655,7 +655,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.plot(log_x, dZ_, 'r--', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
         plt.xlabel("log " + xlabel)
         plt.legend()
-        plt.savefig("bound_grad.png")
+        plt.savefig("bound_grad.pdf")
         if show: plt.show()
         plt.close()
     else:
@@ -665,7 +665,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
                         cmap='viridis', edgecolor='none')
         plt.xscale(xscale)
         plt.yscale(yscale)
-        plt.savefig("grid_over_hyperparameters.png")
+        plt.savefig("grid_over_hyperparameters.pdf")
         if show: plt.show()
         plt.close()
         norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
@@ -680,7 +680,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         plt.yscale(yscale)
         plt.xlabel(xlabel, fontsize=16)
         plt.ylabel(ylabel, fontsize=16)
-        plt.savefig("Contour plot - EP lower bound on the log likelihood.png")
+        plt.savefig("Contour plot - EP lower bound on the log likelihood.pdf")
         if show: plt.show() 
         plt.close()
 
@@ -763,7 +763,7 @@ def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi,
             # plt.ylim(0, 2)
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("Contour plot - Variational.png")
+            plt.savefig("Contour plot - Variational.pdf")
             plt.close()
 
 
