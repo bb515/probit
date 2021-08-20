@@ -199,11 +199,14 @@ def VB_testing(
         K, D, scale=1.0, sigma=10e-6, tau=10e-6, plot=True):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    noise_std = np.sqrt(noise_variance)
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
-    m_tilde, dm_tilde, Sigma_tilde, cov, C_tilde, calligraphic_Z, y_tilde, p, varphi_tilde, *_ = variational_classifier.estimate(
+    m_tilde, dm_tilde, Sigma_tilde, cov, C_tilde, y_tilde, p, varphi_tilde, *_ = variational_classifier.estimate(
         steps, gamma, varphi, noise_variance=noise_variance, fix_hyperparameters=True, write=False)
-    fx = variational_classifier.evaluate_function(
+    calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, *_ = variational_classifier._calligraphic_Z(
+                    gamma, noise_std, m_tilde)
+    fx, C_inv= variational_classifier.evaluate_function(
         variational_classifier.N, m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, noise_variance, verbose=True)
     # Test
     Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov, y_tilde, varphi, noise_variance, X_test)  # (N_test, K)
