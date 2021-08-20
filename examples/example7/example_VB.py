@@ -4,6 +4,7 @@ Ordered probit regression concrete examples. Approximate inference: VB approxima
 import argparse
 import cProfile
 from io import StringIO
+from math import log
 from operator import pos
 from pstats import Stats, SortKey
 import numpy as np
@@ -226,6 +227,7 @@ def VB_testing(
     # Test
     Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov_, y, varphi, noise_variance, X_test)  # (N_test, K)
     predictive_likelihood = Z[grid, t_test]
+    log_predictive_probability = np.sum(np.log(predictive_likelihood))
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
     (x_lims, y_lims) = metadata[dataset]["plot_lims"]
@@ -264,7 +266,7 @@ def VB_testing(
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.savefig("contour_VB_{}.pdf".format(i))
             plt.close()
-    return fx, mean_zero_one, predictive_likelihood, mean_absolute_error
+    return fx, mean_zero_one, predictive_likelihood, mean_absolute_error, log_predictive_probability
 
 
 def test(dataset, X_trains, t_trains, X_tests, t_tests, split, steps, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
@@ -281,9 +283,9 @@ def test(dataset, X_trains, t_trains, X_tests, t_tests, split, steps, gamma_0, v
     gamma = gamma_0
     varphi = varphi_0
     noise_variance = noise_variance_0
-    fx, zero_one, predictive_likelihood, mean_abs = VB_testing(
+    fx, zero_one, predictive_likelihood, mean_abs, log_pred_prob = VB_testing(
         dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, K, D, scale=scale)
-    return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
+    return gamma, varphi, noise_variance, zero_one, predictive_likelihood, log_pred_prob, mean_abs, fx
 
 
 def test_varphi(dataset, variational_classifier, method, gamma, varphi_0, noise_variance, X_trains, t_trains, X_tests,
@@ -314,14 +316,16 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, v
     mean_abss = []
     varphis = []
     noise_variances = []
+    log_pred_probs = []
     gammas = []
     for split in range(20):
-        gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx = test(
+        gamma, varphi, noise_variance, zero_one, predictive_likelihood, log_pred_prob, mean_abs, fx = test(
             dataset, X_trains, t_trains, X_tests, t_tests, split, steps,
             gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, K=K, D=D, scale=1.0)
         bounds.append(fx)
         zero_ones.append(zero_one)
         predictive_likelihoods.append(predictive_likelihood)
+        log_pred_probs.append(log_pred_prob)
         mean_abss.append(mean_abs)
         varphis.append(varphi)
         noise_variances.append(noise_variance)
@@ -329,11 +333,13 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, v
     bounds = np.array(bounds)
     zero_ones = np.array(zero_ones)
     predictive_likelihoods = np.array(predictive_likelihoods)
-    predictive_likelihoods = np.array(predictive_likelihoods)
+    log_pred_probs = np.array(log_pred_probs)
     mean_abss = np.array(mean_abss)
     varphis = np.array(varphis)
     noise_variances = np.array(noise_variances)
     gammas = np.array(gammas)
+    avg_log_pred_prob = np.average(log_pred_probs)
+    std_log_pred_prob = np.std(log_pred_probs)
     avg_bound = np.average(bounds)
     std_bound = np.std(bounds)
     avg_predictive_likelihood = np.average(predictive_likelihoods)
@@ -344,6 +350,7 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, v
     avg_mean_abs = np.average(mean_abss)
     std_mean_abs = np.std(mean_abss)
     print(avg_bound, std_bound, "bound, std")
+    print(avg_log_pred_prob, std_log_pred_prob, "log predictive probability, std")
     print(avg_predictive_likelihood, std_predictive_likelihood, "predictive likelihood, std")
     print(avg_zero_one, std_zero_one, "zero one, std")
     print(avg_mean_abs, std_mean_abs, "mean abs, std")

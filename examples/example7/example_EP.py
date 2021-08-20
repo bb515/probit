@@ -4,6 +4,7 @@ Ordinal regression concrete examples. Approximate inference: EP approximation.
 import argparse
 import cProfile
 from io import StringIO
+from math import log
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import EPOrderedGP
@@ -263,6 +264,7 @@ def EP_testing(
     Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi,
                                        noise_variance, X_test, Lambda, vectorised=True)  # (N_test, K)
     predictive_likelihood = Z[grid, t_test]
+    log_predictive_probability = np.sum(np.log(predictive_likelihood))
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
     (x_lims, y_lims) = metadata[dataset]["plot_lims"]
@@ -302,7 +304,7 @@ def EP_testing(
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.savefig("contour_EP_{}.pdf".format(i))
             plt.close()
-    return fx, mean_zero_one, predictive_likelihood, mean_absolute_error
+    return fx, mean_zero_one, predictive_likelihood, mean_absolute_error, log_predictive_probability
 
 
 def EP_training(dataset, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
@@ -355,9 +357,9 @@ def test(dataset, method, X_trains, t_trains, X_tests, t_tests, split,
     gamma = gamma_0
     varphi = varphi_0
     noise_variance = noise_variance_0
-    fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
+    fx, zero_one, predictive_likelihood, mean_abs, log_pred_prob = EP_testing(
         dataset, X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, D)
-    return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
+    return gamma, varphi, noise_variance, zero_one, predictive_likelihood, log_pred_prob, mean_abs, fx
 
 
 def test_varphi(dataset, method, X_trains, t_trains, X_tests, t_tests, split,
@@ -387,28 +389,32 @@ def outer_loops(dataset, method, X_trains, t_trains, X_tests, t_tests, gamma_0, 
     mean_abss = []
     varphis = []
     noise_variances = []
+    log_pred_probs = []
     gammas = []
     for split in range(20):
-        gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx = test(
+        gamma, varphi, noise_variance, zero_one, predictive_likelihood, log_pred_prob, mean_abs, fx = test(
             dataset, method, X_trains, t_trains, X_tests, t_tests, split,
             gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, K=K, D=D)
         bounds.append(fx)
         zero_ones.append(zero_one)
         predictive_likelihoods.append(predictive_likelihood)
         mean_abss.append(mean_abs)
+        log_pred_probs.append(log_pred_prob)
         varphis.append(varphi)
         noise_variances.append(noise_variance)
         gammas.append(gamma[1:-1])
     bounds = np.array(bounds)
     zero_ones = np.array(zero_ones)
     predictive_likelihoods = np.array(predictive_likelihoods)
-    predictive_likelihoods = np.array(predictive_likelihoods)
+    log_pred_probs = np.array(log_pred_probs)
     mean_abss = np.array(mean_abss)
     varphis = np.array(varphis)
     noise_variances = np.array(noise_variances)
     gammas = np.array(gammas)
     avg_bound = np.average(bounds)
     std_bound = np.std(bounds)
+    avg_log_pred_prob = np.average(log_pred_probs)
+    std_log_pred_prob = np.std(log_pred_probs)
     avg_predictive_likelihood = np.average(predictive_likelihoods)
     std_predictive_likelihood = np.std(predictive_likelihoods)
     print("zero_ones", zero_ones)
@@ -417,6 +423,7 @@ def outer_loops(dataset, method, X_trains, t_trains, X_tests, t_tests, gamma_0, 
     avg_mean_abs = np.average(mean_abss)
     std_mean_abs = np.std(mean_abss)
     print(avg_bound, std_bound, "bound, std")
+    print(avg_log_pred_prob, std_log_pred_prob, "log predictive probability, std")
     print(avg_predictive_likelihood, std_predictive_likelihood, "predictive likelihood, std")
     print(avg_zero_one, std_zero_one, "zero one, std")
     print(avg_mean_abs, std_mean_abs, "mean abs, std")
