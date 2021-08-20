@@ -562,7 +562,7 @@ def load_data(dataset, bins):
                     np.ones((10,))
                 ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["1046.0"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["1073.0"]
             from probit.data.abalone import quantile
             with pkg_resources.path(quantile, 'abalone.npz') as path:
                 data = np.load(path)
@@ -956,7 +956,7 @@ def load_data(dataset, bins):
                     0.0125,
                 ),
                  "556.8" : (
-                    np.array([-np.inf, -0.9 , -0.8,  0.0 ,  0.3, np.inf]) ,
+                    np.array([-np.inf, -0.84123951, -0.50561128, -0.14481583, 0.20429528, np.inf]) ,
                     0.000947,
                     0.008413,
                 ),
