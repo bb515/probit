@@ -2733,6 +2733,7 @@ class VBOrderedGP(Estimator):
             iteration = 0
             error = np.inf
             fx_old = np.inf
+            # TODO: reset m_0 is None?
             # Convergence is sometimes very fast so this may not be necessary
             while error / steps > self.EPS:
                 iteration += 1

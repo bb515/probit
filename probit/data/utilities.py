@@ -1074,8 +1074,13 @@ def load_data(dataset, bins):
                     0.0155,
                     0.2,
                 ),
+                "284.4": (  #m0 0.64 ma1.35 nearly there need ma1.0
+                    [-np.inf, -0.01693337, 0.44281864,  0.88893125,  1.27677076, np.inf],
+                    0.0009968872628072388,
+                    0.021513219342523964,
+                ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["284.4"]
             from probit.data.wisconsin import quantile
             with pkg_resources.path(quantile, 'wpbc.npz') as path:
                 data = np.load(path)

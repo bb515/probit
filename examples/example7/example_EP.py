@@ -350,11 +350,11 @@ def test(dataset, method, X_trains, t_trains, X_tests, t_tests, split,
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
     # Skip training step
-    gamma, varphi, noise_variance = EP_training(
-        dataset, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K)
-    #gamma = gamma_0
-    #varphi = varphi_0
-    #noise_variance = noise_variance_0
+    # gamma, varphi, noise_variance = EP_training(
+    #     dataset, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K)
+    gamma = gamma_0
+    varphi = varphi_0
+    noise_variance = noise_variance_0
     fx, zero_one, predictive_likelihood, mean_abs = EP_testing(
         dataset, X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, D)
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
