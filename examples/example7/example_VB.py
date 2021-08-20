@@ -206,6 +206,7 @@ def VB_testing(
     iteration = 0
     error = np.inf
     fx_old = np.inf
+    m_0 = None
     while error / steps > variational_classifier.EPS:
         iteration += 1
         (m_0, dm_0, Sigma, cov_, C, y, p, *_) = variational_classifier.estimate(
