@@ -248,7 +248,7 @@ def VB_testing(
     # Other error
     mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
     print("mean_absolute_error ", mean_absolute_error)
-    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov, y_tilde, varphi_tilde, noise_variance, X_new_)
+    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov_, y, varphi, noise_variance, X_new_)
     Z_new = Z.reshape((N, N, K))
     print(np.sum(Z, axis=1), 'sum')
     if plot:
