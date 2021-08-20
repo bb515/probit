@@ -202,14 +202,28 @@ def VB_testing(
     noise_std = np.sqrt(noise_variance)
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
-    m_tilde, dm_tilde, Sigma_tilde, cov, C_tilde, y_tilde, p, varphi_tilde, *_ = variational_classifier.estimate(
-        steps, gamma, varphi, noise_variance=noise_variance, fix_hyperparameters=True, write=False)
-    calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, *_ = variational_classifier._calligraphic_Z(
-                    gamma, noise_std, m_tilde)
+    # Reset error and posterior mean
+    iteration = 0
+    error = np.inf
+    fx_old = np.inf
+    while error / steps > variational_classifier.EPS:
+        iteration += 1
+        (m_0, dm_0, Sigma, cov_, C, y, p, *_) = variational_classifier.estimate(
+            steps, gamma, varphi_tilde_0=varphi, noise_variance=noise_variance, m_tilde_0=m_0,
+            first_step=1, fix_hyperparameters=True, write=False)
+        calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, *_ = variational_classifier._calligraphic_Z(
+            gamma, noise_std, m_0)
+        fx, C_inv = variational_classifier.evaluate_function(
+            variational_classifier.N, m_0, Sigma, C, calligraphic_Z, noise_variance,
+            numerical_stability=True, verbose=False)
+        error = np.abs(fx_old - fx)  # TODO: usually converges pretty fast and anyway this is redundant.
+        fx_old = fx
+        if 1:
+            print("({}), error={}".format(iteration, error))
     fx, C_inv= variational_classifier.evaluate_function(
-        variational_classifier.N, m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, noise_variance, verbose=True)
+        variational_classifier.N, m_0, Sigma, C, calligraphic_Z, noise_variance, verbose=True)
     # Test
-    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov, y_tilde, varphi, noise_variance, X_test)  # (N_test, K)
+    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov_, y, varphi, noise_variance, X_test)  # (N_test, K)
     predictive_likelihood = Z[grid, t_test]
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
