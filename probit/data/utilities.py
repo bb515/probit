@@ -950,13 +950,18 @@ def load_data(dataset, bins):
                     0.003896416837153817,
                     0.01569970567257151,
                 ),
-                 "init_alt" : (
+                "init_alt" : (
                     np.array([-np.inf, -0.9 , -0.8,  0.0 ,  0.3, np.inf]) ,
                     0.001,
                     0.0125,
                 ),
+                 "556.8" : (
+                    np.array([-np.inf, -0.9 , -0.8,  0.0 ,  0.3, np.inf]) ,
+                    0.000947,
+                    0.008413,
+                ),
             }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
+            gamma_0, varphi_0, noise_variance_0 = hyperparameters["556.8"]
             from probit.data.stocksdomain import quantile
             with pkg_resources.path(quantile, 'stock.npz') as path:
                 data = np.load(path)

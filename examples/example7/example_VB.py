@@ -26,7 +26,7 @@ def VB_plot(dataset, X_train, t_train, X_true, Y_true, m_0, gamma, steps, varphi
     """Plots for Chu data."""
     kernel = SEIso(varphi, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
-    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+    variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     y_0 = Y_true.flatten()
     m_0 = y_0
     # TODO: correct these output arguments
@@ -195,14 +195,14 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
 
 
 def VB_testing(
-        dataset, X_train, t_train, X_test, t_test, m_tilde_0, gamma, steps, varphi, noise_variance,
-        K, D, scale=1.0, sigma=10e-6, tau=10e-6):
+        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance,
+        K, D, scale=1.0, sigma=10e-6, tau=10e-6, plot=True):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
     # Initiate classifier
-    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+    variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     m_tilde, dm_tilde, Sigma_tilde, cov, C_tilde, calligraphic_Z, y_tilde, p, varphi_tilde, *_ = variational_classifier.estimate(
-        steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=m_tilde_0, fix_hyperparameters=True, write=False)
+        steps, gamma, varphi, noise_variance=noise_variance, fix_hyperparameters=True, write=False)
     fx = variational_classifier.evaluate_function(m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, verbose=True)
     # Test
     Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov, y_tilde, varphi, noise_variance, X_test)  # (N_test, K)
@@ -232,43 +232,43 @@ def VB_testing(
     Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov, y_tilde, varphi_tilde, noise_variance, X_new_)
     Z_new = Z.reshape((N, N, K))
     print(np.sum(Z, axis=1), 'sum')
-    for i in range(K):
-        fig, axs = plt.subplots(1, figsize=(6, 6))
-        plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
-        plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
-        plt.scatter(X_test[np.where(t_test == i)][:, 0], X_test[np.where(t_test == i)][:, 1], color='blue')
-        # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
-        # plt.xlim(xlims)
-        # plt.ylim(ylims)
-        plt.xlabel(r"$x_1$", fontsize=16)
-        plt.ylabel(r"$x_2$", fontsize=16)
-        plt.savefig("contour_VB_{}.pdf".format(i))
-        plt.close()
-    return fx, zero_one, predictive_likelihood, mean_absolute_error
+    if plot:
+        for i in range(K):
+            fig, axs = plt.subplots(1, figsize=(6, 6))
+            plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
+            plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
+            plt.scatter(X_test[np.where(t_test == i)][:, 0], X_test[np.where(t_test == i)][:, 1], color='blue')
+            # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
+            # plt.xlim(xlims)
+            # plt.ylim(ylims)
+            plt.xlabel(r"$x_1$", fontsize=16)
+            plt.ylabel(r"$x_2$", fontsize=16)
+            plt.savefig("contour_VB_{}.pdf".format(i))
+            plt.close()
+    return fx, mean_zero_one, predictive_likelihood, mean_absolute_error
 
 
-def test(dataset, X_trains, t_trains, X_tests, t_tests, split, m_0, gamma_0, varphi_0, noise_variance_0, steps, K, D, scale=1.0):
+def test(dataset, X_trains, t_trains, X_tests, t_tests, split, steps, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
-    #gamma = gamma_0
-    #varphi = varphi_0
-    #noise_variance = noise_variance_0
-
-    kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
+    # kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
-    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
-
-    gamma, varphi, noise_variance = training(
-        variational_classifier, X_train, t_train, m_0, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+    # variational_classifier = VBOrderedGP(noise_variance_0, X_train, t_train, kernel)
+    # Skip training
+    # gamma, varphi, noise_variance = training(
+    #     variational_classifier, X_train, t_train, m_0, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+    gamma = gamma_0
+    varphi = varphi_0
+    noise_variance = noise_variance_0
     fx, zero_one, predictive_likelihood, mean_abs = VB_testing(
-        dataset, X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, D, scale=scale)
+        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, K, D, scale=scale)
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx
 
 
 def test_varphi(dataset, variational_classifier, method, gamma, varphi_0, noise_variance, X_trains, t_trains, X_tests,
-        t_tests, K, scale=1.0):
+        t_tests, K, steps, scale=1.0):
     split = 2
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
@@ -277,7 +277,7 @@ def test_varphi(dataset, variational_classifier, method, gamma, varphi_0, noise_
     gamma, varphi, noise_variance = training_varphi(
         dataset, method, variational_classifier, gamma, varphi_0, noise_variance)
     bound, zero_one, predictive_likelihood, mean_abs = VB_testing(
-        dataset, X_train, t_train, X_test, t_test, gamma, varphi, noise_variance, K, scale=scale)
+        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, K, scale=scale)
     print("gamma", gamma)
     print("noise_variance", noise_variance)
     print("varphi", varphi)
@@ -288,7 +288,7 @@ def test_varphi(dataset, variational_classifier, method, gamma, varphi_0, noise_
     assert 0
 
 
-def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D):
+def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, K, D):
     bounds = []
     zero_ones = []
     predictive_likelihoods = []
@@ -298,7 +298,7 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0
     gammas = []
     for split in range(20):
         gamma, varphi, noise_variance, zero_one, predictive_likelihood, mean_abs, fx = test(
-            dataset, X_trains, t_trains, X_tests, t_tests, split,
+            dataset, X_trains, t_trains, X_tests, t_tests, split, steps,
             gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, K=K, D=D, scale=1.0)
         bounds.append(fx)
         zero_ones.append(zero_one)
@@ -319,6 +319,7 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0
     std_bound = np.std(bounds)
     avg_predictive_likelihood = np.average(predictive_likelihoods)
     std_predictive_likelihood = np.std(predictive_likelihoods)
+    #print("zero_ones", zero_ones)
     avg_zero_one = np.average(zero_ones)
     std_zero_one = np.std(zero_ones)
     avg_mean_abs = np.average(mean_abss)
@@ -381,7 +382,7 @@ def outer_loops_Rogers(X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot
             # Initiate classifier
             y_0 = Y_true.flatten()
             m_0 = y_0
-            variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+            variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
             m_tilde, dm_tilde, Sigma_tilde, cov, C_tilde, calligraphic_Z, y_tilde, p, varphi_tilde, *_ = variational_classifier.estimate(
                 steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=m_0, fix_hyperparameters=True,
                 write=False)
@@ -638,7 +639,7 @@ def VB_training(dataset, method, X_train, t_train, gamma_0, varphi_0, noise_vari
     # Initiate kernel
     kernel = SEIso(varphi_0, scale=scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
-    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+    variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     gamma, varphi, noise_variance = training(
         dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, K)
     return gamma, varphi, noise_variance
@@ -659,7 +660,7 @@ def VB_training_varphi(dataset, method, X_train, t_train, gamma, varphi_0, noise
     print("theta_0", theta)
     kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
     # Initiate classifier
-    variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+    variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     gamma, varphi, noise_variance = training_varphi(
         dataset, method, variational_classifier, gamma, varphi_0, noise_variance)
     return gamma, varphi, noise_variance
@@ -692,7 +693,7 @@ def test_synthetic(
 #     grid = np.ogrid[0:len(X_test)]
 #     kernel = SEIso(varphi, sigma=10e-6, tau=10e-6)
 #     # Initiate classifier
-#     variational_classifier = VBOrderedGP(X_train, t_train, kernel)
+#     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
 #     steps = 50
 #     y_0 = Y_true.flatten()
 #     m_0 = y_0
@@ -775,11 +776,12 @@ def main():
     if dataset in datasets:
         X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(  # TODO: update with colors
             dataset, bins)
-        outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, gamma_0, varphi_0, noise_variance_0, K, D)
+        steps = 300
+        outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, K, D)
         # gamma, varphi, noise_variance = VB_training(dataset, method, X_trains[2], t_trains[2], gamma_0, varphi_0,
         #     noise_variance_0, K)
         # VB_testing(
-        #     dataset, X_trains[2], t_trains[2], X_tests[2], t_tests[2], gamma=gamma, varphi=varphi,
+        #     dataset, X_trains[2], t_trains[2], X_tests[2], t_tests[2], steps, gamma=gamma, varphi=varphi,
         #     noise_variance=noise_variance, K)
     else:
         # TODO: will need to extract test/train data for outerloops

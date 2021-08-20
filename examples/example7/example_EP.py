@@ -302,7 +302,7 @@ def EP_testing(
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.savefig("contour_EP_{}.pdf".format(i))
             plt.close()
-    return fx, zero_one, predictive_likelihood, mean_absolute_error
+    return fx, mean_zero_one, predictive_likelihood, mean_absolute_error
 
 
 def EP_training(dataset, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
@@ -349,7 +349,7 @@ def test(dataset, method, X_trains, t_trains, X_tests, t_tests, split,
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
-
+    # Skip training step
     gamma, varphi, noise_variance = EP_training(
         dataset, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K)
     #gamma = gamma_0
