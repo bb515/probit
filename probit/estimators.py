@@ -366,17 +366,7 @@ class Estimator(ABC):
             :class:`numpy.ndarray`, :class:`numpy.ndarray`,
             :class:`numpy.ndarray`, :class:`numpy.ndarray`)
         """
-        print(gamma)
-        print(np.shape(gamma))
-        print(np.shape(self.t_train))
-        print(np.dtype(self.t_train[0]))
-        print(self.t_train)
-        self.t_train = self.t_train.astype(int)
-        gamma_1s = gamma[0]
-        gamma_1s = gamma[self.t_train[0]]
-        # gamma_1s = gamma[self.t_train[[0, 1, 2]]]
         gamma_1s = gamma[self.t_train]
-        assert 0
         gamma_2s = gamma[self.t_train + 1]
         # Otherwise
         z1s = (gamma_1s - m) / noise_std
