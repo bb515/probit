@@ -802,7 +802,7 @@ def main():
     if dataset in datasets:
         X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(  # TODO: update with colors
             dataset, bins)
-        steps = 300
+        steps = 1000
         gamma_0 = np.array(gamma_0)
         outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, K, D)
         # gamma, varphi, noise_variance = VB_training(dataset, method, X_trains[2], t_trains[2], gamma_0, varphi_0,
