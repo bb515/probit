@@ -1920,6 +1920,8 @@ class VBOrderedGP(Estimator):
         containers = (ms, ys, varphis, psis, fxs)
         # TODO: cutpoints are hyperparameters that are fixed, not variables, so can keep them in class scope
         # Treat user parsing of cutpoint parameters with just the upper cutpoints for each class
+        # Convert gamma to numpy array
+        gamma = np.array(gamma)
         if np.shape(gamma)[0] == self.K - 1:  # not including any of the fixed cutpoints: -\infty, \infty
             gamma = np.append(gamma, np.inf)  # append the infinity cutpoint
             gamma = np.insert(gamma, np.NINF)  # insert the negative infinity cutpoint at index 0
