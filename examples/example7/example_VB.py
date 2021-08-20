@@ -203,7 +203,8 @@ def VB_testing(
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     m_tilde, dm_tilde, Sigma_tilde, cov, C_tilde, calligraphic_Z, y_tilde, p, varphi_tilde, *_ = variational_classifier.estimate(
         steps, gamma, varphi, noise_variance=noise_variance, fix_hyperparameters=True, write=False)
-    fx = variational_classifier.evaluate_function(m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, verbose=True)
+    fx = variational_classifier.evaluate_function(
+        variational_classifier.N, m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, noise_variance, verbose=True)
     # Test
     Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov, y_tilde, varphi, noise_variance, X_test)  # (N_test, K)
     predictive_likelihood = Z[grid, t_test]
