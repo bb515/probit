@@ -47,7 +47,7 @@ def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     return func
 
 
-def vector_fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
+def fromb_fft1_scalar(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
     :arg float mean: A mean value of a pdf inside the integrand.

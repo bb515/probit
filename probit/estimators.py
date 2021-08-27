@@ -3943,6 +3943,16 @@ class EPOrderedGP(Estimator):
         return fx, gx
 
     def compute_integrals(self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):
+        """Computethe integrals required for the gradient evaluation."""
+        return (
+            fromb_t1(posterior_mean, np.diag(Sigma), self.t_train, self.K, gamma, noise_variance, self.EPS),
+            fromb_t2(posterior_mean, np.diag(Sigma), self.t_train, self.K, gamma, noise_variance, self.EPS),
+            fromb_t3(posterior_mean, np.diag(Sigma), self.t_train, self.K, gamma, noise_variance, self.EPS),
+            fromb_t2(posterior_mean, np.diag(Sigma), self.t_train, self.K, gamma, noise_variance, self.EPS),
+            fromb_t3(posterior_mean, np.diag(Sigma), self.t_train, self.K, gamma, noise_variance, self.EPS)
+        )
+
+    def compute_integrals_SS(self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):
         """Compute the integrals required for the gradient evaluation."""
         # Fill possible zeros in with machine precision # TODO: is this required?
         # precision_EP[precision_EP == 0.0] = self.EPS * self.EPS
@@ -3954,11 +3964,11 @@ class EPOrderedGP(Estimator):
         t5 = np.empty((self.N,))
         # Compute integrals - not scalable to large datasets because of the for loop.
         for i in range(self.N):
-            t1[i] = fromb_t1(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
-            t2[i] = fromb_t2(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
-            t3[i] = fromb_t3(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
-            t4[i] = fromb_t4(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
-            t5[i] = fromb_t5(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
+            t1[i] = fromb_t1_scalar(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
+            t2[i] = fromb_t2_scalar(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
+            t3[i] = fromb_t3_scalar(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
+            t4[i] = fromb_t4_scalar(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
+            t5[i] = fromb_t5_scalar(posterior_mean[i], Sigma[i, i], self.t_train[i], self.K, gamma, noise_variance, self.EPS)
         return t1, t2, t3, t4, t5
 
     def evaluate_function(self, precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights):
