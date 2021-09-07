@@ -10,18 +10,24 @@ import time
 # For plotting
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 
-# The names of the different synthetic datasets
-datasets = [
-    "abalone",
-    "auto",
-    "diabetes",
-    "housing",
-    "machine",
-    "pyrim",
-    "stocks",
-    "triazines",
-    "wpbc"
-]
+# Dictionary of the names of the different datasets
+datasets = {
+    "benchmark" : [
+        "abalone",
+        "auto",
+        "diabetes",
+        "housing",
+        "machine",
+        "pyrim",
+        "stocks",
+        "triazines",
+        "wpbc",
+        ],
+    "synthetic" : [
+        "SEIso",
+        "Linear",
+    ]
+}
 
 
 metadata = {
@@ -97,10 +103,16 @@ metadata = {
         "init": None,
         "max_sec":500,
     },
+    "linear": {
+        "plot_lims": (-0.5, 1.5),
+        "size": (585, 13),
+        "init": None,
+        "max_sec":500,
+    }
 }
 
 
-def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, K):
+def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, scale_0, K, calculate_all_gradients=True):
     """
     An example ordinal training function.
     :arg variational_classifier:
@@ -111,71 +123,141 @@ def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_v
     :type varphi_0:
     :arg noise_variance_0:
     :type noise_variance_0:
+    :arg scale_0:
+    :type scale_0:
     :arg K:
     :type K:
-    :arg scale:
-    :type scale:
     :arg method:
     :type method:
     :arg int maxiter:
     :return:
     """
-    print("K", K)
-    print(gamma_0, "gamma")
-    # init stopper
     minimize_stopper = MinimizeStopper(max_sec=metadata[dataset]["max_sec"])
     theta = []
-    theta.append(np.log(np.sqrt(noise_variance_0)))
-    theta.append(gamma_0[1])
-    for i in range(2, K):
-        theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
-    theta.append(np.log(varphi_0))
+    if calculate_all_gradients:
+        theta.append(np.log(np.sqrt(noise_variance_0)))
+        theta.append(gamma_0[1])
+        for i in range(2, K):
+            theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
+        theta.append(np.log(np.sqrt(scale_0)))
+        theta.append(np.log(varphi_0))
+    elif (gamma_0 is not None
+            and varphi_0 is None
+            and noise_variance_0 is None
+            and scale_0 is not None):
+        # Optimize only varphi and noise variance
+        theta.append(np.log(np.sqrt(noise_variance_0)))
+        theta.append(np.log(varphi_0))
+    elif (gamma_0 is not None
+            and varphi_0 is None
+            and noise_variance_0 is not None
+            and scale_0 is None):
+        # Optimize only varphi and scale
+        theta.append(np.log(np.sqrt(scale_0)))
+        theta.append(np.log(varphi_0))
+    elif (gamma_0 is not None
+            and noise_variance_0 is not None
+            and varphi_0 is None
+            and scale_0 is not None):
+        # Optimize only varphi
+        theta.append(np.log(varphi_0))
+    elif (gamma_0 is not None
+            and noise_variance_0 is None
+            and varphi_0 is not None
+            and scale_0 is not None):
+        # Optimize only noise variance
+        theta.append(np.log(np.sqrt(noise_variance_0)))
+    elif (gamma_0 is not None
+            and noise_variance_0 is not None
+            and varphi_0 is not None
+            and scale_0 is None):
+        # Optimize only scale
+        theta.append(np.log(np.sqrt(scale_0)))
+    elif (gamma_0 is not None
+            and noise_variance_0 is not None
+            and varphi_0 is not None
+            and scale_0 is not None)
+        # Optimize only first two threshold parameters
+        theta.append(gamma_0[1])
+        theta.append(np.log(gamma_0[2] - gamma_0[1]))
     theta = np.array(theta)
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, method=method, jac=True,
+    args = (gamma_0, varphi_0, noise_variance_0, scale_0, calculate_all_gradients)
+    res = minimize(variational_classifier.hyperparameter_training_step, theta, args, method=method, jac=True,
         callback = minimize_stopper.__call__)
     theta = res.x
-    noise_std = np.exp(theta[0])
-    noise_variance = noise_std**2
-    gamma = np.empty((K + 1,))
-    gamma[0] = np.NINF
-    gamma[-1] = np.inf
-    gamma[1] = theta[1]
-    for i in range(2, K):
-        gamma[i] = gamma[i - 1] + np.exp(theta[i])
-    varphi = np.exp(theta[K])
-    return gamma, varphi, noise_variance
-
-
-def training_varphi(dataset, method, variational_classifier, gamma, varphi_0, noise_variance):
-    """
-    An example ordinal training function.
-    :arg variational_classifier:
-    :type variational_classifier: :class:`probit.estimators.Estimator` or :class:`probit.samplers.Sampler`
-    :arg method:
-    :type method:
-    :arg gamma_0:
-    :type gamma_0:
-    :arg varphi_0:
-    :type varphi_0:
-    :arg noise_variance_0:
-    :type noise_variance_0:
-    :arg K:
-    :type K:
-    :arg scale:
-    :type scale:
-    
-    :return
-    """
-    minimize_stopper = MinimizeStopper(max_sec=metadata[dataset]["max_sec"])
-    theta = np.array([np.log(varphi_0)])
-    args = (gamma, noise_variance)
-    res = minimize(
-        variational_classifier.hyperparameter_training_step_varphi, theta, args, method=method, jac=True,
-        callback = minimize_stopper.__call__)
-    theta = res.x
-    varphi = np.exp(theta[0])
-    return gamma, varphi, noise_variance
-
+    if calculate_all_gradients:
+        noise_std = np.exp(theta[0])
+        noise_variance = noise_std**2
+        gamma = np.empty((K + 1,))
+        gamma[0] = np.NINF
+        gamma[-1] = np.inf
+        gamma[1] = theta[1]
+        for i in range(2, K):
+            gamma[i] = gamma[i - 1] + np.exp(theta[i])
+        scale_std = np.exp(theta[K])
+        scale = scale_std**2
+        varphi = np.exp(theta[K + 1])
+    elif (gamma_0 is not None
+            and varphi_0 is None
+            and noise_variance_0 is None
+            and scale_0 is not None):
+        # Optimize only varphi and noise variance
+        noise_std = np.exp(theta[0])
+        noise_variance = noise_std**2
+        varphi = np.exp(theta[K + 1])
+        gamma = gamma_0
+        scale = scale_0
+    elif (gamma_0 is not None
+            and varphi_0 is None
+            and noise_variance_0 is not None
+            and scale_0 is None):
+        # Optimize only varphi and scale
+        scale_std = np.exp(theta[K])
+        scale = scale_std**2
+        varphi = np.exp(theta[K + 1])
+        gamma = gamma_0
+        noise_variance = noise_variance_0
+    elif (gamma_0 is not None
+            and noise_variance_0 is not None
+            and varphi_0 is None
+            and scale_0 is not None):
+        # Optimize only varphi
+        varphi = np.exp(theta[K + 1])
+        gamma = gamma_0
+        scale = scale_0
+        noise_variance = noise_variance_0
+    elif (gamma_0 is not None
+            and noise_variance_0 is None
+            and varphi_0 is not None
+            and scale_0 is not None):
+        # Optimize only noise variance
+        noise_std = np.exp(theta[0])
+        noise_variance = noise_std**2
+        gamma = gamma_0
+        scale = scale_0
+        varphi = varphi_0
+    elif (gamma_0 is not None
+            and noise_variance_0 is not None
+            and varphi_0 is not None
+            and scale_0 is None):
+        # Optimize only scale
+        scale_std = np.exp(theta[K])
+        scale = scale_std**2
+        gamma = gamma_0
+        varphi = varphi_0
+        noise_variance = noise_variance_0
+    elif (gamma_0 is not None
+            and noise_variance_0 is not None
+            and varphi_0 is not None
+            and scale_0 is not None)
+        # Optimize only first two threshold parameters
+        gamma = gamma_0
+        gamma[1] = theta[1]
+        gamma[2] = gamma[1] + np.exp(theta[2])
+        scale = scale_0
+        varphi = varphi_0
+        noise_variance = noise_variance_0
+    return gamma, varphi, noise_variance, scale
 
 def get_Y_trues(X_trains, X_true, Y_true):
     """Get Y_trues (N/K, K) from full array of true y values."""
@@ -192,7 +274,31 @@ def get_Y_trues(X_trains, X_true, Y_true):
     return Y_trues
 
 
-def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_variance, N_show=2000):
+def generate_prior_samples(K, D, kernel, noise_variance, N_samples=9, N_show=2000, plot=True):
+    """
+    Generate samples from the GP prior for visualisation.
+    """
+    epsilon = 1e-6
+    X_show = np.linspace(-0.5, 1.5, N_show)
+    X_show = X_show[:, None]
+    C_show = kernel.kernel_matrix(X_show, X_show) + epsilon * np.identity(N_show)
+    Chol_show = np.linalg.cholesky(C_show)
+    z_show = np.random.normal(loc=0, scale=1, size=(N_show, N_samples))
+    Z_show = Chol_show @ z_show
+    N_third = np.int(N_show/3)
+    # Model latent variable responses
+    epsilons = np.random.normal(0, np.sqrt(noise_variance), (N_show, N_samples))
+    # Model latent variable responses
+    Y_show = epsilons + Z_show
+    X_show = X_show.flatten()
+    # X_show = np.tile(X_show, (9, 1))
+    if plot:
+        plt.plot(X_show, Y_show)
+        plt.savefig("Samples from prior GP.png")
+        plt.close()
+
+
+def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_variance, N_show=2000, plot=True):
     """
     Generate data from the GP prior, and choose some cutpoints that approximately divides data into equal bins.
 
@@ -207,7 +313,8 @@ def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_var
     # X = np.random.uniform(0, 12, N_total)
     X_show = np.linspace(-0.5, 1.5, N_show)  # N_show points to show the predictive power
     #X = np.random.random(N_total)  # N_total points unformly random over [0, 1]
-    # X_show = X_show[:, None]
+    # reshape X to make it n*D
+    X_show = X_show[:, None]
     #X = X[:, None]  # reshape X to make it n*D
     C0_show = kernel.kernel_matrix(X_show, X_show)
     #C0 = kernel.kernel_matrix(X, X)
@@ -220,32 +327,24 @@ def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_var
     #z = np.random.normal(loc=0, scale=1, size=N_total)
     z_show = np.random.normal(loc=0, scale=1, size=N_show)
     Z_show = np.dot(Chol_show, z_show)
-    print(np.shape(Z_show), "Z_show")
-    print(np.shape(X_show), "X_show")
     N_third = np.int(N_show/3)
     Xt = np.c_[Z_show[N_third:-N_third], X_show[N_third:-N_third]]
-    print(np.shape(Xt), "Xt")
     np.random.shuffle(Xt)
     Z = Xt[:N_total, :1]
     X = Xt[:N_total, 1:D + 1]
-    print(np.shape(Z))
-    print(np.shape(X))
     #Z = np.dot(Chol, z)  # Mean zero
-    plt.title("Sample from prior GP")
-    plt.scatter(X[:], Z[:], c='b', s=4)
-    plt.plot(X_show[:], Z_show[:])
-    plt.show()
     # Model latent variable responses
     epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
     epsilons = epsilons[:, None]
     # Model latent variable responses
-    plt.title("Sample from prior GP")
     Y_true = epsilons + Z
     Y_true = Y_true.flatten()
     sort_indeces = np.argsort(Y_true)
-    plt.scatter(X, Y_true, c='b', s=4)
-    plt.plot(X_show, Z_show)
-    plt.show()
+    if plot:
+        plt.scatter(X, Y_true, c='b', s=4)
+        plt.plot(X_show, Z_show)
+        plt.savefig("Sample from prior GP_2.png")
+        plt.close()
     # Sort the responses
     Y_true = Y_true[sort_indeces]
     X = X[sort_indeces]
@@ -266,12 +365,13 @@ def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_var
     gamma[0] = -np.inf
     gamma[-1] = np.inf
     print("gamma={}".format(gamma))
-    cmap = plt.cm.get_cmap('PiYG', K)    # K discrete colors
-    colors = []
-    for k in range(K):
-        colors.append(cmap((k+0.5)/K))
-        plt.scatter(X_k[k], Y_true_k[k], color=cmap((k+0.5)/K))
-    plt.show()
+    if plot:
+        cmap = plt.cm.get_cmap('PiYG', K)    # K discrete colors
+        colors = []
+        for k in range(K):
+            colors.append(cmap((k+0.5)/K))
+            plt.scatter(X_k[k], Y_true_k[k], color=cmap((k+0.5)/K))
+        plt.close()
     Xs_k = np.array(X_k)
     Ys_k = np.array(Y_true_k)
     t_k = np.array(t_k, dtype=int)
@@ -320,17 +420,20 @@ def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_var
     print(np.shape(Y_true_k))
     print(np.shape(t_k))
     print(colors)
-    colors_ = [colors[i] for i in t_trains[0, :]]
-    plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
-    plt.show()
-    plot_ordinal(X, t, X_k, Y_true_k, K, D, colors=colors)
+    if plot:
+        colors_ = [colors[i] for i in t_trains[0, :]]
+        plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
+        plt.savefig("scatter.png")
+        plot_ordinal(X, t, X_k, Y_true_k, K, D, colors=colors)
     return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests,
         X_trains, Y_trains, t_trains, C0_show, X_show, Z_show, colors)
 
 
 def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
     """
-    Generate data from the GP prior, and choose some cutpoints that approximately divides data into equal bins.
+    Generate data from the GP prior.
+ 
+    You can set one of the cutpoints to be a real value. Approximately divides data into equal bins.
 
     :arg int N_per_class: The number of data points per class.
     :arg int K: The number of bins/classes/quantiles.
@@ -416,18 +519,11 @@ def generate_synthetic_data(N_per_class, K, D, kernel, noise_variance):
     :arg kernel: The GP prior.
     """
     N_total = int(K * N_per_class)
-
     # Sample from the real line, uniformly
-    #X = np.random.uniform(0, 12, N_total)
     X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
     X = X[:, None]  # reshape X to make it n*D
     mu = np.zeros((N_total))  # vector of the means
-
     C = kernel.kernel_matrix(X, X)
-
-    print(np.shape(mu))
-    print(np.shape(C))
-    print("1")
     cutpoint_0 = np.inf
     while np.abs(cutpoint_0) > 5.0:
         print(cutpoint_0)
@@ -1121,7 +1217,8 @@ def load_data(dataset, bins):
     X_true = data_continuous["X"]
     Y_true = data_continuous["y"]  # this is not going to be the correct one(?) - see next line
     # Y_trues = get_Y_trues(X_trains, X_true, Y_true)
-    return X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D
+    Kernel = SEIso
+    return X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, Kernel
 
 
 def generate_synthetic_data_SEARD(N_per_class, K, D, varphi=[30.0, 20.0], noise_variance=1.0, scale=1.0):
@@ -1138,10 +1235,10 @@ def generate_synthetic_data_SEARD(N_per_class, K, D, varphi=[30.0, 20.0], noise_
 
 
 def generate_synthetic_data_polynomial(N_per_class, K, D, noise_variance=1.0, scale=1.0,
-        intercept=0.0, order=2.0):
+        varphi=0.0, order=2.0):
     """Generate synthetic Polynomial dataset."""
     # Generate the synethetic data
-    kernel = Polynomial(intercept=intercept, order=order, scale=scale, sigma=10e-6, tau=10e-6)
+    kernel = Polynomial(varphi=varphi, order=order, scale=scale, sigma=10e-6, tau=10e-6)
     X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
         N_per_class, K, D, kernel, noise_variance=noise_variance)
     from probit.data import tertile
@@ -1151,18 +1248,28 @@ def generate_synthetic_data_polynomial(N_per_class, K, D, noise_variance=1.0, sc
     return X_k, Y_true_k, X, Y_true, t, gamma_0
 
 
-def generate_synthetic_data_linear(N_per_class, K, D, noise_variance=1.0, scale=1.0, intercept=0.0):
-    """Generate synthetic Linear dataset."""
-    # Generate the synethetic data
-    kernel = Linear(intercept=intercept, scale=scale, sigma=10e-6, tau=10e-6)
-    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
-        N_per_class, K, D, kernel, noise_variance=noise_variance)
-    from probit.data import tertile
-    with pkg_resources.path(tertile) as path:
-        np.savez(
-            path / 'data_linear_{}dim_{}bin_prior.npz'.format(D, K), X_k=X_k,
-            Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
-    return X_k, Y_true_k, X, Y_true, t, gamma_0
+def generate_synthetic_data_linear(N_per_class, N_test, splits, K, D, varphi=0.0, noise_variance=1.0, scale=1.0):
+    """Generate synthetic dataset."""
+    kernel = Linear(varphi=varphi, scale=scale, sigma=10e-6, tau=10e-6)
+    (X_k, Y_true_k, X, Y, t, gamma,
+    X_tests, Y_tests, t_tests,
+    X_trains, Y_trains, t_trains,
+    C0_show, X_show, Z_show, colors) = generate_prior_data_new(
+        N_per_class, N_test, splits, K, D, kernel, noise_variance=noise_variance)
+    np.savez('data_linear_prior.npz',
+        X_k=X_k, Y_k=Y_true_k, X=X, Y=Y, t=t,
+        X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
+        X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
+        C0_show=C0_show,
+        X_show=X_show,
+        Z_show=Z_show,
+        noise_variance=noise_variance,
+        scale=scale,
+        varphi=varphi,
+        gamma=gamma,
+        colors=colors)
+    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, C0_show,
+        X_show, Z_show, colors)
 
 
 def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, scale=1.0):
@@ -1203,24 +1310,21 @@ def generate_synthetic_data_new(N_per_class, N_test, splits, K, D, varphi=30.0, 
         X_show, Z_show, colors)
 
 
-def load_data_synthetic(dataset, data_from_prior, plot=False):
+def load_data_synthetic(dataset, bins, plot=False):
     """Load synethetic data."""
-    if dataset == "tertile":
-        from probit.data import tertile
-        K = 3
+    if dataset == "SEIso":
         D = 1
-        if data_from_prior == True:
+        Kernel = SEIso
+        if bins == "tertile":
+            K = 3
+            from probit.data.SEIso import tertile
             with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=1_varphi=30.npz') as path:  # is varphi actually 1?
             #with pkg_resources.path(tertile, 'tertile_prior_s=30_sigma2=10_varphi=30.npz') as path:
-                #SS: tertile_prior_30.npz, tertile_prior.npz
                 data = np.load(path)
-            
             # X_show = data["X_show"]
             # Z_show = data["Z_show"]
-            
-            N_per_class = 30
             X_k = data["X_k"]  # Contains (90, 3) array of binned x values
             Y_true_k = data["Y_k"]  # Contains (90, 3) array of binned y values
             X = data["X"]  # Contains (90,) array of x values
@@ -1251,46 +1355,13 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
             plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
             colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-        else:
-            with pkg_resources.path(tertile, 'tertile.npz') as path:
-                data = np.load(path)
-            N_per_class = 64
-            X_k = data["X_k"]  # Contains (172, 3) array of binned x values
-            Y_true_k = data["Y_k"]  # Contains (172, 3) array of binned y values
-            X = data["X"]  # Contains (172,) array of x values
-            t = data["t"]  # Contains (172,) array of ordinal response variables, corresponding to Xs values
-            Y_true = data["Y"]  # Contains (172,) array of y values, corresponding to Xs values
-            X_true = X
-            N_total = int(N_per_class * K)
-            hyperparameters = {
-                "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
-                    0.5 / D,
-                    1.0
-                ),
-                "true": (
-                    np.array([-np.inf, 0.0, 2.29, np.inf]),
-                    30.0,
-                    0.1
-                ),
-                "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
-                    100.0,
-                    10.0
-                ),
-            }
-            gamma_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-    elif dataset == "thirteen":
-        from probit.data import thirteen
-        K = 13
-        D = 1
-        if data_from_prior == True:
+        elif bins == "thirteen":
+            K = 13
+            from probit.data.SEIso import thirteen
             with pkg_resources.path(thirteen, 'thirteen_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
                 data = np.load(path)
             X_show = data["X_show"]
             Z_show = data["Z_show"]
-            N_per_class = 45
             X_k = data["X_k"]  # Contains (13, 45) array of binned x values
             Y_true_k = data["Y_k"]  # Contains (13, 45) array of binned y values
             X = data["X"]  # Contains (585,) array of x values
@@ -1321,46 +1392,76 @@ def load_data_synthetic(dataset, data_from_prior, plot=False):
             plt.scatter(X, Y_true)
             plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
-    elif dataset == "septile":
-        K = 7
+    elif dataset == "Linear":
         D = 1
-        from probit.data import septile
-        with pkg_resources.path(septile, 'septile.npz') as path:
-            data = np.load(path)
-        N_per_class = 32
-        # The scale was not 1.0, it was 20.0(?)
-        scale = 20.0
-        X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-        Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-        X = data["X"]  # Contains (1792,) array of x values
-        t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-        Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values
-        X_true = X
-        N_total = int(N_per_class * K)
-        hyperparameters = {
-            "init": (
-                np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                          -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, np.inf]),
-                0.5 / D,
-                1.0
-            ),
-            "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                          -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, np.inf]),
-                    100.0,
-                    10.0
+        Kernel = Linear
+        if bins == "tertile":
+            K = 3
+            from probit.data.Linear import tertile
+            with pkg_resources.path(tertile, 'data.npz') as path:
+                data = np.load(path)
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            X_k = data["X_k"]  # Contains (13, 45) array of binned x values
+            Y_true_k = data["Y_k"]  # Contains (13, 45) array of binned y values
+            X = data["X"]  # Contains (585,) array of x values
+            t = data["t"]  # Contains (585,) array of ordinal response variables, corresponding to Xs values
+            Y_true = data["Y"]  # Contains (585,) array of y values, corresponding to Xs values (not in order)
+            colors = data["colors"]
+            X_true = X
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0,
+                    1.0,
                 ),
-            "true": (
-                np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf]),
-                30.0,
-                0.1
-            ),
-        }
-        gamma_0, varphi_0, noise_variance_0 = hyperparameters["true"]
-        colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
+                "true": (
+                    data["gamma"],
+                    data["varphi"],
+                    data["noise_variance"],
+                    data["scale"],
+                ),
+            }
+            plt.scatter(X, Y_true)
+            plt.show()
+            gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
+            print(X)
+        elif bins == "thirteen":
+            K = 13
+            from probit.data.Linear import thirteen
+            with pkg_resources.path(thirteen, 'data.npz') as path:
+                data = np.load(path)
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            X_k = data["X_k"]  # Contains (13, 45) array of binned x values
+            Y_true_k = data["Y_k"]  # Contains (13, 45) array of binned y values
+            X = data["X"]  # Contains (585,) array of x values
+            t = data["t"]  # Contains (585,) array of ordinal response variables, corresponding to Xs values
+            Y_true = data["Y"]  # Contains (585,) array of y values, corresponding to Xs values (not in order)
+            colors = data["colors"]
+            X_true = X
+            hyperparameters = {
+                "init": (
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    0.5 / D,
+                    1.0,
+                    1.0,
+                ),
+                "true": (
+                    data["gamma"],
+                    data["intercept"],
+                    data["noise_variance"],
+                    data["scale"],
+                ),
+            }
+            plt.scatter(X, Y_true)
+            plt.show()
+            gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
+            print(X)
     if plot:
         plot_ordinal(X, t, X_k, Y_true_k, K, D)
-    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors
+    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors, Kernel
 
 
 def plot_s(kernel, N_total=500, n_samples=10):
@@ -1384,7 +1485,7 @@ def plot_ordinal(X, t, X_k, Y_k, K, D, colors=colors):
     ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
     plt.ylabel(r"$t$", fontsize=16)
     plt.show()
-    # plt.savefig("N_total={}, K={}, D={} Ordinal response data.png".format(N_total, K, D))
+    plt.savefig("N_total={}, K={}, D={} Ordinal response data.png".format(N_total, K, D))
     plt.close()
     # Plot from the binned arrays
     for k in range(K):
@@ -1394,7 +1495,7 @@ def plot_ordinal(X, t, X_k, Y_k, K, D, colors=colors):
     plt.xlabel(r"$x$", fontsize=16)
     plt.ylabel(r"$y$", fontsize=16)
     plt.show()
-    # plt.savefig("N_total={}, K={}, D={} Ordinal response data_.png".format(N_total, K, D)
+    plt.savefig("N_total={}, K={}, D={} Ordinal response data_.png".format(N_total, K, D))
     plt.close()
 
 
@@ -1418,15 +1519,16 @@ class MinimizeStopper(object):
             print("Elapsed: %.3f sec" % elapsed)
 
 
-
 if __name__ == "__main__":
-    print("Hello")
-    generate_synthetic_data_new(
-        N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
+    # generate_synthetic_data_new(
+    #     N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
+    # generate_synthetic_data_linear(
+    #     N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=1.0, noise_variance=1.0, scale=1.0)
+    # generate_prior_samples(K=3, D=1, kernel=Linear(varphi=0.0, scale=20.0), noise_variance=0.1, N_samples=9, N_show=2000, plot=True)
+    generate_synthetic_data_linear(
+        N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=20.0, noise_variance=0.1, scale=50.0)
     # generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
-    # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
-    # kernel = Linear(intercept=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
+    # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
+    # kernel = Linear(varphi=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
     # plot_s(kernel)
-    # generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, intercept=0.0)
-    print("HELLO")
-
+    # generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)

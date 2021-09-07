@@ -47,7 +47,7 @@ def fromb_fft1(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     return func
 
 
-def fromb_fft1_scalar(b, mean, sigma, t, K, gamma, noise_variance, EPS):
+def fromb_fft1_vector(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
     :arg float mean: A mean value of a pdf inside the integrand.
@@ -70,9 +70,9 @@ def fromb_fft1_scalar(b, mean, sigma, t, K, gamma, noise_variance, EPS):
     phi1 = norm.cdf(z1)
     prob = phi1 - phi2
     prob[prob < EPS_2] = EPS_2
-    func = np.multiply(func1 * np.log(prob))
-    if np.any(math.isnan(func)):
-        raise ValueError("fft1 \n{} \n{} \n{} \n{} \n{}".format(t, gamma, prob, func, func1))
+    func = func1 * np.log(prob)
+    # if math.isnan(func):
+    #     raise ValueError("fft1 \n{} \n{} \n{} \n{} \n{}".format(t, gamma, prob, func, func1))
     return func
 
 

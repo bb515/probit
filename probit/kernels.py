@@ -5,7 +5,10 @@ from abc import ABC, abstractmethod
 
 class Kernel(ABC):
     """
-    Base class for kernels. TODO: cythonise these functions - or make C bindings.
+    Base class for kernels.
+
+    TODO: cythonise these functions - or make C bindings. Or replace kernels with existing python GP kernel code.
+    TODO: are self.L and self.M really needed?
 
     All kernels must define an init method, which may or may not inherit Kernel as a parent class using `super()`.
     All kernels that inherit Kernel define a number of methods that return the kernel value, a vector of kernel values
@@ -13,18 +16,13 @@ class Kernel(ABC):
     """
 
     @abstractmethod
-    def __init__(self, varphi=None, scale=1.0, sigma=None, tau=None):
+    def __init__(self, scale=1.0, sigma=None, tau=None):
         """
         Create an :class:`Kernel` object.
 
         This method should be implemented in every concrete kernel. Initiating a kernel should be a very cheap
         operation.
-
-        :arg varphi: The kernel lengthscale hyperparameters as an (L, M) numpy array. Note that
-            L=K in the most general case, but it is more common to have a single and shared GP kernel over all classes,
-            in which case L=1. If set to `None`, then implies the kernel is not a Matern kernel (loosely defined as a
-            kernel with a length scale parameter). Default `None`.
-        :type varphi: :class:`numpy.ndarray` or float
+ 
         :arg float scale: The kernel scale hyperparameters as a numpy array. Default 1.0.
         :arg sigma: The (K, ) array or float or None (location/ scale) hyper-hyper-parameters that define psi prior.
             Not to be confused with `Sigma`, which is a covariance matrix. Default None.
@@ -35,54 +33,6 @@ class Kernel(ABC):
 
         :returns: A :class:`Kernel` object
         """
-        # Boolean field that if `True` then the kernel has Automatic-relavance-detection (ARD) capabilities, if `False`,
-        # then there is a shared and single lengthscale across all data dimensions. Default `False`.
-        self.ARD_kernel = False
-        # Boolean field that if `True` then the kernel has a unique kernel for each and every class, if `False` then
-        # there is a single and shared kernel for each class. Default `False`.
-        self.general_kernel = False
-        # Initialise as Matern type kernel (loosely defined here as a kernel with a length scale)
-        self.Matern_kernel = True
-        if ((type(varphi) is list) or
-                (type(varphi) is np.ndarray)):
-            if np.shape(varphi) == (1,):
-                # e.g. [[1]]
-                L = 1
-                M = 1
-            elif np.shape(varphi) == ():
-                # e.g. [1]
-                L = 1
-                M = 1
-            elif np.shape(varphi[0]) == (1,):
-                # e.g. [[1],[2],[3]]
-                L = np.shape(varphi)[0]
-                M = 1
-            elif np.shape(varphi[0]) == ():
-                # e.g. [1, 2, 3]
-                L = 1
-                M = np.shape(varphi)[0]
-            else:
-                # e.g. [[1, 2], [3, 4], [5, 6]]
-                L = np.shape(varphi)[0]
-                M = np.shape(varphi)[1]
-        elif ((type(varphi) is float) or
-                  (type(varphi) is np.float64)):
-            # e.g. 1
-            L = 1
-            M = 1
-            varphi = np.float64(varphi)
-        elif varphi is None:
-            # this is not a Gaussian kernel
-            self.Matern_kernel = False
-        else:
-            raise TypeError(
-                "Type of varphi is not supported "
-                "(expected {} or {}, got {})".format(
-                    float, np.ndarray, type(varphi)))
-        if self.Matern_kernel is True:
-            self.L = L
-            self.M = M
-        self.varphi = varphi
         scale = np.float64(scale)
         self.scale = scale
         if sigma is not None:
@@ -97,6 +47,28 @@ class Kernel(ABC):
         else:
             self.sigma = None
             self.tau = None
+
+    @property
+    def _ARD(self):
+        # Boolean field that if `True` then the kernel has Automatic-relavance-detection (ARD) capabilities, if `False`,
+        # then there is a shared and single lengthscale across all data dimensions. Default `False`.
+        return False
+
+    @property
+    def _stationary(self):
+        # Is the kernel stationary?
+        return False
+
+    @property
+    def _Matern(self):
+        # Does this kernel have a lengthscale?
+        return False
+
+    @property
+    def _general(self):
+        # Boolean field that if `True` then the kernel has a unique kernel for each and every class, if `False` then
+        # there is a single and shared kernel for each class. Default `False`.
+        return False
 
     @abstractmethod
     def kernel(self):
@@ -130,9 +102,8 @@ class Kernel(ABC):
         This method should be implemented in every concrete kernel.
         """
 
-    def hyperparameter_update(self, varphi=None, scale=None, sigma=None, tau=None):
-        if varphi is not None:
-            # Update
+     def _Matern_initialise(self, varphi):
+            # Initialise as Matern type kernel (loosely defined here as a kernel with a length scale)
             if ((type(varphi) is list) or
                     (type(varphi) is np.ndarray)):
                 if np.shape(varphi) == (1,):
@@ -156,7 +127,7 @@ class Kernel(ABC):
                     L = np.shape(varphi)[0]
                     M = np.shape(varphi)[1]
             elif ((type(varphi) is float) or
-                  (type(varphi) is np.float64)):
+                    (type(varphi) is np.float64)):
                 # e.g. 1
                 L = 1
                 M = 1
@@ -166,9 +137,11 @@ class Kernel(ABC):
                     "Type of varphi is not supported "
                     "(expected {} or {}, got {})".format(
                         float, np.ndarray, type(varphi)))
-            self.L = L
-            self.M = M
-            self.varphi = varphi
+            return varphi, L, M
+
+    def hyperparameter_update(self, varphi=None, scale=None, sigma=None, tau=None):
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._Matern_initialise(varphi)
         if scale is not None:
             # Update scale
             self.scale = scale
@@ -211,24 +184,47 @@ class Linear(Kernel):
         K(x_i, x_j) = s * x_{i}^{T} x_{j} + c,
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
-    the data point, :math:`x_{j}` is another data point, :math:`s` is the scale and :math:`c` is the intercept.
+    the data point, :math:`x_{j}` is another data point, :math:`s` is the regularising constant (or scale) and :math:`c` is the intercept regularisor.
     """
-    def __init__(self, intercept=0.0, *args, **kwargs):
+    def __init__(self, constant_var, c, *args, **kwargs):
         """
         Create an :class:`Linear` kernel object.
 
         :returns: An :class:`Linear` object
         """
         super().__init__(*args, **kwargs)
-        if self.Matern_kernel is True:
-            raise ValueError('Lengthscale was supplied, but this is a Linear kernel. (expected {}, got {})'.format(
-                None, self.varphi
-            ))
         # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
         # all data dims (i.e. non-ARD) is assumed.
-        self.ARD_kernel = False
-        self.general_kernel = False
-        self.intercept = intercept
+        if constant_var is not None:
+            self.constant_var = constant_var
+        else:
+            self.constant_var = 0.0
+        if c is not None:
+            self.c = c
+        else:
+            self.c = 0.0
+        self.num_hyperparameters = np.size(constant_var) + np.size(c)
+
+    @property
+    def _ARD(self):
+        # Boolean field that if `True` then the kernel has Automatic-relavance-detection (ARD) capabilities, if `False`,
+        # then there is a shared and single lengthscale across all data dimensions. Default `False`.
+        return False
+
+    @property
+    def _stationary(self):
+        return False
+
+    @property
+    def _Matern(self):
+        # Does this kernel have a lengthscale?
+        return False
+
+    @property
+    def _general(self):
+        # Boolean field that if `True` then the kernel has a unique kernel for each and every class, if `False` then
+        # there is a single and shared kernel for each class. Default `False`.
+        return False
 
     def kernel(self, X_i, X_j):
         """
@@ -241,8 +237,8 @@ class Linear(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * X_j.T @ X_i + self.intercept
-
+        return self.scale * (X_j + self.c).T @ (X_i + self.c) + self.constant_var
+ 
     def kernel_vector(self, x_new, X):
         """
         Get the kernel vector given an input vector (x_new) input matrix (X).
@@ -254,7 +250,7 @@ class Linear(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * np.einsum('ij, j -> i', X, x_new[0]) + self.intercept
+        return self.scale * np.einsum('ij, j -> i', X, x_new[0]) + self.varphi
 
     def kernel_matrix(self, X1, X2):
         """
@@ -267,7 +263,7 @@ class Linear(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * np.einsum('ik, jk -> ij', X1, X2) + self.intercept
+        return self.scale * np.einsum('ik, jk -> ij', X1, X2) + self.varphi
 
     def kernel_matrices(self, X1, X2, varphis):
         """
@@ -330,8 +326,11 @@ class Polynomial(Kernel):
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`d` is the order, :math:`s` is the scale and
     :math:`c` is the intercept.
+
+    TODO: kernel has been designed to be easy to differentiate analytically. This will be changed for interpretability
+    once autograd is in place.
     """
-    def __init__(self, intercept=0.0, order=2.0, *args, **kwargs):
+    def __init__(self, constant_var, c, order=2.0, *args, **kwargs):
         """
         Create an :class:`Polynomial` kernel object.
 
@@ -341,16 +340,28 @@ class Polynomial(Kernel):
         :returns: An :class:`Polynomial` object
         """
         super().__init__(*args, **kwargs)
-        if self.Matern_kernel is True:
-            raise ValueError('Lengthscale was supplied, but this is a Polynomial kernel. (expected {}, got {})'.format(
-                None, self.varphi
-            ))
         # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
         # all data dims (i.e. non-ARD) is assumed.
-        self.ARD_kernel = False
-        self.general_kernel = False
-        self.intercept = intercept
+        self.constant_var = constant_var
+        self.c = c
         self.order = order
+        self.num_hyperparameters = np.size(constant_var) + np.size(c) + np.size(order)
+
+    @property
+    def _ARD(self):
+        return False
+
+    @property
+    def _stationary(self):
+        return False
+
+    @property
+    def _Matern(self):
+        return False
+
+    @property
+    def _general(self):
+        return False
 
     def kernel(self, X_i, X_j):
         """
@@ -363,7 +374,7 @@ class Polynomial(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * pow((X_i.T @ X_j + self.intercept), self.order)
+        return self.scale * ((X_i + c).T @ (X_j + c) + self.constant_var) ** self.order
 
     def kernel_vector(self, x_new, X):
         """
@@ -376,7 +387,7 @@ class Polynomial(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * pow(np.einsum('ij, j -> i', X, x_new[0]) + self.intercept, self.order)
+        return self.scale * (np.einsum('ij, j -> i', X + c, x_new[0] + c) + self.constant_var) ** self.order
 
     def kernel_matrix(self, X1, X2):
         """
@@ -389,7 +400,7 @@ class Polynomial(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * pow(np.einsum('ik, jk -> ij', X1, X2) + self.intercept, self.order)
+        return self.scale * (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_var) ** self.order
 
     def kernel_matrices(self, X1, X2, varphis):
         """
@@ -413,7 +424,21 @@ class Polynomial(Kernel):
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_c(self, X1, X2):
+        """
+        Get partial derivative with respect to offset hyperparameters as a numpy array.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :returns partial_C: A (N1, N2) array of the partial derivative of the covariance matrices.
+        :rtype: class:`numpy.ndarray`
+        """
+        raise ValueError("TODO")
+        pass
+
+    def kernel_partial_derivative_scale(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -424,21 +449,20 @@ class Polynomial(Kernel):
         :returns partial_C: A (N1, N2) array of the partial derivative of the covariance matrices.
         :rtype: class:`numpy.ndarray`
         """
-        # TODO check this.
-        return pow(np.einsum('ik, jk -> ij', X1, X2) + self.intercept, self.order)
+        return (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_var) ** self.order
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_constant_var(self, X1, X2):
         """
-        Get Gram matrix efficiently using numpy's einsum function.
+        Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
         :arg X1: (N1, D) data matrix.
         :type X1: class:`numpy.ndarray`
         :arg X2: (N2, D) data matrix. Can be the same as X1.
         :type X2: class:`numpy.ndarray`
-        :return: (N1, N2) Gram matrix.
+        :returns partial_C: A (N1, N2) array of the partial derivative of the covariance matrices.
         :rtype: class:`numpy.ndarray`
         """
-        return pow(np.einsum('ik, jk -> ij', X1, X2) + self.intercept, self.order)
+        return self.scale * self.order * (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_var) ** (self.order - 1)
 
 
 class SEIso(Kernel):
@@ -452,17 +476,25 @@ class SEIso(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is the single, shared lengthscale and
     hyperparameter, :math:`s` is the scale.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, varphi=None, *args, **kwargs):
         """
         Create an :class:`SEIso` kernel object.
+
+        :arg varphi: The kernel lengthscale hyperparameters as an (L, M) numpy array. Note that
+            L=K in the most general case, but it is more common to have a single and shared GP kernel over all classes,
+            in which case L=1. If set to `None`, then implies the kernel is not a Matern kernel (loosely defined as a
+            kernel with a length scale parameter). Default `None`.
+        :type varphi: :class:`numpy.ndarray` or float
 
         :returns: An :class:`SEIso` object
         """
         super().__init__(*args, **kwargs)
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._Matern_initialise(varphi)
+        else:
+            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None)))
         # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
         # all data dims (i.e. non ARD) is assumed.
-        self.ARD_kernel = False
-        self.general_kernel = False
         if self.L != 1:
             raise ValueError('L wrong for simple kernel (expected {}, got {})'.format(1, self.L))
         if self.M != 1:
@@ -470,6 +502,23 @@ class SEIso(Kernel):
         if self.scale is None:
             raise TypeError(
                 'You must supply a scale for the simple kernel (expected {}, got {})'.format(float, type(self.scale)))
+        self.num_hyperparameters = np.size(self.varphi)
+
+    @property
+    def _ARD(self):
+        return False
+
+    @property
+    def _stationary(self):
+        return True
+
+    @property
+    def _Matern(self):
+        return True
+
+    @property
+    def _general(self):
+        return False
 
     def kernel(self, X_i, X_j):
         """
@@ -584,16 +633,18 @@ class SSSEARDMultinomial(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi_{kd}` is the lengthscale for the
     :math:`k`th class and :math:`d`th dimension, and :math:`s` is the scale.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, varphi=None, *args, **kwargs):
         """
         Create an :class:`SEARDMultinomial` kernel object.
 
         :returns: An :class:`SEARDMultinomial` object
         """
         super().__init__(*args, **kwargs)
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._Matern_initialise(varphi)
+        else:
+            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None)))
         # For this kernel, the general and ARD setting are assumed.
-        self.ARD_kernel = True
-        self.general_kernel = True
         if self.L <= 1:
             raise ValueError('L wrong for simple kernel (expected {}, got {})'.format(
                 'more than 1', self.L))
@@ -606,6 +657,23 @@ class SSSEARDMultinomial(Kernel):
         self.D = self.M
         # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4)
         self.K = self.L
+        self.num_hyperparameters = np.size(self.varphi)
+
+    @property
+    def _ARD(self):
+        return True
+
+    @property
+    def _stationary(self):
+        return True
+
+    @property
+    def _Matern(self):
+        return True
+
+    @property
+    def _general(self):
+        return False
 
     def kernel(self, k, X_i, X_j):  # TODO: How does this extra argument effect the code? Probably extra outer loops
         """
@@ -726,16 +794,23 @@ class SEARDMultinomial(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi_{kd}` is the lengthscale for the
     :math:`k`th class and :math:`d`th dimension, and :math:`s` is the scale.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, varphi=None, *args, **kwargs):
         """
         Create an :class:`SEARD` kernel object.
 
+        :arg varphi: The kernel lengthscale hyperparameters as an (L, M) numpy array. Note that
+            L=K in the most general case, but it is more common to have a single and shared GP kernel over all classes,
+            in which case L=1. If set to `None`, then implies the kernel is not a Matern kernel (loosely defined as a
+            kernel with a length scale parameter). Default `None`.
+        :type varphi: :class:`numpy.ndarray` or float
         :returns: An :class:`SEARD` object
         """
         super().__init__(*args, **kwargs)
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._Matern_initialise(varphi)
+        else:
+            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None))
         # For this kernel, the general and ARD setting are assumed.
-        self.ARD_kernel = True
-        self.general_kernel = True
         if self.L <= 1:
             raise ValueError('L wrong for general kernel (expected {}, got {})'.format(
                 'more than 1', self.L))
@@ -748,6 +823,23 @@ class SEARDMultinomial(Kernel):
         self.D = self.M
         # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4).
         self.K = self.L
+        self.num_hyperparameters = np.size(self.varphi)
+
+    @property
+    def _ARD(self):
+        return True
+
+    @property
+    def _stationary(self):
+        return True
+
+    @property
+    def _Matern(self):
+        return True
+
+    @property
+    def _general(self):
+        return True
 
     def _kernel(self, X_i, X_j):
         """
@@ -903,17 +995,19 @@ class SEARD(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi_{d}` is the lengthscale for the
     :math:`d`th dimension, shared across all classes, and :math:`s` is the scale.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, varphi, *args, **kwargs):
         """
         Create an :class:`SEARD` kernel object.
 
         :returns: An :class:`SEARD` object
         """
         super().__init__(*args, **kwargs)
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._Matern_initialise(varphi)
+        else:
+            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None))
         # For this kernel, the ARD setting is assumed. This is not a general_kernel, since the covariance function
         # is shared across classes. 
-        self.ARD_kernel = True
-        self.general_kernel = False
         if self.L > 1:
             raise ValueError('L wrong for simple kernel (expected {}, got {})'.format(
                 '1', self.L))
@@ -925,6 +1019,23 @@ class SEARD(Kernel):
         # In the ARD case (see 2005 paper).
         self.D = self.M
         # In the ordinal setting with a single and shared (D, ) hyperparameter for each class case.
+        self.num_hyperparameters = np.size(varphi)
+
+    @property
+    def _ARD(self):
+        return True
+
+    @property
+    def _stationary(self):
+        return True
+
+    @property
+    def _Matern(self):
+        return True
+
+    @property
+    def _general(self):
+        return False
 
     def _kernel(self, X_i, X_j):
         """

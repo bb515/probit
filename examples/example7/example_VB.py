@@ -9,7 +9,7 @@ from operator import pos
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import VBOrderedGP
-from probit.kernels import SEIso
+# from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
 from scipy.optimize import minimize
@@ -23,9 +23,9 @@ now = time.ctime()
 write_path = pathlib.Path()
 
 
-def VB_plot(dataset, X_train, t_train, X_true, Y_true, m_0, gamma, steps, varphi, noise_variance, K, D, scale):
+def VB_plot(dataset, Kernel, X_train, t_train, X_true, Y_true, m_0, gamma, steps, varphi, noise_variance, scale, K, D):
     """Plots for Chu data."""
-    kernel = SEIso(varphi, scale, sigma=10e-6, tau=10e-6)
+    kernel = Kernel(varphi=varphi, scale=scale)
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     y_0 = Y_true.flatten()
@@ -58,17 +58,14 @@ def VB_plot(dataset, X_train, t_train, X_true, Y_true, m_0, gamma, steps, varphi
     return fx
 
 
-def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, varphi, noise_variance, K, D,
-                        scale=1.0, sigma=10e-6, tau=10e-6, colors=colors):
+def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, steps, varphi, noise_variance, scale, K, D,
+        sigma=10e-6, tau=10e-6, colors=colors):
     """Plots for synthetic data."""
-    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    kernel = Kernel(varphi=varphi, scale=scale)
     # Initiate classifier
-    print("noise_variance", noise_variance)
     variational_classifier = VBOrderedGP(noise_variance, X, t, kernel)
     (m_tilde, dm_tilde, Sigma_tilde, cov, C, y_tilde, p, varphi_tilde, containers) = variational_classifier.estimate(
         steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=m_tilde_0, fix_hyperparameters=True, write=True)
-    print(np.shape(X))
-    print(np.shape(m_tilde))
     plt.scatter(X, m_tilde)
     plt.plot(X_true, Y_true)
     plt.show()
@@ -76,9 +73,6 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
     plt.plot(fxs)
     plt.title("Variational lower bound on the marginal likelihood")
     plt.show()
-    # print(Sigma_tilde)
-    # print(C)
-    # print(varphi_tilde, "varphi")
     noise_std = np.sqrt(noise_variance)
     calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, *_ = variational_classifier._calligraphic_Z(
                     gamma, noise_std, m_tilde,
@@ -196,10 +190,10 @@ def VB_plot_synthetic(dataset, X, t, X_true, Y_true, m_tilde_0, gamma, steps, va
 
 
 def VB_testing(
-        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance,
-        K, D, scale=1.0, sigma=10e-6, tau=10e-6, plot=True):
+        dataset, Kernel, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, scale,
+        K, D, sigma=10e-6, tau=10e-6, plot=True):
     grid = np.ogrid[0:len(X_test[:, :])]
-    kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
+    kernel = Kernel(varphi=varphi, scale=scale)
     noise_std = np.sqrt(noise_variance)
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
@@ -269,47 +263,27 @@ def VB_testing(
     return fx, mean_zero_one, predictive_likelihood, mean_absolute_error, log_predictive_probability
 
 
-def test(dataset, X_trains, t_trains, X_tests, t_tests, split, steps, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0):
+def test(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, split, steps, gamma_0, varphi_0, noise_variance_0, scale_0, K, D):
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
     t_test = t_tests[split, :]
-    # kernel = SEIso(varphi_0, scale, sigma=10e-6, tau=10e-6)
+    # kernel = Kernel(varphi=varphi_0, scale=scale)
     # Initiate classifier
     # variational_classifier = VBOrderedGP(noise_variance_0, X_train, t_train, kernel)
     # Skip training
     # gamma, varphi, noise_variance = training(
-    #     variational_classifier, X_train, t_train, m_0, gamma_0, varphi_0, noise_variance_0, K, scale=scale)
+    #     variational_classifier, X_train, t_train, m_0, gamma_0, varphi_0, noise_variance_0, scale_0, K)
     gamma = gamma_0
     varphi = varphi_0
     noise_variance = noise_variance_0
+    scale = scale_0
     fx, zero_one, predictive_likelihood, mean_abs, log_pred_prob = VB_testing(
-        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, K, D, scale=scale)
+        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, scale, K, D)
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, log_pred_prob, mean_abs, fx
 
 
-def test_varphi(dataset, variational_classifier, method, gamma, varphi_0, noise_variance, X_trains, t_trains, X_tests,
-        t_tests, K, steps, scale=1.0):
-    split = 2
-    X_train = X_trains[split, :, :]
-    t_train = t_trains[split, :]
-    X_test = X_tests[split, :, :]
-    t_test = t_tests[split, :]
-    gamma, varphi, noise_variance = training_varphi(
-        dataset, method, variational_classifier, gamma, varphi_0, noise_variance)
-    bound, zero_one, predictive_likelihood, mean_abs = VB_testing(
-        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, K, scale=scale)
-    print("gamma", gamma)
-    print("noise_variance", noise_variance)
-    print("varphi", varphi)
-    print("zero_one", zero_one)
-    print("predictive likelihood", predictive_likelihood)
-    print("mean_abs", mean_abs)
-    print("bound", bound)
-    assert 0
-
-
-def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, K, D):
+def outer_loops(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, scale_0, K, D):
     bounds = []
     zero_ones = []
     predictive_likelihoods = []
@@ -320,8 +294,8 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, v
     gammas = []
     for split in range(20):
         gamma, varphi, noise_variance, zero_one, predictive_likelihood, log_pred_prob, mean_abs, fx = test(
-            dataset, X_trains, t_trains, X_tests, t_tests, split, steps,
-            gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, K=K, D=D, scale=1.0)
+            dataset, Kernel, X_trains, t_trains, X_tests, t_tests, split, steps,
+            gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, scale_0, K=K, D=D)
         bounds.append(fx)
         zero_ones.append(zero_one)
         predictive_likelihoods.append(predictive_likelihood)
@@ -366,7 +340,7 @@ def outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, v
     return 0
 
 
-def outer_loops_Rogers(X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot=False):
+def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot=False):
     steps = 50
     grid = np.ogrid[0:len(X_tests[0, :, :])]
     avg_bounds_Z = []
@@ -404,7 +378,7 @@ def outer_loops_Rogers(X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot
             noise_std = x_new[0]
             noise_variance = noise_std**2
             varphi = x_new[1]
-            kernel = SEIso(varphi, scale=1.0, sigma=sigma, tau=tau)
+            kernel = Kernel(varphi=varphi, scale=1.0, sigma=sigma, tau=tau)
             # Initiate classifier
             y_0 = Y_true.flatten()
             m_0 = y_0
@@ -555,19 +529,19 @@ def outer_loops_Rogers(X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot
     plt.savefig("Contour plot - mean absolute error accuracy.pdf")
     plt.close()
 
-def grid_synthetic(X_train, t_train, range_x1, range_x2,
-                   gamma=None, varphi=None, noise_variance=None, scale=1.0, fix_s=True, show=False):
+def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
+                   gamma=None, varphi=None, noise_variance=None, scale=1.0, show=False):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     sigma = 10e-6
     tau = 10e-6
     res = 100
     # Just for initiation
-    kernel = SEIso(varphi=1.0, scale=scale, sigma=sigma, tau=tau)
+    kernel = Kernel(varphi=1.0, scale=scale)
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(
         range_x1, range_x2, res, gamma_0=gamma, varphi_0=varphi, noise_variance_0=noise_variance,
-        scale_0=scale, fix_s=fix_s)
+        scale_0=scale)
     print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         plt.plot(x, Z)
@@ -654,7 +628,7 @@ def grid_synthetic(X_train, t_train, range_x1, range_x2,
         # plt.close()
 
 
-def VB_training(dataset, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, K, scale=1.0):
+def VB_training(dataset, Kernel, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, scale_0, K):
     """
     An example ordinal training function.
 
@@ -663,61 +637,41 @@ def VB_training(dataset, method, X_train, t_train, gamma_0, varphi_0, noise_vari
     :return: gamma, varphi, noise_variance
     """
     # Initiate kernel
-    kernel = SEIso(varphi_0, scale=scale, sigma=10e-6, tau=10e-6)
+    kernel = Kernel(varphi=varphi_0, scale=scale_0)
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
-    gamma, varphi, noise_variance = training(
-        dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, K)
-    return gamma, varphi, noise_variance
-
-
-def VB_training_varphi(dataset, method, X_train, t_train, gamma, varphi_0, noise_variance, scale=1.0):
-    """
-    An example ordinal training function.
-
-    :return: gamma, varphi, noise_variance
-    """
-    varphi = varphi_0
-    gamma = np.array([-np.inf, -0.28436501, 0.36586332, 3.708507, 4.01687246, np.inf])
-    noise_variance = 0.01
-    theta = []
-    theta.append(np.log(varphi))
-    theta = np.array(theta)
-    print("theta_0", theta)
-    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
-    # Initiate classifier
-    variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
-    gamma, varphi, noise_variance = training_varphi(
-        dataset, method, variational_classifier, gamma, varphi_0, noise_variance)
-    return gamma, varphi, noise_variance
+    gamma, varphi, noise_variance, scale = training(
+        dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, scale_0, K)
+    return gamma, varphi, noise_variance, scale
 
 
 def test_synthetic(
-    dataset, method, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0, colors=colors):
+    dataset, Kernel, method, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors=colors):
     """Test some particular hyperparameters."""
     gamma = gamma_0
     varphi = varphi_0
     noise_variance = noise_variance_0
+    scale = scale_0
     steps = 1000
-    # kernel = SEIso(varphi_0, sigma=10e-6, tau=10e-6)
+    # kernel = Kernel(varphi=varphi_0, scale=scale_0)
     # # Initiate classifier
     # variational_classifier = VBOrderedGP(noise_variance_0, X_train, t_train, kernel)
-    # gamma, varphi, noise_variance = VB_training(
-    #     dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, K)
+    # gamma, varphi, noise_variance, scale = VB_training(
+    #     dataset, Kernel, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, scale_0, K)
     # print("gamma = {}, gamma_0 = {}".format(gamma, gamma_0))
     # print("varphi = {}, varphi_0 = {}".format(varphi, varphi_0))
     # print("noise_variance = {}, noise_variance_0 = {}".format(noise_variance, noise_variance_0))
     # # print("gamma_0 = {}, varphi_0 = {}, noise_variance_0 = {}".format(gamma_0, varphi_0, noise_variance_0))
-    fx = VB_plot_synthetic(dataset, X_train, t_train, X_true, Y_true, None, gamma, steps,
-        varphi, noise_variance, K, D, scale=1.0, sigma=10e-6, tau=10e-6, colors=colors)
+    fx = VB_plot_synthetic(dataset, Kernel, X_train, t_train, X_true, Y_true, None, gamma, steps,
+        varphi, noise_variance, scale, K, D, sigma=10e-6, tau=10e-6, colors=colors)
     print("fx={}".format(fx))
     return fx
 
 
-# def test_plots(dataset, X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance, K):
+# def test_plots(dataset, Kernel, X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance, scale, K):
 #     """TODO: looks like it needs fixing for VB"""
 #     grid = np.ogrid[0:len(X_test)]
-#     kernel = SEIso(varphi, sigma=10e-6, tau=10e-6)
+#     kernel = Kernel(varphi=varphi, scale=scale, sigma=10e-6, tau=10e-6)
 #     # Initiate classifier
 #     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
 #     steps = 50
@@ -777,7 +731,7 @@ def test_synthetic(
 
 
 def main():
-    """Conduct an EP estimation/optimisation."""
+    """Conduct VB approximate inference and optimisation."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
@@ -800,38 +754,37 @@ def main():
         profile.enable()
     #sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets:
-        X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D = load_data(  # TODO: update with colors
+        X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, Kernel = load_data(  # TODO: update with colors
             dataset, bins)
         steps = 1000
         gamma_0 = np.array(gamma_0)
-        outer_loops(dataset, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, K, D)
-        # gamma, varphi, noise_variance = VB_training(dataset, method, X_trains[2], t_trains[2], gamma_0, varphi_0,
-        #     noise_variance_0, K)
+        outer_loops(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, scale_0, K, D)
+        # gamma, varphi, noise_variance = VB_training(dataset, Kernel, method, X_trains[2], t_trains[2], gamma_0, varphi_0,
+        #     noise_variance_0, scale_0, K)
         # VB_testing(
-        #     dataset, X_trains[2], t_trains[2], X_tests[2], t_tests[2], steps, gamma=gamma, varphi=varphi,
-        #     noise_variance=noise_variance, K)
+        #     dataset, Kernel, X_trains[2], t_trains[2], X_tests[2], t_tests[2], steps, gamma=gamma, varphi=varphi,
+        #     noise_variance=noise_variance, scale=scale, K)
     else:
         # TODO: will need to extract test/train data for outerloops
-        X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors = load_data_synthetic(dataset, data_from_prior)
+        X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors, Kernel = load_data_synthetic(dataset, data_from_prior)
         print(gamma_0)
         print(varphi_0)
         print(noise_variance_0)
         print(scale_0)
-        # test_plots(dataset, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
+        # test_plots(dataset, Kernel, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
         # just scale
-        # grid_synthetic(X, t, [0., 1.8], None, gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0,
-        #     fix_s=False)
+        # grid_synthetic(Kernel, X, t, [0., 1.8], None, gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0, scale_0=scale_0)
         # just std
-        # grid_synthetic(X, t, [-1., 4.], None, gamma=gamma_0, varphi=varphi_0, scale=scale_0, fix_s=True, show=True)
+        # grid_synthetic(Kernel, X, t, [-1., 4.], None, gamma=gamma_0, varphi=varphi_0, scale=scale_0, show=True)
         # varphi and scale
-        # grid_synthetic(X, t, [0, 2], [0, 2], gamma=gamma_0, noise_variance=noise_variance_0, fix_s=False)
+        # grid_synthetic(Kernel, X, t, [0, 2], [0, 2], gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0)
         # varphi and std
-        # grid_synthetic(X, t, [0, 2], [0, 2], gamma=gamma_0, scale=30.0)
+        # grid_synthetic(Kernel, X, t, [0, 2], [0, 2], gamma=gamma_0, scale=scale_0)
         # # Just varphi
-        grid_synthetic(X, t, [-4, 4], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0, fix_s=True, show=True)
+        grid_synthetic(Kernel, X, t, [-4, 4], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0, fix_s=True, show=True)
         # # Two of the cutpoints
-        # grid_synthetic(X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=1.0)
-        # test_synthetic(dataset, method, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, scale=1.0, colors=colors)
+        # grid_synthetic(Kernel, X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=scale_0)
+        # test_synthetic(dataset, Kernel, method, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale=scale_0, K, D, colors=colors)
     if args.profile:
         profile.disable()
         s = StringIO()
