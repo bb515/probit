@@ -74,8 +74,8 @@ class Estimator(ABC):
         self.J = J
         # Needed for vectorised functions
         self.grid = np.ogrid[0:self.N]  # All the indices for indexing sets of self.t_train
-        self.where_t_0 = np.where(self.t_train==0)
-        self.where_t_Jminus1 = np.where(self.t_train==self.J-1)
+        self.where_t_0 = np.where(self.t_train==0)[0]
+        self.where_t_Jminus1 = np.where(self.t_train==self.J-1)[0]
         self.where_t_neither = np.setxor1d(self.grid, self.where_t_0)
         self.where_t_neither = np.setxor1d(
             self.where_t_neither, self.where_t_Jminus1)
@@ -2593,7 +2593,7 @@ class EPOrderedGP(Estimator):
                              ' but simple type (kernel._general=0). (got {}, expected)'.format(
                 self.kernel._general, 0))
         self.grid = np.ogrid[0:self.N] # All indices for sequential message passing
-        self.EPS = 0.000001  # Acts as a machine tolerance
+        self.EPS = 0.001  # Acts as a machine tolerance
         # Threshold of single sided standard deviations that normal cdf can be approximated to 0 or 1
         self.upper_bound = 4 
 
@@ -3452,55 +3452,75 @@ class EPOrderedGP(Estimator):
             self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):
         """Computethe integrals required for the gradient evaluation."""
         # calculate gamma_t and gamma_tplus1 here
-        noise_std = np.sqrt(noise_variance)
+        noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
         gamma_t = gamma[self.t_train]
         gamma_tplus1 = gamma[self.t_train + 1] 
         posterior_covariance = np.diag(Sigma)
-        mean_t = (posterior_mean * noise_variance
-            + posterior_covariance * gamma_t) / (
-            noise_variance + posterior_covariance)
-        mean_tplus1 = (posterior_mean * noise_variance
-                + posterior_covariance * gamma_tplus1) / (
-                noise_variance + posterior_covariance)
+        mean_t = (posterior_mean[self.where_t_not0]
+            * noise_variance + posterior_covariance[self.where_t_not0]
+            * gamma_t[self.where_t_not0]) / (
+                noise_variance + posterior_covariance[self.where_t_not0])
+        mean_tplus1 = (posterior_mean[self.where_t_notJminus1]
+            * noise_variance + posterior_covariance[self.where_t_notJminus1]
+            * gamma_tplus1[self.where_t_notJminus1]) / (
+                noise_variance + posterior_covariance[self.where_t_notJminus1])
         sigma = np.sqrt(
             (noise_variance * posterior_covariance) / (
             noise_variance + posterior_covariance))
-        a_t = mean_t - 5.0 * sigma
-        b_t = mean_t + 5.0 * sigma
+        sigma_t_not0 = sigma[self.where_t_not0]
+        sigma_t_notJminus1 = sigma[self.where_t_notJminus1]
+        a_t = mean_t - 5.0 * sigma_t_not0
+        b_t = mean_t + 5.0 * sigma_t_not0
         h_t = b_t - a_t
-        a_tplus1 = mean_tplus1 - 5.0 * sigma
-        b_tplus1 = mean_tplus1 + 5.0 * sigma
+        a_tplus1 = mean_tplus1 - 5.0 * sigma_t_notJminus1
+        b_tplus1 = mean_tplus1 + 5.0 * sigma_t_notJminus1
         h_tplus1 = b_tplus1 - a_tplus1
         y_0 = np.zeros((20, self.N))
+        y_t_not0 = np.zeros((20, len(self.where_t_not0)))
+        y_t_notJminus1 = np.zeros((20, len(self.where_t_notJminus1)))
+        t2 = np.zeros((self.N,))
+        t3 = np.zeros((self.N,))
+        t4 = np.zeros((self.N,))
+        t5 = np.zeros((self.N,))
+        t2[self.where_t_not0] = fromb_t2_vector(
+                y_t_not0.copy(), mean_t, sigma_t_not0,
+                a_t, b_t, h_t,
+                posterior_mean[self.where_t_not0],
+                posterior_covariance[self.where_t_not0],
+                gamma_t[self.where_t_not0], gamma_tplus1[self.where_t_not0],
+                noise_variance, noise_std, self.EPS)
+        t3[self.where_t_notJminus1] = fromb_t3_vector(
+                y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
+                a_tplus1, b_tplus1,
+                h_tplus1, posterior_mean[self.where_t_notJminus1],
+                posterior_covariance[self.where_t_notJminus1],
+                gamma_t[self.where_t_notJminus1],
+                gamma_tplus1[self.where_t_notJminus1],
+                noise_variance, noise_std, self.EPS)
+        t4[self.where_t_notJminus1] = fromb_t4_vector(
+                y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
+                a_tplus1, b_tplus1,
+                h_tplus1, posterior_mean[self.where_t_notJminus1],
+                posterior_covariance[self.where_t_notJminus1],
+                gamma_t[self.where_t_notJminus1],
+                gamma_tplus1[self.where_t_notJminus1],
+                noise_variance, noise_std, self.EPS),
+        t5[self.where_t_not0] = fromb_t5_vector(
+                y_t_not0.copy(), mean_t, sigma_t_not0,
+                a_t, b_t, h_t,
+                posterior_mean[self.where_t_not0],
+                posterior_covariance[self.where_t_not0],
+                gamma_t[self.where_t_not0], gamma_tplus1[self.where_t_not0],
+                noise_variance, noise_std, self.EPS) 
         return (
             fromb_t1_vector(
-                self.N, y_0.copy(), posterior_mean, posterior_covariance,
+                y_0.copy(), posterior_mean, posterior_covariance,
                 gamma_t, gamma_tplus1,
-                self.where_t_0, self.where_t_neither, self.where_t_Jminus1,
                 noise_std, self.EPS),
-            fromb_t2_vector(
-                self.N, y_0.copy(), mean_t, sigma, a_t, b_t, h_t,
-                posterior_mean, posterior_covariance, gamma_t, gamma_tplus1,
-                self.where_t_0, self.where_t_neither, self.where_t_Jminus1,
-                noise_variance, noise_std, self.EPS),
-            fromb_t3_vector(
-                self.N, y_0.copy(), mean_tplus1, sigma, a_tplus1, b_tplus1,
-                h_tplus1, posterior_mean, posterior_covariance,
-                gamma_t, gamma_tplus1,
-                self.where_t_0, self.where_t_neither, self.where_t_Jminus1,
-                noise_variance, noise_std, self.EPS),
-            fromb_t4_vector(
-                self.N, y_0.copy(), mean_tplus1, sigma, a_tplus1, b_tplus1,
-                h_tplus1, posterior_mean, posterior_covariance,
-                gamma_t, gamma_tplus1,
-                self.where_t_0, self.where_t_neither, self.where_t_Jminus1,
-                noise_variance, noise_std, self.EPS),
-            fromb_t5_vector(
-                self.N, y_0.copy(), mean_t, sigma, a_t, b_t, h_t,
-                posterior_mean, posterior_covariance,
-                gamma_t, gamma_tplus1,
-                self.where_t_0, self.where_t_neither, self.where_t_Jminus1,
-                noise_variance, noise_std, self.EPS)
+            t2,
+            t3,
+            t4,
+            t5
         )
 
     def compute_integrals(

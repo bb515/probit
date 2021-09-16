@@ -542,14 +542,17 @@ def outer_loops_Rogers(
     plt.close()
 
 def grid_synthetic(J, Kernel, X_train, t_train, range_x1, range_x2,
-                   gamma=None, varphi=None, noise_variance=None, scale=1.0, show=False):
+                   gamma=None, varphi=None, noise_variance=None,
+                   c=None, constant_variance=None,
+                   scale=1.0, show=False):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     sigma = 10e-6
     tau = 10e-6
     res = 100
     varphi_0 = 1.0  # Placeholder to define the kernel
-    kernel = Kernel(varphi=varphi_0, scale=scale)  # SEIso
-    # kernel = Kernel(constant_var, c)  # Linear
+    constant_variance_0 = 1.0  # Placeholder to define the kernel
+    #kernel = Kernel(varphi=varphi_0, scale=scale)  # SEIso
+    kernel = Kernel(constant_variance=constant_variance_0, c=c, scale=scale)  # Linear
     # Initiate classifier
     variational_classifier = EPOrderedGP(X_train, t_train, kernel, J)
     Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(

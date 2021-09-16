@@ -188,7 +188,7 @@ class Linear(Kernel):
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`s` is the regularising constant (or scale) and :math:`c` is the intercept regularisor.
     """
-    def __init__(self, constant_var, c, *args, **kwargs):
+    def __init__(self, constant_variance, c, *args, **kwargs):
         """
         Create an :class:`Linear` kernel object.
 
@@ -197,15 +197,15 @@ class Linear(Kernel):
         super().__init__(*args, **kwargs)
         # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
         # all data dims (i.e. non-ARD) is assumed.
-        if constant_var is not None:
-            self.constant_var = constant_var
+        if constant_variance is not None:
+            self.constant_variance = constant_variance
         else:
-            self.constant_var = 0.0
+            self.constant_variance = 0.0
         if c is not None:
             self.c = c
         else:
             self.c = 0.0
-        self.num_hyperparameters = np.size(constant_var) + np.size(c)
+        self.num_hyperparameters = np.size(constant_variance) + np.size(c)
 
     @property
     def _ARD(self):
@@ -234,7 +234,7 @@ class Linear(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * (X_j + self.c).T @ (X_i + self.c) + self.constant_var
+        return self.scale * (X_j - self.c).T @ (X_i - self.c) + self.constant_variance
  
     def kernel_vector(self, x_new, X):
         """
@@ -247,7 +247,9 @@ class Linear(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * np.einsum('ij, j -> i', X, x_new[0]) + self.varphi
+        return self.scale * np.einsum(
+            'ij, j -> i', X - self.c, x_new[0]
+            - self.c) + self.constant_variance
 
     def kernel_matrix(self, X1, X2):
         """
@@ -260,7 +262,8 @@ class Linear(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * np.einsum('ik, jk -> ij', X1, X2) + self.varphi
+        return self.scale * np.einsum(
+            'ik, jk -> ij', X1 - self.c, X2 - self.c) + self.constant_variance
 
     def kernel_matrices(self, X1, X2, varphis):
         """
@@ -284,7 +287,7 @@ class Linear(Kernel):
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_constant_variance(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -296,9 +299,9 @@ class Linear(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         # TODO check this.
-        return np.einsum('ik, jk -> ij', X1, X2)
+        return np.ones((len(X1), len(X2)))
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_c(self, X1, X2):
         """
         Get Gram matrix efficiently using numpy's einsum function.
 
@@ -309,8 +312,12 @@ class Linear(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return np.einsum('ik, jk -> ij', X1, X2)
-
+        # TODO: check if works. Probably won't need this for now anyway, if
+        # data is normalised.
+        X1s = np.tile(X1, len(X1))
+        X2s = np.tile(X2, len(X2))
+        C = np.tile(2*self.c, (len(X1), len(X2)))
+        return C - X1s - X2s
 
 
 class Polynomial(Kernel):
@@ -327,7 +334,7 @@ class Polynomial(Kernel):
     TODO: kernel has been designed to be easy to differentiate analytically. This will be changed for interpretability
     once autograd is in place.
     """
-    def __init__(self, constant_var, c, order=2.0, *args, **kwargs):
+    def __init__(self, constant_variance, c, order=2.0, *args, **kwargs):
         """
         Create an :class:`Polynomial` kernel object.
 
@@ -339,10 +346,10 @@ class Polynomial(Kernel):
         super().__init__(*args, **kwargs)
         # For this kernel, the shared and single kernel for each class (i.e. non general) and single lengthscale across
         # all data dims (i.e. non-ARD) is assumed.
-        self.constant_var = constant_var
+        self.constant_variance = constant_variance
         self.c = c
         self.order = order
-        self.num_hyperparameters = np.size(constant_var) + np.size(c) + np.size(order)
+        self.num_hyperparameters = np.size(constant_variance) + np.size(c) + np.size(order)
 
     @property
     def _ARD(self):
@@ -371,7 +378,7 @@ class Polynomial(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * ((X_i + c).T @ (X_j + c) + self.constant_var) ** self.order
+        return self.scale * ((X_i + c).T @ (X_j + c) + self.constant_variance) ** self.order
 
     def kernel_vector(self, x_new, X):
         """
@@ -384,7 +391,7 @@ class Polynomial(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * (np.einsum('ij, j -> i', X + c, x_new[0] + c) + self.constant_var) ** self.order
+        return self.scale * (np.einsum('ij, j -> i', X + c, x_new[0] + c) + self.constant_variance) ** self.order
 
     def kernel_matrix(self, X1, X2):
         """
@@ -397,7 +404,7 @@ class Polynomial(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_var) ** self.order
+        return self.scale * (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_variance) ** self.order
 
     def kernel_matrices(self, X1, X2, varphis):
         """
@@ -446,9 +453,9 @@ class Polynomial(Kernel):
         :returns partial_C: A (N1, N2) array of the partial derivative of the covariance matrices.
         :rtype: class:`numpy.ndarray`
         """
-        return (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_var) ** self.order
+        return (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_variance) ** self.order
 
-    def kernel_partial_derivative_constant_var(self, X1, X2):
+    def kernel_partial_derivative_constant_variance(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as a numpy array.
 
@@ -459,7 +466,7 @@ class Polynomial(Kernel):
         :returns partial_C: A (N1, N2) array of the partial derivative of the covariance matrices.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * self.order * (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_var) ** (self.order - 1)
+        return self.scale * self.order * (np.einsum('ik, jk -> ij', X1 + c, X2 + c) + self.constant_variance) ** (self.order - 1)
 
 
 class SEIso(Kernel):

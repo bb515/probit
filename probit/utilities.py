@@ -1,32 +1,43 @@
 """Utility functions for probit."""
 import numpy as np
 from scipy.stats import norm, expon
+from scipy.special import erf
 import math
 import matplotlib.pyplot as plt
 
 
-def return_prob_vector(
-    N, b, gamma_t, gamma_tplus1,
-    where_t_0, where_t_neither, where_t_Jminus1, noise_std,
-    numerically_stable=True):
-    """Return a vector of Gaussian probabilities."""
-    if numerically_stable:
-        phi1 = np.ones(N)
-        phi2 = np.zeros(N)
-        phi1[where_t_neither] = norm.cdf(
-            (gamma_tplus1[where_t_neither] - b[where_t_neither]) / noise_std)
-        phi2[where_t_neither] = norm.cdf(
-            (gamma_t[where_t_neither] - b[where_t_neither]) / noise_std)
-        phi1[where_t_0] = norm.cdf(
-            (gamma_tplus1[where_t_0] - b[where_t_0]) / noise_std)
-        phi2[where_t_Jminus1] = norm.cdf(
-            (gamma_t[where_t_0] - b[where_t_0]) / noise_std)
-        return phi1 - phi2
-    else:
-        return norm.cdf(
-        (gamma_tplus1 - b) / noise_std
-        ) - norm.cdf(
-            (gamma_t - b) / noise_std)
+# def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):
+#     return norm.cdf(
+#         (gamma_tplus1 - b) / noise_std
+#         ) - norm.cdf(
+#             (gamma_t - b) / noise_std)
+
+def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):
+    return 0.5*(erf((gamma_tplus1 - b) / noise_std)
+                - erf((gamma_t - b) / noise_std))
+
+# def return_prob_vector(
+#     N, b, gamma_t, gamma_tplus1,
+#     where_t_0, where_t_neither, where_t_Jminus1, noise_std,
+#     numerically_stable=True):
+#     """Return a vector of Gaussian probabilities."""
+#     if numerically_stable:
+#         phi1 = np.ones(N)
+#         phi2 = np.zeros(N)
+#         phi1[where_t_neither] = norm.cdf(
+#             (gamma_tplus1[where_t_neither] - b[where_t_neither]) / noise_std)
+#         phi2[where_t_neither] = norm.cdf(
+#             (gamma_t[where_t_neither] - b[where_t_neither]) / noise_std)
+#         phi1[where_t_0] = norm.cdf(
+#             (gamma_tplus1[where_t_0] - b[where_t_0]) / noise_std)
+#         phi2[where_t_Jminus1] = norm.cdf(
+#             (gamma_t[where_t_0] - b[where_t_0]) / noise_std)
+#         return phi1 - phi2
+#     else:
+#         return norm.cdf(
+#         (gamma_tplus1 - b) / noise_std
+#         ) - norm.cdf(
+#             (gamma_t - b) / noise_std)
 
 
 def return_prob(b, t, J, gamma, noise_std, numerically_stable=True):
@@ -72,8 +83,8 @@ def fromb_fft1(b, mean, sigma, t, J, gamma, noise_variance, EPS):
 
 
 def fromb_fft1_vector(
-    N, b, mean, sigma, noise_std, gamma_t, gamma_tplus1,
-    where_t_0, where_t_neither, where_t_Jminus1, EPS_2):
+    b, mean, sigma, noise_std, gamma_t, gamma_tplus1,
+    EPS_2):
     """
     :arg float b: The approximate posterior mean vector.
     :arg float mean: A mean value of a pdf inside the integrand.
@@ -89,8 +100,7 @@ def fromb_fft1_vector(
     :rtype: float
     """
     prob = return_prob_vector(
-        N, b, gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1, noise_std)
+        b, gamma_t, gamma_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm.pdf(b, loc=mean, scale=sigma) * np.log(prob)
 
@@ -148,8 +158,8 @@ def fromb_t1(
 
 
 def fromb_t1_vector(
-    N, y, posterior_mean, posterior_covariance, gamma_t, gamma_tplus1,
-    where_t_0, where_t_neither, where_t_Jminus1, noise_std, EPS):
+    y, posterior_mean, posterior_covariance, gamma_t, gamma_tplus1,
+    noise_std, EPS):
     """
     :arg posterior_mean: The approximate posterior mean vector.
     :type posterior_mean: :class:`numpy.ndarray`
@@ -174,13 +184,13 @@ def fromb_t1_vector(
     h = b - a
     y[0, :] = h * (
         fromb_fft1_vector(
-            N, a, posterior_mean, posterior_std, noise_std,
+            a, posterior_mean, posterior_std, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1, EPS_2)
+            EPS_2)
         + fromb_fft1_vector(
-            N, b, posterior_mean, posterior_std, noise_std,
+            b, posterior_mean, posterior_std, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1, EPS_2)
+            EPS_2)
     ) / 2.0
     m = 1
     n = 1
@@ -190,9 +200,9 @@ def fromb_t1_vector(
         for i in range(n):
             x = a + (i + 0.5) * h
             p += fromb_fft1_vector(
-                N, x, posterior_mean, posterior_std, noise_std,
+                x, posterior_mean, posterior_std, noise_std,
                 gamma_t, gamma_tplus1,
-                where_t_0, where_t_neither, where_t_Jminus1, EPS_2)
+                EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
         for k in range(m):
@@ -238,9 +248,9 @@ def fromb_fft2(
 
 
 def fromb_fft2_vector(
-        N, b, mean, sigma, posterior_mean, posterior_covariance,
+        b, mean, sigma, posterior_mean, posterior_covariance,
         noise_variance, noise_std, gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1, EPS_2):
+        EPS_2):
     """
     :arg b: The approximate posterior mean evaluated at the datapoint.
     :arg mean: A mean value of a pdf inside the integrand.
@@ -255,15 +265,15 @@ def fromb_fft2_vector(
     :rtype: float
     """
     prob = return_prob_vector(
-        N, b, gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1, noise_std)
+        b, gamma_t, gamma_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm.pdf(b, loc=mean, scale=sigma) / prob * norm.pdf(
         posterior_mean, loc=gamma_t, scale=np.sqrt(
         noise_variance + posterior_covariance))
 
 
-def fromb_t2(posterior_mean, posterior_covariance, t, J,
+def fromb_t2(
+        posterior_mean, posterior_covariance, t, J,
         gamma, noise_variance, EPS):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -324,9 +334,8 @@ def fromb_t2(posterior_mean, posterior_covariance, t, J,
 
 
 def fromb_t2_vector(
-    N, y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
+    y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
     gamma_t, gamma_tplus1,
-    where_t_0, where_t_neither, where_t_Jminus1,
     noise_variance, noise_std, EPS):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -349,14 +358,14 @@ def fromb_t2_vector(
     EPS_2 = EPS**2
     y[0, :] = h * (
         fromb_fft2_vector(
-            N, a, mean, sigma, posterior_mean, posterior_covariance,
+            a, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1, EPS_2)
+            EPS_2)
         + fromb_fft2_vector(
-            N, b, mean, sigma, posterior_mean, posterior_covariance,
+            b, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std, gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1, EPS_2)
+            EPS_2)
     ) / 2.0
     m = 1
     n = 1
@@ -366,10 +375,10 @@ def fromb_t2_vector(
         for i in range(n):
             x = a + (i + 0.5) * h
             p += fromb_fft2_vector(
-                N, x, mean, sigma, posterior_mean, posterior_covariance,
+                x, mean, sigma, posterior_mean, posterior_covariance,
                 noise_variance, noise_std,
                 gamma_t, gamma_tplus1,
-                where_t_0, where_t_neither, where_t_Jminus1, EPS_2)
+                EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
         for k in range(m):
@@ -382,7 +391,6 @@ def fromb_t2_vector(
         y[m - 1, :] = q
         n += n
         h /= 2.0
-    q[where_t_0] = 0
     return q
 
 
@@ -421,9 +429,9 @@ def fromb_fft3(
 
 
 def fromb_fft3_vector(
-        N, b, mean, sigma, posterior_mean, posterior_covariance,
+        b, mean, sigma, posterior_mean, posterior_covariance,
         noise_variance, noise_std, gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1, EPS_2):
+        EPS_2):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
     :arg float mean: A mean value of a pdf inside the integrand.
@@ -439,8 +447,7 @@ def fromb_fft3_vector(
     :rtype: float
     """
     prob = return_prob_vector(
-        N, b, gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1, noise_std)
+        b, gamma_t, gamma_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return  norm.pdf(b, loc=mean, scale=sigma) / prob * norm.pdf(
         posterior_mean, loc=gamma_tplus1, scale=np.sqrt(
@@ -508,9 +515,8 @@ def fromb_t3(
 
 
 def fromb_t3_vector(
-    N, y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
+    y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
     gamma_t, gamma_tplus1,
-    where_t_0, where_t_neither, where_t_Jminus1,
     noise_std, noise_variance, EPS):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -526,16 +532,14 @@ def fromb_t3_vector(
     EPS_2 = EPS**2
     y[0, :] = h * (
         fromb_fft3_vector(
-            N, a, mean, sigma, posterior_mean, posterior_covariance,
+            a, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1,
             EPS_2)
         + fromb_fft3_vector(
-            N, b, mean, sigma, posterior_mean, posterior_covariance,
+            b, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1,
             EPS_2)
     ) / 2.0
     m = 1
@@ -546,10 +550,9 @@ def fromb_t3_vector(
         for i in range(n):
             x = a + (i + 0.5) * h
             p = p + fromb_fft3_vector(
-                N, x, mean, sigma, posterior_mean, posterior_covariance,
+                x, mean, sigma, posterior_mean, posterior_covariance,
                 noise_variance, noise_std,
                 gamma_t, gamma_tplus1,
-                where_t_0, where_t_neither, where_t_Jminus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
@@ -563,7 +566,6 @@ def fromb_t3_vector(
         y[m - 1, :] = q
         n += n
         h /= 2.0
-    q[where_t_Jminus1] = 0
     return q
 
 
@@ -596,9 +598,9 @@ def fromb_fft4(
 
 
 def fromb_fft4_vector(
-        N, b, mean, sigma, posterior_mean, posterior_covariance,
+        b, mean, sigma, posterior_mean, posterior_covariance,
         noise_std, noise_variance, gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1, EPS_2):
+        EPS_2):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
     :arg float mean: A mean value of a pdf inside the integrand.
@@ -613,8 +615,7 @@ def fromb_fft4_vector(
     :rtype: float
     """
     prob = return_prob_vector(
-        N, b, gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1, noise_std)
+        b, gamma_t, gamma_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm.pdf(b, loc=mean, scale=sigma) / prob * norm.pdf(
         posterior_mean, loc=gamma_tplus1, scale=np.sqrt(
@@ -682,9 +683,8 @@ def fromb_t4(
 
 
 def fromb_t4_vector(
-    N, y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
+    y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
     gamma_t, gamma_tplus1,
-    where_t_0, where_t_neither, where_t_Jminus1,
     noise_variance, noise_std, EPS):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -703,16 +703,14 @@ def fromb_t4_vector(
     EPS_2 = EPS**2
     y[0, :] = h * (
         fromb_fft4_vector(
-            N, a, mean, sigma, posterior_mean, posterior_covariance,
+            a, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1,
             EPS_2)
         + fromb_fft4_vector(
-            N, b, mean, sigma, posterior_mean, posterior_covariance,
+            b, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1,
             EPS_2)
     ) / 2.0
     m = 1
@@ -723,10 +721,9 @@ def fromb_t4_vector(
         for i in range(n):
             x = a + (i + 0.5) * h
             p = p + fromb_fft4_vector(
-                N, x, mean, sigma, posterior_mean, posterior_covariance,
+                x, mean, sigma, posterior_mean, posterior_covariance,
                 noise_variance, noise_std,
                 gamma_t, gamma_tplus1,
-                where_t_0, where_t_neither, where_t_Jminus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
@@ -740,7 +737,6 @@ def fromb_t4_vector(
         y[m - 1, :] = q
         n += n
         h /= 2.0
-    q[where_t_Jminus1] = 0
     return q
 
 
@@ -772,10 +768,9 @@ def fromb_fft5(
 
 
 def fromb_fft5_vector(
-        N, b, mean, sigma, posterior_mean, posterior_covariance,
+        b, mean, sigma, posterior_mean, posterior_covariance,
         noise_variance, noise_std,
         gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1,
         EPS_2):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
@@ -791,8 +786,7 @@ def fromb_fft5_vector(
     :rtype: float
     """
     prob = return_prob_vector(
-        N, b, gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1, noise_std)
+        b, gamma_t, gamma_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm.pdf(b, loc=mean, scale=sigma) / prob * norm.pdf(
         posterior_mean, loc=gamma_t, scale=np.sqrt(
@@ -861,9 +855,8 @@ def fromb_t5(
 
 
 def fromb_t5_vector(
-        N, y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
+        y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
         gamma_t, gamma_tplus1,
-        where_t_0, where_t_neither, where_t_Jminus1,
         noise_variance, noise_std, EPS):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -882,16 +875,14 @@ def fromb_t5_vector(
     EPS_2 = EPS**2
     y[0, :] = h * (
         fromb_fft5_vector(
-            N, a, mean, sigma, posterior_mean, posterior_covariance,
+            a, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1,
             EPS_2)
         + fromb_fft5_vector(
-            N, b, mean, sigma, posterior_mean, posterior_covariance,
+            b, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
             gamma_t, gamma_tplus1,
-            where_t_0, where_t_neither, where_t_Jminus1,
             EPS_2)
     ) / 2.0
     m = 1
@@ -902,10 +893,9 @@ def fromb_t5_vector(
         for i in range(n):
             x = a + (i + 0.5) * h
             p += fromb_fft5_vector(
-                N, x, mean, sigma, posterior_mean, posterior_covariance,
+                x, mean, sigma, posterior_mean, posterior_covariance,
                 noise_variance, noise_std,
                 gamma_t, gamma_tplus1,
-                where_t_0, where_t_neither, where_t_Jminus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
@@ -919,7 +909,6 @@ def fromb_t5_vector(
         y[m - 1, :] = q
         n += n
         h /= 2.0
-    q[where_t_0] = 0
     return q
 
 

@@ -274,33 +274,49 @@ def get_Y_trues(X_trains, X_true, Y_true):
     return Y_trues
 
 
-def generate_prior_samples(K, D, kernel, noise_variance, N_samples=9, N_show=2000, plot=True):
+def generate_prior_samples(kernel, noise_variance, N_samples=9, N_show=2000, plot=True):
     """
     Generate samples from the GP prior for visualisation.
     """
     epsilon = 1e-6
     X_show = np.linspace(-0.5, 1.5, N_show)
     X_show = X_show[:, None]
-    C_show = kernel.kernel_matrix(X_show, X_show) + epsilon * np.identity(N_show)
-    Chol_show = np.linalg.cholesky(C_show)
+    K_show = kernel.kernel_matrix(X_show, X_show) + epsilon * np.identity(N_show)
+    Chol_show = np.linalg.cholesky(K_show)
     z_show = np.random.normal(loc=0, scale=1, size=(N_show, N_samples))
     Z_show = Chol_show @ z_show
-    N_third = np.int(N_show/3)
+    print(np.shape(Z_show))
+
+    N_third = 100
+    Xt = np.c_[Z_show, X_show]
+    np.random.shuffle(Xt)
+    Z = Xt[:N_third, :N_samples]
+    X = Xt[:N_third, N_samples:]
+    #Z = np.dot(Chol, z)  # Mean zero
     # Model latent variable responses
-    epsilons = np.random.normal(0, np.sqrt(noise_variance), (N_show, N_samples))
+    epsilons = np.random.normal(0, np.sqrt(noise_variance), (N_third, N_samples))
     # Model latent variable responses
-    Y_show = epsilons + Z_show
+    Y = epsilons + Z
+    # Model latent variable responses
     X_show = X_show.flatten()
+    X = X.flatten()
     # X_show = np.tile(X_show, (9, 1))
+    print(np.shape(X))
+    print(np.shape(Y))
     if plot:
-        plt.plot(X_show, Y_show)
+        for i in range(N_samples):
+            plt.scatter(X, Y[:, i])
+        plt.plot(X_show, Z_show)
         plt.savefig("Samples from prior GP.png")
         plt.close()
 
 
-def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_variance, N_show=2000, plot=True):
+def generate_prior_data_new(
+        N_per_class, N_test, splits, K, D, kernel, noise_variance,
+        N_show=2000, plot=True):
     """
-    Generate data from the GP prior, and choose some cutpoints that approximately divides data into equal bins.
+    Generate data from the GP prior, and choose some cutpoints that
+    approximately divides data into equal bins.
 
     :arg int N_per_class: The number of data points per class.
     :arg int K: The number of bins/classes/quantiles.
@@ -311,18 +327,18 @@ def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_var
     N_total = int(K * N_per_class)
     # Sample from the real line, uniformly
     # X = np.random.uniform(0, 12, N_total)
-    X_show = np.linspace(-0.5, 1.5, N_show)  # N_show points to show the predictive power
+    X_show = np.linspace(-0.5, 1.5, N_show)  # N_show points to show pred power
     #X = np.random.random(N_total)  # N_total points unformly random over [0, 1]
     # reshape X to make it n*D
     X_show = X_show[:, None]
     #X = X[:, None]  # reshape X to make it n*D
-    C0_show = kernel.kernel_matrix(X_show, X_show)
-    #C0 = kernel.kernel_matrix(X, X)
-    C_show = C0_show + epsilon * np.identity(N_show)
-    #C = C0 + epsilon * np.identity(N_total)
+    K0_show = kernel.kernel_matrix(X_show, X_show)
+    #K0 = kernel.kernel_matrix(X, X)
+    K_show = K0_show + epsilon * np.identity(N_show)
+    #K = K0 + epsilon * np.identity(N_total)
     # Cholesky
-    #Chol = np.linalg.cholesky(C)
-    Chol_show = np.linalg.cholesky(C_show)
+    #Chol = np.linalg.cholesky(K)
+    Chol_show = np.linalg.cholesky(K_show)
     # Generate normal samples
     #z = np.random.normal(loc=0, scale=1, size=N_total)
     z_show = np.random.normal(loc=0, scale=1, size=N_show)
@@ -385,7 +401,7 @@ def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_var
     Y_trains = []
     X_trains = []
     t_trains = []
-    for i in range(splits):
+    for _ in range(splits):
         Xt = np.c_[Y, X, t]
         np.random.shuffle(Xt)
         Y = Xt[:, :1]
@@ -426,7 +442,7 @@ def generate_prior_data_new(N_per_class, N_test, splits, K, D, kernel, noise_var
         plt.savefig("scatter.png")
         plot_ordinal(X, t, X_k, Y_true_k, K, D, colors=colors)
     return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests,
-        X_trains, Y_trains, t_trains, C0_show, X_show, Z_show, colors)
+        X_trains, Y_trains, t_trains, K0_show, X_show, Z_show, colors)
 
 
 def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
@@ -446,8 +462,8 @@ def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
     X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
     X = X[:, None]  # reshape X to make it n*D
     mu = np.zeros((N_total))  # vector of the means
-    C = kernel.kernel_matrix(X, X)
-    Z = np.random.multivariate_normal(mu, C)
+    K = kernel.kernel_matrix(X, X)
+    Z = np.random.multivariate_normal(mu, K)
     plt.figure()  # open new plotting window
     plt.title("Sample from prior GP")
     plt.plot(X[:], Z[:])
@@ -523,11 +539,11 @@ def generate_synthetic_data(N_per_class, K, D, kernel, noise_variance):
     X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
     X = X[:, None]  # reshape X to make it n*D
     mu = np.zeros((N_total))  # vector of the means
-    C = kernel.kernel_matrix(X, X)
+    K = kernel.kernel_matrix(X, X)
     cutpoint_0 = np.inf
     while np.abs(cutpoint_0) > 5.0:
         print(cutpoint_0)
-        Z = np.random.multivariate_normal(mu, C)
+        Z = np.random.multivariate_normal(mu, K)
         plt.figure()  # open new plotting window
         plt.plot(X[:], Z[:])
         plt.show()
@@ -1248,28 +1264,31 @@ def generate_synthetic_data_polynomial(N_per_class, K, D, noise_variance=1.0, sc
     return X_k, Y_true_k, X, Y_true, t, gamma_0
 
 
-def generate_synthetic_data_linear(N_per_class, N_test, splits, K, D, varphi=0.0, noise_variance=1.0, scale=1.0):
+def generate_synthetic_data_linear(
+        N_per_class, N_test, splits, K, D,
+        constant_variance=1.0, c=1.0, noise_variance=1.0, scale=1.0):
     """Generate synthetic dataset."""
-    kernel = Linear(varphi=varphi, scale=scale, sigma=10e-6, tau=10e-6)
+    kernel = Linear(constant_variance=constant_variance, c=c, scale=1.0)
     (X_k, Y_true_k, X, Y, t, gamma,
     X_tests, Y_tests, t_tests,
     X_trains, Y_trains, t_trains,
-    C0_show, X_show, Z_show, colors) = generate_prior_data_new(
+    K0_show, X_show, Z_show, colors) = generate_prior_data_new(
         N_per_class, N_test, splits, K, D, kernel, noise_variance=noise_variance)
     np.savez('data_linear_prior.npz',
         X_k=X_k, Y_k=Y_true_k, X=X, Y=Y, t=t,
         X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
         X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
-        C0_show=C0_show,
+        K0_show=K0_show,
         X_show=X_show,
         Z_show=Z_show,
         noise_variance=noise_variance,
         scale=scale,
-        varphi=varphi,
+        constant_variance=constant_variance,
+        c=c,
         gamma=gamma,
         colors=colors)
-    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, C0_show,
-        X_show, Z_show, colors)
+    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains,
+        Y_trains, t_trains, K0_show, X_show, Z_show, colors)
 
 
 def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, scale=1.0):
@@ -1293,12 +1312,12 @@ def generate_synthetic_data_new(N_per_class, N_test, splits, K, D, varphi=30.0, 
     (X_k, Y_true_k, X, Y, t, gamma,
     X_tests, Y_tests, t_tests,
     X_trains, Y_trains, t_trains,
-    C0_show, X_show, Z_show, colors) = generate_prior_data_new(
+    K0_show, X_show, Z_show, colors) = generate_prior_data_new(
         N_per_class, N_test, splits, K, D, kernel, noise_variance=noise_variance)
     np.savez('data_thirteen_prior_new.npz', X_k=X_k, Y_k=Y_true_k, X=X, Y=Y, t=t,
         X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
         X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
-        C0_show=C0_show,
+        K0_show=K0_show,
         X_show=X_show,
         Z_show=Z_show,
         noise_variance=noise_variance,
@@ -1306,7 +1325,7 @@ def generate_synthetic_data_new(N_per_class, N_test, splits, K, D, varphi=30.0, 
         varphi=varphi,
         gamma=gamma,
         colors=colors)
-    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, C0_show,
+    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, K0_show,
         X_show, Z_show, colors)
 
 
@@ -1470,8 +1489,8 @@ def plot_s(kernel, N_total=500, n_samples=10):
         X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
         X = X[:, None]  # reshape X to make it n*D
         mu = np.zeros((N_total))  # vector of the means
-        C = kernel.kernel_matrix(X, X)
-        Z = np.random.multivariate_normal(mu, C)
+        K = kernel.kernel_matrix(X, X)
+        Z = np.random.multivariate_normal(mu, K)
         plt.plot(X[:], Z[:])
     plt.show()
 
@@ -1525,9 +1544,11 @@ if __name__ == "__main__":
     #     N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
     # generate_synthetic_data_linear(
     #     N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=1.0, noise_variance=1.0, scale=1.0)
-    # generate_prior_samples(K=3, D=1, kernel=Linear(varphi=0.0, scale=20.0), noise_variance=0.1, N_samples=9, N_show=2000, plot=True)
+    # generate_prior_samples(
+    #     kernel=Linear(constant_variance=0.1, c=1.0, scale=1.0), noise_variance=0.01, N_samples=9, N_show=2000, plot=True)
     generate_synthetic_data_linear(
-        N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=20.0, noise_variance=0.1, scale=50.0)
+        N_per_class=45, N_test=15*3, splits=20, K=3, D=1,
+        constant_variance=0.1, c=1.0, noise_variance=0.01, scale=1.0)
     # generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
     # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
     # kernel = Linear(varphi=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
