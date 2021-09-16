@@ -48,27 +48,27 @@ class Kernel(ABC):
             self.sigma = None
             self.tau = None
 
-    @property
-    def _ARD(self):
-        # Boolean field that if `True` then the kernel has Automatic-relavance-detection (ARD) capabilities, if `False`,
-        # then there is a shared and single lengthscale across all data dimensions. Default `False`.
-        return False
+    # @property
+    # def _ARD(self):
+    #     # Boolean field that if `True` then the kernel has Automatic-relavance-detection (ARD) capabilities, if `False`,
+    #     # then there is a shared and single lengthscale across all data dimensions. Default `False`.
+    #     return False
 
-    @property
-    def _stationary(self):
-        # Is the kernel stationary?
-        return False
+    # @property
+    # def _stationary(self):
+    #     # Is the kernel stationary?
+    #     return False
 
-    @property
-    def _Matern(self):
-        # Does this kernel have a lengthscale?
-        return False
+    # @property
+    # def _Matern(self):
+    #     # Does this kernel have a lengthscale?
+    #     return False
 
-    @property
-    def _general(self):
-        # Boolean field that if `True` then the kernel has a unique kernel for each and every class, if `False` then
-        # there is a single and shared kernel for each class. Default `False`.
-        return False
+    # @property
+    # def _general(self):
+    #     # Boolean field that if `True` then the kernel has a unique kernel for each and every class, if `False` then
+    #     # there is a single and shared kernel for each class. Default `False`.
+    #     return False
 
     @abstractmethod
     def kernel(self):
@@ -102,42 +102,44 @@ class Kernel(ABC):
         This method should be implemented in every concrete kernel.
         """
 
-     def _Matern_initialise(self, varphi):
-            # Initialise as Matern type kernel (loosely defined here as a kernel with a length scale)
-            if ((type(varphi) is list) or
-                    (type(varphi) is np.ndarray)):
-                if np.shape(varphi) == (1,):
-                    # e.g. [[1]]
-                    L = 1
-                    M = 1
-                elif np.shape(varphi) == ():
-                    # e.g. [1]
-                    L = 1
-                    M = 1
-                elif np.shape(varphi[0]) == (1,):
-                    # e.g. [[1],[2],[3]]
-                    L = np.shape(varphi)[0]
-                    M = 1
-                elif np.shape(varphi[0]) == ():
-                    # e.g. [1, 2, 3]
-                    L = 1
-                    M = np.shape(varphi)[0]
-                else:
-                    # e.g. [[1, 2], [3, 4], [5, 6]]
-                    L = np.shape(varphi)[0]
-                    M = np.shape(varphi)[1]
-            elif ((type(varphi) is float) or
-                    (type(varphi) is np.float64)):
-                # e.g. 1
+    def _Matern_initialise(self, varphi):
+        """
+        # Initialise as Matern type kernel (loosely defined here as a kernel with a length scale) 
+        """
+        if ((type(varphi) is list) or
+                (type(varphi) is np.ndarray)):
+            if np.shape(varphi) == (1,):
+                # e.g. [[1]]
                 L = 1
                 M = 1
-                varphi = np.float64(varphi)
+            elif np.shape(varphi) == ():
+                # e.g. [1]
+                L = 1
+                M = 1
+            elif np.shape(varphi[0]) == (1,):
+                # e.g. [[1],[2],[3]]
+                L = np.shape(varphi)[0]
+                M = 1
+            elif np.shape(varphi[0]) == ():
+                # e.g. [1, 2, 3]
+                L = 1
+                M = np.shape(varphi)[0]
             else:
-                raise TypeError(
-                    "Type of varphi is not supported "
-                    "(expected {} or {}, got {})".format(
-                        float, np.ndarray, type(varphi)))
-            return varphi, L, M
+                # e.g. [[1, 2], [3, 4], [5, 6]]
+                L = np.shape(varphi)[0]
+                M = np.shape(varphi)[1]
+        elif ((type(varphi) is float) or
+                (type(varphi) is np.float64)):
+            # e.g. 1
+            L = 1
+            M = 1
+            varphi = np.float64(varphi)
+        else:
+            raise TypeError(
+                "Type of varphi is not supported "
+                "(expected {} or {}, got {})".format(
+                    float, np.ndarray, type(varphi)))
+        return varphi, L, M
 
     def hyperparameter_update(self, varphi=None, scale=None, sigma=None, tau=None):
         if varphi is not None:
@@ -207,8 +209,6 @@ class Linear(Kernel):
 
     @property
     def _ARD(self):
-        # Boolean field that if `True` then the kernel has Automatic-relavance-detection (ARD) capabilities, if `False`,
-        # then there is a shared and single lengthscale across all data dimensions. Default `False`.
         return False
 
     @property
@@ -217,13 +217,10 @@ class Linear(Kernel):
 
     @property
     def _Matern(self):
-        # Does this kernel have a lengthscale?
         return False
 
     @property
     def _general(self):
-        # Boolean field that if `True` then the kernel has a unique kernel for each and every class, if `False` then
-        # there is a single and shared kernel for each class. Default `False`.
         return False
 
     def kernel(self, X_i, X_j):
@@ -809,7 +806,7 @@ class SEARDMultinomial(Kernel):
         if varphi is not None:
             self.varphi, self.L, self.M = self._Matern_initialise(varphi)
         else:
-            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None))
+            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None)))
         # For this kernel, the general and ARD setting are assumed.
         if self.L <= 1:
             raise ValueError('L wrong for general kernel (expected {}, got {})'.format(
@@ -1005,7 +1002,7 @@ class SEARD(Kernel):
         if varphi is not None:
             self.varphi, self.L, self.M = self._Matern_initialise(varphi)
         else:
-            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None))
+            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None)))
         # For this kernel, the ARD setting is assumed. This is not a general_kernel, since the covariance function
         # is shared across classes. 
         if self.L > 1:

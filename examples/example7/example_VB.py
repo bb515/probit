@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import pathlib
 from scipy.optimize import minimize
 from probit.data.utilities import (generate_prior_data, generate_synthetic_data, get_Y_trues, colors, datasets,
-    metadata, load_data, load_data_synthetic, training, training_varphi)
+    metadata, load_data, load_data_synthetic, training)
 import sys
 import time
 
@@ -23,7 +23,7 @@ now = time.ctime()
 write_path = pathlib.Path()
 
 
-def VB_plot(dataset, Kernel, X_train, t_train, X_true, Y_true, m_0, gamma, steps, varphi, noise_variance, scale, K, D):
+def VB_plot(dataset, Kernel, X_train, t_train, X_true, Y_true, m_0, gamma, steps, varphi, noise_variance, scale, J, D):
     """Plots for Chu data."""
     kernel = Kernel(varphi=varphi, scale=scale)
     # Initiate classifier
@@ -33,7 +33,7 @@ def VB_plot(dataset, Kernel, X_train, t_train, X_true, Y_true, m_0, gamma, steps
     # TODO: correct these output arguments
     gamma, m_tilde, dm_tilde, Sigma_tilde, cov, C_tilde, calligraphic_Z, y_tilde, p, varphi_tilde, *_ = variational_classifier.estimate(
         steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=m_0, fix_hyperparameters=True, write=False)
-    fx = variational_classifier.evaluate_function(m_tilde, Sigma_tilde, C_tilde, calligraphic_Z)
+    fx = variational_classifier.objective(m_tilde, Sigma_tilde, C_tilde, calligraphic_Z)
     (xlims, ylims) = metadata[dataset]["plot_lims"]
     N = 75
     x1 = np.linspace(xlims[0], xlims[1], N)
@@ -44,21 +44,21 @@ def VB_plot(dataset, Kernel, X_train, t_train, X_true, Y_true, m_0, gamma, steps
     X_new_ = np.zeros((N * N, D))
     X_new_[:, :2] = X_new
     Z = variational_classifier.predict(gamma, cov, y_tilde, varphi_tilde, noise_variance, X_new_)
-    Z_new = Z.reshape((N, N, K))
+    Z_new = Z.reshape((N, N, J))
     print(np.sum(Z, axis=1), 'sum')
-    for i in range(K):
+    for j in range(J):
         fig, axs = plt.subplots(1, figsize=(6, 6))
-        plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
-        plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
-        # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
+        plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
+        plt.scatter(X_train[np.where(t_train == j)][:, 0], X_train[np.where(t_train == j)][:, 1], color='red')
+        # plt.scatter(X_train[np.where(t == j + 1)][:, 0], X_train[np.where(t == j + 1)][:, 1], color='blue')
         plt.xlabel(r"$x_1$", fontsize=16)
         plt.ylabel(r"$x_2$", fontsize=16)
-        plt.savefig("contour_EP_{}.pdf".format(i))
+        plt.savefig("contour_EP_{}.png".format(i))
         plt.close()
     return fx
 
 
-def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, steps, varphi, noise_variance, scale, K, D,
+def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, steps, varphi, noise_variance, scale, J, D,
         sigma=10e-6, tau=10e-6, colors=colors):
     """Plots for synthetic data."""
     kernel = Kernel(varphi=varphi, scale=scale)
@@ -78,7 +78,7 @@ def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, s
                     gamma, noise_std, m_tilde,
                     upper_bound=variational_classifier.upper_bound, upper_bound2=variational_classifier.upper_bound2)
     N = variational_classifier.N
-    fx, _ = variational_classifier.evaluate_function(N, m_tilde, Sigma_tilde, C, calligraphic_Z, noise_variance)
+    fx, _ = variational_classifier.objective(N, m_tilde, Sigma_tilde, C, calligraphic_Z, noise_variance)
     if dataset == "tertile":
         x_lims = (-0.5, 1.5)
         N = 1000
@@ -100,10 +100,10 @@ def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, s
                           colors[0], colors[1], colors[2])
                       )
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
-        for k in range(K):
-            plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, s=15, facecolors=colors[k],
+        for j in range(J):
+            plt.scatter(X[np.where(t == j)], np.zeros_like(X[np.where(t == j)]) + val, s=15, facecolors=colors[j],
                         edgecolors='white')
-        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].pdf"
+        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].png"
                   .format(x_lims[0], x_lims[1]))
         plt.show()
         plt.close()
@@ -114,10 +114,10 @@ def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, s
         plt.plot(X_true, Y_true, 'b')
         plt.ylim(-2.2, 2.2)
         plt.xlim(-0.5, 1.5)
-        for i in range(K):
+        for j in range(J):
             plt.scatter(
-                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, s=15, facecolors=colors[i], edgecolors='white')
-        plt.savefig("scatter_versus_posterior_mean.pdf")
+                X[np.where(t == j)], np.zeros_like(X[np.where(t == j)]) + val, s=15, facecolors=colors[j], edgecolors='white')
+        plt.savefig("scatter_versus_posterior_mean.png")
         plt.show()
         plt.close()
     elif dataset == "septile":
@@ -139,10 +139,10 @@ def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, s
                 colors[0], colors[1], colors[2], colors[3], colors[4], colors[5], colors[6]))
         plt.legend()
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
-        for i in range(K):
+        for j in range(J):
             plt.scatter(
-                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, s=15, facecolors=colors[i], edgecolors='white')
-        plt.savefig("Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}].pdf"
+                X[np.where(t == j)], np.zeros_like(X[np.where(t == j)]) + val, s=15, facecolors=colors[j], edgecolors='white')
+        plt.savefig("Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}].png"
                   .format(x_lims[1], x_lims[0]))
         plt.close()
     elif dataset=="thirteen":
@@ -166,10 +166,10 @@ def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, s
                       colors=colors
                       )
         val = 0.5  # this is the value where you want the data to appear on the y-axis.
-        for k in range(K):
-            plt.scatter(X[np.where(t == k)], np.zeros_like(X[np.where(t == k)]) + val, s=15, facecolors=colors[k],
+        for j in range(J):
+            plt.scatter(X[np.where(t == j)], np.zeros_like(X[np.where(t == j)]) + val, s=15, facecolors=colors[j],
                         edgecolors='white')
-        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].pdf"
+        plt.savefig("Ordered Gibbs Cumulative distribution plot of class distributions for x_new=[{}, {}].png"
                   .format(x_lims[0], x_lims[1]))
         plt.show()
         plt.close()
@@ -180,10 +180,10 @@ def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, s
         plt.plot(X_true, Y_true, 'b')
         plt.ylim(-2.2, 2.2)
         plt.xlim(-0.5, 1.5)
-        for i in range(K):
+        for j in range(J):
             plt.scatter(
-                X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]), s=15, facecolors=colors[i], edgecolors='white')
-        plt.savefig("scatter_versus_posterior_mean.pdf")
+                X[np.where(t == j)], np.zeros_like(X[np.where(t == j)]), s=15, facecolors=colors[j], edgecolors='white')
+        plt.savefig("scatter_versus_posterior_mean.png")
         plt.show()
         plt.close()
     return fx
@@ -191,7 +191,7 @@ def VB_plot_synthetic(dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, s
 
 def VB_testing(
         dataset, Kernel, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, scale,
-        K, D, sigma=10e-6, tau=10e-6, plot=True):
+        J, D, sigma=10e-6, tau=10e-6, plot=True):
     grid = np.ogrid[0:len(X_test[:, :])]
     kernel = Kernel(varphi=varphi, scale=scale)
     noise_std = np.sqrt(noise_variance)
@@ -209,17 +209,17 @@ def VB_testing(
             first_step=1, fix_hyperparameters=True, write=False)
         calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, *_ = variational_classifier._calligraphic_Z(
             gamma, noise_std, m_0)
-        fx, C_inv = variational_classifier.evaluate_function(
+        fx, C_inv = variational_classifier.objective(
             variational_classifier.N, m_0, Sigma, C, calligraphic_Z, noise_variance,
             numerical_stability=True, verbose=False)
         error = np.abs(fx_old - fx)  # TODO: usually converges pretty fast and anyway this is redundant.
         fx_old = fx
         if 1:
             print("({}), error={}".format(iteration, error))
-    fx, C_inv= variational_classifier.evaluate_function(
+    fx, C_inv= variational_classifier.objective(
         variational_classifier.N, m_0, Sigma, C, calligraphic_Z, noise_variance, verbose=True)
     # Test
-    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov_, y, varphi, noise_variance, X_test)  # (N_test, K)
+    Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov_, y, varphi, noise_variance, X_test)  # (N_test, J)
     predictive_likelihood = Z[grid, t_test]
     log_predictive_probability = np.sum(np.log(predictive_likelihood))
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
@@ -245,25 +245,25 @@ def VB_testing(
     mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
     print("mean_absolute_error ", mean_absolute_error)
     Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov_, y, varphi, noise_variance, X_new_)
-    Z_new = Z.reshape((N, N, K))
+    Z_new = Z.reshape((N, N, J))
     print(np.sum(Z, axis=1), 'sum')
     if plot:
-        for i in range(K):
+        for j in range(J):
             fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
-            plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
-            plt.scatter(X_test[np.where(t_test == i)][:, 0], X_test[np.where(t_test == i)][:, 1], color='blue')
-            # plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
+            plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
+            plt.scatter(X_train[np.where(t_train == j)][:, 0], X_train[np.where(t_train == j)][:, 1], color='red')
+            plt.scatter(X_test[np.where(t_test == j)][:, 0], X_test[np.where(t_test == j)][:, 1], color='blue')
+            # plt.scatter(X_train[np.where(t == j + 1)][:, 0], X_train[np.where(t == j + 1)][:, 1], color='blue')
             # plt.xlim(xlims)
             # plt.ylim(ylims)
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("contour_VB_{}.pdf".format(i))
+            plt.savefig("contour_VB_{}.png".format(i))
             plt.close()
     return fx, mean_zero_one, predictive_likelihood, mean_absolute_error, log_predictive_probability
 
 
-def test(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, split, steps, gamma_0, varphi_0, noise_variance_0, scale_0, K, D):
+def test(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, split, steps, gamma_0, varphi_0, noise_variance_0, scale_0, J, D):
     X_train = X_trains[split, :, :]
     t_train = t_trains[split, :]
     X_test = X_tests[split, :, :]
@@ -273,17 +273,17 @@ def test(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, split, steps, ga
     # variational_classifier = VBOrderedGP(noise_variance_0, X_train, t_train, kernel)
     # Skip training
     # gamma, varphi, noise_variance = training(
-    #     variational_classifier, X_train, t_train, m_0, gamma_0, varphi_0, noise_variance_0, scale_0, K)
+    #     variational_classifier, X_train, t_train, m_0, gamma_0, varphi_0, noise_variance_0, scale_0, J)
     gamma = gamma_0
     varphi = varphi_0
     noise_variance = noise_variance_0
     scale = scale_0
     fx, zero_one, predictive_likelihood, mean_abs, log_pred_prob = VB_testing(
-        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, scale, K, D)
+        dataset, X_train, t_train, X_test, t_test, steps, gamma, varphi, noise_variance, scale, J, D)
     return gamma, varphi, noise_variance, zero_one, predictive_likelihood, log_pred_prob, mean_abs, fx
 
 
-def outer_loops(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, scale_0, K, D):
+def outer_loops(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, scale_0, J, D):
     bounds = []
     zero_ones = []
     predictive_likelihoods = []
@@ -295,7 +295,7 @@ def outer_loops(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, steps, ga
     for split in range(20):
         gamma, varphi, noise_variance, zero_one, predictive_likelihood, log_pred_prob, mean_abs, fx = test(
             dataset, Kernel, X_trains, t_trains, X_tests, t_tests, split, steps,
-            gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, scale_0, K=K, D=D)
+            gamma_0=gamma_0, varphi_0=varphi_0, noise_variance_0=noise_variance_0, scale_0=scale_0, J=J, D=D)
         bounds.append(fx)
         zero_ones.append(zero_one)
         predictive_likelihoods.append(predictive_likelihood)
@@ -340,7 +340,7 @@ def outer_loops(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, steps, ga
     return 0
 
 
-def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot=False):
+def outer_loops_Rogers(J, Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gamma, plot=False):
     steps = 50
     grid = np.ogrid[0:len(X_tests[0, :, :])]
     avg_bounds_Z = []
@@ -382,11 +382,11 @@ def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gam
             # Initiate classifier
             y_0 = Y_true.flatten()
             m_0 = y_0
-            variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
+            variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel, J)
             m_tilde, dm_tilde, Sigma_tilde, cov, C_tilde, calligraphic_Z, y_tilde, p, varphi_tilde, *_ = variational_classifier.estimate(
                 steps, gamma, varphi, noise_variance=noise_variance, m_tilde_0=m_0, fix_hyperparameters=True,
                 write=False)
-            fx = variational_classifier.evaluate_function(m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, verbose=True)
+            fx = variational_classifier.objective(m_tilde, Sigma_tilde, C_tilde, calligraphic_Z, verbose=True)
             bounds_Z.append(fx)
             # Test
             Z, posterior_predictive_m, posterior_std = variational_classifier.predict(gamma, cov, y_tilde, varphi_tilde, noise_variance, X_test)
@@ -432,7 +432,7 @@ def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gam
             axs.set_yscale('log')
             plt.xlabel(r"$\log{\varphi}$", fontsize=16)
             plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - Predictive likelihood of test set.pdf")
+            plt.savefig("Contour plot - Predictive likelihood of test set.png")
             plt.close()
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, bounds_Z)
@@ -441,7 +441,7 @@ def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gam
             axs.set_yscale('log')
             plt.xlabel(r"$\log{\varphi}$", fontsize=16)
             plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - Variational lower bound.pdf")
+            plt.savefig("Contour plot - Variational lower bound.png")
             plt.close()
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, zero_one_Z)
@@ -450,7 +450,7 @@ def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gam
             axs.set_yscale('log')
             plt.xlabel(r"$\log{\varphi}$", fontsize=16)
             plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - mean zero-one accuracy.pdf")
+            plt.savefig("Contour plot - mean zero-one accuracy.png")
             plt.close()
     avg_max_bound = np.average(np.array(max_bounds))
     std_max_bound = np.std(np.array(max_bounds))
@@ -499,7 +499,7 @@ def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gam
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - Predictive likelihood of test set.pdf")
+    plt.savefig("Contour plot - Predictive likelihood of test set.png")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_bounds_Z)
@@ -508,7 +508,7 @@ def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gam
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - Variational lower bound.pdf")
+    plt.savefig("Contour plot - Variational lower bound.png")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_zero_one_Z)
@@ -517,7 +517,7 @@ def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gam
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - mean zero-one accuracy.pdf")
+    plt.savefig("Contour plot - mean zero-one accuracy.png")
     plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
     plt.contourf(x1, x2, avg_mean_abs_Z)
@@ -526,10 +526,10 @@ def outer_loops_Rogers(Kernel, X_trains, t_trains, X_tests, t_tests, Y_true, gam
     axs.set_yscale('log')
     plt.xlabel(r"$\log{\varphi}$", fontsize=16)
     plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - mean absolute error accuracy.pdf")
+    plt.savefig("Contour plot - mean absolute error accuracy.png")
     plt.close()
 
-def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
+def grid_synthetic(J, Kernel, X_train, t_train, range_x1, range_x2,
                    gamma=None, varphi=None, noise_variance=None, scale=1.0, show=False):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     sigma = 10e-6
@@ -538,14 +538,14 @@ def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
     # Just for initiation
     kernel = Kernel(varphi=1.0, scale=scale)
     # Initiate classifier
-    variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
+    variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel, J)
     Z, grad, x, y, xlabel, ylabel, xscale, yscale = variational_classifier.grid_over_hyperparameters(
         range_x1, range_x2, res, gamma_0=gamma, varphi_0=varphi, noise_variance_0=noise_variance,
         scale_0=scale)
     print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         plt.plot(x, Z)
-        plt.savefig("grid_over_hyperparameters.pdf")
+        plt.savefig("grid_over_hyperparameters.png")
         if show: plt.show()
         plt.close()
         plt.plot(x, Z, 'b')
@@ -553,7 +553,7 @@ def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
         plt.xlabel(xlabel)
         plt.xscale(xscale)
         plt.ylabel(r"$\mathcal{F}$")
-        plt.savefig("bound.pdf")
+        plt.savefig("bound.png")
         if show: plt.show()
         plt.close()
         plt.plot(x, grad, 'r')
@@ -561,7 +561,7 @@ def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
         plt.xscale(xscale)
         plt.xlabel(xlabel)
         plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
-        plt.savefig("grad.pdf")
+        plt.savefig("grad.png")
         if show: plt.show()
         plt.close()
         #Normalization:
@@ -576,7 +576,7 @@ def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
         plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
         plt.plot(log_x, dZ_, 'r--', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
         plt.legend()
-        plt.savefig("both.pdf")
+        plt.savefig("both.png")
         if show: plt.show()
         plt.close()
         plt.vlines(np.log(30.0), -80, 20, 'k', alpha=0.5, label=r"'true' $\log \varphi$")
@@ -585,7 +585,7 @@ def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
         plt.plot(log_x, dZ_, 'r--', label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
         plt.xlabel("log " + xlabel)
         plt.legend()
-        plt.savefig("bound_grad.pdf")
+        plt.savefig("bound_grad.png")
         if show: plt.show()
         plt.close()
     else:
@@ -595,7 +595,7 @@ def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
                         cmap='viridis', edgecolor='none')
         plt.xscale(xscale)
         plt.yscale(yscale)
-        plt.savefig("grid_over_hyperparameters.pdf")
+        plt.savefig("grid_over_hyperparameters.png")
         if show: plt.show()
         plt.close()
         norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
@@ -611,7 +611,7 @@ def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
         plt.yscale(yscale)
         plt.xlabel(xlabel, fontsize=16)
         plt.ylabel(ylabel, fontsize=16)
-        plt.savefig("Contour plot - VB lower bound on the log likelihood.pdf")
+        plt.savefig("Contour plot - VB lower bound on the log likelihood.png")
         if show: plt.show()
         plt.close()
         # fig, ax = plt.subplots(1, 1)
@@ -623,12 +623,12 @@ def grid_synthetic(Kernel, X_train, t_train, range_x1, range_x2,
         # plt.yscale(yscale)
         # plt.xlabel(xlabel, fontsize=16)
         # plt.ylabel(ylabel, fontsize=16)
-        # plt.savefig("Contour plot - log VB lower bound on the log likelihood.pdf")
+        # plt.savefig("Contour plot - log VB lower bound on the log likelihood.png")
         # if show: plt.show()
         # plt.close()
 
 
-def VB_training(dataset, Kernel, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, scale_0, K):
+def VB_training(dataset, Kernel, method, X_train, t_train, gamma_0, varphi_0, noise_variance_0, scale_0, J):
     """
     An example ordinal training function.
 
@@ -641,12 +641,12 @@ def VB_training(dataset, Kernel, method, X_train, t_train, gamma_0, varphi_0, no
     # Initiate classifier
     variational_classifier = VBOrderedGP(noise_variance, X_train, t_train, kernel)
     gamma, varphi, noise_variance, scale = training(
-        dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, scale_0, K)
+        dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, scale_0, J)
     return gamma, varphi, noise_variance, scale
 
 
 def test_synthetic(
-    dataset, Kernel, method, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors=colors):
+    dataset, Kernel, method, X_train, t_train, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, J, D, colors=colors):
     """Test some particular hyperparameters."""
     gamma = gamma_0
     varphi = varphi_0
@@ -657,18 +657,18 @@ def test_synthetic(
     # # Initiate classifier
     # variational_classifier = VBOrderedGP(noise_variance_0, X_train, t_train, kernel)
     # gamma, varphi, noise_variance, scale = VB_training(
-    #     dataset, Kernel, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, scale_0, K)
+    #     dataset, Kernel, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, scale_0, J)
     # print("gamma = {}, gamma_0 = {}".format(gamma, gamma_0))
     # print("varphi = {}, varphi_0 = {}".format(varphi, varphi_0))
     # print("noise_variance = {}, noise_variance_0 = {}".format(noise_variance, noise_variance_0))
     # # print("gamma_0 = {}, varphi_0 = {}, noise_variance_0 = {}".format(gamma_0, varphi_0, noise_variance_0))
     fx = VB_plot_synthetic(dataset, Kernel, X_train, t_train, X_true, Y_true, None, gamma, steps,
-        varphi, noise_variance, scale, K, D, sigma=10e-6, tau=10e-6, colors=colors)
+        varphi, noise_variance, scale, J, D, sigma=10e-6, tau=10e-6, colors=colors)
     print("fx={}".format(fx))
     return fx
 
 
-# def test_plots(dataset, Kernel, X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance, scale, K):
+# def test_plots(dataset, Kernel, X_test, X_train, t_test, t_train, Y_true, gamma, varphi, noise_variance, scale, J):
 #     """TODO: looks like it needs fixing for VB"""
 #     grid = np.ogrid[0:len(X_test)]
 #     kernel = Kernel(varphi=varphi, scale=scale, sigma=10e-6, tau=10e-6)
@@ -714,19 +714,19 @@ def test_synthetic(
 
 #         Z = variational_classifier.predict(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda,
 #                                            vectorised=True)
-#         Z_new = Z.reshape((N, N, K))
+#         Z_new = Z.reshape((N, N, J))
 #         print(np.sum(Z, axis=1), 'sum')
-#         for i in range(K):
+#         for j in range(J):
 #             fig, axs = plt.subplots(1, figsize=(6, 6))
-#             plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
-#             plt.scatter(X_train[np.where(t_train == i)][:, 0], X_train[np.where(t_train == i)][:, 1], color='red')
-#             plt.scatter(X_test[np.where(t_test == i)][:, 0], X_test[np.where(t_test == i)][:, 1], color='blue')
-#             #plt.scatter(X_train[np.where(t == i + 1)][:, 0], X_train[np.where(t == i + 1)][:, 1], color='blue')
+#             plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
+#             plt.scatter(X_train[np.where(t_train == j)][:, 0], X_train[np.where(t_train == j)][:, 1], color='red')
+#             plt.scatter(X_test[np.where(t_test == j)][:, 0], X_test[np.where(t_test == j)][:, 1], color='blue')
+#             #plt.scatter(X_train[np.where(t == j + 1)][:, 0], X_train[np.where(t == j + 1)][:, 1], color='blue')
 #             # plt.xlim(0, 2)
 #             # plt.ylim(0, 2)
 #             plt.xlabel(r"$x_1$", fontsize=16)
 #             plt.ylabel(r"$x_2$", fontsize=16)
-#             plt.savefig("Contour plot - Variational.pdf")
+#             plt.savefig("Contour plot - Variational.png")
 #             plt.close()
 
 
@@ -739,14 +739,11 @@ def main():
         "bins", help="quantile or decile")
     parser.add_argument(
         "method", help="L-BFGS-B or CG or Newton-CG or BFGS")
-    parser.add_argument(
-        "--data_from_prior", help="data is from prior?", action='store_const', const=True)
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
     bins = args.bins
-    data_from_prior = args.data_from_prior
     method = args.method
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
@@ -754,37 +751,37 @@ def main():
         profile.enable()
     #sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets:
-        X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, Kernel = load_data(  # TODO: update with colors
+        X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, J, D, Kernel = load_data(
             dataset, bins)
         steps = 1000
         gamma_0 = np.array(gamma_0)
-        outer_loops(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, scale_0, K, D)
+        outer_loops(dataset, Kernel, X_trains, t_trains, X_tests, t_tests, steps, gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
         # gamma, varphi, noise_variance = VB_training(dataset, Kernel, method, X_trains[2], t_trains[2], gamma_0, varphi_0,
-        #     noise_variance_0, scale_0, K)
+        #     noise_variance_0, scale_0, J)
         # VB_testing(
         #     dataset, Kernel, X_trains[2], t_trains[2], X_tests[2], t_tests[2], steps, gamma=gamma, varphi=varphi,
-        #     noise_variance=noise_variance, scale=scale, K)
+        #     noise_variance=noise_variance, scale=scale, J)
     else:
         # TODO: will need to extract test/train data for outerloops
-        X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors, Kernel = load_data_synthetic(dataset, data_from_prior)
+        X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, J, D, colors, Kernel = load_data_synthetic(dataset, bins)
         print(gamma_0)
         print(varphi_0)
         print(noise_variance_0)
         print(scale_0)
         # test_plots(dataset, Kernel, X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
         # just scale
-        # grid_synthetic(Kernel, X, t, [0., 1.8], None, gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0, scale_0=scale_0)
+        # grid_synthetic(J, Kernel, X, t, [0., 1.8], None, gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0, scale_0=scale_0)
         # just std
-        # grid_synthetic(Kernel, X, t, [-1., 4.], None, gamma=gamma_0, varphi=varphi_0, scale=scale_0, show=True)
+        # grid_synthetic(J, Kernel, X, t, [-0.1, 1.], None, gamma=gamma_0, varphi=varphi_0, scale=scale_0, show=True)
         # varphi and scale
-        # grid_synthetic(Kernel, X, t, [0, 2], [0, 2], gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0)
+        # grid_synthetic(J, Kernel, X, t, [0, 2], [0, 2], gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0)
         # varphi and std
-        # grid_synthetic(Kernel, X, t, [0, 2], [0, 2], gamma=gamma_0, scale=scale_0)
+        # grid_synthetic(J, Kernel, X, t, [0, 2], [0, 2], gamma=gamma_0, scale=scale_0)
         # # Just varphi
-        grid_synthetic(Kernel, X, t, [-4, 4], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0, fix_s=True, show=True)
+        grid_synthetic(J, Kernel, X, t, [-4, 4], None, gamma=gamma_0, noise_variance=noise_variance_0, scale=scale_0, show=True)
         # # Two of the cutpoints
-        # grid_synthetic(Kernel, X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=scale_0)
-        # test_synthetic(dataset, Kernel, method, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale=scale_0, K, D, colors=colors)
+        # grid_synthetic(J, Kernel, X, t, [-2, 2], [-3, 1], varphi=varphi_0, noise_variance=noise_variance_0, scale=scale_0)
+        # test_synthetic(dataset, Kernel, method, X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale=scale_0, J, D, colors=colors)
     if args.profile:
         profile.disable()
         s = StringIO()

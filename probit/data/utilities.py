@@ -176,7 +176,7 @@ def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_v
     elif (gamma_0 is not None
             and noise_variance_0 is not None
             and varphi_0 is not None
-            and scale_0 is not None)
+            and scale_0 is not None):
         # Optimize only first two threshold parameters
         theta.append(gamma_0[1])
         theta.append(np.log(gamma_0[2] - gamma_0[1]))
@@ -249,7 +249,7 @@ def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_v
     elif (gamma_0 is not None
             and noise_variance_0 is not None
             and varphi_0 is not None
-            and scale_0 is not None)
+            and scale_0 is not None):
         # Optimize only first two threshold parameters
         gamma = gamma_0
         gamma[1] = theta[1]
@@ -1312,6 +1312,7 @@ def generate_synthetic_data_new(N_per_class, N_test, splits, K, D, varphi=30.0, 
 
 def load_data_synthetic(dataset, bins, plot=False):
     """Load synethetic data."""
+    print(dataset)
     if dataset == "SEIso":
         D = 1
         Kernel = SEIso
