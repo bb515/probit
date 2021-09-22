@@ -141,7 +141,8 @@ class Kernel(ABC):
                     float, np.ndarray, type(varphi)))
         return varphi, L, M
 
-    def hyperparameter_update(self, varphi=None, scale=None, sigma=None, tau=None):
+    def hyperparameter_update(
+        self, varphi=None, scale=None, sigma=None, tau=None):
         if varphi is not None:
             self.varphi, self.L, self.M = self._Matern_initialise(varphi)
         if scale is not None:
@@ -155,10 +156,10 @@ class Kernel(ABC):
             self.tau = tau
         if bool(self.sigma) != bool(self.tau):
             raise TypeError(
-                "If a sigma hyperhyperparameter is provided, then a tau hyperhyperparameter must be provided"
+                "If a sigma hyperhyperparameter is provided, then a tau "
+                "hyperhyperparameter must be provided"
                 " (expected {}, got {})".format(np.ndarray, type(tau))
             )
-        return 0
 
     def distance_mat(self, X1, X2):
         """

@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
 from probit.kernels import SEIso, SEARD, Linear, Polynomial
-from scipy.optimize import minimize
 import warnings
 import time
 
@@ -112,11 +111,13 @@ metadata = {
 }
 
 
-def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_variance_0, scale_0, K, calculate_all_gradients=True):
+def indices_initiate(
+        self, gamma_0, varphi_0, noise_variance_0, scale_0,
+        J, indices):
     """
-    An example ordinal training function.
-    :arg variational_classifier:
-    :type variational_classifier: :class:`probit.estimators.Estimator` or :class:`probit.samplers.Sampler`
+    # TODO: include the kernel is this bad boy.
+    Evaluate container for gradient of the objective function.
+
     :arg gamma_0:
     :type gamma_0:
     :arg varphi_0:
@@ -125,139 +126,63 @@ def training(dataset, method, variational_classifier, gamma_0, varphi_0, noise_v
     :type noise_variance_0:
     :arg scale_0:
     :type scale_0:
-    :arg K:
-    :type K:
-    :arg method:
-    :type method:
-    :arg int maxiter:
-    :return:
+    :arg bool calculate_all_gradients:
     """
-    minimize_stopper = MinimizeStopper(max_sec=metadata[dataset]["max_sec"])
-    theta = []
-    if calculate_all_gradients:
-        theta.append(np.log(np.sqrt(noise_variance_0)))
-        theta.append(gamma_0[1])
-        for i in range(2, K):
-            theta.append(np.log(gamma_0[i] - gamma_0[i - 1]))
-        theta.append(np.log(np.sqrt(scale_0)))
-        theta.append(np.log(varphi_0))
+    # noise_var, b_1, [\Delta^1, \Delta^2, ..., \Delta^(J-2)], scale(s),
+    # kernel specific hyperparameters
+    indices = np.zeros(
+        (1 + 1 + (J - 2) + 1 + 1,))
+    if calculate_all_gradients is True:
+        # Optimize all hyperparameters
+        indices[:] = 1
+        if optimize_scale:
+            indices[0] = 0
+        else:
+            indices[self.J] = 0
     elif (gamma_0 is not None
             and varphi_0 is None
             and noise_variance_0 is None
             and scale_0 is not None):
         # Optimize only varphi and noise variance
-        theta.append(np.log(np.sqrt(noise_variance_0)))
-        theta.append(np.log(varphi_0))
+        indices[0] = 1
+        indices[-self.kernel.num_hyperparameters:] = 1
     elif (gamma_0 is not None
             and varphi_0 is None
             and noise_variance_0 is not None
             and scale_0 is None):
         # Optimize only varphi and scale
-        theta.append(np.log(np.sqrt(scale_0)))
-        theta.append(np.log(varphi_0))
+        indices[self.J] = 1
+        indices[-self.kernel.num_hyperparameters:] = 1
     elif (gamma_0 is not None
             and noise_variance_0 is not None
             and varphi_0 is None
             and scale_0 is not None):
         # Optimize only varphi
-        theta.append(np.log(varphi_0))
+        indices[-self.kernel.num_hyperparameters:] = 1
     elif (gamma_0 is not None
             and noise_variance_0 is None
             and varphi_0 is not None
-            and scale_0 is not None):
+            and scale_0 is not None
+            ):
         # Optimize only noise variance
-        theta.append(np.log(np.sqrt(noise_variance_0)))
+        indices[0] = 1
     elif (gamma_0 is not None
             and noise_variance_0 is not None
             and varphi_0 is not None
-            and scale_0 is None):
+            and scale_0 is None
+            ):
         # Optimize only scale
-        theta.append(np.log(np.sqrt(scale_0)))
+        indices[self.J] = 1
     elif (gamma_0 is not None
             and noise_variance_0 is not None
             and varphi_0 is not None
-            and scale_0 is not None):
+            and scale_0 is not None
+            ):
         # Optimize only first two threshold parameters
-        theta.append(gamma_0[1])
-        theta.append(np.log(gamma_0[2] - gamma_0[1]))
-    theta = np.array(theta)
-    args = (gamma_0, varphi_0, noise_variance_0, scale_0, calculate_all_gradients)
-    res = minimize(variational_classifier.hyperparameter_training_step, theta, args, method=method, jac=True,
-        callback = minimize_stopper.__call__)
-    theta = res.x
-    if calculate_all_gradients:
-        noise_std = np.exp(theta[0])
-        noise_variance = noise_std**2
-        gamma = np.empty((K + 1,))
-        gamma[0] = np.NINF
-        gamma[-1] = np.inf
-        gamma[1] = theta[1]
-        for i in range(2, K):
-            gamma[i] = gamma[i - 1] + np.exp(theta[i])
-        scale_std = np.exp(theta[K])
-        scale = scale_std**2
-        varphi = np.exp(theta[K + 1])
-    elif (gamma_0 is not None
-            and varphi_0 is None
-            and noise_variance_0 is None
-            and scale_0 is not None):
-        # Optimize only varphi and noise variance
-        noise_std = np.exp(theta[0])
-        noise_variance = noise_std**2
-        varphi = np.exp(theta[K + 1])
-        gamma = gamma_0
-        scale = scale_0
-    elif (gamma_0 is not None
-            and varphi_0 is None
-            and noise_variance_0 is not None
-            and scale_0 is None):
-        # Optimize only varphi and scale
-        scale_std = np.exp(theta[K])
-        scale = scale_std**2
-        varphi = np.exp(theta[K + 1])
-        gamma = gamma_0
-        noise_variance = noise_variance_0
-    elif (gamma_0 is not None
-            and noise_variance_0 is not None
-            and varphi_0 is None
-            and scale_0 is not None):
-        # Optimize only varphi
-        varphi = np.exp(theta[K + 1])
-        gamma = gamma_0
-        scale = scale_0
-        noise_variance = noise_variance_0
-    elif (gamma_0 is not None
-            and noise_variance_0 is None
-            and varphi_0 is not None
-            and scale_0 is not None):
-        # Optimize only noise variance
-        noise_std = np.exp(theta[0])
-        noise_variance = noise_std**2
-        gamma = gamma_0
-        scale = scale_0
-        varphi = varphi_0
-    elif (gamma_0 is not None
-            and noise_variance_0 is not None
-            and varphi_0 is not None
-            and scale_0 is None):
-        # Optimize only scale
-        scale_std = np.exp(theta[K])
-        scale = scale_std**2
-        gamma = gamma_0
-        varphi = varphi_0
-        noise_variance = noise_variance_0
-    elif (gamma_0 is not None
-            and noise_variance_0 is not None
-            and varphi_0 is not None
-            and scale_0 is not None):
-        # Optimize only first two threshold parameters
-        gamma = gamma_0
-        gamma[1] = theta[1]
-        gamma[2] = gamma[1] + np.exp(theta[2])
-        scale = scale_0
-        varphi = varphi_0
-        noise_variance = noise_variance_0
-    return gamma, varphi, noise_variance, scale
+        indices[1] = 1
+        indices[2] = 1
+    indices = np.where(indices != 0)
+    return indices
 
 def get_Y_trues(X_trains, X_true, Y_true):
     """Get Y_trues (N/K, K) from full array of true y values."""
@@ -1234,7 +1159,13 @@ def load_data(dataset, bins):
     Y_true = data_continuous["y"]  # this is not going to be the correct one(?) - see next line
     # Y_trues = get_Y_trues(X_trains, X_true, Y_true)
     Kernel = SEIso
-    return X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, K, D, Kernel
+    scale_0 = 1.0
+    return (
+        X_trains, t_trains,
+        X_tests, t_tests,
+        X_true, Y_true,
+        gamma_0, varphi_0, noise_variance_0, scale_0,
+        K, D, Kernel)
 
 
 def generate_synthetic_data_SEARD(N_per_class, K, D, varphi=[30.0, 20.0], noise_variance=1.0, scale=1.0):
@@ -1481,7 +1412,11 @@ def load_data_synthetic(dataset, bins, plot=False):
             print(X)
     if plot:
         plot_ordinal(X, t, X_k, Y_true_k, K, D)
-    return X, t, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, scale_0, K, D, colors, Kernel
+    return (
+        X, t,
+        X_true, Y_true,
+        gamma_0, varphi_0, noise_variance_0, scale_0,
+        K, D, colors, Kernel)
 
 
 def plot_s(kernel, N_total=500, n_samples=10):

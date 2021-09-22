@@ -5,14 +5,17 @@ import pathlib
 import numpy as np
 import random
 from scipy.stats import norm, multivariate_normal
+# import scipy.linalg.lapack.dtrtri as dtritri
 from tqdm import trange
 import warnings
 import math
 import matplotlib.pyplot as plt
 from .utilities import (
     sample_Us, sample_varphis,
-    matrix_of_differencess, matrix_of_valuess, matrix_of_VB_differencess, matrix_of_VB_differences,
-    unnormalised_log_multivariate_normal_pdf, vectorised_unnormalised_log_multivariate_normal_pdf,
+    matrix_of_differencess, matrix_of_valuess,
+    matrix_of_VB_differencess, matrix_of_VB_differences,
+    unnormalised_log_multivariate_normal_pdf,
+    vectorised_unnormalised_log_multivariate_normal_pdf,
     vectorised_multiclass_unnormalised_log_multivariate_normal_pdf,
     fromb_t1, fromb_t2, fromb_t3, fromb_t4, fromb_t5,
     fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
@@ -21,15 +24,21 @@ from .utilities import (
 
 class Estimator(ABC):
     """
-    Base class for variational Bayes estimators. This class allows users to define a classification problem,
+    Base class for variational Bayes estimators.
+
+    This class allows users to define a classification problem,
     get predictions using an approximate Bayesian inference.
 
-    All estimators must define an init method, which may or may not inherit Sampler as a parent class using
-        `super()`.
-    All estimators that inherit Estimator define a number of methods that return the posterior estimates.
-    All estimators must define a :meth:`estimate` that can be used to estimate (converge to) the posterior.
-    All estimators must define a :meth:`_estimate_initiate` that is used to initiate estimate.
-    All estimators must define a :meth:`predict` can be used to make predictions given test data.
+    All estimators must define an init method, which may or may not
+        inherit Sampler as a parent class using `super()`.
+    All estimators that inherit Estimator define a number of methods that
+        return the posterior estimates.
+    All estimators must define a :meth:`estimate` that can be used to estimate
+        (converge to) the posterior.
+    All estimators must define a :meth:`_estimate_initiate` that is used to
+        initiate estimate.
+    All estimators must define a :meth:`predict` can be used to make
+        predictions given test data.
     """
 
     @abstractmethod
@@ -61,19 +70,20 @@ class Estimator(ABC):
         self.N = np.shape(X_train)[0]
         self.X_train = X_train
         self.X_train_T = X_train.T
-        # 20/07 removed self.K here since it is not general. It changes during each initialisation.
-        self.grid = np.ogrid[0:self.N]
         if np.all(np.mod(t_train, 1) == 0):
             t_train = t_train.astype(int)
         else:
-            raise ValueError("t must contain only integer values (got {})".format(t_train))
+            raise TypeError(
+                "t must contain only integer values (got {})".format(
+                    t_train))
         if t_train.dtype != int:
-            raise ValueError("t must contain only integer values (got {})".format(t_train))
+            raise TypeError(
+                "t must contain only integer values (got {})".format(
+                    t_train))
         else:
             self.t_train = t_train
         self.J = J
-        # Needed for vectorised functions
-        self.grid = np.ogrid[0:self.N]  # All the indices for indexing sets of self.t_train
+        self.grid = np.ogrid[0:self.N]  # For indexing sets of self.t_train
         self.where_t_0 = np.where(self.t_train==0)[0]
         self.where_t_Jminus1 = np.where(self.t_train==self.J-1)[0]
         self.where_t_neither = np.setxor1d(self.grid, self.where_t_0)
@@ -91,7 +101,8 @@ class Estimator(ABC):
         else:
             self.sigma = self.kernel.sigma
             self.tau = self.kernel.tau
-        self.jitter = 1e-8  # default jitter (See GPML by Williams et al. for a good explanation of jitter)
+        # See GPML by Williams et al. for a good explanation of jitter
+        self.jitter = 1e-8 
         self.upper_bound = 6.0
         self.upper_bound2 = 18.0
 
@@ -119,15 +130,20 @@ class Estimator(ABC):
         This method should be implemented in every concrete Estimator.
         """
 
-    def _varphi_tilde(self, M_tilde, psi_tilde, n_samples=3000, vectorised=True, numerical_stability=True):
+    def _varphi_tilde(
+            self, M_tilde, psi_tilde, n_samples=3000,
+            vectorised=True, numerical_stability=True):
         """
+        # TODO: This isn't general enough to be in the ABC for estimators.
         Return the posterior mean estimate of the hyperparameters varphi.
 
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
-        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
-        Page 9 Eq.(9).
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian
+        Multinomial Probit Regression with Gaussian Process
+        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817,
+        Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(9).
 
-        This is the same for all multinomial categorical estimators, and so can live in the Abstract Base Class.
+        This is the same for all multinomial categorical estimators,
+        and so can live in the Abstract Base Class.
 
         :arg M_tilde: Posterior mean estimate of M_tilde.
         :type M_tilde: :class:`numpy.ndarray`
@@ -353,74 +369,12 @@ class Estimator(ABC):
         """Prevents overflow at large z."""
         return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + self._g(z))
 
-    def _objective_gradient_initiate(self, gamma_0, varphi_0, noise_variance_0, scale_0, calculate_all_gradients):
-        """
-        Evaluate container for gradient of the objective function.
-
-        :arg gamma_0:
-        :type gamma_0:
-        :arg varphi_0:
-        :type varphi_0:
-        :arg noise_variance_0:
-        :type noise_variance_0:
-        :arg scale_0:
-        :type scale_0:
-        :arg bool calculate_all_gradients:
-        """
-        # Initiate or reset gx
-        if self.kernel._general and self.kernel._ARD:
-            raise ValueError("TODO")
-        # noise_var, b_1, [\Delta^1, \Delta^2, ..., \Delta^(J-2)], scale, kernel specific hyperparameters
-        gx_0 = np.zeros((1 + 1 + (self.J - 2) + 1 + self.kernel.num_hyperparameters,))
-        if calculate_all_gradients is True:
-            # Optimize all hyperparameters
-            gx_0[:] = 1
-        elif (gamma_0 is not None
-                and varphi_0 is None
-                and noise_variance_0 is None
-                and scale_0 is not None):
-            # Optimize only varphi and noise variance
-            gx_0[0] = 1
-            gx_0[-self.kernel.num_hyperparameters:] = 1
-        elif (gamma_0 is not None
-                and varphi_0 is None
-                and noise_variance_0 is not None
-                and scale_0 is None):
-            # Optimize only varphi and scale
-            gx_0[self.J] = 1
-            gx_0[-self.kernel.num_hyperparameters:] = 1
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is None
-                and scale_0 is not None):
-            # Optimize only varphi
-            gx_0[-self.kernel.num_hyperparameters:] = 1
-        elif (gamma_0 is not None
-                and noise_variance_0 is None
-                and varphi_0 is not None
-                and scale_0 is not None):
-            # Optimize only noise variance
-            gx_0[0] = 1
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is not None
-                and scale_0 is None):
-            # Optimize only scale
-            gx_0[self.J] = 1
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is not None
-                and scale_0 is not None):
-            # Optimize only first two threshold parameters
-            gx_0[1] = 1
-            gx_0[2] = 1
-        indices = np.where(gx_0 != 0)
-        return gx_0, indices
-
     def _grid_over_hyperparameters_initiate(
-        self, gamma_0, varphi_0, noise_variance_0, scale_0, res, range_x1, range_x2, J, calculate_all_gradients):
+        self, gamma_0, varphi_0, noise_variance_0, scale_0,
+        res, domain, indices):
         """
-        Initiate metadata and hyperparameters for plotting the objective function surface over hyperparameters.
+        Initiate metadata and hyperparameters for plotting the objective
+        function surface over hyperparameters.
 
         :arg gamma_0:
         :type gamma_0:
@@ -437,117 +391,203 @@ class Estimator(ABC):
         :type range_x2:
         :arg int J:
         """
-        # Infer the hyperparameter space to grid over
-        if (gamma_0 is not None
-                and varphi_0 is None
-                and noise_variance_0 is None
-                and scale_0 is not None
-                ):
-            # Grid over log varphi and log noise_std
-            xlabel = r"$\sigma$"
-            ylabel = r"$\varphi$"
-            xscale = "log"
-            yscale = "log"
-            x1s = np.logspace(range_x1[0], range_x1[1], res)
-            x2s = np.logspace(range_x2[0], range_x2[1], res)
-            xx, yy = np.meshgrid(x1s, x2s)
-            Phi_new = np.dstack((xx, yy))
-            Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
+        scale = scale_0
+        gamma = gamma_0
+        varphi = varphi_0
+        noise_variance = noise_variance_0
+        index = 0
+        label = []
+        scale = []
+        space = []
+        if indices[0]:
+            # Grid over noise_std
+            label.append(r"$\sigma$")
+            scale.append("log")
+            space.append(
+                np.logspace(domain[index][0], domain[index][1], res[index]))
+            index += 1
+        if indices[1]:
+            # Grid over b_1
+            label.append(r"$\gamma_{1}$")
+            scale.append("linear")
+            space.append(
+                np.linspace(domain[index][0], domain[index][1], res[index]))
+            index += 1
+        for j in range(2, self.J):
+            if indices[j]:
+                # Grid over b_j
+                label.append(r"$\gamma_{} - \gamma{}$".format(j, j-1))
+                scale.append("log")
+                space.append(
+                    np.logspace(
+                        domain[index][0], domain[index][1], res[index]))
+                index += 1
+        if indices[self.J]:
+            # Grid over scale
+            label.append("$scale$")
+            scale.append("log")
+            space.append(
+                np.logspace(domain[index][0], domain[index][1], res[index]))
+            index += 1
+        if self.kernel._general and self.kernel._ARD:
+            gx_0 = np.empty(1 + self.J - 1 + 1 + self.J * self.D)
+            # In this case, then there is a scale parameter,
+            #  the first cutpoint, the interval parameters,
+            # and lengthscales parameter for each dimension and class
+            for j in range(self.J * self.D):
+                if indices[self.J + 1 + j]:
+                    # grid over this particular hyperparameter
+                    raise ValueError("TODO")
+                    index += 1
+        else:
+            gx_0 = np.empty(1 + self.J - 1 + 1 + 1)
+            if indices[self.J + 1]:
+                # Grid over only kernel hyperparameter, varphi
+                label.append(r"$\varphi$")
+                scale.append("log")
+                space.append(
+                    np.logspace(
+                        domain[index][0], domain[index][1], res[index]))
+                print(space)
+                index +=1
+        if index == 2:
+            meshgrid = np.meshgrid(space)
+            Phi_new = np.dstack(meshgrid)
+            Phi_new = Phi_new.reshape((len(space[0]) * len(space[1]), 2))
             fxs = np.empty(len(Phi_new))
             gxs = np.empty((len(Phi_new), 2))
-        elif (gamma_0 is not None
-                and varphi_0 is None
-                and noise_variance_0 is not None
-                and scale_0 is None):
-            # Grid over log varphi and log scale
-            xlabel = r"$s$"
-            ylabel = r"$\varphi$"
-            xscale = "log"
-            yscale = "log"
-            x1s = np.logspace(range_x1[0], range_x1[1], res)
-            x2s = np.logspace(range_x2[0], range_x2[1], res)
-            xx, yy = np.meshgrid(x1s, x2s)
-            Phi_new = np.dstack((xx, yy))
-            Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
-            fxs = np.empty(len(Phi_new))
-            gxs = np.empty((len(Phi_new), 2))
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is None
-                and scale_0 is not None):
-            # Grid over log varphi only
-            xlabel = r"$\varphi$"
-            ylabel = None
-            xscale = "log"
-            yscale = None
-            x1s = np.logspace(range_x1[0], range_x1[1], res)
-            x2s = None
-            xx = None
-            yy = None
-            Phi_new = x1s
-            fxs = np.empty(len(Phi_new))
-            gxs = np.empty(len(Phi_new))
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is not None
-                and scale_0 is not None):
-            # Grid first two gamma variables
-            xlabel = r"$\gamma_{1}$"
-            ylabel = r"$\gamma_{2} - \gamma{1}$"
-            xscale = "linear"
-            yscale = "log"
-            x1s = np.linspace(range_x1[0], range_x1[1], res)
-            x2s = np.logspace(range_x2[0], range_x2[1], res)
-            xx, yy = np.meshgrid(x1s, x2s)
-            Phi_new = np.dstack((xx, yy))
-            Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
-            fxs = np.empty(len(Phi_new))
-            gxs = np.empty((len(Phi_new),2))
-        elif (gamma_0 is not None
-                and noise_variance_0 is None
-                and varphi_0 is not None
-                and scale_0 is not None):
-            # Grid over log noise_std only
-            xlabel = r"$\sigma$"
-            ylabel = None
-            xscale = "log"
-            yscale = None
-            x1s = np.logspace(range_x1[0], range_x1[1], res)
-            x2s = None
-            xx = None
-            yy = None
-            Phi_new = x1s
-            fxs = np.empty(len(Phi_new))
-            gxs = np.empty(len(Phi_new))
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is not None
-                and scale_0 is None):
-            # Grid over log scale only
-            xlabel = r"$s$"
-            ylabel = None
-            xscale = "log"
-            yscale = None
-            x1s = np.logspace(range_x1[0], range_x1[1], res)
-            x2s = None
-            xx = None
-            yy = None
-            Phi_new = x1s
+        elif index == 1:
+            meshgrid = (space[0], None)
+            space.append(None)
+            scale.append(None)
+            label.append(None)
+            Phi_new = space[0]
             fxs = np.empty(len(Phi_new))
             gxs = np.empty(len(Phi_new))
         else:
             raise ValueError(
-                "Could not determine what objective surface you wanted to plot from the input arguments"
-                " (got gamma_0={}, varphi_0={}, noise_variance_0={}, scale_0={})".format(
-                gamma_0, varphi_0, noise_variance_0, scale_0))
-        intervals = gamma_0[2:J] - gamma_0[1:J - 1]
-        # Initiate gradient container as boolean array with True assigned to those indices we calculate gradients for
-        gx_0, indices = self._objective_gradient_initiate(gamma_0, varphi_0, noise_variance_0, scale_0, calculate_all_gradients)
+                "Too many independent variables to plot objective over!"
+                " (got {}, expected {})".format(
+                index, "1, or 2"))
+        assert len(scale) == 2
+        assert len(meshgrid) == 2
+        assert len(space) ==  2
+        assert len(label) == 2
+        intervals = gamma_0[2:self.J] - gamma_0[1:self.J - 1]
+        # SS
+        # # Infer the hyperparameter space to grid over
+        # if (gamma_0 is not None
+        #         and varphi_0 is None
+        #         and noise_variance_0 is None
+        #         and scale_0 is not None
+        #         ):
+        #     # Grid over log varphi and log noise_std
+        #     xlabel = r"$\sigma$"
+        #     ylabel = r"$\varphi$"
+        #     xscale = "log"
+        #     yscale = "log"
+        #     x1s = np.logspace(range_x1[0], range_x1[1], res)
+        #     x2s = np.logspace(range_x2[0], range_x2[1], res)
+        #     xx, yy = np.meshgrid(x1s, x2s)
+        #     Phi_new = np.dstack((xx, yy))
+        #     Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
+        #     fxs = np.empty(len(Phi_new))
+        #     gxs = np.empty((len(Phi_new), 2))
+        # elif (gamma_0 is not None
+        #         and varphi_0 is None
+        #         and noise_variance_0 is not None
+        #         and scale_0 is None):
+        #     # Grid over log varphi and log scale
+        #     xlabel = r"$s$"
+        #     ylabel = r"$\varphi$"
+        #     xscale = "log"
+        #     yscale = "log"
+        #     x1s = np.logspace(range_x1[0], range_x1[1], res)
+        #     x2s = np.logspace(range_x2[0], range_x2[1], res)
+        #     xx, yy = np.meshgrid(x1s, x2s)
+        #     Phi_new = np.dstack((xx, yy))
+        #     Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
+        #     fxs = np.empty(len(Phi_new))
+        #     gxs = np.empty((len(Phi_new), 2))
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is None
+        #         and scale_0 is not None):
+        #     # Grid over log varphi only
+        #     xlabel = r"$\varphi$"
+        #     ylabel = None
+        #     xscale = "log"
+        #     yscale = None
+        #     x1s = np.logspace(range_x1[0], range_x1[1], res)
+        #     x2s = None
+        #     xx = None
+        #     yy = None
+        #     Phi_new = x1s
+        #     fxs = np.empty(len(Phi_new))
+        #     gxs = np.empty(len(Phi_new))
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is not None
+        #         and scale_0 is not None):
+        #     # Grid first two gamma variables
+        #     xlabel = r"$\gamma_{1}$"
+        #     ylabel = r"$\gamma_{2} - \gamma{1}$"
+        #     xscale = "linear"
+        #     yscale = "log"
+        #     x1s = np.linspace(range_x1[0], range_x1[1], res)
+        #     x2s = np.logspace(range_x2[0], range_x2[1], res)
+        #     xx, yy = np.meshgrid(x1s, x2s)
+        #     Phi_new = np.dstack((xx, yy))
+        #     Phi_new = Phi_new.reshape((len(x1s) * len(x2s), 2))
+        #     fxs = np.empty(len(Phi_new))
+        #     gxs = np.empty((len(Phi_new),2))
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is None
+        #         and varphi_0 is not None
+        #         and scale_0 is not None):
+        #     # Grid over log noise_std only
+        #     xlabel = r"$\sigma$"
+        #     ylabel = None
+        #     xscale = "log"
+        #     yscale = None
+        #     x1s = np.logspace(range_x1[0], range_x1[1], res)
+        #     x2s = None
+        #     xx = None
+        #     yy = None
+        #     Phi_new = x1s
+        #     fxs = np.empty(len(Phi_new))
+        #     gxs = np.empty(len(Phi_new))
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is not None
+        #         and scale_0 is None):
+        #     # Grid over log scale only
+        #     xlabel = r"$s$"
+        #     ylabel = None
+        #     xscale = "log"
+        #     yscale = None
+        #     x1s = np.logspace(range_x1[0], range_x1[1], res)
+        #     x2s = None
+        #     xx = None
+        #     yy = None
+        #     Phi_new = x1s
+        #     fxs = np.empty(len(Phi_new))
+        #     gxs = np.empty(len(Phi_new))
+        # else:
+        #     raise ValueError(
+        #         "Could not determine what objective surface you wanted to plot from the input arguments"
+        #         " (got gamma_0={}, varphi_0={}, noise_variance_0={}, scale_0={})".format(
+        #         gamma_0, varphi_0, noise_variance_0, scale_0))
+        # intervals = gamma_0[2:J] - gamma_0[1:J - 1]
         return (
-            x1s, x2s, xlabel, ylabel, xscale, yscale, xx, yy,
-            Phi_new, fxs, gxs, intervals, gx_0, indices)
+            space[0], space[1],
+            label[0], label[1],
+            scale[0], scale[1],
+            meshgrid[0], meshgrid[1],
+            Phi_new, fxs, gxs, gx_0, intervals)
 
-    def _grid_over_hyperparameters_update(self, phi, gamma_0, varphi_0, noise_variance_0, scale_0):
+    def _grid_over_hyperparameters_update(
+        self, phi, gamma_0, varphi_0, noise_variance_0, scale_0, indices):
         """
         Update the hyperparameters, phi.
 
@@ -556,74 +596,129 @@ class Estimator(ABC):
         :arg phi: The updated values of the hyperparameters.
         :type phi:
         """
-        if (gamma_0 is not None
-                and varphi_0 is None
-                and noise_variance_0 is None
-                and scale_0 is not None):
-            noise_std = phi[0]
+        scale = scale_0
+        gamma = gamma_0
+        varphi = varphi_0
+        noise_variance = noise_variance_0
+        index = 0
+        if indices[0]:
+            if np.isscalar(phi):
+                noise_std = phi
+            else:
+                noise_std = phi[index]
             noise_variance = noise_std**2
-            varphi = phi[1]
+            noise_variance_update = noise_variance
             # Update kernel parameters, update prior and posterior covariance
-            self._hyperparameters_update(varphi=varphi, noise_variance=noise_variance)
-            gamma = gamma_0
-            scale = scale_0
-        elif (gamma_0 is not None
-                and varphi_0 is None
-                and noise_variance_0 is not None
-                and scale_0 is None):
-            scale = phi[0]
-            varphi = phi[1]
-            # Update kernel parameters, update prior and posterior covariance
-            self._hyperparameters_update(varphi=varphi, scale=scale)
-            noise_variance = noise_variance_0
+            index += 1
+        else:
             noise_std = np.sqrt(noise_variance)
-            gamma = gamma_0
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is None
-                and scale_0 is not None):
-            varphi = phi
-            # Update kernel parameters,update prior and posterior covariance - noise_variance stays the same
-            self._hyperparameters_update(varphi=varphi)
-            gamma = gamma_0
-            noise_variance = noise_variance_0
-            noise_std = np.sqrt(noise_variance)
-            scale = scale_0
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is not None
-                and scale_0 is not None):
-            gamma = gamma_0
-            gamma[1] = phi[0]
-            gamma[2] = phi[1] + phi[0]
-            # No update of prior and posterior covariance
-            noise_variance = noise_variance_0
-            noise_std = np.sqrt(noise_variance)
-            varphi = varphi_0
-            scale = scale_0
-        elif (gamma_0 is not None
-                and noise_variance_0 is None
-                and varphi_0 is not None
-                and scale_0 is not None):
-            noise_std = phi
-            noise_variance = noise_std**2
-            # Update posterior covariance - varphi stays the same
-            self._hyperparameters_update(noise_variance=noise_variance)
-            varphi = varphi_0
-            scale = scale_0
-            gamma = gamma_0
-            noise_std = np.sqrt(noise_variance)
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is not None
-                and scale_0 is None):
-            scale = phi
-            # Update posterior covariance - varphi stays the same
-            self._hyperparameters_update(scale=scale)
-            gamma = gamma_0
-            noise_variance = noise_variance_0
-            varphi = varphi_0
-            noise_std = np.sqrt(noise_variance)
+            noise_variance_update = None
+        gamma = np.empty((self.J + 1,))
+        gamma[0] = np.NINF
+        gamma[-1] = np.inf
+        if indices[1]:
+            gamma[1] = phi[index]
+            index += 1
+        for j in range(2, self.J):
+            if indices[j]:
+                if np.isscalar(phi):
+                    gamma[j] = gamma[j-1] + phi
+                else:
+                    gamma[j] = gamma[j-1] + phi[index]
+                index += 1
+        if indices[self.J]:
+            scale_std = phi[index]
+            scale = scale_std**2
+            index += 1
+            scale_update = scale
+        else:
+            scale_update = None
+        if indices[self.J + 1]:  # TODO: replace this with kernel number of hyperparameters.
+            if np.isscalar(phi):
+                varphi = phi
+            else:
+                varphi = phi[index]
+            varphi_update = varphi
+            index += 1
+        else:
+            varphi_update = None
+        assert index == 1
+        # Update kernel parameters, update prior and posterior covariance
+        self._hyperparameters_update( 
+                noise_variance=noise_variance_update,
+                scale=scale_update,
+                varphi=varphi_update)
+        # # SS
+        # if (gamma_0 is not None
+        #         and varphi_0 is None
+        #         and noise_variance_0 is None
+        #         and scale_0 is not None):
+        #     noise_std = phi[0]
+        #     noise_variance = noise_std**2
+        #     varphi = phi[1]
+        #     # Update kernel parameters, update prior and posterior covariance
+        #     self._hyperparameters_update(
+        #         varphi=varphi, noise_variance=noise_variance)
+        #     gamma = gamma_0
+        #     scale = scale_0
+        # elif (gamma_0 is not None
+        #         and varphi_0 is None
+        #         and noise_variance_0 is not None
+        #         and scale_0 is None):
+        #     scale = phi[0]
+        #     varphi = phi[1]
+        #     # Update kernel parameters, update prior and posterior covariance
+        #     self._hyperparameters_update(varphi=varphi, scale=scale)
+        #     noise_variance = noise_variance_0
+        #     noise_std = np.sqrt(noise_variance)
+        #     gamma = gamma_0
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is None
+        #         and scale_0 is not None):
+        #     varphi = phi
+        #     # Update kernel parameters,update prior and posterior covariance -
+        #     # noise_variance stays the same
+        #     self._hyperparameters_update(varphi=varphi)
+        #     gamma = gamma_0
+        #     noise_variance = noise_variance_0
+        #     noise_std = np.sqrt(noise_variance)
+        #     scale = scale_0
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is not None
+        #         and scale_0 is not None):
+        #     gamma = gamma_0
+        #     gamma[1] = phi[0]
+        #     gamma[2] = phi[1] + phi[0]
+        #     # No update of prior and posterior covariance
+        #     noise_variance = noise_variance_0
+        #     noise_std = np.sqrt(noise_variance)
+        #     varphi = varphi_0
+        #     scale = scale_0
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is None
+        #         and varphi_0 is not None
+        #         and scale_0 is not None):
+        #     noise_std = phi
+        #     noise_variance = noise_std**2
+        #     # Update posterior covariance - varphi stays the same
+        #     self._hyperparameters_update(noise_variance=noise_variance)
+        #     varphi = varphi_0
+        #     scale = scale_0
+        #     gamma = gamma_0
+        #     noise_std = np.sqrt(noise_variance)
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is not None
+        #         and scale_0 is None):
+        #     scale = phi
+        #     # Update posterior covariance - varphi stays the same
+        #     self._hyperparameters_update(scale=scale)
+        #     gamma = gamma_0
+        #     noise_variance = noise_variance_0
+        #     varphi = varphi_0
+        #     noise_std = np.sqrt(noise_variance)
         return gamma, varphi, noise_variance, noise_std, scale
 
     def _update_prior(self):
@@ -955,446 +1050,9 @@ class VBBinomialGP(Estimator):
         )
 
 
-class VBMultinomialSparseGP(Estimator):
-    """
-    # TODO: This is likely deprecated by more general EP approach.
-    # TODO: put in noise_variance parameter.
-    A Sparse Variational Bayes classifier via ADF with optional informative samping. Inherits the Estimator ABC.
-
-    This class allows users to define a classification problem, get predictions using approximate Bayesian inference of
-    a sparse approximation to a Gaussian process.
-
-    For this a :class:`probit.kernels.Kernel` is required for the Gaussian Process.
-    """
-    def __init__(self, *args, **kwargs):
-        """
-        Create an :class:`VBMultinomialSparseGP` estimator object.
-
-        :returns: An :class:`VBMultinomialSparseGP` object.
-        """
-        self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        super().__init__(*args, **kwargs)
-        # All indices are initially in the inactive set
-        self.inactive_set = list(range(self.N))
-        # For random inducing point selection
-        random.shuffle(self.inactive_set)
-        self.active_set = []
-        self.Sigma = np.linalg.inv(np.add(np.eye(self.N), self.K))
-        self.cov = self.K @ self.Sigma
-
-    def _estimate_initiate(self, steps, M_0, M_ADF_0=None, s_ADF_0=None, varphi_0=None, psi_0=None):
-        """
-        Initialise the Estimator.
-
-        :arg M_0: Initialisation of posterior mean estimates.
-        :arg M_ADF_0: Initialisation of ADF inverse covariance updates (S, N, J). If `None` then initialised to zeros,
-            default `None`.
-        :arg s_ADF_0: Initialisation of ADF scalar update (J, N). If `None` then initialised to zeros,
-            default `None`.
-        :arg varphi_0: Initialisation of hyperparameter posterior mean estimates. If `None` then initialised to ones,
-            default `None`.
-        :arg psi_0: Initialisation of hyperhyperparameter posterior mean estimates. If `None` then initialised to ones,
-            default `None`.
-        :return: Containers for the mean estimates of parameters and hyperparameters.
-        :rtype: (6,) tuple.
-        """
-        if steps > self.N:
-            raise ValueError("There are more update steps, which each requires a new inducing data point, than"
-                             " data points themselves. Steps must be equal to or less than the number of data points!"
-                             " (expected <={}, got {})".format(self.N, steps))
-        if M_ADF_0 is None:
-            M_ADF_0 = np.zeros((steps, self.N, self.J))
-        if s_ADF_0 is None:
-            s_ADF_0 = np.ones((self.J, self.N))
-        if varphi_0 is None:
-            varphi_0 = np.ones(np.shape(self.kernel.varphi))
-        if psi_0 is None:
-            psi_0 = np.ones(np.shape(self.kernel.varphi))
-        # Since the first ADF approximation before data-update is simply the GP prior
-        Sigma_ADF_0 = self.cov
-        Ms = []
-        Ys = []
-        M_ADFs = []
-        s_ADFs = []
-        varphis = []
-        psis = []
-        bounds = []
-        Sigma_ADFs = []
-        containers = (Ms, Ys, Sigma_ADFs, M_ADFs, s_ADFs, varphis, psis, bounds)
-        return M_0, Sigma_ADF_0, M_ADF_0, s_ADF_0, varphi_0, psi_0, containers
-
-    def estimate(self, M_0, steps, M_ADF_0=None, s_ADF_0=None, varphi_0=None, psi_0=None,
-                 first_step=0, informative_selection=False, fix_hyperparameters=True, write=False):
-        """
-        Estimating the posterior means via the ADF approximations via  4 step iteration over Sigma_ADF, s_ADF, M_ADF,
-        M_tilde_ADF from Eq.(12), (13), (14), (15) respectively.
-        The hyperparameters are fixed by default, but full approximate inference over the hyperparmaeters can be done by
-        setting fix_hyperparameters=False, so the iteration will includei updates of the posterior means varphi_tilde
-        and psi_tilde Eq.(9), (10).
-
-        :arg M_0: (N, J) numpy.ndarray of the initial location of the posterior mean.
-        :type M_0: :class:`np.ndarray`
-        :arg int steps: The number of steps in the Estimator.
-        :arg M_ADF_0: Initialisation of ADF inverse covariance updates (S, N, J). If `None` then initialised to
-            zeros, default `None`.
-        :arg s_ADF_0: Initialisation of ADF scalar update of the posterior variance (J, N). If
-            `None` then initialised to zeros, default `None`.
-        :arg varphi_0: (L, M) numpy.ndarray of the initial location of the posterior mean.
-        :type varphi_0: :class:`np.ndarray`
-        :arg psi_0: (L, M) numpy.ndarray of the initial location of the posterior mean.
-        :type psi_0: :class:`np.ndarray`
-        :arg int first_step: The first step. Useful for burn in algorithms.
-        :arg bool fix_hyperparamters: If set to "True" will fix varphi to initial values. If set to "False" will
-            do posterior mean updates of the hyperparameters. Default "False".
-        :arg bool informative_selection: If set to "True" will use the informative selection crtieria for the new
-            point which joins the active set.
-
-        :return: Posterior mean and covariance estimates.
-        :rtype: (9, ) tuple of :class:`numpy.ndarrays` of the approximate posterior means, other statistics and
-        tuple of lists of per-step evolution of those statistics.
-        """
-        M_tilde, Sigma_ADF, M_ADF, s_ADF, varphi_tilde, psi_tilde, containers = self._estimate_initiate(
-            steps, M_0, M_ADF_0, s_ADF_0, varphi_0, psi_0)
-        Ms, Ys, Sigma_ADFs, M_ADFs, s_ADFs, varphis, psis, bounds = containers
-        for step in trange(first_step, first_step + steps,
-                        desc="Sparse GP priors Estimator progress", unit="iterations"):
-            # Check if there are any points left in the inactive set
-            if len(self.active_set) != self.N:
-                # Policy to choose new data point
-                Y_tilde, calligraphic_Z, negative_p = self._Y_tilde(M_tilde)
-                #print('Y_tilde', Y_tilde)
-                _, index = self.new_point(informative_selection, Sigma_ADF, Y_tilde, varphi_tilde)
-                C_n = self.K[:, index, :]
-                #print('C_n', C_n)
-                s_ADF, Sigma_ADF, Sigma_ADF_n = self._s_ADF(s_ADF, Sigma_ADF, M_ADF, C_n, index)  # (), (N, J)
-                #print('s_ADF', s_ADF)
-                M_ADF = self._M_ADF(M_ADF, s_ADF, Sigma_ADF_n, index, step)
-                #print('M_ADF', M_ADF)
-                M_tilde = self._M_tilde(M_tilde, s_ADF, negative_p, Sigma_ADF_n, index,
-                                                        fix_hyperparameters, varphi_tilde)
-                #print('M_tilde', M_tilde)
-                if fix_hyperparameters is False:
-                    varphi_tilde = self._varphi_tilde(M_tilde, psi_tilde,
-                                                      n_samples=1000)  # TODO: Cythonize. Major bottleneck.
-                    psi_tilde = self._psi_tilde(varphi_tilde)
-                if write:
-                    # Calculate bound TODO: work out if calculating the bound makes sense.
-                    # TODO: won't be able to calculate the lower bound if it is not positive definite.
-                    #bound = self.variational_lower_bound(self.N, self.J, M_tilde, Sigma_ADF, self.K, calligraphic_Z)
-                    #print("bound", bound)
-                    Ms.append(np.linalg.norm(M_tilde))
-                    Ys.append(np.linalg.norm(Y_tilde))
-                    Sigma_ADFs.append(Sigma_ADF)
-                    M_ADFs.append(np.linalg.norm(M_ADF))  # TODO: Don't store a (S, N, J) for each step.
-                    s_ADFs.append(np.linalg.norm(s_ADF))
-                    if fix_hyperparameters is False:
-                        varphis.append(varphi_tilde)
-                        psis.append(psi_tilde)
-                    # bounds.append(bound)
-            else:
-                # Need to stop the iteration since there are no more points in the inactive set to include
-                # TODO: have already handled this error by limiting the number of steps I can take.
-                break
-        containers = (Ms, Ys, M_ADFs, s_ADFs, varphis, psis, bounds)
-        return M_tilde, M_ADF, s_ADF, Sigma_ADF, self.K, Y_tilde, varphi_tilde, psi_tilde, containers
-
-    def new_point(self, informative_selection, Sigma_ADF=None, Y_tilde=None, varphi_tilde=None):
-        """
-        Return a new point based on some policy.
-
-        If informative_selection is true, then Sigma_ADF, Y_tilde and varphi_tilde must be supplied.
-        :return: x_new
-        """
-        if informative_selection:
-            return self.informative_new_point(Sigma_ADF, Y_tilde, varphi_tilde)
-        else:
-            return self.random_new_point()
-
-    def random_new_point(self):
-        """
-        Return a random point from inactive set and add it to the active set.
-
-        :return x_new: The the new inducing point.
-        :return index: The index of X_train of the new inducing point.
-        """
-        # inactive_set has been randomly shuffled, so we can pop from the end
-        index = self.inactive_set.pop()
-        x_new = [self.X_train[index]]
-        self.active_set.append(index)
-        return x_new, index
-
-    def informative_new_point(self, Sigma_ADF, Y_tilde, varphi_tilde):
-        """
-        Return a random point from inactive set and add it to the active set.
-
-        :return x_new: The the new inducing point.
-        :return index: The index of X_train of the new inducing point.
-        """
-        Z = self.predict(
-            Sigma_ADF, Y_tilde, varphi_tilde, self.X_train[self.inactive_set],
-            n_samples=1000, vectorised=True)  # (N_inactive, J)
-        Z = Z[self.t_train[self.inactive_set]]  # (N_inactive,)
-        # Don't need to keep inactive set and active set there (same information, but prevents search?).
-        # TODO: Try not to pop from the middle of a list, isn't pythonic or fast.
-        index = self.inactive_set.pop(np.argmax(Z))  # Gets index and removes from the list
-        x_new = [self.X_train[index]]
-        # Add the new index to the active set
-        self.active_set.append(index)
-        return x_new, index
-
-    def predict(self, Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples=1000, vectorised=True):
-        """
-        Return the posterior predictive distribution over classes.
-
-        :arg Sigma_tilde: The posterior mean estimate of the marginal posterior covariance.
-        :arg Y_tilde: The posterior mean estimate of the latent variable Y.
-        :arg varphi_tilde: The posterior mean estimate of the hyperparameters varphi.
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg n_samples: The number of samples in the Monte Carlo estimate.
-        :return: A Monte Carlo estimate of the class probabilities.
-        """
-        if self.kernel._ARD and self.kernel._general:
-            # This is the general case where there are hyper-parameters
-            # varphi (J, D) for all dimensions and classes.
-            if vectorised:
-                return self._predict_vector_general(Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples)
-            else:
-                return ValueError("The scalar implementation has been superseded. Please use "
-                                  "the vector implementation.")
-        else:
-            if vectorised:
-                return self._predict_vector(Sigma_tilde, Y_tilde, varphi_tilde, X_test, n_samples)
-            else:
-                return ValueError("The scalar implementation has been superseded. Please use "
-                                  "the vector implementation.")
-
-    # def _predict_vector_general(self, Sigma_ARD, Y_tilde, varphi_tilde, X_test, n_samples=1000):
-    #     """
-    #     Make sparse GP prediction over classes of X_test.
-    #
-    #     This is the general case where there are hyperparameters varphi (J, D) for all dimensions and classes.
-    #     This is the same for all categorical estimators, and so can live in the Abstract Base Class.
-    #
-    #     :arg Sigma_ARD:
-    #     :arg C_tilde:
-    #     :arg Y_tilde: The posterior mean estimate of the latent variable Y (N, J).
-    #     :arg varphi_tilde:
-    #     :arg X_test: The new data points, array like (N_test, D).
-    #     :arg n_samples: The number of samples in the Monte Carlo estimate.
-    #     :return: A Monte Carlo estimate of the class probabilities.
-    #     """
-    #     N_test = np.shape(X_test)[0]
-    #     # Update the kernel with new varphi  # TODO: test this.
-    #     self.kernel.varphi = varphi_tilde
-    #     # Cs_news[:, i] is Cs_new for X_test[i]
-    #     Cs_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (J, N, N_test)
-    #     # TODO: this is a bottleneck - write a specialised kernel function - wonder how GPFlow does it
-    #     covariances_new = self.kernel.kernel_matrix(X_test, X_test)
-    #     cs_news = [np.diag(covariances_new[k]) for j in range(self.J)]  # (J, N_test)
-    #     # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-    #     intermediate_vectors = Sigma_tilde @ Cs_news  # (J, N, N_test)
-    #     intermediate_vectors_T = np.transpose(intermediate_vectors, (0, 2, 1))  # (J, N_test, N)
-    #     intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(1)  # (J, N_test)
-    #     # Calculate M_tilde_new
-    #     # TODO: could just use Y_tilde instead of Y_tilde_T? It would be better just to store Y in memory as (J, N)
-    #     Y_tilde_T = np.reshape(Y_tilde.T, (self.J, self.N, 1))
-    #     M_new_tilde_T = np.matmul(intermediate_vectors_T, Y_tilde_T)  # (J, N_test, 1)?
-    #     M_new_tilde_T = np.reshape(M_new_tilde_T, (self.J, N_test))  # (J, N_test)
-    #     ## This was tested to be the slower option because matmul is an optimised sum and multiply.
-    #     # M_new_tilde_T_2 = np.sum(np.multiply(Y_tilde_T, intermediate_vectors), axis=1)  # (J, N_test)
-    #     # assert np.allclose(M_new_tilde_T, M_new_tilde_T_2)
-    #     var_new_tilde_T = np.subtract(cs_news, intermediate_scalars)
-    #     return self._vector_expectation_wrt_u(M_new_tilde_T.T, var_new_tilde_T.T, n_samples)
-
-    def _s_ADF(self, s_ADF, Sigma_ADF, M_ADF, C_n, index):
-        """
-        Return the update of the ADF scalar update (J, N).
-
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
-        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
-        Page 12 Eq.(12), (13).
-
-        :arg s_ADF: ADF scalar update of the posterior variance (J, N).
-        :arg Sigma_ADF: The ADF approximation to the GP posterior covariance.
-        :arg M_ADF: The ADF inverse covariance update (S, N, J).
-        :arg C_n: (J, N) The covariance vector for the new inducing point.
-        :returns: updated s_ADF (J, N) and Sigma_ADF_n (N, J)
-        """
-        # TODO: an issue here.
-        # Probably want to calculate the covariance column on the fly, depending on choice of x.
-        M_ADF_n = M_ADF[:, index, :]  # (S, J)
-        M_ADF_T = M_ADF.transpose(2, 1, 0)  # (J, N, S)
-        M_ADF_n_T = M_ADF_n.T  # (J, S)
-        Sigma_ADF_n2 = C_n - np.einsum('ijk, ik -> ij', M_ADF_T, M_ADF_n_T)
-        # This was checked as correct
-        Sigma_ADF_n = C_n - np.einsum('jik,jk->ki', M_ADF, M_ADF_n)  # (J, N) <- (J, N) - einsum((S, N, J), (S, J))
-        assert np.allclose(Sigma_ADF_n, Sigma_ADF_n2)
-        Sigma_ADF[:, :, index] = Sigma_ADF_n  # (J, N) <- (J, N)
-        #Sigma_ADF[:, index, :] = Sigma_ADF_n  # (J, N) <- (J, N)
-        precisions = 1 / (1 + s_ADF[:, index])
-        #print("precisions", precisions)
-        precisions = np.reshape(precisions, (self.J, 1))
-        # TODO: posterior variance should be non-negative??
-        update = np.multiply(
-            np.diagonal(
-                np.einsum('...i, ...j', Sigma_ADF_n, Sigma_ADF_n), axis1=1, axis2=2),
-            precisions)
-        #print("update", update)
-        return s_ADF - update, Sigma_ADF, Sigma_ADF_n  # (J, N), (N, J)
-
-    def _M_ADF(self, M_ADF, s_ADF, Sigma_ADF_n, index, step):
-        """
-        Return the update of the ADF vector updates (S, N, J)
-        :arg s_ADF: ADF scalar update of the posterior variance (J, N).
-        :arg Sigma_ADF_n: (J, N)
-        :arg index: The index of self.t_train and self.X_train of the new inducing point, n.
-        :return: M_ADF (S, N, J)
-        """
-        standard_deviations = 1/np.sqrt(1 + s_ADF[:, index])  # (J, )
-        standard_deviations = np.reshape(standard_deviations, (1, self.J))
-        Sigma_ADF_n_T = Sigma_ADF_n.T
-        # (S, N, J) = (J,) (N, J)
-        # (N, ) = (1,) (N, ) : J times
-        M_ADF[step, :, :] = np.multiply(Sigma_ADF_n_T, standard_deviations)
-        return M_ADF
-
-    def _negative_p_n(self, M_tilde_n, t_n, n_samples=3000):
-        """
-        Calculate ratio of Monte Carlo estimates of the expectation of functions of M wrt to the distribution p.
-
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
-        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
-        The rightmost term of Page 8 Eq.(5).
-
-        :arg M_tilde_n: The current estimate of posterior expectations for M_n (J,), where M_n is the regression
-            variable for the inducing point, n.
-        :arg t_n: The target class for the inducing point, n.
-        :arg n_samples: The number of Monte-Carlo samples to take in approximating the expectations.
-        """
-        differences = matrix_of_VB_differences(M_tilde_n, self.J, t_n)  # (J, J)
-        differences = np.tile(differences, (n_samples, 1, 1))  # (n_samples, J, J)
-        # Assume it's okay to use the same sample of U over all of the data points
-        Us = sample_Us(self.J, n_samples, different_across_classes=False)  # (n_samples, J, J)
-        random_variables = np.add(Us, differences)  # (n_samples, J, J) Note that it is \prod_k u + m_ni - m_nk
-        cum_dists = norm.cdf(random_variables, loc=0, scale=1)  # (n_samples, J, J)
-        log_cum_dists = np.log(cum_dists)  # (n_samples, J, J)
-        # Store values for later
-        log_M_nk_M_nt_cdfs = log_cum_dists[:, t_n, :]  # (n_samples, J)
-        log_M_nk_M_nt_pdfs = np.log(norm.pdf(random_variables[:, t_n, :]))  # (n_samples, J)
-        # Product is over j \neq tn=i
-        log_cum_dists[:, :, t_n] = 0
-        calligraphic_Z = np.sum(log_cum_dists, axis=2)  # TODO: not sure if needed for the variational bound
-        calligraphic_Z = np.exp(calligraphic_Z)
-        calligraphic_Z = 1. / n_samples * np.sum(calligraphic_Z, axis=0)
-        # product is over j \neq k
-        log_cum_dists[:, range(self.J), range(self.J)] = 0
-        # Sum across the elements of the log product of interest (rows, so axis=2)
-        log_samples = np.sum(log_cum_dists, axis=2)  # (n_samples, J)
-        log_element_prod_pdf = np.add(log_M_nk_M_nt_pdfs, log_samples)
-        log_element_prod_cdf = np.add(log_M_nk_M_nt_cdfs, log_samples)
-        element_prod_pdf = np.exp(log_element_prod_pdf)
-        element_prod_cdf = np.exp(log_element_prod_cdf)
-        # Monte carlo estimate: Sum across the n_samples (axis=1)
-        element_prod_pdf = 1. / n_samples * np.sum(element_prod_pdf, axis=1)
-        element_prod_cdf = 1. / n_samples * np.sum(element_prod_cdf, axis=1)
-        return np.divide(element_prod_pdf, element_prod_cdf), calligraphic_Z  # (N, J)
-
-    def _negative_p(self, M_tilde, t, n_samples=3000):
-        """
-        Calculate ratio of Monte Carlo estimates of the expectation of functions of M wrt to the distribution p.
-
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
-        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
-        The rightmost term of Page 8 Eq.(5).
-
-        :arg M_tilde: The posterior expectations for M (N, J).
-        :arg t: The target vector.
-        :arg n_samples: The number of samples to take.
-        """
-        # Find matrix of differences
-        #differences = matrix_of_differencess(M_tilde, self.J, self.N)  # TODO: confirm this is wrong
-        # we will product across axis 2 (rows)
-        differences = matrix_of_VB_differencess(M_tilde, self.J, self.N, t, self.grid)  # (N, J, J)
-        differencess = np.tile(differences, (n_samples, 1, 1, 1))  # (n_samples, N, J, J)
-        differencess = np.moveaxis(differencess, 1, 0)  # (N, n_samples, J, J)
-        # Assume it's okay to use the same samples of U over all of the data points
-        Us = sample_Us(self.J, n_samples, different_across_classes=False)  # (n_samples, J, J)
-        random_variables = np.add(Us, differencess)  # (N, n_samples, J, J) Note that it is \prod_k u + m_ni - m_nk
-        cum_dists = norm.cdf(random_variables, loc=0, scale=1)  # (N, n_samples, J, J)
-        log_cum_dists = np.log(cum_dists)  # (N, n_samples, J, J)
-        # Store values for later
-        log_M_nk_M_nt_cdfs = log_cum_dists[self.grid, :, t, :]  # (N, n_samples, J)
-        log_M_nk_M_nt_pdfs = np.log(norm.pdf(random_variables[self.grid, :, t, :]))  # (N, n_samples, J)
-        # product is over j \neq tn=i
-        log_cum_dists[self.grid, :, :, t] = 0
-        calligraphic_Z = np.sum(log_cum_dists, axis=3)  # TODO: not sure if correct
-        calligraphic_Z = np.exp(calligraphic_Z)
-        calligraphic_Z = 1. / n_samples * np.sum(calligraphic_Z, axis=1)
-        # product is over j \neq k
-        log_cum_dists[:, :, range(self.J), range(self.J)] = 0
-        # Sum across the elements of the log product of interest (rows, so axis=3)
-        log_samples = np.sum(log_cum_dists, axis=3)  # (N, n_samples, J)
-        log_element_prod_pdf = np.add(log_M_nk_M_nt_pdfs, log_samples)
-        log_element_prod_cdf = np.add(log_M_nk_M_nt_cdfs, log_samples)
-        element_prod_pdf = np.exp(log_element_prod_pdf)
-        element_prod_cdf = np.exp(log_element_prod_cdf)
-        # Monte Carlo estimate: Sum across the n_samples (axis=1)
-        element_prod_pdf = 1. / n_samples * np.sum(element_prod_pdf, axis=1)
-        element_prod_cdf = 1. / n_samples * np.sum(element_prod_cdf, axis=1)
-        return np.divide(element_prod_pdf, element_prod_cdf), calligraphic_Z  # (N, J)
-
-    def _M_tilde(self, M_tilde, s_ADF, negative_p, Sigma_ADF_n, index, fix_hyperparameters, varphi_tilde):
-        """
-        TODO: This doesn't generalise to the binary case.
-
-        :arg M_tilde:
-        :arg s_ADF:
-        :arg Sigma_ADF_n:
-        :arg negative_P:
-        :arg index: The index of self.t_train and self.X_train of the new inducing point, n.
-        :return:
-        """
-        if fix_hyperparameters is False:
-            # TODO: This option doesn't really make sense in this setting.
-            # Update hyperparameters and GP posterior covariance with new values
-            self.kernel.varphi = varphi_tilde
-            # Calculate updated C and sigma
-            self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)  # (J, N, N)
-            self.Sigma = np.linalg.inv(np.add(np.eye(self.N), self.K))  # (J, N, N)
-            self.cov = self.K @ self.Sigma  # (J, N, N) @ (J, N, N) = (J, N, N)
-        # t_n = self.t_train[index]
-        # M_tilde_n = M_tilde[index]
-        # negative_p_n, calligraphic_Z = self._negative_P(M_tilde_n, t_n)
-        negative_p_n = negative_p[index, :]
-        weight = negative_p_n / (1 + s_ADF[:, index])  # (J,)
-        weight = np.reshape(weight, (1, self.J))  # (J, 1)
-        return M_tilde - np.multiply(Sigma_ADF_n.T, weight)
-        # return M_tilde - np.multiply(Sigma_ADF_n, weight), Y_tilde, calligraphic_Z
-        # return M_tilde - (negative_p_n)/(1 + s_ADF[:, index]) * Sigma_ADF_n  # (J,) * (J, N) -> (J, N)
-        # return M_tilde + (Y_tilde[index, :] - M_tilde[index, :])/(1 + s_ADF[:, index]) * Sigma_ADF_n
-
-    def _Y_tilde(self, M_tilde):
-        """
-        Calculate Y_tilde elements.
-
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
-        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
-        Page 8 Eq.(5).
-
-        :arg M_tilde: The posterior expectations for M (N, J).
-        :type M_tilde: :class:`numpy.ndarray`
-        :return: Y_tilde (N, J) containing \tilde(y)_{nk} values.
-        """
-        # t = np.argmax(M_tilde, axis=1)  # The max of the GP vector m_k is t_n this would be incorrect.
-        negative_p, calligraphic_Z = self._negative_p(M_tilde, self.t_train, n_samples=3000)  # TODO: correct version.
-        Y_tilde = np.subtract(M_tilde, negative_p)  # Eq.(5)
-        Y_tilde[self.grid, self.t_train] = 0
-        Y_tilde[self.grid, self.t_train] = np.sum(M_tilde - Y_tilde, axis=1)
-        return Y_tilde, calligraphic_Z, negative_p
-
-
 class VBMultinomialGP(Estimator):
     """
+    # TODO: 19/09/2021 removed class VBMultinomialSparseGP(Estimator).
     # TODO: put in noise_variance. I think I will just not support noise variance here.
     A Variational Bayes classifier. Inherits the Estimator ABC.
 
@@ -1716,18 +1374,26 @@ class VBMultinomialGP(Estimator):
 
 class VBOrderedGP(Estimator):
     """
-    TODO: On 05/08 Tried to generalise the grid_over_hyperparameters to optionally grid over s.
+    TODO: 19/09 Changed so that only one cholesky is performed on
+        cov.
+    TODO: On 19/09 Made lint changes.
+    TODO: On 05/08 Tried to generalise the grid_over_hyperparameters to
+        optionally grid over s.
+    TODO: 15/08 refactored so that partial derivatives are generated here
+        in initiation.
     TODO: On 03/08 Tried to find and fix the numerical stability bug.
+    TODO: 20/07 depricated Sigma_tilde since self.Sigma and self.K were not
     TODO: On 20/07 applied refactoring to including noise variance parameter.
-    TODO: On 20/07 applied refactoring to be able to call __init__ method at each hyperparameter update and it work.
-    TODO: Why do I need to initiate it with a noise variance? Can't this be done as estimate time? A: init self.Sigma
-    INPROGRESS: Change cov to Sigma, and Sigma to cov. Since Sigma should be reserved for posterior covariance.
-    A Variational Bayes classifier for ordered likelihood. Inherits the Estimator ABC
-
-    This class allows users to define a classification problem, get predictions
-    using approximate Bayesian inference. It is for the ordered likelihood.
-
-    For this a :class:`probit.kernels.Jernel` is required for the Gaussian Process.
+    TODO: On 20/07 applied refactoring to be able to call __init__ method
+        at each hyperparameter update and it work.
+    TODO: Why do I need to initiate it with a noise variance? Can't this be
+        done as estimate time? A: init self.Sigma
+    A Variational Bayes classifier for ordered likelihood.
+ 
+    Inherits the Estimator ABC. This class allows users to define a
+    classification problem, get predictions using approximate Bayesian
+    inference. It is for the ordered likelihood. For this a
+    :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
 
     def __init__(self, noise_variance, *args, **kwargs):
@@ -1738,25 +1404,32 @@ class VBOrderedGP(Estimator):
         """
         super().__init__(*args, **kwargs)
         if self.kernel._ARD:
-            raise ValueError('The kernel must not be ARD type (kernel._ARD=1),'
-                             ' but ISO type (kernel._ARD=0). (got {}, expected)'.format(
-                self.kernel._ARD, 0))
+            raise ValueError(
+                "The kernel must not be ARD type (kernel._ARD=1),"
+                " but ISO type (kernel._ARD=0). (got {}, expected)".format(
+                    self.kernel._ARD, 0))
         if self.kernel._general:
-            raise ValueError('The kernel must not be general type (kernel._general=1),'
-                             ' but simple type (kernel._general=0). (got {}, expected)'.format(
-                self.kernel._general, 0))
-        self.grid = np.ogrid[0:self.N]  # All the indices for indexing sets of self.t_train
+            raise ValueError(
+                "The kernel must not be general "
+                "type (kernel._general=1), but simple type "
+                "(kernel._general=0). (got {}, expected)".format(
+                    self.kernel._general, 0))
         self.EPS = 0.000001  # Acts as a machine tolerance
-        # Threshold of single sided standard deviations that normal cdf can be approximated to 0 or 1
-        # More than this + redundancy leads to numerical instability due to catestrophic cancellation
-        # Less than this leads to a poor approximation due to series expansion at infinity truncation
+        # Threshold of single sided standard deviations that
+        # normal cdf can be approximated to 0 or 1
+        # More than this + redundancy leads to numerical instability
+        # due to catestrophic cancellation
+        # Less than this leads to a poor approximation due to series
+        # expansion at infinity truncation
         # Good values found between 4 and 6
         self.upper_bound = 6
-        # More than this + redundancy leads to numerical instability due to overflow
-        # Less than this results in poor approximation due to neglected probability mass in the tails
+        # More than this + redundancy leads to numerical
+        # instability due to overflow
+        # Less than this results in poor approximation due to
+        # neglected probability mass in the tails
         # Good values found between 18 and 30
         self.upper_bound2 = 30
-        #self.jitter = 1e-8  #TODO # Regularisation for matrix inversion (see GPML by Williams et al. for a good explanation)
+        # Tends to work well in practice - should it be made smaller?
         self.jitter = 1e-6
         if noise_variance is None:
             self.noise_variance = 1.0
@@ -1765,29 +1438,34 @@ class VBOrderedGP(Estimator):
         self.noise_std = np.sqrt(self.noise_variance)
         self._update_prior()
         self._update_posterior()
-        # TODO: might need cholesky factor later on. 20/07 depricated Sigma_tilde since self.Sigma and self.K were not
-        # used.
-        # TODO: 15/08 refactored so that partial derivatives are generated here in initiation
 
     def _update_posterior(self):
         """Update posterior covariances."""
-        # Only need to store Sigma_div_var and cov (cov to avoid matrix multiplication at prediction)
-        L_cov = np.linalg.cholesky(self.noise_variance * np.eye(self.N) + self.K)
+        # (cov to avoid matrix multiplication at prediction)
+        L_cov = np.linalg.cholesky(
+            self.noise_variance * np.eye(self.N) + self.K)
+        # O(N^3) complexity
         L_K = np.linalg.cholesky(self.K + self.jitter * np.eye(self.N))
         self.log_det_K = 2 * np.sum(np.log(np.diag(L_K)))
         self.log_det_cov = -2 * np.sum(np.log(np.diag(L_cov)))
-        cov = np.linalg.inv(L_cov)  # The only inverse required per posterior update, O(N^3) complexity
+        # TODO: This is not a special inverse from cholesky algorithm
+        cov = np.linalg.inv(L_cov)
+        # cov = dtritri(c, lower=1)  # TODO: test
         self.cov = cov.T @ cov  # O(N^2) memory
         self.Sigma_div_var = self.K @ self.cov  # O(N^2) memory
+        # TODO: Only need to store Sigma_div_var and cov
         self.Sigma = self.Sigma_div_var * self.noise_variance
-        self.partial_Sigma_div_var = self.noise_variance * self.cov @ self.partial_K_varphi @ self.cov
+        self.partial_Sigma_div_var = (self.noise_variance
+            * self.cov @ self.partial_K_varphi @ self.cov)
 
-    def _hyperparameters_update(self, varphi=None, scale=None, noise_variance=None):
+    def _hyperparameters_update(
+        self, varphi=None, scale=None, noise_variance=None):
         """
-        Reset kernel hyperparameters, generating new prior and posterior covariances.
+        Reset kernel hyperparameters, generating new prior and posterior
+        covariances.
 
         :arg varphi:
-        :arg s:
+        :arg scale:
         :arg noise_variance:
         """
         if varphi is not None or scale is not None:
@@ -1805,24 +1483,26 @@ class VBOrderedGP(Estimator):
         """
         Initialise the estimator.
 
-        :arg m_0: The initial state of the approximate posterior mean (N,). If `None` then initialised to
-            zeros, default `None`. 
+        :arg m_0: The initial state of the approximate posterior mean (N,).
+            If `None` then initialised to zeros, default `None`. 
         :type m_0: :class:`numpy.ndarray`
         :arg gamma:  The (J + 1, ) array of cutpoint parameters \bm{gamma}.
         :type gamma: :class:`numpy.ndarray`
-        :arg varphi_0: Initialisation of hyperparameter posterior mean estimates. If `None` then initialised
-            to ones, default `None`.
+        :arg varphi_0: Initialisation of hyperparameter posterior mean
+            estimates. If `None` then initialised to ones, default `None`.
         :type varphi_0: :class:`numpy.ndarray` or float
-        :arg psi_0: Initialisation of the mean estimate of the parameter controlling the hyperparameter prior.
-            If `None` then initialised to ones, default `None`.
+        :arg psi_0: Initialisation of the mean estimate of the parameter
+            controlling the hyperparameter prior. If `None` then initialised
+            to ones, default `None`.
         :type psi_0: :class:`numpy.ndarray` or float
         :arg float noise_variance_0:
         """
         if m_0 is None:
-            m_0 = np.random.rand(self.N)  # TODO: is there a good reason for this?
+            m_0 = np.random.rand(self.N)  # TODO: justification for this?
             # m_0 = np.zeros(self.N)
         if dm_0 is None:
-            dm_0 = None  # Do not track derivatives
+            # If set to None, do not track derivatives
+            dm_0 = None
         else:
             dm_0 = np.zeros(self.N)
         if varphi_0 is None:
@@ -2365,7 +2045,7 @@ class VBOrderedGP(Estimator):
 
     def grid_over_hyperparameters(
             self, range_x1, range_x2, res, gamma_0=None, varphi_0=None, noise_variance_0=None, scale_0=None,
-            calculate_all_gradients=False, m_0=None, write=False, verbose=False):
+            indices=None, m_0=None, write=False, verbose=False):
         """
         Return meshgrid values of fx and directions of gx over hyperparameter space.
 
@@ -2376,16 +2056,26 @@ class VBOrderedGP(Estimator):
         Special cases are frequent: log and non log variables. 2 axis vs 1 axis objective function, calculate
         new Gram matrix or not. So the simplest way is to combinate manually.
         """
+        indices_where = np.where(indices != 0)
         steps = 100
-        (
-            x1s, x2s, xlabel, ylabel, xscale, yscale, xx, yy,
-            Phi_new, fxs, gxs, intervals, gx_0, indices) = self._grid_over_hyperparameters_initiate(
-                gamma_0, varphi_0, noise_variance_0, scale_0, res, range_x1, range_x2, self.J, calculate_all_gradients)
-        print("indeces", indices)
+        (x1s, x2s,
+        xlabel, ylabel,
+        xscale, yscale,
+        xx, yy,
+        Phi_new,
+        fxs, gxs, gx_0,
+        intervals) = self._grid_over_hyperparameters_initiate(
+                gamma_0, varphi_0, noise_variance_0, scale_0,
+                res, range_x1, range_x2, indices)
         error = np.inf
         fx_old = np.inf
         for i, phi in enumerate(Phi_new):
-            gamma, varphi, noise_variance, noise_std, scale = self._grid_over_hyperparameters_update(phi, gamma_0, varphi_0, noise_variance_0, scale_0)
+            (gamma,
+            varphi,
+            noise_variance,
+            noise_std,
+            scale) = self._grid_over_hyperparameters_update(
+                phi, gamma_0, varphi_0, noise_variance_0, scale_0, indices)
             # Reset error and posterior mean
             iteration = 0
             error = np.inf
@@ -2410,9 +2100,9 @@ class VBOrderedGP(Estimator):
                 self.cov, self.partial_K_varphi, self.N, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
                 numerical_stability=True, verbose=True)
             print(gx)
-            print(gx[indices])
+            print(gx[indices_where])
             fxs[i] = fx
-            gxs[i] = gx[indices]
+            gxs[i] = gx[indices_where]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
             print("gamma={}, varphi={}, noise_variance={}, scale={}, fx={}, gx={}".format(
@@ -2450,17 +2140,24 @@ class VBOrderedGP(Estimator):
         #         and scale_0 is None):
         #     return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
 
-    def _hyperparameter_training_step_initialise(self, theta):
+    def _hyperparameter_training_step_initialise(
+            self, theta, indices,
+            posterior_mean_0, Sigma_0, mean_EP_0,
+            precision_EP_0, amplitude_EP_0
+            ):
         """
         Initialise the hyperparameter training step.
 
         :arg theta: The set of (log-)hyperparameters
             .. math::
-                [\log{\sigma} \log{b_{1}} \log{\Delta_{1}} \log{\Delta_{2}} ... \log{\Delta_{J-2}} \log{\varphi}],
+                [\log{\sigma} \log{b_{1}} \log{\Delta_{1}}
+                \log{\Delta_{2}} ... \log{\Delta_{J-2}} \log{\varphi}],
 
-            where :math:`\sigma` is the noise standard deviation, :math:`\b_{1}` is the first cutpoint,
-            :math:`\Delta_{l}` is the :math:`l`th cutpoint interval, :math:`\varphi` is the single shared lengthscale
-            parameter or vector of parameters in which there are in the most general case J * D parameters.
+            where :math:`\sigma` is the noise standard deviation,
+            :math:`\b_{1}` is the first cutpoint, :math:`\Delta_{l}` is the
+            :math:`l`th cutpoint interval, :math:`\varphi` is the single
+            shared lengthscale parameter or vector of parameters in which
+            there are in the most general case J * D parameters.
         :type theta: :class:`numpy.ndarray`
         :return: (gamma, noise_variance) the updated cutpoints and noise variance.
         :rtype: (2,) tuple
@@ -2491,11 +2188,30 @@ class VBOrderedGP(Estimator):
             varphi = np.exp(theta[self.J])
         # Update prior covariance
         self._hyperparameters_update(varphi=varphi, noise_variance=noise_variance)
-        return gamma, varphi, noise_variance, scale
+        steps = self.N
+        error = np.inf
+        iteration = 0
+        indices_where = np.where(indices != 0)
+        if self.kernel._general and self.kernel._ARD:
+            gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
+        else:
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        posterior_mean = posterior_mean_0
+        Sigma = Sigma_0
+        mean_EP = mean_EP_0
+        precision_EP = precision_EP_0
+        amplitude_EP = amplitude_EP_0
+        intervals = gamma[2:self.J] - gamma[1:self.J - 1]
+        return (gamma, varphi, noise_variance, scale,
+            steps, error, iteration, indices_where,
+            Sigma, mean_EP, precision_EP, amplitude_EP, intervals)
 
     def hyperparameter_training_step(
-            self, theta, gamma_0, varphi_0, noise_variance_0, scale_0, calculate_all_gradients, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, write=False, verbose=True):
+            self, theta, gamma_0, varphi_0, noise_variance_0, scale_0,
+            indices,
+            posterior_mean_0=None, Sigma_0=None, mean_EP_0=None,
+            precision_EP_0=None, amplitude_EP_0=None,
+            first_step=1, write=False, verbose=True):
         """
         TODO: Needs completing. Probably is best to precalculate gx_0 outside this method.
         Optimisation routine for hyperparameters.
@@ -2516,27 +2232,43 @@ class VBOrderedGP(Estimator):
         :arg bool verbose:
         :return:
         """
-        steps = self.N
-        error = np.inf
-        iteration = 0
-        gx, indices = self._objective_gradient_initiate(gamma_0, varphi_0, noise_variance_0, scale_0, calculate_all_gradients)
+        # # TODO: SS These should probably be done in hyperparameter_t_s_initialise.
+        # steps = self.N
+        # error = np.inf
+        # iteration = 0
+        # indices_where = np.where(indices != 0)
+        # if self.kernel._general and self.kernel._ARD:
+        #     gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
+        # else:
+        #     gx = np.zeros(1 + self.J - 1 + 1 + 1)
         # Update prior covariance, get hyperparameters from theta
-        gamma, varphi, noise_variance, scale = self._hyperparameter_training_step_initialise(theta, gx, calculate_all_gradients)
-        posterior_mean = posterior_mean_0
-        Sigma = Sigma_0
-        mean_EP = mean_EP_0
-        precision_EP = precision_EP_0
-        amplitude_EP = amplitude_EP_0
-        intervals = gamma[2:self.J] - gamma[1:self.J - 1]
+        (gamma, varphi, noise_variance, scale,
+        steps, error, iteration, indices_where,
+        Sigma, mean_EP, precision_EP, amplitude_EP, intervals
+        ) = self._hyperparameter_training_step_initialise(
+            theta, gx, indices,
+            posterior_mean_0, Sigma_0, mean_EP_0,
+            precision_EP_0, amplitude_EP_0)
+        # # TODO SS these are now included in initialise
+        # posterior_mean = posterior_mean_0
+        # Sigma = Sigma_0
+        # mean_EP = mean_EP_0
+        # precision_EP = precision_EP_0
+        # amplitude_EP = amplitude_EP_0
+        # intervals = gamma[2:self.J] - gamma[1:self.J - 1]
         while error / steps > self.EPS**2:
             iteration += 1
             (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
              precision_EP, amplitude_EP, containers) = self.estimate(
-                steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
-                precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, first_step=first_step, write=write)
+                steps, gamma, varphi, noise_variance,
+                posterior_mean_0=posterior_mean, Sigma_0=Sigma,
+                mean_EP_0=mean_EP,
+                precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
+                first_step=first_step, write=write)
             if verbose:
                 print("({}), error={}".format(iteration, error))
-        weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(
+        (weights, precision_EP,
+        Lambda_cholesky, Lambda) = self.compute_EP_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         if write:
             (posterior_means, Sigmas, mean_EPs, precision_EPs,
@@ -2546,11 +2278,13 @@ class VBOrderedGP(Estimator):
             posterior_mean, noise_variance)
         # t1, t2, t3, t4, t5 = self.compute_integrals(
         #     gamma, Sigma, precision_EP, posterior_mean, noise_variance)
-        fx = self.objective(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
+        fx = self.objective(
+            precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
         gx = self.objective_gradient(
-            gx, intervals, gamma, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
+            gx, intervals, gamma, self.kernel.varphi, noise_variance,
+            t2, t3, t4, t5, Lambda, weights, indices)
         # Only some variables are being optimized over
-        gx = gx[indices]
+        gx = gx[indices_where]
         if verbose:
             print(repr(gamma), ",")
             print(self.kernel.varphi, ",")
@@ -2558,7 +2292,9 @@ class VBOrderedGP(Estimator):
             print("\nfunction_eval={}\n jacobian_eval={}".format(
                 fx, gx))
         else:
-            print("gamma={}, noise_variance={}, varphi={}\nfunction_eval={}".format(
+            print(
+                "gamma={}, noise_variance={},"
+                " varphi={}\nfunction_eval={}".format(
                 gamma, noise_variance, self.kernel.varphi, fx))
         return fx, gx
 
@@ -2592,7 +2328,6 @@ class EPOrderedGP(Estimator):
             raise ValueError('The kernel must not be general type (kernel._general=1),'
                              ' but simple type (kernel._general=0). (got {}, expected)'.format(
                 self.kernel._general, 0))
-        self.grid = np.ogrid[0:self.N] # All indices for sequential message passing
         self.EPS = 0.001  # Acts as a machine tolerance
         # Threshold of single sided standard deviations that normal cdf can be approximated to 0 or 1
         self.upper_bound = 4 
@@ -3160,18 +2895,22 @@ class EPOrderedGP(Estimator):
         posterior_pred_mean = np.einsum('ij, i -> j', intermediate_vectors, mean_EP)
         predictive_distributions = np.empty((N_test, self.J))
         for j in range(self.J):
-            Z1 = np.divide(np.subtract(gamma[k + 1], posterior_pred_mean), posterior_pred_std)
-            Z2 = np.divide(np.subtract(gamma[k], posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, k] = norm.cdf(Z1) - norm.cdf(Z2)
+            Z1 = np.divide(np.subtract(gamma[j + 1], posterior_pred_mean), posterior_pred_std)
+            Z2 = np.divide(np.subtract(gamma[j], posterior_pred_mean), posterior_pred_std)
+            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
         return predictive_distributions, posterior_pred_mean, posterior_std  # (N_test, J), (N_test,), (N_test,)
 
-    def predict(self, gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda, vectorised=True):
+    def predict(
+        self, gamma, Sigma,
+        mean_EP, precision_EP,
+        varphi, noise_variance, X_test, Lambda, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
 
         :arg Sigma: The EP posterior covariance estimate.
         :arg y_tilde: The posterior mean estimate of the latent variable Y.
-        :arg varphi_tilde: The posterior mean estimate of the hyper-parameters varphi.
+        :arg varphi_tilde: The posterior mean estimate of the
+            hyper-parameters varphi.
         :arg X_test: The new data points, array like (N_test, D).
         :arg n_samples: The number of samples in the Monte Carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
@@ -3179,129 +2918,190 @@ class EPOrderedGP(Estimator):
         if self.kernel._ARD:
             # This is the general case where there are hyper-parameters
             # varphi (J, D) for all dimensions and classes.
-            raise ValueError('For the ordered likelihood estimator, the kernel must not be _ARD type'
-                             ' (kernel._ARD=1), but ISO type (kernel._ARD=0). (got {}, expected)'.format(
-                self.kernel._ARD, 0))
+            raise ValueError(
+                "For the ordered likelihood estimator,the kernel "
+                "must not be _ARD type (kernel._ARD=1), but"
+                " ISO type (kernel._ARD=0). (got {}, expected)".format(
+                    self.kernel._ARD, 0))
         else:
             if vectorised:
-                return self._predict_vector(gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test, Lambda)
+                return self._predict_vector(
+                    gamma, Sigma,
+                    mean_EP, precision_EP,
+                    varphi, noise_variance, X_test, Lambda)
             else:
-                return ValueError("The scalar implementation has been superseded. Please use "
-                                  "the vector implementation.")
+                return ValueError(
+                    "The scalar implementation has been "
+                    "superseded. Please use "
+                    "the vector implementation.")
 
-    def _hyperparameter_training_step_initialise(self, theta, gamma_0, varphi_0, noise_variance_0, scale_0, calculate_all_gradients):
+    def _hyperparameter_training_step_initialise(
+            self, theta, gamma_0, varphi_0, noise_variance_0, scale_0,
+            indices):
         """
         Initialise the hyperparameter training step.
 
         :arg theta: The set of (log-)hyperparameters
             .. math::
-                [\log{\sigma} \log{b_{1}} \log{\Delta_{1}} \log{\Delta_{2}} ... \log{\Delta_{J-2}} \log{\varphi}],
+                [\log{\sigma} \log{b_{1}} \log{\Delta_{1}}
+                \log{\Delta_{2}}... \log{\Delta_{J-2}} \log{\varphi}],
             or
             .. math::
                 [\log{\varphi}],
             or
             .. math::
                 [\log(\sigma), \log{\varphi}],
-            where :math:`\sigma` is the noise standard deviation, :math:`\b_{1}` is the first cutpoint,
-            :math:`\Delta_{l}` is the :math:`l`th cutpoint interval, :math:`\varphi` is the single shared lengthscale
-            parameter or vector of parameters in which there are in the most general case J * D parameters.
+            where :math:`\sigma` is the noise standard deviation,
+            :math:`\b_{1}` is the first cutpoint,
+            :math:`\Delta_{l}` is the :math:`l`th cutpoint interval,
+            :math:`\varphi` is the single shared lengthscale 
+            parameter or vector of parameters in which there are in the 
+            most general case J * D parameters.
         :type theta: :class:`numpy.ndarray`
-        :return: (gamma, noise_variance) the updated cutpoints and noise variance.
+        :return: (gamma, noise_variance) the updated cutpoints
+            and noise variance.
         :rtype: (2,) tuple
         """
-        if calculate_all_gradients:
-            # Optimize all hyperparameters
-            noise_std = np.exp(theta[0])
+        scale = scale_0
+        gamma = gamma_0
+        varphi = varphi_0
+        noise_variance = noise_variance_0
+        index = 0
+        if indices[0]:
+            noise_std = np.exp(theta[index])
             noise_variance = noise_std**2
+            scale = scale_0
             if noise_variance < 1.0e-04:
                 warnings.warn("WARNING: noise variance is very low - numerical stability issues may arise "
                             "(noise_variance={}).".format(noise_variance))
             elif noise_variance > 1.0e3:
                 warnings.warn("WARNING: noise variance is very large - numerical stability issues may arise "
                             "(noise_variance={}).".format(noise_variance))
-            gamma = np.empty((self.J + 1,))  # including all of the cutpoints
-            gamma[0] = np.NINF
-            gamma[-1] = np.inf
-            gamma[1] = theta[1]
-            for i in range(2, self.J):
-                gamma[i] = gamma[i - 1] + np.exp(theta[i])
-            scale_std = np.exp(theta[self.J])
+            index += 1
+        gamma = np.empty((self.J + 1,))
+        gamma[0] = np.NINF
+        gamma[-1] = np.inf
+        if indices[1]:
+            gamma[1] = theta[index]
+            index += 1
+        for j in range(2, self.J):
+            if indices[j]:
+                gamma[j] = gamma[j-1] + np.exp(theta[index])
+                index += 1
+        if indices[self.J]:
+            scale_std = np.exp(theta[index])
             scale = scale_std**2
+            index += 1
+        if indices[self.J + 1]:
             if self.kernel._general and self.kernel._ARD:
-                # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+                # In this case, then there is a scale parameter, the first
+                # cutpoint, the interval parameters,
                 # and lengthscales parameter for each dimension and class
-                varphi = np.exp(np.reshape(theta[self.J:self.J + self.J * self.D], (self.J, self.D)))
+                varphi = np.exp(
+                    np.reshape(
+                        theta[index:index + self.J * self.D],
+                        (self.J, self.D)))
+                index += self.J * self.D
             else:
-                # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+                # In this case, then there is a scale parameter, the first
+                # cutpoint, the interval parameters,
                 # and a single, shared lengthscale parameter
-                varphi = np.exp(theta[self.J])
-            # Update prior covariance
-            self.kernel.hyperparameter_update(varphi=varphi)
-            self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
-            # TODO: Calculate partial_K_varphi here?
-        elif (gamma_0 is not None
-                and varphi_0 is None
-                and noise_variance_0 is None
-                and scale_0 is not None):
-            # Optimize only varphi and noise variance
-            gamma = gamma_0
-            scale = scale_0
-            raise ValueError("TODO")
-        elif (gamma_0 is not None
-                and varphi_0 is None
-                and noise_variance_0 is not None
-                and scale_0 is None):
-            # Optimize only varphi and scale
-            gamma = gamma_0
-            noise_variance = noise_variance_0
-            raise ValueError("TODO")
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is None
-                and scale_0 is not None):
-            # Optimize only varphi
-            if self.kernel._general and self.kernel._ARD:
-                # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
-                # and lengthscales parameter for each dimension and class
-                varphi = np.exp(np.reshape(theta[0:self.J + self.J * self.D], (self.J, self.D)))
-            else:
-                # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
-                # and a single, shared lengthscale parameter
-                varphi = np.exp(theta[0])
-            # Update prior covariance
-            self.kernel.hyperparameter_update(varphi=varphi)
-            self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
-            gamma = gamma_0
-            noise_variance = noise_variance_0
-            scale = scale_0
-        elif (gamma_0 is not None
-                and noise_variance_0 is None
-                and varphi_0 is not None
-                and scale_0 is not None):
-            # Optimize only noise variance
-            gamma = gamma_0
-            varphi = varphi_0
-            scale = scale_0
-            raise ValueError("TODO")
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is not None
-                and scale_0 is None):
-            # Optimize only scale
-            gamma = gamma_0
-            varphi = varphi_0
-            noise_variance = noise_variance_0
-            raise ValueError("TODO")
-        elif (gamma_0 is not None
-                and noise_variance_0 is not None
-                and varphi_0 is not None
-                and scale_0 is not None):
-            # Optimize only first two threshold parameters
-            gamma = gamma_0
-            varphi = varphi_0
-            noise_variance = noise_variance_0
-            scale = scale_0
-            raise ValueError("TODO")
+                varphi = np.exp(theta[index])
+                index += 1
+        # SS
+        # if calculate_all_gradients:
+        #     # Optimize all hyperparameters
+        #     noise_std = np.exp(theta[0])
+        #     noise_variance = noise_std**2
+        #     if noise_variance < 1.0e-04:
+        #         warnings.warn("WARNING: noise variance is very low - numerical stability issues may arise "
+        #                     "(noise_variance={}).".format(noise_variance))
+        #     elif noise_variance > 1.0e3:
+        #         warnings.warn("WARNING: noise variance is very large - numerical stability issues may arise "
+        #                     "(noise_variance={}).".format(noise_variance))
+        #     gamma = np.empty((self.J + 1,))  # including all of the cutpoints
+        #     gamma[0] = np.NINF
+        #     gamma[-1] = np.inf
+        #     gamma[1] = theta[1]
+        #     for i in range(2, self.J):
+        #         gamma[i] = gamma[i - 1] + np.exp(theta[i])
+        #     scale_std = np.exp(theta[self.J])
+        #     scale = scale_std**2
+        #     if self.kernel._general and self.kernel._ARD:
+        #         # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+        #         # and lengthscales parameter for each dimension and class
+        #         varphi = np.exp(np.reshape(theta[self.J:self.J + self.J * self.D], (self.J, self.D)))
+        #     else:
+        #         # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+        #         # and a single, shared lengthscale parameter
+        #         varphi = np.exp(theta[self.J])
+        #     # Update prior covariance
+        #     self.kernel.hyperparameter_update(varphi=varphi)
+        #     self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        #     # TODO: Calculate partial_K_varphi here?
+        # elif (gamma_0 is not None
+        #         and varphi_0 is None
+        #         and noise_variance_0 is None
+        #         and scale_0 is not None):
+        #     # Optimize only varphi and noise variance
+        #     gamma = gamma_0
+        #     scale = scale_0
+        #     raise ValueError("TODO")
+        # elif (gamma_0 is not None
+        #         and varphi_0 is None
+        #         and noise_variance_0 is not None
+        #         and scale_0 is None):
+        #     # Optimize only varphi and scale
+        #     gamma = gamma_0
+        #     noise_variance = noise_variance_0
+        #     raise ValueError("TODO")
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is None
+        #         and scale_0 is not None):
+        #     # Optimize only varphi
+        #     if self.kernel._general and self.kernel._ARD:
+        #         # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+        #         # and lengthscales parameter for each dimension and class
+        #         varphi = np.exp(np.reshape(theta[0:self.J + self.J * self.D], (self.J, self.D)))
+        #     else:
+        #         # In this case, then there is a scale parameter, the first cutpoint, the interval parameters,
+        #         # and a single, shared lengthscale parameter
+        #         varphi = np.exp(theta[0])
+        #     # Update prior covariance
+        #     self.kernel.hyperparameter_update(varphi=varphi)
+        #     self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        #     gamma = gamma_0
+        #     noise_variance = noise_variance_0
+        #     scale = scale_0
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is None
+        #         and varphi_0 is not None
+        #         and scale_0 is not None):
+        #     # Optimize only noise variance
+        #     gamma = gamma_0
+        #     varphi = varphi_0
+        #     scale = scale_0
+        #     raise ValueError("TODO")
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is not None
+        #         and scale_0 is None):
+        #     # Optimize only scale
+        #     gamma = gamma_0
+        #     varphi = varphi_0
+        #     noise_variance = noise_variance_0
+        #     raise ValueError("TODO")
+        # elif (gamma_0 is not None
+        #         and noise_variance_0 is not None
+        #         and varphi_0 is not None
+        #         and scale_0 is not None):
+        #     # Optimize only first two threshold parameters
+        #     gamma = gamma_0
+        #     varphi = varphi_0
+        #     noise_variance = noise_variance_0
+        #     scale = scale_0
+        #     raise ValueError("TODO")
         return gamma, varphi, noise_variance, scale
 
     def _hyperparameters_update(self, varphi=None, scale=None, noise_variance=None):
@@ -3322,21 +3122,36 @@ class EPOrderedGP(Estimator):
             self.noise_std = np.sqrt(noise_variance)
 
     def grid_over_hyperparameters(
-            self, range_x1, range_x2, res, gamma_0=None, varphi_0=None, noise_variance_0=None, scale_0=None, calculate_all_gradients=False,
-            posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, write=False, verbose=False):
+            self, range, res,
+            gamma_0=None, varphi_0=None, noise_variance_0=None, scale_0=None,
+            indices=None,
+            posterior_mean_0=None, Sigma_0=None, mean_EP_0=None,
+            precision_EP_0=None, amplitude_EP_0=None,
+            first_step=1, write=False, verbose=False):
         """
-        Return meshgrid values of fx and directions of gx over hyperparameter space.
+        Return meshgrid values of fx and gx over hyperparameter space.
 
-        The particular hyperparameter space is inferred from the user inputs.
+        The particular hyperparameter space is inferred from the user inputs,
+        indices.
         """
-        steps = self.N  # Seems to work well in practice.
-        (
-            x1s, x2s, xlabel, ylabel, xscale, yscale, xx, yy,
-        Phi_new, fxs, gxs, intervals, gx_0, indices) = self._grid_over_hyperparameters_initiate(
-            gamma_0, varphi_0, noise_variance_0, scale_0, res, range_x1, range_x2, self.J, calculate_all_gradients)
+        steps = self.N  # Seems to work well in practice. Justification?
+        (x1s, x2s,
+        xlabel, ylabel,
+        xscale, yscale,
+        xx, yy,
+        Phi_new, fxs,
+        gxs, gx_0, intervals) = self._grid_over_hyperparameters_initiate(
+            gamma_0, varphi_0, noise_variance_0, scale_0,
+            res, range, indices)
+        indices_where = np.where(indices != 0)
         for i, phi in enumerate(Phi_new):
-            gamma, varphi, noise_variance, noise_std, scale = self._grid_over_hyperparameters_update(phi, gamma_0, varphi_0, noise_variance_0, scale_0)
+            (gamma, varphi, noise_variance,
+            noise_std, scale) = self._grid_over_hyperparameters_update(
+                phi, gamma_0, varphi_0, noise_variance_0, scale_0, indices)
+            print("gamma_0 = {}".format(gamma))
+            print("varphi_0 = {}".format(varphi))
+            print("noise_variance_0 = {}".format(noise_variance))
+            print("scale_0 = {}".format(scale))
             # Reset parameters
             iteration = 0
             error = np.inf
@@ -3349,23 +3164,30 @@ class EPOrderedGP(Estimator):
                 iteration += 1
                 (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
                  precision_EP, amplitude_EP, containers) = self.estimate(
-                    steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
-                    mean_EP_0=mean_EP, precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
+                    steps, gamma, varphi, noise_variance,
+                    posterior_mean_0=posterior_mean, Sigma_0=Sigma,
+                    mean_EP_0=mean_EP, precision_EP_0=precision_EP,
+                    amplitude_EP_0=amplitude_EP,
                     first_step=first_step, write=write)
                 if verbose:
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
-            weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(
+            (weights, precision_EP,
+            Lambda_cholesky, Lambda) = self.compute_EP_weights(
                 precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
             t1, t2, t3, t4, t5 = self.compute_integrals_vector(
                 gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+            # TODO: SS
             # t1, t2, t3, t4, t5 = self.compute_integrals(
             #     gamma, Sigma, precision_EP, posterior_mean, noise_variance)
-            fx = self.objective(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
+            fx = self.objective(
+                precision_EP, posterior_mean,
+                t1, Lambda_cholesky, Lambda, weights)
             fxs[i] = fx
             gx = self.objective_gradient(
-                gx_0.copy(), intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
-            gxs[i] = gx[indices]
+                gx_0.copy(), intervals, self.kernel.varphi, noise_variance,
+                t2, t3, t4, t5, Lambda, weights, indices)
+            gxs[i] = gx[indices_where]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
                 print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
@@ -3376,7 +3198,9 @@ class EPOrderedGP(Estimator):
 
     def hyperparameter_training_step(
             self, theta, gamma_0, varphi_0, noise_variance_0, scale_0,
-            posterior_mean_0=None, Sigma_0=None, mean_EP_0=None, precision_EP_0=None,
+            indices,
+            posterior_mean_0=None, Sigma_0=None, mean_EP_0=None,
+            precision_EP_0=None,
             amplitude_EP_0=None, first_step=1, write=False, verbose=True):
         """
         Optimisation routine for hyperparameters.
@@ -3409,8 +3233,13 @@ class EPOrderedGP(Estimator):
         error = np.inf
         iteration = 0
         # Update prior covariance and get hyperparameters from theta
-        gamma, varphi, noise_variance, scale = self._hyperparameter_training_step_initialise(
-            theta, gamma_0, varphi_0, noise_variance_0, scale_0, calculate_all_gradients)
+        (gamma,
+        varphi,
+        noise_variance,
+        scale) = self._hyperparameter_training_step_initialise(
+            theta,
+            gamma_0, varphi_0, noise_variance_0, scale_0,
+            indices)
         posterior_mean = posterior_mean_0
         Sigma = Sigma_0
         mean_EP = mean_EP_0
@@ -3421,11 +3250,18 @@ class EPOrderedGP(Estimator):
             iteration += 1
             (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
              precision_EP, amplitude_EP, containers) = self.estimate(
-                steps, gamma, varphi, noise_variance, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
-                precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP, first_step=first_step, write=write)
+                steps, gamma, varphi, noise_variance,
+                posterior_mean_0=posterior_mean,
+                Sigma_0=Sigma, mean_EP_0=mean_EP,
+                precision_EP_0=precision_EP,
+                amplitude_EP_0=amplitude_EP,
+                first_step=first_step, write=write)
             if verbose:
                 print("({}), error={}".format(iteration, error))
-        weights, precision_EP, Lambda_cholesky, Lambda = self.compute_EP_weights(
+        (weights,
+        precision_EP,
+        Lambda_cholesky,
+        Lambda) = self.compute_EP_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         if write:
             (posterior_means, Sigmas, mean_EPs, precision_EPs,
@@ -3433,19 +3269,28 @@ class EPOrderedGP(Estimator):
         # Try optimisation routine
         t1, t2, t3, t4, t5 = self.compute_integrals_vector(
             gamma, Sigma, precision_EP, posterior_mean, noise_variance)
-        fx = self.objective(precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
-        gx, indices = self._objective_gradient_initiate(gamma_0, varphi_0, noise_variance_0, scale_0)
+        fx = self.objective(precision_EP, posterior_mean, t1,
+            Lambda_cholesky, Lambda, weights)
+        if self.kernel._general and self.kernel._ARD:
+            gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
+        else:
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
-            gx, intervals, self.kernel.varphi, noise_variance, t2, t3, t4, t5, Lambda, weights)
+            gx, intervals, varphi, noise_variance,
+            t2, t3, t4, t5, Lambda, weights, indices)
+        gx = gx[np.where(indices != 0)]
         if verbose:
-            print(repr(gamma), ",")
-            print(self.kernel.varphi, ",")
-            print(noise_variance, ",")
+            print("gamma=", repr(gamma), ", ")
+            print("varphi=", self.kernel.varphi, ", ")
+            print("noise_variance=",noise_variance, ", ")
+            print("scale=", scale, ", ")
             print("\nfunction_eval={}\n jacobian_eval={}".format(
                 fx, gx))
         else:
-            print("gamma={}, noise_variance={}, varphi={}\nfunction_eval={}".format(
-                gamma, noise_variance, self.kernel.varphi, fx))
+            print(
+                "gamma={}, noise_variance={}, "
+                "varphi={}\nfunction_eval={}".format(
+                    gamma, noise_variance, self.kernel.varphi, fx))
         return fx, gx
 
     def compute_integrals_vector(
@@ -3588,16 +3433,19 @@ class EPOrderedGP(Estimator):
         return -fx
 
     def objective_gradient(
-            self, gx, intervals, varphi, noise_variance, t2, t3, t4, t5, Lambda, weights):
+            self, gx, intervals, varphi, noise_variance,
+            t2, t3, t4, t5, Lambda, weights, indices):
         """
-        TODO: This is a bottleneck: vectorise it.
-        Calculate gx, the jacobian of the variational lower bound of the log marginal likelihood at the EP equilibrium.
+        Calculate gx, the jacobian of the variational lower bound of the
+        log marginal likelihood at the EP equilibrium.
 
         .. math::
                 \mathcal{\frac{\partial F(\Phi)}{\partial \Phi}}
 
-            where :math:`F(\Phi)` is the variational lower bound of the log marginal likelihood at the EP equilibrium,
-            :math:`\Phi` is the set of hyperparameters, :math:`h`, :math:`\Pi`, :math:`K`. #TODO
+            where :math:`F(\Phi)` is the variational lower bound of the 
+            log marginal likelihood at the EP equilibrium,
+            :math:`\Phi` is the set of hyperparameters,
+            :math:`h`, :math:`\Pi`, :math:`K`.  #TODO
 
         :arg intervals:
         :type intervals:
@@ -3621,26 +3469,28 @@ class EPOrderedGP(Estimator):
         :rtype: float
         """
         # Update gx
-        # For gx[0] -- ln\sigma
-        if gx[0]:
+        if indices[0]:
+            # For gx[0] -- ln\sigma
             gx[0] = np.sum(t5 - t4)
             # gx[0] *= -0.5 * noise_variance  # This is not what is written in the paper. It is a typo in Chu code
             gx[0] *= np.sqrt(noise_variance)
         # For gx[1] -- \b_1
-        if gx[1]:
+        if indices[1]:
             gx[1] = np.sum(t3 - t2)
         # For gx[2] -- ln\Delta^r
         for j in range(2, self.J):
-            if gx[j]:
+            if indices[j]:
                 targets = self.t_train[self.grid]
                 gx[j] = np.sum(t3[targets == j - 1])
                 gx[j] -= np.sum(t2[targets == self.J - 1])
                 gx[j] += np.sum(t3[targets > j - 1] - t2[targets > j - 1])
                 gx[j] *= intervals[j - 2]
-        # For gx[self.J] -- s
-        if gx[self.J]:
+        # For gx[self.J] -- scale
+        if indices[self.J]:
+            # For gx[self.J] -- s
             # TODO: Need to check this is correct: is it directly analogous to gradient wrt log varphi?
-            partial_K_s = self.kernel.kernel_partial_derivative_s(self.X_train, self.X_train)
+            partial_K_s = self.kernel.kernel_partial_derivative_s(
+                self.X_train, self.X_train)
             # VC * VC * a' * partial_K_varphi * a / 2
             gx[self.J] = varphi * 0.5 * weights.T @ partial_K_s @ weights  # That's wrong. not the same calculation.
             # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_K_varphi)
@@ -3649,8 +3499,9 @@ class EPOrderedGP(Estimator):
             # gx[self.J] -= 0.1 * varphi
             gx[self.J] *= 2.0  # since varphi = kappa / 2
         # For gx[self.J + 1] -- varphi
-        if gx[self.J + 1]:
-            partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(self.X_train, self.X_train)
+        if indices[self.J + 1]:
+            partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
+                self.X_train, self.X_train)
             if self.kernel._general and self.kernel._ARD:
                 raise ValueError("TODO")
             else:
@@ -3688,7 +3539,7 @@ class EPOrderedGP(Estimator):
         """
         if np.any(precision_EP == 0.0):
             # TODO: Only check for equilibrium if it has been updated in this swipe
-            warnings.warn("Some sample has not been updated.\n")
+            warnings.warn("Some sample(s) have not been updated.\n")
             precision_EP[precision_EP == 0.0] = self.EPS * self.EPS
         Pi_inv = np.diag(1. / precision_EP)
         # Cholesky factorisation only
