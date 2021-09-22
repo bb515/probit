@@ -3190,11 +3190,13 @@ class EPOrderedGP(Estimator):
             gxs[i] = gx[indices_where]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
-                print("varphi={}, noise_variance={}, fx={}".format(varphi, noise_variance, fx))
+                print("varphi={}, noise_variance={}, fx={}".format(
+                    varphi, noise_variance, fx))
         if x2s is not None:
-            return fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy, xlabel, ylabel, xscale, yscale
+            return (fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy,
+                xlabel, ylabel, xscale, yscale)
         else:
-            return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
+            return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
     def hyperparameter_training_step(
             self, theta, gamma_0, varphi_0, noise_variance_0, scale_0,
