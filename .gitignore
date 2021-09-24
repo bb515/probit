@@ -151,3 +151,4 @@ probit/data/tf_parse.py
 probit/data/tfrecord/
 probit/data/utilities_nplan.py
 examples/example8/example_EP_nPlan.py
+probit/scratch.py
