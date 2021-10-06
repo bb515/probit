@@ -11,8 +11,7 @@ from probit.estimators import VBOrderedGP
 from probit.kernels import SEARD
 import matplotlib.pyplot as plt
 import pathlib
-from scipy.optimize import minimize
-from probit.data.utilities import (generate_prior_data, generate_synthetic_data, get_Y_trues, colors, datasets,
+from probit.data.utilities import (colors, datasets,
     metadata, load_data, load_data_synthetic, training, training_varphi)
 import sys
 import time

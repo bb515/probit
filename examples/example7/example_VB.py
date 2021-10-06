@@ -53,7 +53,6 @@ def main():
         # TODO: will need to extract test/train data for outerloops
         (X, t,
         X_true, Y_true,
-        gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
         # test_plots(
         #     Kernel,

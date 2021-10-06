@@ -11,7 +11,7 @@ from probit.EP import (
     outer_loops, grid_synthetic, EP_training, grid, EP_testing,
     test_synthetic)
 from probit.data.utilities import (
-    datasets, metadata, load_data, load_data_synthetic)
+    datasets, load_data, load_data_synthetic)
 import sys
 import time
 
