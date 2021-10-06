@@ -1261,7 +1261,7 @@ def generate_synthetic_data_new(N_per_class, N_test, splits, K, D, varphi=30.0, 
 
 
 def load_data_synthetic(dataset, bins, plot=False):
-    """Load synethetic data."""
+    """Load synthetic data."""
     print(dataset)
     if dataset == "SEIso":
         D = 1
@@ -1309,7 +1309,9 @@ def load_data_synthetic(dataset, bins, plot=False):
         elif bins == "thirteen":
             K = 13
             from probit.data.SEIso import thirteen
-            with pkg_resources.path(thirteen, 'thirteen_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
+            with pkg_resources.path(
+                thirteen,
+                'thirteen_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
                 data = np.load(path)
             X_show = data["X_show"]
             Z_show = data["Z_show"]
@@ -1353,11 +1355,11 @@ def load_data_synthetic(dataset, bins, plot=False):
                 data = np.load(path)
             X_show = data["X_show"]
             Z_show = data["Z_show"]
-            X_k = data["X_k"]  # Contains (13, 45) array of binned x values
-            Y_true_k = data["Y_k"]  # Contains (13, 45) array of binned y values
-            X = data["X"]  # Contains (585,) array of x values
-            t = data["t"]  # Contains (585,) array of ordinal response variables, corresponding to Xs values
-            Y_true = data["Y"]  # Contains (585,) array of y values, corresponding to Xs values (not in order)
+            X_k = data["X_k"] 
+            Y_true_k = data["Y_k"]
+            X = data["X"]
+            t = data["t"]
+            Y_true = data["Y"]
             colors = data["colors"]
             X_true = X
             hyperparameters = {
@@ -1369,7 +1371,7 @@ def load_data_synthetic(dataset, bins, plot=False):
                 ),
                 "true": (
                     data["gamma"],
-                    data["varphi"],
+                    [data["constant_variance"], data["c"]],
                     data["noise_variance"],
                     data["scale"],
                 ),
@@ -1377,7 +1379,6 @@ def load_data_synthetic(dataset, bins, plot=False):
             plt.scatter(X, Y_true)
             plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
-            print(X)
         elif bins == "thirteen":
             K = 13
             from probit.data.Linear import thirteen
@@ -1385,11 +1386,11 @@ def load_data_synthetic(dataset, bins, plot=False):
                 data = np.load(path)
             X_show = data["X_show"]
             Z_show = data["Z_show"]
-            X_k = data["X_k"]  # Contains (13, 45) array of binned x values
-            Y_true_k = data["Y_k"]  # Contains (13, 45) array of binned y values
-            X = data["X"]  # Contains (585,) array of x values
-            t = data["t"]  # Contains (585,) array of ordinal response variables, corresponding to Xs values
-            Y_true = data["Y"]  # Contains (585,) array of y values, corresponding to Xs values (not in order)
+            X_k = data["X_k"]
+            Y_true_k = data["Y_k"]
+            X = data["X"]
+            t = data["t"]
+            Y_true = data["Y"]
             colors = data["colors"]
             X_true = X
             hyperparameters = {
@@ -1401,15 +1402,15 @@ def load_data_synthetic(dataset, bins, plot=False):
                 ),
                 "true": (
                     data["gamma"],
-                    data["intercept"],
+                    [data["constant_variance"], data["c"]],
                     data["noise_variance"],
-                    data["scale"],
+                    data["scale"]
                 ),
             }
             plt.scatter(X, Y_true)
             plt.show()
-            gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
-            print(X)
+            gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters[
+                "true"]
     if plot:
         plot_ordinal(X, t, X_k, Y_true_k, K, D)
     return (
@@ -1452,6 +1453,37 @@ def plot_ordinal(X, t, X_k, Y_k, K, D, colors=colors):
     plt.show()
     plt.savefig("N_total={}, K={}, D={} Ordinal response data_.png".format(N_total, K, D))
     plt.close()
+
+def calculate_metrics(y_test, t_test, Z, gamma):
+    """Calculate nPlan metrics and return a big tuple containing them."""
+    t_star = np.argmax(Z, axis=1)
+    print(t_star)
+    print(t_test)
+    grid = np.ogrid[0:len(y_test)]
+    # Other error
+    predictive_likelihood = Z[grid, t_test]
+    mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
+    root_mean_squared_error = np.sqrt(
+        np.sum(pow(t_star - t_test, 2)) / len(t_test))
+    print("root_mean_squared_error", root_mean_squared_error)
+    print("mean_absolute_error ", mean_absolute_error)
+    log_predictive_probability = np.sum(np.log(predictive_likelihood))
+    print("log_pred_probability ", log_predictive_probability)
+    predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
+    print("predictive_likelihood ", predictive_likelihood)
+    print("av_prob_of_correct ", predictive_likelihood)
+    print(np.sum(t_star != t_test), "sum incorrect")
+    mean_zero_one = np.sum(t_star != t_test) / len(t_test)
+    print("mean_zero_one_error", mean_zero_one)
+    print(np.sum(t_star == t_test), "sum correct")
+    mean_zero_one = np.sum(t_star == t_test) / len(t_test)
+    print("mean_zero_one_correct", mean_zero_one)
+    return (
+        mean_zero_one,
+        root_mean_squared_error,
+        mean_absolute_error,
+        log_predictive_probability,
+        predictive_likelihood)
 
 
 class TookTooLong(Warning):

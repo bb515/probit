@@ -150,5 +150,7 @@ probit/data/client*
 probit/data/tf_parse.py
 probit/data/tfrecord/
 probit/data/utilities_nplan.py
+probit/data/utils_nplan.py
 examples/example8/example_EP_nPlan.py
+examples/example8/example_VB_nPlan.py
 probit/scratch.py

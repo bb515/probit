@@ -1,4 +1,5 @@
 """
+TODO: tidy up
 Ordered probit regression concrete examples. Approximate inference: VB approximation.
 """
 import argparse

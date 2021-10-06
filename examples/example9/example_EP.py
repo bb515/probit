@@ -1,4 +1,5 @@
 """
+TODO: tidy
 Ordinal regression concrete examples. Approximate inference: EP approximation.
 """
 import argparse
