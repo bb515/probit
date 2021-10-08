@@ -35,7 +35,9 @@ def main():
         profile.enable()
     #sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets:
-        X_trains, t_trains, X_tests, t_tests, X_true, Y_true, gamma_0, varphi_0, noise_variance_0, J, D, Kernel = load_data(
+        (X_trains, t_trains,
+        X_tests, t_tests, X_true, Y_true,
+        gamma_0, varphi_0, noise_variance_0, J, D, Kernel) = load_data(
             dataset, bins)
         steps = 1000
         gamma_0 = np.array(gamma_0)
@@ -53,12 +55,13 @@ def main():
         # TODO: will need to extract test/train data for outerloops
         (X, t,
         X_true, Y_true,
+        gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
         # test_plots(
         #     Kernel,
         #     X_tests[0], X_trains[0],
         #     t_tests[0], t_trains[0], Y_trues[0])
-        indices = np.ones(15)  # three
+        indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen
         # Fix noise_variance
         indices[0] = 0
@@ -88,7 +91,7 @@ def main():
         # Just varphi
         grid_synthetic(
             J, Kernel, X, t, ((-4, 4), None), (100, None), indices,
-            gamma=gamma_0, noise_variance=noise_variance_0,
+            gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0,
             scale=scale_0, show=True)
     if args.profile:
         profile.disable()

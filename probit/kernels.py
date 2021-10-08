@@ -7,8 +7,9 @@ class Kernel(ABC):
     """
     Base class for kernels.
 
-    TODO: cythonise these functions - or numba. Or replace kernels with existing python GP kernel code.
+    TODO: cythonise these functions - or numba. Or replace kernels with existing python GP kernel code. (dont reinvent the wheel)
     TODO: are self.L and self.M really needed?
+    TODO: seems strange to initiate hyperhyperhyperparameters here.
 
     All kernels must define an init method, which may or may not inherit Kernel
     as a parent class using `super()`. All kernels that inherit Kernel define a
@@ -85,51 +86,78 @@ class Kernel(ABC):
         This method should be implemented in every concrete kernel.
         """
 
-    def _initialise_hyperparameter(self, varphi):
+    def _initialise_hyperparameter(self, varphi=None):
         """
         Initialise as Matern type kernel
         (loosely defined here as a kernel with a length scale) 
         """
-        if ((type(varphi) is list) or
-                (type(varphi) is np.ndarray)):
-            if np.shape(varphi) == (1,):
-                # e.g. [[1]]
+        if varphi is not None:
+            if ((type(varphi) is list) or
+                    (type(varphi) is np.ndarray)):
+                if np.shape(varphi) == (1,):
+                    # e.g. [[1]]
+                    L = 1
+                    M = 1
+                elif np.shape(varphi) == ():
+                    # e.g. [1]
+                    L = 1
+                    M = 1
+                elif np.shape(varphi[0]) == (1,):
+                    # e.g. [[1],[2],[3]]
+                    L = np.shape(varphi)[0]
+                    M = 1
+                elif np.shape(varphi[0]) == ():
+                    # e.g. [1, 2, 3]
+                    L = 1
+                    M = np.shape(varphi)[0]
+                else:
+                    # e.g. [[1, 2], [3, 4], [5, 6]]
+                    L = np.shape(varphi)[0]
+                    M = np.shape(varphi)[1]
+            elif ((type(varphi) is float) or
+                    (type(varphi) is np.float64)):
+                # e.g. 1
                 L = 1
                 M = 1
-            elif np.shape(varphi) == ():
-                # e.g. [1]
-                L = 1
-                M = 1
-            elif np.shape(varphi[0]) == (1,):
-                # e.g. [[1],[2],[3]]
-                L = np.shape(varphi)[0]
-                M = 1
-            elif np.shape(varphi[0]) == ():
-                # e.g. [1, 2, 3]
-                L = 1
-                M = np.shape(varphi)[0]
+                varphi = np.float64(varphi)
             else:
-                # e.g. [[1, 2], [3, 4], [5, 6]]
-                L = np.shape(varphi)[0]
-                M = np.shape(varphi)[1]
-        elif ((type(varphi) is float) or
-                (type(varphi) is np.float64)):
-            # e.g. 1
-            L = 1
-            M = 1
-            varphi = np.float64(varphi)
-        else:
-            raise TypeError(
-                "Type of varphi is not supported "
-                "(expected {} or {}, got {})".format(
-                    float, np.ndarray, type(varphi)))
+                raise TypeError(
+                    "Type of varphi is not supported "
+                    "(expected {} or {}, got {})".format(
+                        float, np.ndarray, type(varphi)))
         return varphi, L, M
 
+    def _initialise_hyperhyperparameter(self, varphi, psi):
+        if psi is not None:
+            if type(psi) != type(varphi):
+                raise TypeError(
+                    "The type of the kernel hyperhyperparameter, psi"
+                    " should equal the type of the kernel hyperparameter,"
+                    " varphi (got {}, expected {})".format(
+                        type(psi), type(varphi)))
+            if type(psi) is np.ndarray:
+                if np.shape(psi) != np.shape(varphi):
+                    raise TypeError(
+                    "The shape of the kernel hyperhyperparameter, psi"
+                    " should equal the shape of the kernel hyperparameter,"
+                    " varphi (got {}, expected {})".format(
+                        np.shape(psi), np.shape(varphi)))
+            elif type(psi) is list:
+                if len(psi) != len(varphi):
+                    raise TypeError(
+                    "The length of the kernel hyperhyperparameter, psi"
+                    " should equal the shape of the kernel hyperparameter,"
+                    " varphi (got {}, expected {})".format(
+                        len(psi), len(varphi)))
+        return psi
+
     def update_hyperparameter(
-        self, varphi=None, scale=None, sigma=None, tau=None):
+        self, varphi=None, psi=None, scale=None, sigma=None, tau=None):
         if varphi is not None:
             self.varphi, self.L, self.M = self._initialise_hyperparameter(
                 varphi)
+        if psi is not None:
+            self.psi = self._initialise_hyperhyperparameter(self.varphi, psi)
         if scale is not None:
             # Update scale
             self.scale = scale
@@ -176,9 +204,14 @@ class Linear(Kernel):
     regularising constant (or scale) and :math:`c` is the intercept
     regularisor.
     """
-    def __init__(self, varphi=None, *args, **kwargs):
+    def __init__(self, varphi=None, psi=None, *args, **kwargs):
         """
         Create an :class:`Linear` kernel object.
+
+        :arg varphi:
+        :type varphi: :class:`numpy.ndarray` or float
+        :arg psi:
+        :type psi: :class:`numpy.ndarray` or float
 
         :returns: An :class:`Linear` object
         """
@@ -190,8 +223,11 @@ class Linear(Kernel):
             varphi, self.L = self._initialise_hyperparameter(varphi)
             assert self.L == 2  # 2 hyperparameters for the linear kernel
         else:
-            raise TypeError("Lengthscale hyperparameters must be provided for"
-            " the SEIso kernel class (got {})".format(type(None)))
+            raise ValueError(
+                "Hyperparameters `varphi = [constant_variance, c]` must be "
+                "provided for the Linear kernel class (got {})".format(None))
+        if psi is not None:
+            raise ValueError("TODO")
         self.constant_variance = varphi[0]
         self.c = varphi[1]
         if self.constant_variance is None:
@@ -309,6 +345,34 @@ class Linear(Kernel):
         return self.scale * np.einsum(
             'ij, j -> i', X - self.c, x_new[0]
             - self.c) + self.constant_variance
+
+    def kernel_diagonal(self, X1, X2):
+        """
+        Get Gram diagonal efficiently using scipy's distance matrix function.
+        TODO: test
+
+        :arg X1: (N, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N,) Gram diagonal.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.scale * np.einsum(
+            'ij, ij -> i', X1 - self.c, X2 - self.c) + self.constant_variance
+
+    def kernel_prior_diagonal(self, X):
+        """
+        Get the kernel vector given an input matrix (X).
+
+        :arg x_new: The new (1, D) point drawn from the data space.
+        :type x_new: :class:`numpy.ndarray`
+        :arg X: (N, D) data matrix.
+        :type X: class:`numpy.ndarray`
+        :return: the (N,) covariance vector.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.kernel_diagonal(X, X)
 
     def kernel_matrix(self, X1, X2):
         """
@@ -437,7 +501,7 @@ class Polynomial(Kernel):
     TODO: kernel has been designed to be easy to differentiate analytically.
     This will be changed for interpretability once autograd is in place.
     """
-    def __init__(self, constant_variance, c, order=2.0, *args, **kwargs):
+    def __init__(self, varphi, psi=None, *args, **kwargs):
         """
         Create an :class:`Polynomial` kernel object.
 
@@ -445,6 +509,8 @@ class Polynomial(Kernel):
             intercept=0.0, the kernel is called homogeneous. Default 0.0.
         :arg float order: Order of the polynomial kernel. When order=2, the
             kernel is a quadratic kernel. Default 2.
+        :arg psi:
+        :type psi: :class:`numpy.ndarray` or float
         :returns: An :class:`Polynomial` object
         """
         super().__init__(*args, **kwargs)
@@ -455,8 +521,10 @@ class Polynomial(Kernel):
             varphi, self.L = self._initialise(varphi)
             assert self.L == 3  # 2 hyperparameters for the linear kernel
         else:
-            raise TypeError("Lengthscale hyperparameters must be provided for"
-            " the SEIso kernel class (got {})".format(type(None)))
+            raise ValueError(
+                "Hyperparameter `varphi = [constant_variance, c, order]` must "
+                "be provided for the Polynomial kernel class (got {})".format(
+                    None))
         self.constant_variance = varphi[0]
         self.c = varphi[1]
         self.order = varphi[2]
@@ -465,7 +533,8 @@ class Polynomial(Kernel):
         elif not ((type(self.constant_variance) is float) or
                 (type(self.constant_variance) is np.float64)):
             raise TypeError(
-                "constant_variance type (expected float, got {})".format(
+                "Type of constant_variance is not supported "
+                "(expected float, got {})".format(
                     type(self.constant_variance)))
         if self.c is None:
             self.c = 0.0
@@ -475,9 +544,11 @@ class Polynomial(Kernel):
             (type(self.c) is list) or 
             (type(self.c) is np.ndarray)):
             raise TypeError(
-                "Type of constant_variance is not supported "
+                "Type of c is not supported "
                 "(expected array or float, got {})".format(
                     type(self.c)))
+        if psi is not None:
+            raise ValueError("TODO")
         self.num_hyperparameters = np.size(
             self.constant_variance) + np.size(self.c)
         if self.order is None:
@@ -488,11 +559,6 @@ class Polynomial(Kernel):
                 "Type of constant_variance is not supported "
                 "(expected float, got {})".format(
                     type(self.order)))
-        self.constant_variance = constant_variance
-        self.c = c
-        self.order = order
-        self.num_hyperparameters = \
-            np.size(constant_variance) + np.size(c) + np.size(order)
 
     def _initialise_hyperparameter(self, varphi):
         """
@@ -542,7 +608,7 @@ class Polynomial(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return (self.scale * ((X_i + self.c).T @ (X_j + self.c)
+        return (self.scale * ((X_i - self.c).T @ (X_j - self.c)
             + self.constant_variance) ** self.order)
 
     def kernel_vector(self, x_new, X):
@@ -557,8 +623,37 @@ class Polynomial(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         return self.scale * (
-            np.einsum('ij, j -> i', X + self.c, x_new[0] + self.c)
-            + self.constant_variance) ** self.order
+            np.einsum('ij, j -> i', X - self.c, x_new[0] - self.c)
+            + self.constant_variance)**self.order
+
+    def kernel_diagonal(self, X1, X2):
+        """
+        Get Gram diagonal efficiently using scipy's distance matrix function.
+        TODO: test
+
+        :arg X1: (N, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N,) Gram diagonal.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.scale * (
+            np.einsum('ij, ij -> i', X1 - self.c, X2 - self.c)
+            + self.constant_variance)**self.order
+
+    def kernel_prior_diagonal(self, X):
+        """
+        Get the kernel vector given an input matrix (X).
+
+        :arg x_new: The new (1, D) point drawn from the data space.
+        :type x_new: :class:`numpy.ndarray`
+        :arg X: (N, D) data matrix.
+        :type X: class:`numpy.ndarray`
+        :return: the (N,) covariance vector.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.kernel_diagonal(X, X)
 
     def kernel_matrix(self, X1, X2):
         """
@@ -572,7 +667,7 @@ class Polynomial(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         return self.scale * (
-            np.einsum('ik, jk -> ij', X1 + self.c, X2 + self.c)
+            np.einsum('ik, jk -> ij', X1 - self.c, X2 - self.c)
             + self.constant_variance) ** self.order
 
     def kernel_matrices(self, X1, X2, varphis):
@@ -613,7 +708,6 @@ class Polynomial(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         raise ValueError("TODO")
-        pass
 
     def kernel_partial_derivative_scale(self, X1, X2):
         """
@@ -663,12 +757,14 @@ class SEIso(Kernel):
     the single, shared lengthscale and
     hyperparameter, :math:`s` is the scale.
     """
-    def __init__(self, varphi=None, *args, **kwargs):
+    def __init__(self, varphi=None, psi=None, *args, **kwargs):
         """
         Create an :class:`SEIso` kernel object.
 
         :arg varphi: The kernel lengthscale hyperparameter.
         :type varphi: float or NoneType
+        :arg psi:
+        :type psi: :class:`numpy.ndarray` or float
 
         :returns: An :class:`SEIso` object
         """
@@ -677,9 +773,14 @@ class SEIso(Kernel):
             self.varphi, self.L, self.M = self._initialise_hyperparameter(
                 varphi)
         else:
-            raise TypeError("Lengthscale hyperparameters must be provided for"
-            " the SEIso kernel class (got {})".format(type(None)))
-        # For this kernel, the shared and single kernel for each class 
+            raise ValueError(
+                "Lengthscale hyperparameter `varphi` must be provided for the "
+                "SEIso kernel class (got {})".format(None))
+        if psi is not None:
+            self.psi = self._initialise_hyperhyperparameter(self.varphi, psi)
+        else:
+            self.psi = None
+        # For this kernel, the shared and single kernel for each class
         # (i.e. non general) and single lengthscale across
         # all data dims (i.e. non ARD) is assumed.
         if self.L != 1:
@@ -691,9 +792,9 @@ class SEIso(Kernel):
                 "M wrong for non-ARD kernel (expected {}, got {})".format(
                     1, self.M))
         if self.scale is None:
-            raise TypeError(
+            raise ValueError(
                 "You must supply a scale for the simple kernel "
-                "(expected {}, got {})".format(float, type(self.scale)))
+                "(expected {} type, got {})".format(float, self.scale))
         self.num_hyperparameters = np.size(self.varphi)
 
     @property
@@ -738,11 +839,26 @@ class SEIso(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        N = np.shape(X)[0]
-        X_new = np.tile(x_new, (N, 1))
-        # This is probably horribly inefficient
-        D = distance.cdist(X_new, X)[0]
-        return np.multiply(self.scale, np.exp(-1. * self.varphi * D**2))
+        X_new = np.tile(x_new, (np.shape(X)[0], 1))
+        return self.kernel_diagonal(X_new, X)
+
+    def kernel_prior_diagonal(self, X):
+        return self.scale * np.ones(np.shape(X[0]))
+
+    def kernel_diagonal(self, X1, X2):
+        """
+        Get Gram diagonal efficiently using scipy's distance matrix function.
+
+        :arg X1: (N, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N,) Gram diagonal.
+        :rtype: class:`numpy.ndarray`
+        """
+        X = X1 - X2
+        return self.scale * np.exp(-1. * self.varphi * np.einsum(
+            'ij, ij -> i', X, X))
 
     def kernel_matrix(self, X1, X2):
         """
@@ -756,8 +872,7 @@ class SEIso(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         distance_mat = self.distance_mat(X1, X2)
-        return np.multiply(
-            self.scale, np.exp(-1. * self.varphi * distance_mat**2))
+        return self.scale * np.exp(-1. * self.varphi * distance_mat**2)
 
     def kernel_matrices(self, X1, X2, varphis):
         """
@@ -840,21 +955,29 @@ class SSSEARDMultinomial(Kernel):
         """
         super().__init__(*args, **kwargs)
         if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_hyperparameter(varphi)
+            self.varphi, self.L, self.M = self._initialise_hyperparameter(
+                varphi)
         else:
-            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None)))
+            raise ValueError(
+                "Lengthscale hyperparameter `varphi` must be provided for the "
+                "SEARDMultinomial kernel class (got {})".format(None))
         # For this kernel, the general and ARD setting are assumed.
         if self.L <= 1:
-            raise ValueError('L wrong for simple kernel (expected {}, got {})'.format(
-                'more than 1', self.L))
+            raise ValueError(
+                "L wrong for simple kernel (expected {}, got {})".format(
+                "more than 1", self.L))
         if self.M <= 1:
-            raise ValueError('M wrong for non-ARD kernel (expected {}, got {})'.format('more than 1', self.M))
+            raise ValueError(
+                "M wrong for non-ARD kernel (expected {}, got {})".format(
+                    "more than 1", self.M))
         if self.scale is None:
-            raise TypeError('You must supply a scale for the general kernel (expected {}, got {})'.format(
-                float, type(self.scale)))
+            raise ValueError(
+                "You must supply a scale for the general kernel "
+                "(expected {} type, got {})".format(float, self.scale))
         # In the ARD case (see 2005 paper)
         self.D = self.M
-        # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4)
+        # In the general setting with one (D, ) hyperparameter for each class
+        # case (see 2005 paper bottom of page 4)
         self.K = self.L
         self.num_hyperparameters = np.size(self.varphi)
 
@@ -993,7 +1116,7 @@ class SEARDMultinomial(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi_{kd}` is the lengthscale for the
     :math:`k`th class and :math:`d`th dimension, and :math:`s` is the scale.
     """
-    def __init__(self, varphi=None, *args, **kwargs):
+    def __init__(self, varphi=None, psi=None, *args, **kwargs):
         """
         Create an :class:`SEARD` kernel object.
 
@@ -1002,22 +1125,32 @@ class SEARDMultinomial(Kernel):
             in which case L=1. If set to `None`, then implies the kernel is not a Matern kernel (loosely defined as a
             kernel with a length scale parameter). Default `None`.
         :type varphi: :class:`numpy.ndarray` or float
+        :arg psi:
+        :type psi: :class:`numpy.ndarray` or float
         :returns: An :class:`SEARD` object
         """
         super().__init__(*args, **kwargs)
         if varphi is not None:
             self.varphi, self.L, self.M = self._initialise_hyperparameter(varphi)
         else:
-            raise TypeError("Lengthscale hyperparameters must be provided for the SEIso kernel class (got {})".format(type(None)))
+            raise ValueError(
+                "Lengthscale hyperparameter `varphi` must be provided for the "
+                "SEARDMultinomial kernel class (got {})".format(None))
+        if psi is not None:
+            self.psi = self._initialise_hyperhyperparameter(self.varphi, psi)
         # For this kernel, the general and ARD setting are assumed.
         if self.L <= 1:
-            raise ValueError('L wrong for general kernel (expected {}, got {})'.format(
-                'more than 1', self.L))
+            raise ValueError(
+                "L wrong for general kernel (expected {}, got {})".format(
+                "more than 1", self.L))
         if self.M <= 1:
-            raise ValueError('M wrong for ARD kernel (expected {}, got {})'.format('more than 1', self.M))
+            raise ValueError(
+                "M wrong for ARD kernel (expected {}, got {})".format(
+                    "more than 1", self.M))
         if self.scale is None:
-            raise TypeError('You must supply a scale for the general kernel (expected {}, got {})'.format(
-                float, type(self.scale)))
+            raise ValueError(
+                "You must supply a scale for the general kernel "
+                "(expected {} type, got {})".format(float, self.scale))
         # In the ARD case (see 2005 paper).
         self.D = self.M
         # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4).
@@ -1220,7 +1353,7 @@ class SEARD(Kernel):
     :math:`d`th dimension, shared across all classes, and :math:`s` is the
     scale.
     """
-    def __init__(self, varphi, *args, **kwargs):
+    def __init__(self, varphi, psi=None, *args, **kwargs):
         """
         Create an :class:`SEARD` kernel object.
 
@@ -1231,16 +1364,21 @@ class SEARD(Kernel):
             not a Matern kernel (loosely defined as a
             kernel with a length scale parameter). Default `None`.
         :type varphi: :class:`numpy.ndarray` or float
+        :arg psi:
+        :type psi: :class:`numpy.ndarray` or float
 
         :returns: An :class:`SEARD` object
         """
         super().__init__(*args, **kwargs)
         if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_hyperparameter(varphi)
+            self.varphi, self.L, self.M = self._initialise_hyperparameter(
+                varphi)
         else:
-            raise TypeError(
-                "Lengthscale hyperparameters must be provided for the SEIso"
-                " kernel class (got {})".format(type(None)))
+            raise ValueError(
+                "Lengthscale hyperparameter `varphi` must be provided for the "
+                "SEARD kernel class (got {})".format(None))
+        if psi is not None:
+            self.psi = self._initialise_hyperhyperparameter(self.varphi, psi)
         # For this kernel, the ARD setting is assumed. This is not a
         # general_kernel, since the covariance function
         # is shared across classes. 
@@ -1253,13 +1391,14 @@ class SEARD(Kernel):
                 "M wrong for ARD kernel (expected {}, got {})".format(
                     "more than 1", self.M))
         if self.scale is None:
-            raise TypeError(
-                "You must supply a scale for the general kernel"
-                " (expected {}, got {})".format(
+            raise ValueError(
+                "`scale` hyperparameter must be provided for the SEIso "
+                "kernel class (expected {}, got {})".format(
                     float, type(self.scale)))
         # In the ARD case (see 2005 paper).
         self.D = self.M
-        # In the ordinal setting with a single and shared (D, ) hyperparameter for each class case.
+        # In the ordinal setting with a single and shared (D, )
+        # hyperparameter for each class case.
         self.num_hyperparameters = np.size(varphi)
 
     @property

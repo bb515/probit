@@ -5,6 +5,7 @@ VB approximation.
 import numpy as np
 from probit.estimators import VBOrderedGP
 import matplotlib.pyplot as plt
+from scipy.optimize import minimize
 from probit.data.utilities import MinimizeStopper, colors, calculate_metrics
 
 
@@ -147,113 +148,101 @@ def grid(J, Kernel, X_trains, t_trains, domain, res, now,
         plt.close()
 
 
-def training(
-    method, classifier,
-    gamma_0, varphi_0, noise_variance_0, scale_0, J,
-    indices, max_sec=5000):
+def training(method, classifier, J, indices, max_sec=5000):
     """
-    # TODO: Need this in EP and VB?
-    An example ordinal training function.
+    TODO: merge with probit.probit.EP.<method_name> once classifiers take same
+    args
+    Hyperparameter training via gradient descent of the objective function, a
+    negative log marginal likelihood (or bound thereof).
+
+    :arg str method: "CG" or "L-BFGS-B" seem to be widely used and work well.
     :arg classifier:
     :type classifier: :class:`probit.estimators.Estimator`
         or :class:`probit.samplers.Sampler`
     :arg gamma_0:
-    :type gamma_0:
+    :type gamma_0: :class:`numpy.ndarray`
     :arg varphi_0:
-    :type varphi_0:
+    :type varphi_0: :class:`numpy.ndarray`
     :arg noise_variance_0:
-    :type noise_variance_0:
+    :type noise_variance_0: :class:`numpy.ndarray`
     :arg scale_0:
-    :type scale_0:
-    :arg J:
-    :type J:
-    :arg method:
-    :type method:
-    :arg int maxiter:
-    :return:
+    :type scale_0: float
+    :arg indices: Binary array or list of indices indicating which
+        hyperparameters to fix, and which to optimize.
+    :type indices: :class:`numpy.ndarray` or list
+    :arg float max_sec: The max time to do optimization for, in seconds.
+        TODO: test.
+    :return: The hyperparameters after optimization.
+    :rtype: tuple (
+        :class:`numpy.ndarray`, float or :class:`numpy.ndarray`, float, float)
     """
     minimize_stopper = MinimizeStopper(max_sec=max_sec)
-    theta = []
-
-    if indices[0]:
-        theta.append(np.log(np.sqrt(noise_variance_0)))
-    if indices[1]:
-        theta.append(gamma_0[1])
-    for j in range(2, J):
-        if indices[j]:
-            theta.append(np.log(gamma_0[j] - gamma_0[j - 1]))
-    if indices[J]:
-        theta.append(np.log(np.sqrt(scale_0)))
-    if indices[J + 1]:  # TODO: replace this with kernel number of hyperparameters.
-        theta.append(np.log(varphi_0))
-    theta = np.array(theta)
-    args = (
-        gamma_0, varphi_0, noise_variance_0, scale_0, indices)
+    theta = classifier.get_theta(indices, J)
+    args = (indices)
     res = minimize(
         classifier.hyperparameter_training_step, theta,
         args, method=method, jac=True,
         callback = minimize_stopper.__call__)
-    theta = res.x
-    scale = scale_0
-    gamma = gamma_0
-    varphi = varphi_0
-    noise_variance = noise_variance_0
-    index = 0
-    if indices[0]:
-        noise_std = np.exp(theta[index])
-        noise_variance = noise_std**2
-        scale = scale_0
-        index += 1
-    gamma = np.empty((J + 1,))
-    gamma[0] = np.NINF
-    gamma[-1] = np.inf
-    if indices[1]:
-        gamma[1] = theta[index]
-        index += 1
-    for j in range(2, J):
-        if indices[j]:
-            gamma[j] = gamma[j-1] + np.exp(theta[index])
-            index += 1
-    if indices[J]:
-        scale_std = np.exp(theta[index])
-        scale = scale_std**2
-        index += 1
-    if indices[J + 1]:  # TODO: replace this with kernel number of hyperparameters.
-        varphi = np.exp(theta[index])
-        index += 1
-    return gamma, varphi, noise_variance, scale
-
+    return classifier
+    # # SS
+    # theta = res.x
+    # scale = scale_0
+    # gamma = gamma_0
+    # varphi = varphi_0
+    # noise_variance = noise_variance_0
+    # index = 0
+    # if indices[0]:
+    #     noise_std = np.exp(theta[index])
+    #     noise_variance = noise_std**2
+    #     scale = scale_0
+    #     index += 1
+    # gamma = np.empty((J + 1,))
+    # gamma[0] = np.NINF
+    # gamma[-1] = np.inf
+    # if indices[1]:
+    #     gamma[1] = theta[index]
+    #     index += 1
+    # for j in range(2, J):
+    #     if indices[j]:
+    #         gamma[j] = gamma[j-1] + np.exp(theta[index])
+    #         index += 1
+    # if indices[J]:
+    #     scale_std = np.exp(theta[index])
+    #     scale = scale_std**2
+    #     index += 1
+    # if indices[J + 1]:  # TODO: replace this with kernel number of hyperparameters.
+    #     varphi = np.exp(theta[index])
+    #     index += 1
+    # return gamma, varphi, noise_variance, scale
 
 def VB_plot(
-    Kernel, X_train, t_train, X_true, Y_true, m_0, gamma,
-    steps, varphi, noise_variance, scale, J, D, domain=None):
-    """Plots for Chu data."""
-    kernel = Kernel(varphi=varphi, scale=scale)
-    # Initiate classifier
-    classifier = VBOrderedGP(
-        noise_variance, X_train, t_train, kernel)
+    classifier, X_true, Y_true, m_0,
+    steps, J, D, domain=None):
+    """
+    TODO: merge with probit.probit.EP.<method_name> once classifiers take same
+    args TODO: needs generalizing to other datasets other than Chu.
+    Contour plot of the predictive probabilities over a chosen domain.
+    """
     y_0 = Y_true.flatten()
     m_0 = y_0
     iteration = 0
     error = np.inf
-    noise_std = np.sqrt(noise_variance)
     # TODO: check this works
     (m_tilde, dm_tilde,
     y_tilde, p, varphi_tilde, _) = classifier.estimate(
-        steps, gamma=gamma, varphi=varphi, noise_variance=noise_variance,
-        m_tilde_0=m_0, fix_hyperparameters=True, write=False)
+        steps, m_tilde_0=m_0, write=False)
     while error / steps > classifier.EPS:
         iteration += 1
         (m_0, dm_0, Sigma, cov, C, y, p, *_) = classifier.estimate(
-            steps, gamma, varphi_tilde_0=varphi, noise_variance=noise_variance,
-            m_tilde_0=m_0, first_step=1, fix_hyperparameters=True, write=False)
+            steps, m_tilde_0=m_0, first_step=1,
+            fix_hyperparameters=True, write=False)
         (calligraphic_Z,
         norm_pdf_z1s, norm_pdf_z2s,
         z1s, z2s, *_) = classifier._calligraphic_Z(
-            gamma, noise_std, m_0)
+            classifier.gamma, classifier.noise_std, m_0)
         fx, C_inv = classifier.objective(
             classifier.N,
-            m_0, Sigma, C, calligraphic_Z, noise_variance,
+            m_0, Sigma, C, calligraphic_Z, classifier.noise_variance,
             numerical_stability=True, verbose=False)
         error = np.abs(fx_old - fx)  # TODO: redundant?
         fx_old = fx
@@ -261,7 +250,7 @@ def VB_plot(
             print("({}), error={}".format(iteration, error))
     fx, C_inv= classifier.objective(
         classifier.N, m_0, Sigma, C,
-        calligraphic_Z, noise_variance, verbose=True)
+        calligraphic_Z, classifier.noise_variance, verbose=True)
     if domain is not None:
         (xlims, ylims) = domain
         N = 75
@@ -274,26 +263,39 @@ def VB_plot(
         X_new_[:, :2] = X_new
         # Test
         Z, posterior_predictive_m, posterior_std = classifier.predict(
-            gamma, cov, y, varphi, noise_variance, X_new_)  # (N_test, J)
+            classifier.gamma, cov, y, classifier.varphi,
+            classifier.noise_variance, X_new_)  # (N_test, J)
         Z_new = Z.reshape((N, N, J))
         print(np.sum(Z, axis=1), 'sum')
         for j in range(J):
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
-            plt.scatter(X_train[np.where(t_train == j)][:, 0], X_train[np.where(t_train == j)][:, 1], color='red')
-            # plt.scatter(X_train[np.where(t == j + 1)][:, 0], X_train[np.where(t == j + 1)][:, 1], color='blue')
+            plt.scatter(
+                classifier.X_train[np.where(classifier.t_train == j)][:, 0],
+                classifier.X_train[np.where(classifier.t_train == j)][:, 1],
+                color='red')
+            # plt.scatter(
+            #     classifier.X_train[
+            #         np.where(classifier.t_train == j + 1)][:, 0],
+            #     classifier.X_train[
+            #         np.where(classifier.t_train == j + 1)][:, 1],
+            #         color='blue')
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("contour_EP_{}.png".format(i))
+            plt.savefig("contour_VB_{}.png".format(j))
             plt.close()
     return fx
 
 
 def VB_plot_synthetic(
-        dataset, Kernel, X, t, X_true, Y_true, m_tilde_0,
-        gamma, steps, varphi, noise_variance, scale, J, D,
-        colors=colors):
-    """Plots for synthetic data."""
+        dataset, Kernel, X, t, X_true, Y_true, m_tilde_0, gamma, steps, varphi,
+        noise_variance, scale, J, D, colors=colors):
+    """
+    Plots for synthetic data.
+
+    TODO: merge with probit.probit.EP.<method_name> once classifiers take same
+    args TODO: needs generalizing to other datasets other than Chu.
+    """
     kernel = Kernel(varphi=varphi, scale=scale)
     # Initiate classifier
     classifier = VBOrderedGP(noise_variance, X, t, kernel)
@@ -343,7 +345,7 @@ def VB_plot_synthetic(
                       colors=(
                           colors[0], colors[1], colors[2])
                       )
-        val = 0.5  # this is the value where you want the data to appear on the y-axis.
+        val = 0.5  # the value where you want the data to appear on the y-axis
         for j in range(J):
             plt.scatter(X[np.where(t == j)], np.zeros_like(
                 X[np.where(t == j)]) + val, s=15, facecolors=colors[j],
@@ -475,16 +477,8 @@ def VB_plot_synthetic(
 
 
 def VB_testing(
-        Kernel,
-        X_train, t_train, X_test, t_test, y_test,
-        steps, gamma, varphi, noise_variance, scale,
-        J, D, domain=None):
-    kernel = Kernel(varphi=varphi, scale=scale)
-    noise_std = np.sqrt(noise_variance)
-    # Initiate classifier
-    classifier = VBOrderedGP(
-        noise_variance, X_train, t_train, kernel, J)
-    # Reset error and posterior mean
+        classifier, X_test, t_test, y_test,
+        steps, J, D, domain=None):
     iteration = 0
     error = np.inf
     fx_old = np.inf
@@ -492,9 +486,7 @@ def VB_testing(
     while error / steps > classifier.EPS:
         iteration += 1
         (m_0, dm_0, y, p, *_) = classifier.estimate(
-            steps, gamma, varphi_tilde_0=varphi,
-            noise_variance=noise_variance, m_tilde_0=m_0,
-            first_step=1, fix_hyperparameters=True, write=False)
+            steps, m_tilde_0=m_0, first_step=1, write=False)
         (calligraphic_Z,
         norm_pdf_z1s,
         norm_pdf_z2s,
@@ -562,30 +554,19 @@ def VB_testing(
 
 
 def test(
-        Kernel, method, X_trains, t_trains, X_tests, t_tests,
-        y_tests, split, steps, gamma_0, varphi_0, noise_variance_0, scale_0, J, D):
-    X_train = X_trains[split, :, :]
-    t_train = t_trains[split, :]
-    X_test = X_tests[split, :, :]
-    t_test = t_tests[split, :]
-    y_test = y_tests[split, :]
-    # kernel = Kernel(varphi=varphi_0, scale=scale)
-    # # Initiate classifier
-    # classifier = VBOrderedGP(
-    #     noise_variance_0, X_train, t_train, kernel, J)
-    # # Skip training
-    # gamma, varphi, noise_variance = training(
-    #     method, classifier,
-    #     gamma_0, varphi_0, noise_variance_0, scale_0, J, indices)
-    gamma = gamma_0
-    varphi = varphi_0
-    noise_variance = noise_variance_0
-    scale = scale_0
-    fx, zero_one, predictive_likelihood, mean_abs, mean_squared, log_pred_prob = VB_testing(
-        Kernel, X_train, t_train, X_test, t_test, y_test, steps,
-        gamma, varphi, noise_variance, scale, J, D)
-    return (
-        gamma, varphi, noise_variance, zero_one, predictive_likelihood,
+        method, classifier, X_test, t_test, y_test,
+        steps, J, D, indices):
+    """
+    Test
+    """
+    # # Train the classifier
+    # classifier = training(
+    #     method, classifier, J, indices)
+    (fx, zero_one, predictive_likelihood, mean_abs, mean_squared,
+    log_pred_prob) = VB_testing(
+        classifier, X_test, t_test, y_test, steps, J, D)
+    return (  # TODO will need to return the metrics as a list
+        zero_one, predictive_likelihood,
         log_pred_prob, mean_abs, mean_squared, fx)
 
 
@@ -596,23 +577,9 @@ def outer_loop_problem_size(
     TODO: problem size. puts an outer loop to plot predictive performance
     for a given set of hyperparameters over the problem size.
     """
-    spearman_ranks = []
-    mean_zero_one_errors = []
-    in_top_3s = []
-    in_top_5s = []
-    distance_accuracy_1s = []
-    distance_accuracy_3s = []
-    distance_accuracy_5s = []
-    expected_opportunities_recalls = []
-    weighted_pearson_ranks = []
-    weighted_spearman_ranks = []
-    root_mean_squared_errors = []
-    mean_absolute_errors = []
-    log_predictive_probabilities = []
-    predictive_likelihoods = []  # but tells us something about confidence. Overconfidence will be penalised if this is much lower than accuracy
-    bounds = []
+    metrics = []
 
-    # for iter, N in enumerate(np.logspace(1, size, num=num)):
+    for iter, N in enumerate(np.logspace(1, size, num=num)):
             # (
             #     avg_bound, avg_predictive_likelihood,
             #     avg_zero_one, avg_mean_abs),
@@ -623,6 +590,7 @@ def outer_loop_problem_size(
         #     Kernel, X_train, t_train, X_test, t_test, y_test,
         #     steps, gamma, varphi, noise_variance, scale,
         #     J, D)
+        pass
     return 0
 
 
@@ -639,10 +607,17 @@ def outer_loops(
     log_pred_probs = []
     gammas = []
     for split in range(20):
+        # Build the classifier, calculating prior and posterior covariances
+        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        classifier = VBOrderedGP(
+            gamma_0, noise_variance_0,
+            X_trains[split, :, :], t_trains[split, :, :], kernel, J)
         (gamma, varphi, noise_variance, zero_one, predictive_likelihood,
         log_pred_prob, mean_abs, mean_square, fx) = test(
-            Kernel, method, X_trains, t_trains, X_tests, t_tests,
-            y_tests, split, steps,gamma_0=gamma_0, varphi_0=varphi_0,
+            classifier, method,
+            X_tests[split, :, :], t_tests[split, :, :],
+            y_tests[split, :, :],
+            steps, gamma_0=gamma_0, varphi_0=varphi_0,
             noise_variance_0=noise_variance_0, scale_0=scale_0, J=J, D=D)
         bounds.append(fx)
         zero_ones.append(zero_one)
@@ -909,7 +884,7 @@ def grid_synthetic(
     kernel = Kernel(varphi=1.0, scale=scale)
     # Initiate classifier
     classifier = VBOrderedGP(
-        noise_variance, X_train, t_train, kernel, J)
+        gamma, noise_variance, X_train, t_train, kernel, J)
     (Z, grad,
     x, y,
     xlabel, ylabel,
