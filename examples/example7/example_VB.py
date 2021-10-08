@@ -1,3 +1,10 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "1" # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = "1" # export OPENBLAS_NUM_THREADS=4 
+os.environ["MKL_NUM_THREADS"] = "1" # export MKL_NUM_THREADS=6
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1" # export VECLIB_MAXIMUM_THREADS=4
+os.environ["NUMEXPR_NUM_THREADS"] = "1" # export NUMEXPR_NUM_THREADS=6
+
 import argparse
 import cProfile
 from io import StringIO
@@ -92,7 +99,7 @@ def main():
         grid_synthetic(
             J, Kernel, X, t, ((-4, 4), None), (100, None), indices,
             gamma=gamma_0, varphi=varphi_0, noise_variance=noise_variance_0,
-            scale=scale_0, show=True)
+            scale=scale_0, show=False)
     if args.profile:
         profile.disable()
         s = StringIO()

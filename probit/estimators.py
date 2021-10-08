@@ -1,14 +1,21 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "1" # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = "1" # export OPENBLAS_NUM_THREADS=4 
+os.environ["MKL_NUM_THREADS"] = "1" # export MKL_NUM_THREADS=6
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1" # export VECLIB_MAXIMUM_THREADS=4
+os.environ["NUMEXPR_NUM_THREADS"] = "1" # export NUMEXPR_NUM_THREADS=6
+
 from abc import ABC, abstractmethod
 from .kernels import Kernel, InvalidKernel
 import pathlib
-import numpy as np
 import random
-from scipy.stats import norm, multivariate_normal
 # import scipy.linalg.lapack.dtrtri as dtritri  # Cholesky, TODO
 from tqdm import trange
 import warnings
 import math
 import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import norm, multivariate_normal
 from .utilities import (
     sample_Us, sample_varphis,
     matrix_of_differencess, matrix_of_valuess,
@@ -2033,8 +2040,8 @@ class VBOrderedGP(Estimator):
         intervals) = self._grid_over_hyperparameters_initiate(
             gamma_0, varphi_0, noise_variance_0, scale_0,
             res, domain, indices)
-        # steps = 1000 # TODO: Justification?
-        steps = 10  # TODO: justification?
+        steps = 1000 # TODO: Justification?
+        #steps = 10  # TODO: justification?
         indices_where = np.where(indices != 0)
         error = np.inf
         fx_old = np.inf
