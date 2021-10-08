@@ -1,10 +1,3 @@
-import os
-os.environ["OMP_NUM_THREADS"] = "1" # export OMP_NUM_THREADS=4
-os.environ["OPENBLAS_NUM_THREADS"] = "1" # export OPENBLAS_NUM_THREADS=4 
-os.environ["MKL_NUM_THREADS"] = "1" # export MKL_NUM_THREADS=6
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1" # export VECLIB_MAXIMUM_THREADS=4
-os.environ["NUMEXPR_NUM_THREADS"] = "1" # export NUMEXPR_NUM_THREADS=6
-
 from abc import ABC, abstractmethod
 from .kernels import Kernel, InvalidKernel
 import pathlib
@@ -26,6 +19,7 @@ from .utilities import (
     fromb_t1, fromb_t2, fromb_t3, fromb_t4, fromb_t5,
     fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
     fromb_t5_vector)
+
 
 
 class Estimator(ABC):
