@@ -1,96 +1,14 @@
 """Approximate inference: EP approximation. Methods for inference and test."""
 import numpy as np
-from scipy import optimize
 from probit.estimators import EPOrderedGP
 import matplotlib.pyplot as plt
-from probit.data.utilities import (
-    MinimizeStopper, datasets, colors, calculate_metrics)
-from scipy.optimize import minimize
+from probit.data.utilities import datasets, colors
+from probit.data.utilities import calculate_metrics
 
 
-def training(
-    method, classifier,
-    gamma_0, varphi_0, noise_variance_0, scale_0, J,
-    indices, max_sec=5000):
-    """
-    An example ordinal training function.
-    :arg classifier:
-    :type classifier: :class:`probit.estimators.Estimator`
-        or :class:`probit.samplers.Sampler`
-    :arg gamma_0:
-    :type gamma_0:
-    :arg varphi_0:
-    :type varphi_0:
-    :arg noise_variance_0:
-    :type noise_variance_0:
-    :arg scale_0:
-    :type scale_0:
-    :arg J:
-    :type J:
-    :arg method:
-    :type method:
-    :arg int maxiter:
-    :return:
-    """
-    minimize_stopper = MinimizeStopper(max_sec=max_sec)
-    theta = []
-
-    if indices[0]:
-        theta.append(np.log(np.sqrt(noise_variance_0)))
-    if indices[1]:
-        theta.append(gamma_0[1])
-    for j in range(2, J):
-        if indices[j]:
-            theta.append(np.log(gamma_0[j] - gamma_0[j - 1]))
-    if indices[J]:
-        theta.append(np.log(np.sqrt(scale_0)))
-    if indices[J + 1]:  # TODO: replace this with kernel number of hyperparameters.
-        theta.append(np.log(varphi_0))
-    theta = np.array(theta)
-    args = (
-        gamma_0, varphi_0, noise_variance_0, scale_0, indices)
-    res = minimize(
-        classifier.hyperparameter_training_step, theta,
-        args, method=method, jac=True,
-        callback = minimize_stopper.__call__)
-    theta = res.x
-    scale = scale_0
-    gamma = gamma_0
-    varphi = varphi_0
-    noise_variance = noise_variance_0
-    index = 0
-    if indices[0]:
-        noise_std = np.exp(theta[index])
-        noise_variance = noise_std**2
-        scale = scale_0
-        index += 1
-    gamma = np.empty((J + 1,))
-    gamma[0] = np.NINF
-    gamma[-1] = np.inf
-    if indices[1]:
-        gamma[1] = theta[index]
-        index += 1
-    for j in range(2, J):
-        if indices[j]:
-            gamma[j] = gamma[j-1] + np.exp(theta[index])
-            index += 1
-    if indices[J]:
-        scale_std = np.exp(theta[index])
-        scale = scale_std**2
-        index += 1
-    if indices[J + 1]:  # TODO: replace this with kernel number of hyperparameters.
-        varphi = np.exp(theta[index])
-        index += 1
-    return gamma, varphi, noise_variance, scale
-
-
-def EP_plotting(
-        Kernel, X_train, t_train, X_true, Y_true,
-        gamma, varphi, noise_variance, scale, J, D, domain=None):
+def plot(
+        classifier, domain=None):
     """Plots for Chu data."""
-    kernel = Kernel(varphi=varphi, scale=scale)
-    # Initiate classifier
-    classifier = EPOrderedGP(X_train, t_train, kernel, J)
     steps = classifier.N
     error = np.inf
     iteration = 0
@@ -101,22 +19,20 @@ def EP_plotting(
     amplitude_EP = None
     while error / steps > classifier.EPS ** 2:
         iteration += 1
-        (
-            error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
-            mean_EP, precision_EP, amplitude_EP, containers
+        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
+        mean_EP, precision_EP, amplitude_EP, containers
         ) = classifier.estimate(
-            steps, gamma, varphi, noise_variance,
-            posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
+            mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
             write=True)
         print("iteration {}, error={}".format(iteration, error / steps))
-    (
-        weights, precision_EP,
-        Lambda_cholesky, Lambda,
+    (weights, precision_EP, Lambda_cholesky, Lambda
     ) = classifier.compute_EP_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
     t1, *_ = classifier.compute_integrals(
-        gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+        classifier.gamma, Sigma, precision_EP, posterior_mean,
+        classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     if domain is not None:
@@ -127,34 +43,36 @@ def EP_plotting(
         xx, yy = np.meshgrid(x1, x2)
         X_new = np.dstack((xx, yy))
         X_new = X_new.reshape((N * N, 2))
-        X_new_ = np.zeros((N * N, D))
+        X_new_ = np.zeros((N * N, classifier.D))
         X_new_[:, :2] = X_new
         Z, posterior_predictive_m, posterior_std = classifier.predict(
-            gamma, Sigma, mean_EP, precision_EP, varphi,
-            noise_variance, X_new_, Lambda, vectorised=True)
-        Z_new = Z.reshape((N, N, J))
+            classifier.gamma, Sigma, mean_EP, precision_EP,
+            classifier.kernel.varphi,
+            classifier.noise_variance, X_new_, Lambda, vectorised=True)
+        Z_new = Z.reshape((N, N, classifier.J))
         print(np.sum(Z, axis=1), 'sum')
-        for j in range(J):
+        for j in range(classifier.J):
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
-            plt.scatter(X_train[np.where(t_train == j)][:, 0],
-                X_train[np.where(t_train == j)][:, 1], color='red')
-            # plt.scatter(X_train[np.where(t == j + 1)][:, 0],
-            #   X_train[np.where(t == j + 1)][:, 1], color='blue')
+            plt.scatter(classifier.X_train[np.where(
+                classifier.t_train == j)][:, 0],
+                classifier.X_train[np.where(
+                    classifier.t_train == j)][:, 1], color='red')
+            plt.scatter(
+                classifier.X_train[np.where(
+                    classifier.t_train == j + 1)][:, 0],
+                classifier.X_train[np.where(
+                    classifier.t_train == j + 1)][:, 1], color='blue')
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("contour_EP_{}.png".format(i))
+            plt.savefig("contour_EP_{}.png".format(j))
             plt.close()
     return fx
 
 
-def EP_plotting_synthetic(
-    Kernel, X, t, X_true, Y_true, gamma, varphi, noise_variance,
-    scale, J, D, colors=colors):
+def plot_synthetic(
+    classifier, dataset, X_true, Y_true, colors=colors):
     """Plots for synthetic data."""
-    kernel = Kernel(varphi=varphi, scale=scale)  # TODO: make sure this generalises. Consider just passing the kernel object around instead of varphi as well
-    # Initiate classifier
-    classifier = EPOrderedGP(X, t, kernel, J)
     steps = classifier.N
     error = np.inf
     iteration = 0
@@ -168,8 +86,8 @@ def EP_plotting_synthetic(
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
             mean_EP, precision_EP, amplitude_EP,
             containers) = classifier.estimate(
-            steps, gamma, varphi, noise_variance,
-            posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
+            mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
             write=True)
         # plot for animations TODO: make an animation function
@@ -183,20 +101,22 @@ def EP_plotting_synthetic(
     Lambda_cholesky, Lambda) = classifier.compute_EP_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
     t1, *_ = classifier.compute_integrals(
-        gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+        classifier.gamma, Sigma, precision_EP, posterior_mean,
+        classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     if dataset in datasets["synthetic"]:
-        if J == 3:
+        if classifier.J == 3:
             x_lims = (-0.5, 1.5)
             N = 1000
             x = np.linspace(x_lims[0], x_lims[1], N)
-            X_new = x.reshape((N, D))
+            X_new = x.reshape((N, classifier.D))
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                gamma, Sigma, mean_EP, precision_EP, varphi,
-                noise_variance, X_new, Lambda, vectorised=True)
+                classifier.gamma, Sigma, mean_EP, precision_EP,
+                classifier.kernel.varphi, classifier.noise_variance,
+                X_new, Lambda, vectorised=True)
             print(np.sum(Z, axis=1), 'sum')
             plt.xlim(x_lims)
             plt.ylim(0.0, 1.0)
@@ -211,10 +131,11 @@ def EP_plotting_synthetic(
                             colors[0], colors[1], colors[2])
                         )
             val = 0.5  # where the data lies on the y-axis.
-            for j in range(J):
+            for j in range(classifier.J):
                 plt.scatter(
-                    X[np.where(t == j)],
-                    np.zeros_like(X[np.where(t == j)]) + val,
+                    classifier.X[np.where(classifier.t == j)],
+                    np.zeros_like(classifier.X[np.where(
+                        classifier.t == j)]) + val,
                     s=15, facecolors=colors[j], edgecolors='white')
             plt.savefig(
                 "Ordered Gibbs Cumulative distribution plot of class "
@@ -233,24 +154,25 @@ def EP_plotting_synthetic(
             plt.scatter(X_true, Y_true, color='b', s=4)
             plt.ylim(-2.2, 2.2)
             plt.xlim(-0.5, 1.5)
-            for j in range(J):
+            for j in range(classifier.J):
                 plt.scatter(
-                    X[np.where(t == j)],
-                    np.zeros_like(X[np.where(t == j)]),
+                    classifier.X[np.where(classifier.t == j)],
+                    np.zeros_like(classifier.X[np.where(classifier.t == j)]),
                     s=15, facecolors=colors[j], edgecolors='white')
             plt.savefig("scatter_versus_posterior_mean.png")
             plt.show()
             plt.close()
-        elif J == 13:
+        elif classifier.J == 13:
             x_lims = (-0.5, 1.5)
             N = 1000
             x = np.linspace(x_lims[0], x_lims[1], N)
-            X_new = x.reshape((N, D))
+            X_new = x.reshape((N, classifier.D))
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                gamma, Sigma, mean_EP, precision_EP, varphi,
-                noise_variance, X_new, Lambda, vectorised=True)
+                classifier.gamma, Sigma, mean_EP, precision_EP,
+                classifier.kernel.varphi, classifier.noise_variance,
+                X_new, Lambda, vectorised=True)
             print(np.sum(Z, axis=1), 'sum')
             plt.xlim(x_lims)
             plt.ylim(0.0, 1.0)
@@ -274,11 +196,13 @@ def EP_plotting_synthetic(
                         colors=colors
                         )
             val = 0.5  # where the data lies on the y-axis.
-            for j in range(J):
+            for j in range(classifier.J):
                 plt.scatter(
-                    X[np.where(t == j)],
+                    classifier.X[np.where(classifier.t == j)],
                     np.zeros_like(
-                        X[np.where(t == j)]) + val, s=15, facecolors=colors[j],
+                        classifier.X[np.where(
+                            classifier.t == j)]) + val,
+                            s=15, facecolors=colors[j],
                         edgecolors='white')
             plt.savefig(
                 "Ordered Gibbs Cumulative distribution plot of class "
@@ -297,10 +221,10 @@ def EP_plotting_synthetic(
             plt.scatter(X_true, Y_true, color='b', s=4)
             plt.ylim(-2.2, 2.2)
             plt.xlim(-0.5, 1.5)
-            for j in range(J):
+            for j in range(classifier.J):
                 plt.scatter(
-                    X[np.where(t == j)],
-                    np.zeros_like(X[np.where(t == j)]),
+                    classifier.X[np.where(classifier.t == j)],
+                    np.zeros_like(classifier.X[np.where(classifier.t == j)]),
                     s=15,
                     facecolors=colors[j],
                     edgecolors='white')
@@ -310,14 +234,10 @@ def EP_plotting_synthetic(
     return fx
 
 
-def EP_testing(
-        Kernel, X_train, t_train, X_test, t_test, y_test, gamma, varphi,
-        noise_variance, scale, J, D, L=None, Lambda=None, domain=None):
+def test(
+        classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
     """Test the trained model."""
     grid = np.ogrid[0:len(X_test[:, :])]
-    # Initiate classifier
-    kernel = Kernel(varphi=varphi, scale=scale)
-    classifier = EPOrderedGP(X_train, t_train, kernel, J)
     steps = classifier.N
     error = np.inf
     iteration = 0
@@ -330,12 +250,10 @@ def EP_testing(
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
          precision_EP, amplitude_EP, *_) = classifier.estimate(
-            steps, gamma, varphi, noise_variance,
-            posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
+            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
             write=True)
         print("iteration {}, error={}".format(iteration, error / steps))
-    # If cholesky factors are not stored
     (weights,
     precision_EP,
     L,
@@ -343,14 +261,16 @@ def EP_testing(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean,
         L, Lambda)
     t1, *_ = classifier.compute_integrals(
-        gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+        classifier.gamma, Sigma, precision_EP, posterior_mean,
+        classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, L, Lambda, weights)
     # Test
     (Z,
     posterior_predictive_m,
     posterior_std) = classifier.predict(
-        gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance, X_test,
+        classifier.gamma, Sigma, mean_EP, precision_EP,
+        classifier.kernel.varphi, classifier.noise_variance, X_test,
         Lambda, vectorised=True)  # (N_test, J)
     # # TODO: Placeholder
     # fx = 0.0 
@@ -369,16 +289,18 @@ def EP_testing(
         (Z,
         posterior_predictive_m,
         posterior_std) = classifier.predict(
-            gamma, Sigma, mean_EP, precision_EP, varphi, noise_variance,
+            classifier.gamma, Sigma, mean_EP, precision_EP,
+            classifier.kernel.varphi, classifier.noise_variance,
             X_new_, Lambda, vectorised=True)
         Z_new = Z.reshape((N, N, J))
         print(np.sum(Z, axis=1), 'sum')
-        for j in range(J):
+        for j in range(classifier.J):
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
             plt.scatter(
-                X_train[np.where(t_train == j)][:, 0],
-                X_train[np.where(t_train == j)][:, 1], color='red')
+                classifier.X_train[np.where(classifier.t_train == j)][:, 0],
+                classifier.X_train[np.where(classifier.t_train == j)][:, 1],
+                color='red')
             plt.scatter(
                 X_test[np.where(t_test == j)][:, 0],
                 X_test[np.where(t_test == j)][:, 1], color='blue')
@@ -392,58 +314,7 @@ def EP_testing(
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.savefig("contour_EP_{}.png".format(j))
             plt.close()
-    return fx, calculate_metrics(y_test, t_test, Z, gamma)
-
-
-def EP_training(
-        Kernel, method, X_train, t_train,
-        gamma_0, varphi_0, noise_variance_0, scale_0, J,
-        indices):
-    """
-    # TODO: can this be merged with training? or be called _training_initiate()
-    An example ordinal training objective.
-
-    Returns the hyperparameters trained via gradient descent of the ELBO.
-
-    :return: gamma, varphi, noise_variance
-    """
-    # Initiate kernel  # TODO: check that this initiation should work when varphi and scale is None.
-    kernel = Kernel(varphi=varphi_0, scale=scale_0)
-    # Initiate classifier
-    classifier = EPOrderedGP(X_train, t_train, kernel, J)
-    gamma, varphi, noise_variance, scale = training(
-        method, classifier,
-        gamma_0, varphi_0, noise_variance_0, scale_0, J,
-        indices)
-    return gamma, varphi, noise_variance, scale
-
-
-def test(
-        Kernel, method, X_trains, t_trains, X_tests, t_tests, y_tests,
-        split,
-        gamma_0, varphi_0, noise_variance_0, scale_0, J, D):
-    """
-    Test.
-    """
-    X_train = X_trains[split, :, :]
-    t_train = t_trains[split, :]
-    X_test = X_tests[split, :, :]
-    t_test = t_tests[split, :]
-    y_test = y_tests[split, :]
-    # Skip training
-    # gamma, varphi, noise_variance, scale = EP_training(
-    #     Kernel, method, X_train, t_train,
-    #     gamma_0, varphi_0, noise_variance_0, scale_0, J)
-    gamma = gamma_0
-    varphi = varphi_0
-    noise_variance = noise_variance_0
-    scale = scale_0
-    fx, zero_one, predictive_likelihood, mean_abs, log_pred_prob = EP_testing(
-        Kernel, X_train, t_train, X_test, t_test, y_test,
-        gamma, varphi, noise_variance, scale, J, D)
-    return (
-        gamma, varphi, noise_variance, zero_one,
-        predictive_likelihood, log_pred_prob, mean_abs, fx)
+    return fx, calculate_metrics(y_test, t_test, Z, classifier.gamma)
 
 
 def outer_loops(
@@ -717,24 +588,16 @@ def outer_loops_test(
     plt.savefig("Contour plot - mean absolute error accuracy.png")
     plt.close()
 
-def grid_synthetic(J, Kernel, X_train, t_train, domain, res, indices,
+def grid_synthetic(classifier, domain, res, indices,
                    gamma=None, varphi=None, noise_variance=None,
                    scale=None, show=False):
     """
-    Grid of optimised lower bound across the hyperparameters
-    with cutpoints set.
+    Grid of optimised lower bound across the hyperparameters.
     """
-    # varphi_0 = 1.0  # Placeholder to define the kernel  #TODO: generalise
-    # constant_variance_0 = 1.0  # Placeholder to define the kernel
-    kernel = Kernel(varphi=varphi, scale=scale)  # SEIso
-    # Initiate classifier
-    classifier = EPOrderedGP(X_train, t_train, kernel, J)
     (Z, grad, x, y,
     xlabel, ylabel,
     xscale, yscale) = classifier.grid_over_hyperparameters(
-        domain, res,
-        gamma_0=gamma, varphi_0=varphi,
-        noise_variance_0=noise_variance, scale_0=scale, indices=indices)
+        domain, res, indices=indices)
     if ylabel is None:
         plt.plot(x, Z)
         plt.savefig("grid_over_hyperparameters.png")
@@ -920,101 +783,3 @@ def grid(
         plt.ylabel(ylabel, fontsize=16)
         plt.savefig("Contour plot - EP lower bound on the log likelihood_av_{}.png".format(now))
         plt.close()
-
-
-def test_synthetic(
-    Kernel, method, X_train, t_train, X_true, Y_true,
-    gamma_0, varphi_0, noise_variance_0, scale_0, J, D, colors=colors):
-    """Test toy."""
-    # gamma, varphi, noise_variance, scale = EP_training(
-    #     method, X_train, t_train,
-    #     gamma_0, varphi_0, noise_variance_0, scale_0, J)
-    gamma = gamma_0
-    varphi = varphi_0
-    noise_variance = noise_variance_0
-    scale = scale_0
-    print("gamma = {}, gamma_0 = {}".format(gamma, gamma_0))
-    print("varphi = {}, varphi_0 = {}".format(varphi, varphi_0))
-    print("noise_variance = {}, noise_variance_0 = {}".format(
-        noise_variance, noise_variance_0))
-    fx = EP_plotting_synthetic(
-        Kernel, X_train, t_train, X_true, Y_true, gamma,
-        varphi=varphi, noise_variance=noise_variance,
-        J=J, D=D, scale=scale, colors=colors)
-    print("fx={}".format(fx))
-    return fx
-
-
-def test_plots(
-    Kernel, X_test, X_train, t_test, t_train,
-    Y_true, gamma, varphi, noise_variance, scale, J):
-    grid = np.ogrid[0:len(X_test)]
-    kernel = Kernel(varphi=varphi, scale=scale)
-    # Initiate classifier
-    classifier = EPOrderedGP(X_train, t_train, kernel, J)
-    steps = 50
-    y_0 = Y_true.flatten()
-    m_0 = y_0
-    (error, grad_Z_wrt_cavity_mean,
-    posterior_mean, Sigma,
-     mean_EP, precision_EP, amplitude_EP,
-     containers) = classifier.estimate(
-        steps, gamma, varphi, noise_variance,
-        fix_hyperparameters=False, write=True)
-    (weights,
-    precision_EP, L, Lambda) = classifier.compute_EP_weights(
-        precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-    if dataset in datasets["benchmark"]:
-        lower_x1 = 0.0
-        upper_x1 = 16.0
-        lower_x2 = -30
-        upper_x2 = 0
-        N = 60
-        x1 = np.linspace(lower_x1, upper_x1, N)
-        x2 = np.linspace(lower_x2, upper_x2, N)
-        xx, yy = np.meshgrid(x1, x2)
-        X_new = np.dstack((xx, yy))
-        X_new = X_new.reshape((N * N, 2))
-        # Test
-        (Z,
-        posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            gamma, Sigma,
-            mean_EP, precision_EP,
-            varphi, noise_variance, X_test, Lambda, vectorised=True)
-        predictive_likelihood = Z[grid, t_test]
-        predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
-        print("predictive_likelihood ", predictive_likelihood)
-        # Mean zero-one error
-        t_star = np.argmax(Z, axis=1)
-        print(t_star)
-        print(t_test)
-        zero_one = (t_star == t_test)
-        mean_zero_one = zero_one * 1
-        mean_zero_one = np.sum(mean_zero_one) / len(t_test)
-        print("mean_zero_one ", mean_zero_one)
-        (Z,
-        posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            gamma, Sigma, mean_EP, precision_EP,
-            varphi, noise_variance, X_test, Lambda, vectorised=True)
-        Z_new = Z.reshape((N, N, J))
-        print(np.sum(Z, axis=1), 'sum')
-        for j in range(J):
-            fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
-            plt.scatter(
-                X_train[np.where(t_train == j)][:, 0],
-                X_train[np.where(t_train == j)][:, 1], color='red')
-            plt.scatter(
-                X_test[np.where(t_test == j)][:, 0],
-                X_test[np.where(t_test == j)][:, 1], color='blue')
-            # plt.scatter(
-            #     X_train[np.where(t == j + 1)][:, 0],
-            #     X_train[np.where(t == j + 1)][:, 1], color='blue')
-            # plt.xlim(0, 2)
-            # plt.ylim(0, 2)
-            plt.xlabel(r"$x_1$", fontsize=16)
-            plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("Contour plot - Variational.png")
-            plt.close()

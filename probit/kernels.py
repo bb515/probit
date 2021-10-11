@@ -843,7 +843,7 @@ class SEIso(Kernel):
         return self.kernel_diagonal(X_new, X)
 
     def kernel_prior_diagonal(self, X):
-        return self.scale * np.ones(np.shape(X[0]))
+        return self.scale * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
         """

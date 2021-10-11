@@ -3,25 +3,27 @@ Ordinal regression concrete examples. Approximate inference: EP approximation.
 """
 # Make sure to limit CPU usage
 import os
+from probit.estimators import EPOrderedGP
 os.environ["OMP_NUM_THREADS"] = "4" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "4" # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
 os.environ["VECLIB_MAXIMUM_THREADS"] = "4" # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = "6" # export NUMEXPR_NUM_THREADS=6
-
 import argparse
 import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 import pathlib
+from probit.estimators import EPOrderedGP
 from probit.EP import (
-    outer_loops, grid_synthetic, EP_training, grid, EP_testing,
-    test_synthetic)
+    outer_loops, grid_synthetic, train, grid, test,
+    plot_synthetic, plot)
 from probit.data.utilities import (
     datasets, load_data, load_data_synthetic)
 import sys
 import time
+
 
 
 now = time.ctime()
@@ -51,37 +53,44 @@ def main():
     if dataset in datasets["benchmark"]:
         (X_trains, t_trains,
         X_tests, t_tests,
-        X_true, Y_true,
+        X_true, y_tests,
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, Kernel) = load_data(
             dataset, bins)
+        steps = 1000
         outer_loops(
-            Kernel, method,
-            X_trains, t_trains,
-            X_tests, t_tests,
-            gamma_0, varphi_0, noise_variance_0, scale_0,
-            J, D)
-        # gamma, varphi, noise_variance, scale = EP_training(
-        #     method, X_trains[2], t_trains[2], X_tests[2], t_tests[2],
-        #     gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
-        # EP_testing(
-        #     X_trains[2], t_trains[2], X_tests[2], t_tests[2],
-        #     gamma, varphi, noise_variance, scale, J, D)
-
+            EPOrderedGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
+            gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
+        # # Initiate kernel
+        # kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        # # Initiate the classifier with the training data
+        # classifier = EPOrderedGP(
+        #     gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
+        # indices = np.ones(5)  # three
+        # # indices = np.ones(15)  # thirteen
+        # # Fix noise_variance
+        # indices[0] = 0
+        # # Fix gamma
+        # indices[1:J] = 0
+        # # Fix scale
+        # indices[J] = 0
+        # # Fix varphi
+        # indices[-1] = 0
+        # classifier = train(
+        #     classifier, method, indices)
+        # fx, metrics = test(
+        #     classifier, X_tests[2], t_tests[2], y_tests[2], steps)
     elif dataset in datasets["synthetic"]:
         (X, t,
         X_true, Y_true,
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
-        print("gamma_0 = {}".format(gamma_0))
-        print("varphi_0 = {}".format(varphi_0))
-        print("noise_variance_0 = {}".format(noise_variance_0))
-        print("scale_0 = {}".format(scale_0))
-        # test_plots(
-        #     X_tests[0], X_trains[0], t_tests[0], t_trains[0], Y_trues[0])
-        # varphi and std
-        # grid_synthetic(J, Kernel, X, t, ((-1, 1), (-2, 2)),
-        #     gamma=gamma_0, scale=scale_0)
+        steps = 50
+        # Initiate kernel
+        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        # Initiate classifier
+        classifier = EPOrderedGP(
+            gamma_0, noise_variance_0, kernel, X, t, J)
         indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen
         # Fix noise_variance
@@ -92,32 +101,27 @@ def main():
         #indices[-1] = 0
         # Fix gamma
         indices[1:J] = 0
-        # indices = np.ones(14)
-        # gamma, varphi, noise_variance, scale = EP_training(
-        #     Kernel, method,
-        #     X_trains[2], t_trains[2],
-        #     gamma_0, varphi_0,
-        #     noise_variance_0, scale_0,
-        #     J, indices)
-        # EP_testing(
-        #     X, t, X, t,
-        #     gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
-        grid_synthetic(
-            J, Kernel, X, t, ((-2, 0), (None)), (20, None), indices,
-            varphi=varphi_0, gamma=gamma_0, noise_variance=noise_variance_0,
-            scale=scale_0, show=True)
-        # Just scale
-        # grid_synthetic(
-        #     J, Kernel, X, t, ((-4, 4),(None)), (100, None),
-        #     varphi=varphi_0, gamma=gamma_0, noise_variance=noise_variance_0,
-        #     scale=None, show=True)
-        # Two of the cutpoints
-        # grid_synthetic(
-        #     J, Kernel, X, t, ((-2, 2), (-3, 1)), (100, None),
-        #     varphi=varphi_0, noise_variance=noise_variance_0, scale=scale_0)
-        # test_synthetic(
-        #     Kernel, method, X, t, X_true, Y_true,
-        #     gamma_0, varphi_0, noise_variance_0, scale_0, J, D, colors=colors)
+        # Just varphi
+        domain = ((-4, 4), None)
+        res = (100, None)
+        # #  just scale
+        # domain = ((0., 1.8), None)
+        # res = (20, None)
+        # # just std
+        # domain = ((-0.1, 1.), None)
+        # res = (100, None)
+        # # varphi and scale
+        # domain = ((0, 2), (0, 2))
+        # res = (100, None)
+        # # varphi and std
+        # domain = ((0, 2), (0, 2))
+        # res = (100, None)
+        grid_synthetic(classifier, domain, res, indices, show=False)
+        # plot(classifier, domain=None)
+        # classifier = train(classifier, method, indices)
+        # test(classifier, X, t, Y_true, steps)
+        # grid_synthetic(classifier, domain, res, indices, show=False)
+        # plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
     if args.profile:

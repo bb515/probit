@@ -1147,7 +1147,7 @@ def load_data(dataset, bins):
     t_trains = data["t_train"]
     X_tests = data["X_test"]
     t_tests = data["t_test"]
-    # Python indexing
+    # Python indexing - this is only for the benchmark data
     t_tests = t_tests - 1
     t_trains = t_trains - 1
     t_tests = t_tests.astype(int)
@@ -1160,6 +1160,7 @@ def load_data(dataset, bins):
     # Y_trues = get_Y_trues(X_trains, X_true, Y_true)
     Kernel = SEIso
     scale_0 = 1.0
+    gamma_0 = np.array(gamma_0)
     return (
         X_trains, t_trains,
         X_tests, t_tests,
@@ -1411,6 +1412,7 @@ def load_data_synthetic(dataset, bins, plot=False):
             plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters[
                 "true"]
+    gamma_0 = np.array(gamma_0)
     if plot:
         plot_ordinal(X, t, X_k, Y_true_k, K, D)
     return (
