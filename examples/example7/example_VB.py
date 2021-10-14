@@ -14,11 +14,10 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.estimators import VBOrderedGP
-from probit.VB import (
-    outer_loops, test, grid_synthetic)
+from probit.plot import outer_loops, grid_synthetic
+from probit.VB import test
 import pathlib
-from probit.data.utilities import (
-    datasets, load_data, load_data_synthetic)
+from probit.data.utilities import datasets, load_data, load_data_synthetic
 import time
 
 

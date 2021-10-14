@@ -16,11 +16,9 @@ from pstats import Stats, SortKey
 import numpy as np
 import pathlib
 from probit.estimators import EPOrderedGP
-from probit.EP import (
-    outer_loops, grid_synthetic, train, grid, test,
-    plot_synthetic, plot)
-from probit.data.utilities import (
-    datasets, load_data, load_data_synthetic)
+from probit.plot import outer_loops, grid_synthetic, train, grid
+from probit.EP import test, plot_synthetic, plot
+from probit.data.utilities import datasets, load_data, load_data_synthetic
 import sys
 import time
 

@@ -11,8 +11,6 @@ from probit.data.utilities import calculate_metrics
 
 def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
     """
-    TODO: merge with probit.probit.EP.<method_name> once classifiers take same
-    args.
     Grid of (optimised and converged) variational lower bound across the chosen
     hyperparameters.
 
@@ -384,13 +382,11 @@ def outer_loop_problem_size(
     plt.legend()
     plt.savefig("{} uncertainty minus.png".format(string))
     plt.close()
-
     np.savez(
             "{} plot.npz".format(string),
             plot_N=plot_N, plot_mean_fx=plot_mean_fx, plot_std_fx=plot_std_fx,
             plot_mean_metrics=plot_mean_metrics,
             plot_std_metrics=plot_std_metrics)
-
     return 0
 
 
