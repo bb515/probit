@@ -13,7 +13,7 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
-from probit.estimators import VBOrderedGP
+from probit.estimators import VBOrdinalGP
 from probit.plot import outer_loops, grid_synthetic
 from probit.VB import test
 import pathlib
