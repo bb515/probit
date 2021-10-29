@@ -6,7 +6,6 @@ import math
 import matplotlib.pyplot as plt
 
 
-
 # def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):
 #     return norm.cdf(
 #         (gamma_tplus1 - b) / noise_std
