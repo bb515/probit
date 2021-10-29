@@ -17,7 +17,6 @@ from .utilities import (
     fromb_t5_vector)
 
 
-
 class Estimator(ABC):
     """
     Base class for variational Bayes estimators.
