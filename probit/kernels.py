@@ -1,20 +1,14 @@
 import os
-os.environ["OMP_NUM_THREADS"] = "2" # export OMP_NUM_THREADS=4
-os.environ["OPENBLAS_NUM_THREADS"] = "2" # export OPENBLAS_NUM_THREADS=4 
-os.environ["MKL_NUM_THREADS"] = "2" # export MKL_NUM_THREADS=6
-os.environ["VECLIB_MAXIMUM_THREADS"] = "2" # export VECLIB_MAXIMUM_THREADS=4
-os.environ["NUMEXPR_NUM_THREADS"] = "2" # export NUMEXPR_NUM_THREADS=6
+os.environ["OMP_NUM_THREADS"] = "8" # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = "8" # export OPENBLAS_NUM_THREADS=4 
+os.environ["MKL_NUM_THREADS"] = "8" # export MKL_NUM_THREADS=6
+os.environ["VECLIB_MAXIMUM_THREADS"] = "8" # export VECLIB_MAXIMUM_THREADS=4
+os.environ["NUMEXPR_NUM_THREADS"] = "8" # export NUMEXPR_NUM_THREADS=6
 
 import lab as B
-import lab.jax
 import numpy as np
 from scipy.spatial import distance_matrix, distance
 from abc import ABC, abstractmethod
-import jax
-import jax.numpy as jnp
-#import jax.numpy as jnp
-#from jax import grad, jit, vmap
-# from mlkernels.jax import EQ
 from mlkernels import EQ
 
 
@@ -196,24 +190,6 @@ class Kernel(ABC):
         if 1:
             raise ValueError("TODO")
 
-    # TODO: depricated as it is slow
-    # def distance_mat(self, X1, X2):
-    #     """
-    #     Return a distance matrix using scipy spatial.
-
-    #     :arg X1: The (N1, D) input array for the distance matrix.
-    #     :type X1: :class:`numpy.ndarray`
-    #     :arg X2: The (N2, D) input array for the distance matrix.
-    #     :type X2: :class:`numpy.ndarray` or float
-    #     :return: Euclidean distance matrix (N1, N2).
-    #     :rtype: :class:`numpy.ndarray`.
-    #     """
-    #     # Case that D = 1
-    #     if len(np.shape(X1)) == 1:
-    #         X1 = X1.reshape(-1, 1)
-    #         X2 = X2.reshape(-1, 1)
-    #     return distance_matrix(X1, X2)
-
     def distance_mat(self, X1, X2):
         """
         Return a distance matrix using scipy spatial.
@@ -229,24 +205,6 @@ class Kernel(ABC):
         """
         # cdist automatically handles the case that D = 1
         return distance.cdist(X1, X2, metric='euclidean')
-
-    def distance_mat_SS(self, X1, X2):
-        """
-        Return a distance matrix using scipy spatial.
-
-        :arg X1: The (N1, D) input array for the distance matrix.
-        :type X1: :class:`numpy.ndarray`
-        :arg X2: The (N2, D) input array for the distance matrix.
-        :type X2: :class:`numpy.ndarray` or float
-        :return: Euclidean distance matrix (N1, N2).
-        :rtype: :class:`numpy.ndarray`.
-        """
-        # Case that D = 1
-        if len(np.shape(X1)) == 1:
-            X1 = X1.reshape(-1, 1)
-            X2 = X2.reshape(-1, 1)
-        #return jnp.linalg.norm 
-        return distance_matrix(X1, X2)
 
 
 class Linear(Kernel):
@@ -987,10 +945,10 @@ class MLKernelsEQ(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.EQ(X1, X2)
+        return self.EQ(X1, X2).mat
 
 
-class JAXEQ(Kernel):
+class LabEQ(Kernel):
     r"""
     Uses BLab by WesselB, which is an generic interface for linear algebra
     backends.
@@ -1061,7 +1019,7 @@ class JAXEQ(Kernel):
     def _general(self):
         return False
 
-    def _kernel(self, X_i, X_j):
+    def kernel(self, X_i, X_j):
         """
         Get the ij'th element of the Gram matrix, given the data (X_i and X_j),
         and hyper-parameters.
@@ -1073,12 +1031,9 @@ class JAXEQ(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * B.exp(-self.varphi * B.ew_dists2(X_i, X_j))
+        return (self.scale * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
 
-    def kernel(self, X_i, X_j):
-        return jax.jit(self._kernel)(X_i, X_j)
-
-    def _kernel_vector(self, x_new, X):
+    def kernel_vector(self, x_new, X):
         """
         Get the kernel vector given an input vector (x_new) input matrix (X).
 
@@ -1092,13 +1047,10 @@ class JAXEQ(Kernel):
         return self.scale * B.exp(-self.varphi * B.ew_dists2(
             X, x_new.reshape(1, -1)))
 
-    def kernel_vector(self, x_new, X):
-        return jax.jit(self._kernel_vector)(x_new, X)
-
     def kernel_prior_diagonal(self, X):
         return self.scale * np.ones(np.shape(X)[0])
 
-    def _kernel_diagonal(self, X1, X2):
+    def kernel_diagonal(self, X1, X2):
         """
         Get Gram diagonal efficiently using scipy's distance matrix function.
 
@@ -1111,10 +1063,7 @@ class JAXEQ(Kernel):
         """
         return self.scale * B.exp(-self.varphi * B.ew_dists2(X1, X2))
 
-    def kernel_diagonal(self, X1, X2):
-        return jax.jit(self._kernel_diagonal)(X1, X2)
-
-    def _kernel_matrix(self, X1, X2, varphi, scale):
+    def kernel_matrix(self, X1, X2):
         """
         Get Gram matrix efficiently using MLKernels.
 
@@ -1125,12 +1074,9 @@ class JAXEQ(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return scale * B.exp(-varphi * B.pw_dists2(X1, X2))
+        return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
-    def kernel_matrix(self, X1, X2):
-        return jax.jit(self._kernel_matrix)(X1, X2, self.varphi, self.scale)
-
-    def _kernel_matrices(self, X1, X2, varphis):
+    def kernel_matrices(self, X1, X2, varphis):
         """
         Get Gaussian kernel matrices for varphi samples, varphis, as an array
         of numpy arrays.
@@ -1154,9 +1100,6 @@ class JAXEQ(Kernel):
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def kernel_matrices(self, X1, X2, varphis):
-        return jax.jit(self._kernel_matrices(X1, X2, varphis))
-
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as
@@ -1170,8 +1113,9 @@ class JAXEQ(Kernel):
             covariance matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return jax.jit(jax.jacfwd(self._kernel_matrix, argnums=2))(
-            X1, X2, self.varphi, self.scale)
+        distance_mat_2 = B.pw_dists2(X1, X2)
+        return -B.multiply(
+            distance_mat_2, self.scale * B.exp(-self.varphi * distance_mat_2))
 
     def kernel_partial_derivative_scale(self, X1, X2):
         """
@@ -1184,8 +1128,7 @@ class JAXEQ(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return jax.jit(jax.grad(self._kernel_matrix, argnums=3))(
-            X1, X2, self.varphi, self.scale)
+        return B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
 
 class SEIso(Kernel):
@@ -2015,74 +1958,3 @@ class InvalidKernel(Exception):
 
         super().__init__(message)
 
-import time
-
-def matrix(scale, varphi, X1, X2):
-    return scale * EQ().stretch(1./varphi)(X1, X2)
-
-N = 1000
-Q = 256
-
-X1 = np.random.rand(N, Q)
-
-kernel = MLKernelsEQ(varphi=2.0)
-
-X2 = np.random.rand(N, Q)
-
-time0 = time.time()
-
-mat00 = kernel.kernel_matrix(X1, X1)
-mat01 = kernel.kernel(X1[1], X2[1])
-mat02 = kernel.kernel_vector(X1[1], X2)
-mat03 = kernel.kernel_diagonal(X1, X2)
-mat04 = kernel.kernel_partial_derivative_varphi(X1, X2)
-time1 = time.time()
-
-
-kernel = SEIso(varphi=2.0)
-
-time2 = time.time()
-mat10 = kernel.kernel_matrix(X1, X1)
-mat11 = kernel.kernel(X1[1], X2[1])
-mat12 = kernel.kernel_vector(X1[1], X2)
-mat13 = kernel.kernel_diagonal(X1, X2)
-mat14 = kernel.kernel_partial_derivative_varphi(X1, X2)
-time3 = time.time()
-
-# This might be a problem since it is operating in single precision, not double precision
-kernel = JAXEQ(varphi=2.0)
-
-time4 = time.time()
-mat20 = kernel.kernel_matrix(X1, X1)
-
-mat21 = kernel.kernel(X1[1], X2[1])
-mat22 = kernel.kernel_vector(X1[1], X2)
-mat23 = kernel.kernel_diagonal(X1, X2)
-mat24 = kernel.kernel_partial_derivative_varphi(X1, X2)
-time5 = time.time()
-
-print("time1", time1 - time0)
-print("time2", time3 - time2)
-print("time3", time5 - time4)
-
-print(mat00)
-print(mat10)
-print(mat20)
-print("kernel matrix")
-# print(mat01)
-# print(mat11)
-# print(mat21)
-# print("kernel")
-# print(mat02)
-# print(mat12)
-# print(mat22)
-# print("kernel vector")
-# print(mat03)
-# print(mat13)
-# print(mat23)
-# print("kernel diagonal")
-print(mat04)
-print(mat14)
-print(mat24)
-print("kernel partial derivative varphi")
-assert 0
