@@ -1491,7 +1491,6 @@ class VBOrdinalGP(Estimator):
                 self.N, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, indices,
                 numerical_stability=True, verbose=False)
             fxs[i] = fx
-            print(indices_where)
             gxs[i] = gx[indices_where]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))

@@ -56,12 +56,12 @@ def main():
         steps = 1000
         # Initiate classifier
         outer_loops(
-            test, VBOrderedGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
+            test, VBOrdinalGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
             gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
         # # Initiate kernel
         # kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # # Initiate classifier
-        # classifier = VBOrderedGP(
+        # classifier = VBOrdinalGP(
         #     gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
         # classifier = train(classifier, method)
         # test(
@@ -75,7 +75,7 @@ def main():
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate classifier
-        classifier = VBOrderedGP(
+        classifier = VBOrdinalGP(
             gamma_0, noise_variance_0, kernel, X, t, J) 
         indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen
