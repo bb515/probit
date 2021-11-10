@@ -2020,7 +2020,7 @@ import time
 def matrix(scale, varphi, X1, X2):
     return scale * EQ().stretch(1./varphi)(X1, X2)
 
-N = 4000
+N = 1000
 Q = 256
 
 X1 = np.random.rand(N, Q)
@@ -2032,34 +2032,34 @@ X2 = np.random.rand(N, Q)
 time0 = time.time()
 
 mat00 = kernel.kernel_matrix(X1, X1)
-time1 = time.time()
 mat01 = kernel.kernel(X1[1], X2[1])
 mat02 = kernel.kernel_vector(X1[1], X2)
 mat03 = kernel.kernel_diagonal(X1, X2)
 mat04 = kernel.kernel_partial_derivative_varphi(X1, X2)
+time1 = time.time()
 
 
 kernel = SEIso(varphi=2.0)
 
 time2 = time.time()
 mat10 = kernel.kernel_matrix(X1, X1)
-time3 = time.time()
 mat11 = kernel.kernel(X1[1], X2[1])
 mat12 = kernel.kernel_vector(X1[1], X2)
 mat13 = kernel.kernel_diagonal(X1, X2)
 mat14 = kernel.kernel_partial_derivative_varphi(X1, X2)
+time3 = time.time()
 
-
+# This might be a problem since it is operating in single precision, not double precision
 kernel = JAXEQ(varphi=2.0)
 
 time4 = time.time()
-mat10 = kernel.kernel_matrix(X1, X1)
-time5 = time.time()
+mat20 = kernel.kernel_matrix(X1, X1)
 
-mat11 = kernel.kernel(X1[1], X2[1])
-mat12 = kernel.kernel_vector(X1[1], X2)
-mat13 = kernel.kernel_diagonal(X1, X2)
-mat14 = kernel.kernel_partial_derivative_varphi(X1, X2)
+mat21 = kernel.kernel(X1[1], X2[1])
+mat22 = kernel.kernel_vector(X1[1], X2)
+mat23 = kernel.kernel_diagonal(X1, X2)
+mat24 = kernel.kernel_partial_derivative_varphi(X1, X2)
+time5 = time.time()
 
 print("time1", time1 - time0)
 print("time2", time3 - time2)
@@ -2069,18 +2069,18 @@ print(mat00)
 print(mat10)
 print(mat20)
 print("kernel matrix")
-print(mat01)
-print(mat11)
-print(mat21)
-print("kernel")
-print(mat02)
-print(mat12)
-print(mat22)
-print("kernel vector")
-print(mat03)
-print(mat13)
-print(mat23)
-print("kernel diagonal")
+# print(mat01)
+# print(mat11)
+# print(mat21)
+# print("kernel")
+# print(mat02)
+# print(mat12)
+# print(mat22)
+# print("kernel vector")
+# print(mat03)
+# print(mat13)
+# print(mat23)
+# print("kernel diagonal")
 print(mat04)
 print(mat14)
 print(mat24)
