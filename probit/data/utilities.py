@@ -365,12 +365,12 @@ def generate_prior_data_new(
         colors_ = [colors[i] for i in t_trains[0, :]]
         plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
         plt.savefig("scatter.png")
-        plot_ordinal(X, t, X_k, Y_true_k, K, D, colors=colors)
+        plot_ordinal(X, t, X_k, Y_true_k, J, D, colors=colors)
     return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests,
         X_trains, Y_trains, t_trains, K0_show, X_show, Z_show, colors)
 
 
-def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
+def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
     """
     Generate data from the GP prior.
  
@@ -381,7 +381,7 @@ def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
     :arg int D: The number of data dimensions.
     :arg kernel: The GP prior.
     """
-    N_total = int(K * N_per_class)
+    N_total = int(J * N_per_class)
     # Sample from the real line, uniformly
     # X = np.random.uniform(0, 12, N_total)
     X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
@@ -407,27 +407,27 @@ def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
     Y_true_k = []
     t_k = []
     gamma = np.empty(K + 1)
-    for k in range(K):
-        X_k.append(X[N_per_class * k:N_per_class * (k + 1)])
-        Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
-        t_k.append(k * np.ones(N_per_class, dtype=int))
-    for k in range(1, K):
+    for j in range(J):
+        X_j.append(X[N_per_class * j:N_per_class * (j + 1)])
+        Y_true_j.append(Y_true[N_per_class * j:N_per_class * (j + 1)])
+        t_j.append(j * np.ones(N_per_class, dtype=int))
+    for j in range(1, J):
         # Find the first cutpoint and set it equal to 0.0
-        cutpoint_k_min = Y_true_k[k - 1][-1]
-        cutpoint_k_max = Y_true_k[k][0]
+        cutpoint_j_min = Y_true_j[j - 1][-1]
+        cutpoint_j_max = Y_true_j[j][0]
         gamma[k] = np.average([cutpoint_k_max, cutpoint_k_min])
     gamma[0] = -np.inf
     gamma[-1] = np.inf
     print("gamma={}".format(gamma))
-    for k in range(K):
-        plt.scatter(X_k[k], Y_true_k[k], color=colors[k])
+    for j in range(J):
+        plt.scatter(X_j[j], Y_true_j[j], color=colors[j])
     plt.show()
-    Xs_k = np.array(X_k)
-    Ys_k = np.array(Y_true_k)
-    t_k = np.array(t_k, dtype=int)
-    X = Xs_k.flatten()
-    Y = Ys_k.flatten()
-    t = t_k.flatten()
+    Xs_j = np.array(X_j)
+    Ys_j = np.array(Y_true_j)
+    t_j = np.array(t_j, dtype=int)
+    X = Xs_j.flatten()
+    Y = Ys_j.flatten()
+    t = t_j.flatten()
     # Prepare data
     Xt = np.c_[Y, X, t]
     print(np.shape(Xt))
@@ -444,11 +444,11 @@ def generate_prior_data(N_per_class, K, D, kernel, noise_variance):
     print(colors_)
     plt.scatter(X[:, 0], Y_true, color=colors_)
     plt.show()
-    plot_ordinal(X, t, X_k, Y_true_k, K, D)
-    return X_k, Y_true_k, X, Y_true, t, gamma
+    plot_ordinal(X, t, X_k, Y_true_j, K, D)
+    return X_k, Y_true_j, X, Y_true, t, gamma
 
 
-def generate_synthetic_data(N_per_class, K, D, kernel, noise_variance):
+def generate_synthetic_data(N_per_class, J, D, kernel, noise_variance):
     """
     Generate synthetic data for this model.
 
@@ -459,7 +459,7 @@ def generate_synthetic_data(N_per_class, K, D, kernel, noise_variance):
     :arg int D: The number of data dimensions.
     :arg kernel: The GP prior.
     """
-    N_total = int(K * N_per_class)
+    N_total = int(J * N_per_class)
     # Sample from the real line, uniformly
     X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
     X = X[:, None]  # reshape X to make it n*D
@@ -481,29 +481,29 @@ def generate_synthetic_data(N_per_class, K, D, kernel, noise_variance):
         # Sort the responses
         Y_true = Y_true[sort_indeces]
         X = X[sort_indeces]
-        X_k = []
+        X_j = []
         Y_true_k = []
-        t_k = []
-        for k in range(K):
-            X_k.append(X[N_per_class * k:N_per_class * (k + 1)])
-            Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
-            t_k.append(k * np.ones(N_per_class, dtype=int))
+        t_j = []
+        for j in range(J):
+            X_j.append(X[N_per_class * j:N_per_class * (j + 1)])
+            Y_true_j.append(Y_true[N_per_class * j:N_per_class * (j + 1)])
+            t_j.append(k * np.ones(N_per_class, dtype=int))
         # Find the first cutpoint and set it equal to 0.0
         cutpoint_0_min = Y_true_k[0][-1]
         cutpoint_0_max = Y_true_k[1][0]
         print(cutpoint_0_max, cutpoint_0_min)
         cutpoint_0 = np.mean([cutpoint_0_max, cutpoint_0_min])
     Y_true = np.subtract(Y_true, cutpoint_0)
-    Y_true_k = np.subtract(Y_true_k, cutpoint_0)
-    for k in range(K):
-        plt.scatter(X_k[k], Y_true_k[k], color=colors[k])
+    Y_true_j = np.subtract(Y_true_j, cutpoint_0)
+    for j in range(J):
+        plt.scatter(X_j[j], Y_true_j[j], color=colors[j])
     plt.show()
-    Xs_k = np.array(X_k)
-    Ys_k = np.array(Y_true_k)
-    t_k = np.array(t_k, dtype=int)
-    X = Xs_k.flatten()
-    Y = Ys_k.flatten()
-    t = t_k.flatten()
+    Xs_j = np.array(X_j)
+    Ys_j = np.array(Y_true_j)
+    t_j = np.array(t_j, dtype=int)
+    X = Xs_j.flatten()
+    Y = Ys_j.flatten()
+    t = t_j.flatten()
     # Prepare data
     Xt = np.c_[Y, X, t]
     print(np.shape(Xt))
@@ -520,7 +520,7 @@ def generate_synthetic_data(N_per_class, K, D, kernel, noise_variance):
     print(colors_)
     plt.scatter(X, Y_true, color=colors_)
     plt.show()
-    return X_k, Y_true_k, X, Y_true, t
+    return X_j, Y_true_j, X, Y_true, t
 
 
 def load_data(dataset, bins):
@@ -530,7 +530,7 @@ def load_data(dataset, bins):
             data_continuous = np.load(path)
         D = 10
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "init": (  # Unstable
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -605,7 +605,7 @@ def load_data(dataset, bins):
                 data = np.load(path)
         elif bins == "decile":
             from probit.data.abalone import decile
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -633,7 +633,7 @@ def load_data(dataset, bins):
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -666,7 +666,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(quantile, 'auto.data.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -694,7 +694,7 @@ def load_data(dataset, bins):
         with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
             data_continuous = np.load(path)
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -732,7 +732,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -761,7 +761,7 @@ def load_data(dataset, bins):
         with pkg_resources.path(bostonhousing, 'housing.npz') as path:
             data_continuous = np.load(path)
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -789,7 +789,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(quantile, 'housing.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -818,7 +818,7 @@ def load_data(dataset, bins):
         with pkg_resources.path(machinecpu, 'machine.npz') as path:
             data_continuous = np.load(path)
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -846,7 +846,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(quantile, 'machine.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -875,7 +875,7 @@ def load_data(dataset, bins):
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -918,7 +918,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(quantile, 'pyrim.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -945,7 +945,7 @@ def load_data(dataset, bins):
             data_continuous = np.load(path)
         D = 9
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "720.0": (
                     np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf]),
@@ -1003,7 +1003,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(quantile, 'stock.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -1032,7 +1032,7 @@ def load_data(dataset, bins):
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -1065,7 +1065,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(quantile, 'triazines.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -1094,7 +1094,7 @@ def load_data(dataset, bins):
         with pkg_resources.path(wisconsin, 'wpbc.npz') as path:
             data_continuous = np.load(path)
         if bins == "quantile":
-            K = 5
+            J = 5
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
@@ -1122,7 +1122,7 @@ def load_data(dataset, bins):
             with pkg_resources.path(quantile, 'wpbc.npz') as path:
                 data = np.load(path)
         elif bins == "decile":
-            K = 10
+            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
@@ -1166,29 +1166,29 @@ def load_data(dataset, bins):
         X_tests, t_tests,
         X_true, Y_true,
         gamma_0, varphi_0, noise_variance_0, scale_0,
-        K, D, Kernel)
+        J, D, Kernel)
 
 
-def generate_synthetic_data_SEARD(N_per_class, K, D, varphi=[30.0, 20.0], noise_variance=1.0, scale=1.0):
+def generate_synthetic_data_SEARD(N_per_class, J, D, varphi=[30.0, 20.0], noise_variance=1.0, scale=1.0):
     """Generate synthetic SEARD dataset."""
     # Generate the synethetic data
     kernel = SEARD(varphi, scale=scale, sigma=10e-6, tau=10e-6)
     X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
-        N_per_class, K, D, kernel, noise_variance=noise_variance)
+        N_per_class, J, D, kernel, noise_variance=noise_variance)
     from probit.data import tertile
     with pkg_resources.path(tertile) as path:
         np.savez(
-            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, K), X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
-    return X_k, Y_true_k, X, Y_true, t, gamma_0
+            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, K), X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+    return X_j, Y_true_j, X, Y_true, t, gamma_0
 
 
-def generate_synthetic_data_polynomial(N_per_class, K, D, noise_variance=1.0, scale=1.0,
+def generate_synthetic_data_polynomial(N_per_class, J, D, noise_variance=1.0, scale=1.0,
         varphi=0.0, order=2.0):
     """Generate synthetic Polynomial dataset."""
     # Generate the synethetic data
     kernel = Polynomial(varphi=varphi, order=order, scale=scale, sigma=10e-6, tau=10e-6)
     X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
-        N_per_class, K, D, kernel, noise_variance=noise_variance)
+        N_per_class, J, D, kernel, noise_variance=noise_variance)
     from probit.data import tertile
     with pkg_resources.path(tertile) as path:
         np.savez(
@@ -1197,7 +1197,7 @@ def generate_synthetic_data_polynomial(N_per_class, K, D, noise_variance=1.0, sc
 
 
 def generate_synthetic_data_linear(
-        N_per_class, N_test, splits, K, D,
+        N_per_class, N_test, splits, J, D,
         constant_variance=1.0, c=1.0, noise_variance=1.0, scale=1.0):
     """Generate synthetic dataset."""
     kernel = Linear(constant_variance=constant_variance, c=c, scale=1.0)
@@ -1205,7 +1205,7 @@ def generate_synthetic_data_linear(
     X_tests, Y_tests, t_tests,
     X_trains, Y_trains, t_trains,
     K0_show, X_show, Z_show, colors) = generate_prior_data_new(
-        N_per_class, N_test, splits, K, D, kernel, noise_variance=noise_variance)
+        N_per_class, N_test, splits, J, D, kernel, noise_variance=noise_variance)
     np.savez('data_linear_prior.npz',
         X_k=X_k, Y_k=Y_true_k, X=X, Y=Y, t=t,
         X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
@@ -1223,7 +1223,7 @@ def generate_synthetic_data_linear(
         Y_trains, t_trains, K0_show, X_show, Z_show, colors)
 
 
-def generate_synthetic_data(N_per_class, K, D, varphi=30.0, noise_variance=1.0, scale=1.0):
+def generate_synthetic_data(N_per_class, J, D, varphi=30.0, noise_variance=1.0, scale=1.0):
     """Generate synthetic dataset."""
     # Generate the synethetic data
     kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
@@ -1269,7 +1269,7 @@ def load_data_synthetic(dataset, bins, plot=False):
         Kernel = LabEQ
         #Kernel = SEIso
         if bins == "tertile":
-            K = 3
+            J = 3
             from probit.data.SEIso import tertile
             with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
@@ -1309,7 +1309,7 @@ def load_data_synthetic(dataset, bins, plot=False):
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
             colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
         elif bins == "thirteen":
-            K = 13
+            J = 13
             from probit.data.SEIso import thirteen
             with pkg_resources.path(
                 thirteen,
@@ -1351,7 +1351,7 @@ def load_data_synthetic(dataset, bins, plot=False):
         D = 1
         Kernel = Linear
         if bins == "tertile":
-            K = 3
+            J = 3
             from probit.data.Linear import tertile
             with pkg_resources.path(tertile, 'data.npz') as path:
                 data = np.load(path)
@@ -1382,7 +1382,7 @@ def load_data_synthetic(dataset, bins, plot=False):
             plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
         elif bins == "thirteen":
-            K = 13
+            J = 13
             from probit.data.Linear import thirteen
             with pkg_resources.path(thirteen, 'data.npz') as path:
                 data = np.load(path)

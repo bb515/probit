@@ -263,7 +263,6 @@ def test(
     error = np.inf
     fx_old = np.inf
     m_0 = None
-    print(steps)
     while error / steps > classifier.EPS:
         iteration += 1
         (m_0, dm_0, y, p, *_) = classifier.estimate(
