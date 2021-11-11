@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
-from probit.kernels import SEIso, SEARD, Linear, Polynomial
+from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ
 import warnings
 import time
 
@@ -1266,7 +1266,8 @@ def load_data_synthetic(dataset, bins, plot=False):
     print(dataset)
     if dataset == "SEIso":
         D = 1
-        Kernel = SEIso
+        Kernel = LabEQ
+        #Kernel = SEIso
         if bins == "tertile":
             K = 3
             from probit.data.SEIso import tertile
