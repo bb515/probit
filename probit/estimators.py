@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import random
-# import scipy.linalg.lapack.dtrtri as dtritri  # Cholesky, TODO
+from scipy.linalg.lapack import dtrtri  # Cholesky, TODO
 from tqdm import trange
 import warnings
 import math
@@ -64,7 +64,6 @@ class Estimator(ABC):
         self.D = np.shape(X_train)[1]
         self.N = np.shape(X_train)[0]
         self.X_train = X_train
-        self.X_train_T = X_train.T
         if np.all(np.mod(t_train, 1) == 0):
             t_train = t_train.astype(int)
         else:
@@ -133,28 +132,6 @@ class Estimator(ABC):
         :return: The posterior mean estimate of the hyperhyperparameters psi Girolami and Rogers Page 9 Eq.(10).
         """
         return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
-
-    def _g(self, x):
-        """
-        Polynomial part of a series expansion for log survival function for a normal random variable. With the third
-        term, for x>4, this is accurate to three decimal places.
-        The third term becomes significant when sigma is large. 
-        """
-        return -1. / x**2 + 5/ (2 * x**4) - 37 / (3 *  x**6)
-
-    def _calligraphic_Z_tails(self, z1, z2):
-        """
-        Series expansion at infinity.
-        
-        Even for z1, z2 >= 4 this is accurate to three decimal places.
-        """
-        return 1/np.sqrt(2 * np.pi) * (
-        1 / z1 * np.exp(-0.5 * z1**2 + self._g(z1)) - 1 / z2 * np.exp(
-            -0.5 * z2**2 + self._g(z2)))
-
-    def _calligraphic_Z_far_tails(self, z):
-        """Prevents overflow at large z."""
-        return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + self._g(z))
 
     def _grid_over_hyperparameters_initiate(
         self, res, domain, indices, gamma):
@@ -327,6 +304,28 @@ class Estimator(ABC):
         self.partial_K_scale = self.kernel.kernel_partial_derivative_scale(
             self.X_train, self.X_train)
 
+    def _g(self, x):
+        """
+        Polynomial part of a series expansion for log survival function for a normal random variable. With the third
+        term, for x>4, this is accurate to three decimal places.
+        The third term becomes significant when sigma is large. 
+        """
+        return -1. / x**2 + 5/ (2 * x**4) - 37 / (3 *  x**6)
+
+    def _calligraphic_Z_tails(self, z1, z2):
+        """
+        Series expansion at infinity.
+        
+        Even for z1, z2 >= 4 this is accurate to three decimal places.
+        """
+        return 1/np.sqrt(2 * np.pi) * (
+        1 / z1 * np.exp(-0.5 * z1**2 + self._g(z1)) - 1 / z2 * np.exp(
+            -0.5 * z2**2 + self._g(z2)))
+
+    def _calligraphic_Z_far_tails(self, z):
+        """Prevents overflow at large z."""
+        return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + self._g(z))
+
     def _calligraphic_Z(
             self, gamma, noise_std, m,
             upper_bound=None, upper_bound2=None, verbose=False):
@@ -359,11 +358,9 @@ class Estimator(ABC):
             :class:`numpy.ndarray`, :class:`numpy.ndarray`,
             :class:`numpy.ndarray`, :class:`numpy.ndarray`)
         """
-        gamma_1s = gamma[self.t_train]
-        gamma_2s = gamma[self.t_train + 1]
         # Otherwise
-        z1s = (gamma_1s - m) / noise_std
-        z2s = (gamma_2s - m) / noise_std
+        z1s = (self.gamma_ts - m) / noise_std
+        z2s = (self.gamma_tplus1s - m) / noise_std
         norm_pdf_z1s = norm.pdf(z1s)
         norm_pdf_z2s = norm.pdf(z2s)
         norm_cdf_z1s = norm.cdf(z1s)
@@ -395,7 +392,7 @@ class Estimator(ABC):
                 for i, value in enumerate(calligraphic_Z):
                     if value < 0.01:
                         print("call_Z={}, z1 = {}, z2 = {}".format(value, z1s[i], z2s[i]))
-        return calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s, gamma_1s, gamma_2s
+        return calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s, self.gamma_ts, self.gamma_tplus1s
 
 
 class VBBinomialGP(Estimator):
@@ -725,7 +722,7 @@ class VBOrdinalGP(Estimator):
         self.log_det_cov = -2 * np.sum(np.log(np.diag(L_cov)))
         # TODO: This is not a special inverse from cholesky algorithm
         cov = np.linalg.inv(L_cov)
-        # cov = dtritri(c, lower=1)  # TODO: test
+        #cov = dtritri(c, lower=1)  # TODO: test
         self.cov = cov.T @ cov  # O(N^2) memory
         self.Sigma_div_var = self.K @ self.cov  # O(N^2) memory
         # TODO: Only need to store Sigma_div_var and cov
@@ -832,6 +829,7 @@ class VBOrdinalGP(Estimator):
             # Update prior covariance
             warnings.warn("Updating prior covariance.")
             self._update_prior()
+            warnings.warn("Done posterior covariance.")
         # Initalise the noise variance
         if noise_variance is not None:
             self.noise_variance = noise_variance
@@ -839,6 +837,7 @@ class VBOrdinalGP(Estimator):
         # Update posterior covariance
         warnings.warn("Updating posterior covariance.")
         self._update_posterior()
+        warnings.warn("Done updating posterior covariance.")
 
     def _estimate_initiate(self, m_0, dm_0):
         """
@@ -1103,8 +1102,8 @@ class VBOrdinalGP(Estimator):
         """
         # y_tilde = np.add(m_tilde, noise_std * p)
         # for i, value in enumerate(y_tilde):
-        #     gamma_k = gamma[self.t_train[i]]
-        #     gamma_kplus1 = gamma[self.t_train[i] + 1]
+        #     gamma_k = self.gamma_ts[i]
+        #     gamma_kplus1 = self.gamma_tplus1s[i]
         #     m_i = m_tilde[i]
         #     z1 = (gamma_k - m_i) / noise_std
         #     z2 = (gamma_kplus1 - m_i) / noise_std
@@ -1792,6 +1791,8 @@ class EPOrdinalGP(Estimator):
                     for i in range(self.J)):
                 raise CutpointValueError(gamma)
             self.gamma = gamma
+            self.gamma_ts = gamma[self.t_train]
+            self.gamma_tplus1s = gamma[self.t_train + 1]
             if varphi is not None or scale is not None:
                 self.kernel.update_hyperparameter(
                     varphi=varphi, scale=scale)
@@ -2735,7 +2736,12 @@ class EPOrdinalGP(Estimator):
 
     def compute_integrals_vector(
             self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):
-        """Computethe integrals required for the gradient evaluation."""
+        """
+        Compute the integrals required for the gradient evaluation.
+
+        TODO: The vectorised function may be difficult to jit compile since it uses fancy indexing.
+
+        """
         # calculate gamma_t and gamma_tplus1 here
         noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
         gamma_t = gamma[self.t_train]
@@ -2743,11 +2749,11 @@ class EPOrdinalGP(Estimator):
         posterior_covariance = np.diag(Sigma)
         mean_t = (posterior_mean[self.where_t_not0]
             * noise_variance + posterior_covariance[self.where_t_not0]
-            * gamma_t[self.where_t_not0]) / (
+            * self.gamma_ts[self.where_t_not0]) / (
                 noise_variance + posterior_covariance[self.where_t_not0])
         mean_tplus1 = (posterior_mean[self.where_t_notJminus1]
             * noise_variance + posterior_covariance[self.where_t_notJminus1]
-            * gamma_tplus1[self.where_t_notJminus1]) / (
+            * self.gamma_tplus1s[self.where_t_notJminus1]) / (
                 noise_variance + posterior_covariance[self.where_t_notJminus1])
         sigma = np.sqrt(
             (noise_variance * posterior_covariance) / (
@@ -2772,35 +2778,35 @@ class EPOrdinalGP(Estimator):
                 a_t, b_t, h_t,
                 posterior_mean[self.where_t_not0],
                 posterior_covariance[self.where_t_not0],
-                gamma_t[self.where_t_not0], gamma_tplus1[self.where_t_not0],
+                self.gamma_ts[self.where_t_not0], self.gamma_tplus1s[self.where_t_not0],
                 noise_variance, noise_std, self.EPS)
         t3[self.where_t_notJminus1] = fromb_t3_vector(
                 y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
                 a_tplus1, b_tplus1,
                 h_tplus1, posterior_mean[self.where_t_notJminus1],
                 posterior_covariance[self.where_t_notJminus1],
-                gamma_t[self.where_t_notJminus1],
-                gamma_tplus1[self.where_t_notJminus1],
+                self.gamma_ts[self.where_t_notJminus1],
+                self.gamma_tplus1s[self.where_t_notJminus1],
                 noise_variance, noise_std, self.EPS)
         t4[self.where_t_notJminus1] = fromb_t4_vector(
                 y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
                 a_tplus1, b_tplus1,
                 h_tplus1, posterior_mean[self.where_t_notJminus1],
                 posterior_covariance[self.where_t_notJminus1],
-                gamma_t[self.where_t_notJminus1],
-                gamma_tplus1[self.where_t_notJminus1],
+                self.gamma_ts[self.where_t_notJminus1],
+                self.gamma_tplus1s[self.where_t_notJminus1],
                 noise_variance, noise_std, self.EPS),
         t5[self.where_t_not0] = fromb_t5_vector(
                 y_t_not0.copy(), mean_t, sigma_t_not0,
                 a_t, b_t, h_t,
                 posterior_mean[self.where_t_not0],
                 posterior_covariance[self.where_t_not0],
-                gamma_t[self.where_t_not0], gamma_tplus1[self.where_t_not0],
+                self.gamma_ts[self.where_t_not0], self.gamma_tplus1s[self.where_t_not0],
                 noise_variance, noise_std, self.EPS) 
         return (
             fromb_t1_vector(
                 y_0.copy(), posterior_mean, posterior_covariance,
-                gamma_t, gamma_tplus1,
+                self.gamma_ts, self.gamma_tplus1s,
                 noise_std, self.EPS),
             t2,
             t3,
