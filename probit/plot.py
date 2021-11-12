@@ -181,7 +181,7 @@ def outer_loop_problem_size(
         test, Classifier, Kernel, method, X_trains, t_trains, X_tests, t_tests,
         y_tests, steps,
         gamma_0, varphi_0, noise_variance_0, scale_0, J, D, size, num,
-        string="client"):
+        string="EP"):
     """
     Plots outer loop for metrics and variational lower bound over N_train
     problem size.
@@ -398,7 +398,7 @@ def outer_loops(
     #moments_noise_variance = []
     #moments_gamma = []
     moments_metrics = []
-    for split in range(5):
+    for split in range(3):
         # Reset kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Build the classifier with the new training data
@@ -417,7 +417,6 @@ def outer_loops(
         # moments_gamma.append(classifier.gamma[1:-1])
     moments_fx = np.array(moments_fx)
     moments_metrics = np.array(moments_metrics)
-    
     mean_fx = np.average(moments_fx)
     mean_metrics = np.average(moments_metrics, axis=0)
     std_fx = np.std(moments_fx)
