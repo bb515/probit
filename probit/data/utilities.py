@@ -185,13 +185,13 @@ def indices_initiate(
     return indices
 
 def get_Y_trues(X_trains, X_true, Y_true):
-    """Get Y_trues (N/K, K) from full array of true y values."""
+    """Get Y_trues (N/J, J) from full array of true y values."""
     Y_trues = []
     for k in range(19):
         y = []
         for i in range(len(X_trains[-1, :, :])):
             for j, two in enumerate(X_true):
-                one = X_trains[k, i]
+                one = X_trains[j, i]
                 if np.allclose(one, two):
                     y.append(Y_true[j])
         Y_trues.append(y)
@@ -237,19 +237,19 @@ def generate_prior_samples(kernel, noise_variance, N_samples=9, N_show=2000, plo
 
 
 def generate_prior_data_new(
-        N_per_class, N_test, splits, K, D, kernel, noise_variance,
+        N_per_class, N_test, splits, J, D, kernel, noise_variance,
         N_show=2000, plot=True):
     """
     Generate data from the GP prior, and choose some cutpoints that
     approximately divides data into equal bins.
 
     :arg int N_per_class: The number of data points per class.
-    :arg int K: The number of bins/classes/quantiles.
+    :arg int J: The number of bins/classes/quantiles.
     :arg int D: The number of data dimensions.
     :arg kernel: The GP prior.
     """
     epsilon = 1e-6
-    N_total = int(K * N_per_class)
+    N_total = int(J * N_per_class)
     # Sample from the real line, uniformly
     # X = np.random.uniform(0, 12, N_total)
     X_show = np.linspace(-0.5, 1.5, N_show)  # N_show points to show pred power
@@ -290,35 +290,35 @@ def generate_prior_data_new(
     Y_true = Y_true[sort_indeces]
     X = X[sort_indeces]
     print(np.shape(X), "X")
-    X_k = []
-    Y_true_k = []
-    t_k = []
-    gamma = np.empty(K + 1)
-    for k in range(K):
-        X_k.append(X[N_per_class * k:N_per_class * (k + 1), :D])
-        Y_true_k.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
-        t_k.append(k * np.ones(N_per_class, dtype=int))
-    for k in range(1, K):
+    X_j = []
+    Y_true_j = []
+    t_j = []
+    gamma = np.empty(J + 1)
+    for k in range(J):
+        X_j.append(X[N_per_class * k:N_per_class * (k + 1), :D])
+        Y_true_j.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
+        t_j.append(k * np.ones(N_per_class, dtype=int))
+    for k in range(1, J):
         # Find the first cutpoint and set it equal to 0.0
-        cutpoint_k_min = Y_true_k[k - 1][-1]
-        cutpoint_k_max = Y_true_k[k][0]
-        gamma[k] = np.average([cutpoint_k_max, cutpoint_k_min])
+        cutpoint_j_min = Y_true_j[j - 1][-1]
+        cutpoint_j_max = Y_true_j[j][0]
+        gamma[j] = np.average([cutpoint_j_max, cutpoint_j_min])
     gamma[0] = -np.inf
     gamma[-1] = np.inf
     print("gamma={}".format(gamma))
     if plot:
-        cmap = plt.cm.get_cmap('PiYG', K)    # K discrete colors
+        cmap = plt.cm.get_cmap('PiYG', J)    # J discrete colors
         colors = []
-        for k in range(K):
-            colors.append(cmap((k+0.5)/K))
-            plt.scatter(X_k[k], Y_true_k[k], color=cmap((k+0.5)/K))
+        for k in range(J):
+            colors.append(cmap((k+0.5)/J))
+            plt.scatter(X_j[j], Y_true_j[j], color=cmap((k+0.5)/J))
         plt.close()
-    Xs_k = np.array(X_k)
-    Ys_k = np.array(Y_true_k)
-    t_k = np.array(t_k, dtype=int)
-    X = Xs_k.flatten()
-    Y = Ys_k.flatten()
-    t = t_k.flatten()
+    Xs_j = np.array(X_j)
+    Ys_j = np.array(Y_true_j)
+    t_j = np.array(t_j, dtype=int)
+    X = Xs_j.flatten()
+    Y = Ys_j.flatten()
+    t = t_j.flatten()
     # Prepare data
     Y_tests = []
     X_tests = []
@@ -357,16 +357,16 @@ def generate_prior_data_new(
     print(np.shape(Y_trains))
     print(np.shape(t_tests))
     print(np.shape(t_trains))
-    print(np.shape(X_k))
-    print(np.shape(Y_true_k))
-    print(np.shape(t_k))
+    print(np.shape(X_j))
+    print(np.shape(Y_true_j))
+    print(np.shape(t_j))
     print(colors)
     if plot:
         colors_ = [colors[i] for i in t_trains[0, :]]
         plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
         plt.savefig("scatter.png")
-        plot_ordinal(X, t, X_k, Y_true_k, J, D, colors=colors)
-    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests,
+        plot_ordinal(X, t, X_j, Y_true_j, J, D, colors=colors)
+    return (X_j, Y_true_j, X, Y, t, gamma, X_tests, Y_tests, t_tests,
         X_trains, Y_trains, t_trains, K0_show, X_show, Z_show, colors)
 
 
@@ -377,7 +377,7 @@ def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
     You can set one of the cutpoints to be a real value. Approximately divides data into equal bins.
 
     :arg int N_per_class: The number of data points per class.
-    :arg int K: The number of bins/classes/quantiles.
+    :arg int J: The number of bins/classes/quantiles.
     :arg int D: The number of data dimensions.
     :arg kernel: The GP prior.
     """
@@ -403,10 +403,10 @@ def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
     # Sort the responses
     Y_true = Y_true[sort_indeces]
     X = X[sort_indeces]
-    X_k = []
-    Y_true_k = []
-    t_k = []
-    gamma = np.empty(K + 1)
+    X_j = []
+    Y_true_j = []
+    t_j = []
+    gamma = np.empty(J + 1)
     for j in range(J):
         X_j.append(X[N_per_class * j:N_per_class * (j + 1)])
         Y_true_j.append(Y_true[N_per_class * j:N_per_class * (j + 1)])
@@ -415,7 +415,7 @@ def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
         # Find the first cutpoint and set it equal to 0.0
         cutpoint_j_min = Y_true_j[j - 1][-1]
         cutpoint_j_max = Y_true_j[j][0]
-        gamma[k] = np.average([cutpoint_k_max, cutpoint_k_min])
+        gamma[j] = np.average([cutpoint_j_max, cutpoint_j_min])
     gamma[0] = -np.inf
     gamma[-1] = np.inf
     print("gamma={}".format(gamma))
@@ -444,8 +444,8 @@ def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
     print(colors_)
     plt.scatter(X[:, 0], Y_true, color=colors_)
     plt.show()
-    plot_ordinal(X, t, X_k, Y_true_j, K, D)
-    return X_k, Y_true_j, X, Y_true, t, gamma
+    plot_ordinal(X, t, X_j, Y_true_j, J, D)
+    return X_j, Y_true_j, X, Y_true, t, gamma
 
 
 def generate_synthetic_data(N_per_class, J, D, kernel, noise_variance):
@@ -455,7 +455,7 @@ def generate_synthetic_data(N_per_class, J, D, kernel, noise_variance):
     This function will generate data such that the ground truth of the first cutpoint is at zero.
 
     :arg int N_per_class: The number of data points per class.
-    :arg int K: The number of bins/classes/quantiles.
+    :arg int J: The number of bins/classes/quantiles.
     :arg int D: The number of data dimensions.
     :arg kernel: The GP prior.
     """
@@ -482,15 +482,15 @@ def generate_synthetic_data(N_per_class, J, D, kernel, noise_variance):
         Y_true = Y_true[sort_indeces]
         X = X[sort_indeces]
         X_j = []
-        Y_true_k = []
+        Y_true_j = []
         t_j = []
         for j in range(J):
             X_j.append(X[N_per_class * j:N_per_class * (j + 1)])
             Y_true_j.append(Y_true[N_per_class * j:N_per_class * (j + 1)])
             t_j.append(k * np.ones(N_per_class, dtype=int))
         # Find the first cutpoint and set it equal to 0.0
-        cutpoint_0_min = Y_true_k[0][-1]
-        cutpoint_0_max = Y_true_k[1][0]
+        cutpoint_0_min = Y_true_j[0][-1]
+        cutpoint_0_max = Y_true_j[1][0]
         print(cutpoint_0_max, cutpoint_0_min)
         cutpoint_0 = np.mean([cutpoint_0_max, cutpoint_0_min])
     Y_true = np.subtract(Y_true, cutpoint_0)
@@ -533,12 +533,12 @@ def load_data(dataset, bins):
             J = 5
             hyperparameters = {
                 "init": (  # Unstable
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     100.0,
                     10.0
                 ),
@@ -565,36 +565,36 @@ def load_data(dataset, bins):
             }
             linear_hyperperameters = {
                 "init": (
-                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf],
                     0.5 / D,
                     np.ones((10,))
                 ),
                 "init_alt": (
-                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf],
                     100.0,
                     np.ones((10,))
                 ),
             }
             polynomial_hyperparameters = {
                 "init": (  # Unstable
-                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf],
                     0.5 / D,
                     np.ones((10,))
                 ),
                 "init_alt": (
-                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf],
                     100.0,
                     np.ones((10,))
                 ),
             }
             ARD_hyperparameters = {
                 "init": (  # Unstable
-                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf],
                     0.5 / D,
                     np.ones((10,))
                 ),
                 "init_alt": (
-                    [-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf],
+                    [-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf],
                     100.0,
                     np.ones((10,))
                 ),
@@ -608,16 +608,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -636,12 +636,12 @@ def load_data(dataset, bins):
             J = 5
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (  # Trying lower varphi to find local minima there - this worked
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.0001,
                     0.15
                 ),
@@ -669,16 +669,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -687,7 +687,7 @@ def load_data(dataset, bins):
             from probit.data.auto import decile
             with pkg_resources.path(decile, 'auto.data.npz') as path:
                 data = np.load(path)
-        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf])
+        gamma_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf])
     elif dataset == "diabetes":
         D = 2
         from probit.data import diabetes
@@ -697,12 +697,12 @@ def load_data(dataset, bins):
             J = 5
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     100.0,
                     10.0
                 ),
@@ -735,16 +735,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -764,7 +764,7 @@ def load_data(dataset, bins):
             J = 5
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
@@ -792,16 +792,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -821,7 +821,7 @@ def load_data(dataset, bins):
             J = 5
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
@@ -849,16 +849,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -878,12 +878,12 @@ def load_data(dataset, bins):
             J = 5
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     100.0,
                     10.0
                 ),
@@ -921,16 +921,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -963,7 +963,7 @@ def load_data(dataset, bins):
                     0.009998200271564093,
                 ),
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
@@ -1006,16 +1006,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -1035,7 +1035,7 @@ def load_data(dataset, bins):
             J = 5
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
@@ -1068,16 +1068,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -1097,12 +1097,12 @@ def load_data(dataset, bins):
             J = 5
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
                     0.001,
                     0.02
                 ),
@@ -1125,16 +1125,16 @@ def load_data(dataset, bins):
             J = 10
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, -1.0 + 2. * 2. / K, -1.0 + 3. * 2. / K,
-                              -1.0 + 4. * 2. / K, -1.0 + 5. * 2. / K, -1.0 + 6. * 2. / K, -1.0 + 7. * 2. / K,
-                              -1.0 + 8. * 2. / K, np.inf]), 
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
+                              -1.0 + 4. * 2. / J, -1.0 + 5. * 2. / J, -1.0 + 6. * 2. / J, -1.0 + 7. * 2. / J,
+                              -1.0 + 8. * 2. / J, np.inf]), 
                     100.0,
                     10.0
                 ),
@@ -1158,7 +1158,8 @@ def load_data(dataset, bins):
     X_true = data_continuous["X"]
     Y_true = data_continuous["y"]  # this is not going to be the correct one(?) - see next line
     # Y_trues = get_Y_trues(X_trains, X_true, Y_true)
-    Kernel = SEIso
+    # Kernel = SEIso
+    Kernel = LabEQ
     scale_0 = 1.0
     gamma_0 = np.array(gamma_0)
     return (
@@ -1173,12 +1174,12 @@ def generate_synthetic_data_SEARD(N_per_class, J, D, varphi=[30.0, 20.0], noise_
     """Generate synthetic SEARD dataset."""
     # Generate the synethetic data
     kernel = SEARD(varphi, scale=scale, sigma=10e-6, tau=10e-6)
-    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+    X_j, Y_true_j, X, Y_true, t, gamma_0 = generate_prior_data(
         N_per_class, J, D, kernel, noise_variance=noise_variance)
     from probit.data import tertile
     with pkg_resources.path(tertile) as path:
         np.savez(
-            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, K), X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, J), X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
     return X_j, Y_true_j, X, Y_true, t, gamma_0
 
 
@@ -1187,13 +1188,13 @@ def generate_synthetic_data_polynomial(N_per_class, J, D, noise_variance=1.0, sc
     """Generate synthetic Polynomial dataset."""
     # Generate the synethetic data
     kernel = Polynomial(varphi=varphi, order=order, scale=scale, sigma=10e-6, tau=10e-6)
-    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
+    X_j, Y_true_j, X, Y_true, t, gamma_0 = generate_prior_data(
         N_per_class, J, D, kernel, noise_variance=noise_variance)
     from probit.data import tertile
     with pkg_resources.path(tertile) as path:
         np.savez(
-            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, K), X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
-    return X_k, Y_true_k, X, Y_true, t, gamma_0
+            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, J), X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+    return X_j, Y_true_j, X, Y_true, t, gamma_0
 
 
 def generate_synthetic_data_linear(
@@ -1201,13 +1202,13 @@ def generate_synthetic_data_linear(
         constant_variance=1.0, c=1.0, noise_variance=1.0, scale=1.0):
     """Generate synthetic dataset."""
     kernel = Linear(constant_variance=constant_variance, c=c, scale=1.0)
-    (X_k, Y_true_k, X, Y, t, gamma,
+    (X_j, Y_true_j, X, Y, t, gamma,
     X_tests, Y_tests, t_tests,
     X_trains, Y_trains, t_trains,
     K0_show, X_show, Z_show, colors) = generate_prior_data_new(
         N_per_class, N_test, splits, J, D, kernel, noise_variance=noise_variance)
     np.savez('data_linear_prior.npz',
-        X_k=X_k, Y_k=Y_true_k, X=X, Y=Y, t=t,
+        X_j=X_j, Y_j=Y_true_j, X=X, Y=Y, t=t,
         X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
         X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
         K0_show=K0_show,
@@ -1219,7 +1220,7 @@ def generate_synthetic_data_linear(
         c=c,
         gamma=gamma,
         colors=colors)
-    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains,
+    return (X_j, Y_true_j, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains,
         Y_trains, t_trains, K0_show, X_show, Z_show, colors)
 
 
@@ -1227,26 +1228,26 @@ def generate_synthetic_data(N_per_class, J, D, varphi=30.0, noise_variance=1.0, 
     """Generate synthetic dataset."""
     # Generate the synethetic data
     kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
-    X_k, Y_true_k, X, Y_true, t, gamma_0 = generate_prior_data(
-        N_per_class, K, D, kernel, noise_variance=noise_variance)
+    X_j, Y_true_j, X, Y_true, t, gamma_0 = generate_prior_data(
+        N_per_class, J, D, kernel, noise_variance=noise_variance)
     from probit.data import tertile
     # with pkg_resources.path(tertile) as path:
     #     np.savez(
-    #         path / 'data_tertile_prior_2.npz', X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
-    np.savez('data_tertile_prior_2.npz', X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t,
+    #         path / 'data_tertile_prior_2.npz', X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, gamma_0=gamma_0)
+    np.savez('data_tertile_prior_2.npz', X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t,
         gamma=gamma_0, varphi=varphi, scale=scale, noise_variance=noise_variance)
-    return X_k, Y_true_k, X, Y_true, t, gamma_0
+    return X_j, Y_true_j, X, Y_true, t, gamma_0
 
 
-def generate_synthetic_data_new(N_per_class, N_test, splits, K, D, varphi=30.0, noise_variance=1.0, scale=1.0):
+def generate_synthetic_data_new(N_per_class, N_test, splits, J, D, varphi=30.0, noise_variance=1.0, scale=1.0):
     """Generate synthetic dataset."""
     kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
-    (X_k, Y_true_k, X, Y, t, gamma,
+    (X_j, Y_true_j, X, Y, t, gamma,
     X_tests, Y_tests, t_tests,
     X_trains, Y_trains, t_trains,
     K0_show, X_show, Z_show, colors) = generate_prior_data_new(
-        N_per_class, N_test, splits, K, D, kernel, noise_variance=noise_variance)
-    np.savez('data_thirteen_prior_new.npz', X_k=X_k, Y_k=Y_true_k, X=X, Y=Y, t=t,
+        N_per_class, N_test, splits, J, D, kernel, noise_variance=noise_variance)
+    np.savez('data_thirteen_prior_new.npz', X_j=X_j, Y_j=Y_true_j, X=X, Y=Y, t=t,
         X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
         X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
         K0_show=K0_show,
@@ -1257,7 +1258,7 @@ def generate_synthetic_data_new(N_per_class, N_test, splits, K, D, varphi=30.0, 
         varphi=varphi,
         gamma=gamma,
         colors=colors)
-    return (X_k, Y_true_k, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, K0_show,
+    return (X_j, Y_true_j, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, K0_show,
         X_show, Z_show, colors)
 
 
@@ -1278,15 +1279,15 @@ def load_data_synthetic(dataset, bins, plot=False):
                 data = np.load(path)
             # X_show = data["X_show"]
             # Z_show = data["Z_show"]
-            X_k = data["X_k"]  # Contains (90, 3) array of binned x values
-            Y_true_k = data["Y_k"]  # Contains (90, 3) array of binned y values
+            X_j = data["X_j"]  # Contains (90, 3) array of binned x values
+            Y_true_j = data["Y_j"]  # Contains (90, 3) array of binned y values
             X = data["X"]  # Contains (90,) array of x values
             t = data["t"]  # Contains (90,) array of ordinal response variables, corresponding to Xs values
             Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
             X_true = X
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0,
                     1.0,
@@ -1298,7 +1299,7 @@ def load_data_synthetic(dataset, bins, plot=False):
                     data["scale"],
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, np.inf]),
                     100.0,
                     10.0,
                     1.0
@@ -1317,8 +1318,8 @@ def load_data_synthetic(dataset, bins, plot=False):
                 data = np.load(path)
             X_show = data["X_show"]
             Z_show = data["Z_show"]
-            X_k = data["X_k"]  # Contains (13, 45) array of binned x values
-            Y_true_k = data["Y_k"]  # Contains (13, 45) array of binned y values
+            X_j = data["X_k"]  # Contains (13, 45) array of binned x values. Note, old variable name of 'k'.
+            Y_true_j = data["Y_k"]  # Contains (13, 45) array of binned y values
             X = data["X"]  # Contains (585,) array of x values
             t = data["t"]  # Contains (585,) array of ordinal response variables, corresponding to Xs values
             Y_true = data["Y"]  # Contains (585,) array of y values, corresponding to Xs values (not in order)
@@ -1326,7 +1327,7 @@ def load_data_synthetic(dataset, bins, plot=False):
             X_true = X
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0,
                     1.0,
@@ -1338,7 +1339,7 @@ def load_data_synthetic(dataset, bins, plot=False):
                     data["scale"],
                 ),
                 "init_alt": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, np.inf]),
                     100.0,
                     10.0,
                     1.0
@@ -1357,8 +1358,8 @@ def load_data_synthetic(dataset, bins, plot=False):
                 data = np.load(path)
             X_show = data["X_show"]
             Z_show = data["Z_show"]
-            X_k = data["X_k"] 
-            Y_true_k = data["Y_k"]
+            X_j = data["X_j"] 
+            Y_true_j = data["Y_j"]
             X = data["X"]
             t = data["t"]
             Y_true = data["Y"]
@@ -1366,7 +1367,7 @@ def load_data_synthetic(dataset, bins, plot=False):
             X_true = X
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0,
                     1.0,
@@ -1388,8 +1389,8 @@ def load_data_synthetic(dataset, bins, plot=False):
                 data = np.load(path)
             X_show = data["X_show"]
             Z_show = data["Z_show"]
-            X_k = data["X_k"]
-            Y_true_k = data["Y_k"]
+            X_j = data["X_j"]
+            Y_true_j = data["Y_j"]
             X = data["X"]
             t = data["t"]
             Y_true = data["Y"]
@@ -1397,7 +1398,7 @@ def load_data_synthetic(dataset, bins, plot=False):
             X_true = X
             hyperparameters = {
                 "init": (
-                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / K, np.inf]),
+                    np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, np.inf]),
                     0.5 / D,
                     1.0,
                     1.0,
@@ -1415,12 +1416,12 @@ def load_data_synthetic(dataset, bins, plot=False):
                 "true"]
     gamma_0 = np.array(gamma_0)
     if plot:
-        plot_ordinal(X, t, X_k, Y_true_k, K, D)
+        plot_ordinal(X, t, X_j, Y_true_j, J, D)
     return (
         X, t,
         X_true, Y_true,
         gamma_0, varphi_0, noise_variance_0, scale_0,
-        K, D, colors, Kernel)
+        J, D, colors, Kernel)
 
 
 def plot_s(kernel, N_total=500, n_samples=10):
@@ -1434,27 +1435,27 @@ def plot_s(kernel, N_total=500, n_samples=10):
     plt.show()
 
 
-def plot_ordinal(X, t, X_k, Y_k, K, D, colors=colors):
+def plot_ordinal(X, t, X_j, Y_j, J, D, colors=colors):
     N_total = len(t)
     colors_ = [colors[i] for i in t]
     fig, ax = plt.subplots()
     plt.scatter(X[:, 0], t, color=colors_)
-    plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+    plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
     plt.xlabel(r"$x$", fontsize=16)
     ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
     plt.ylabel(r"$t$", fontsize=16)
     plt.show()
-    plt.savefig("N_total={}, K={}, D={} Ordinal response data.png".format(N_total, K, D))
+    plt.savefig("N_total={}, J={}, D={} Ordinal response data.png".format(N_total, J, D))
     plt.close()
     # Plot from the binned arrays
-    for k in range(K):
-        plt.scatter(X_k[k][:, 0], Y_k[k], color=colors[k], label=r"$t={}$".format(k))
-    plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+    for k in range(J):
+        plt.scatter(X_j[j][:, 0], Y_j[j], color=colors[j], label=r"$t={}$".format(k))
+    plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
     plt.legend()
     plt.xlabel(r"$x$", fontsize=16)
     plt.ylabel(r"$y$", fontsize=16)
     plt.show()
-    plt.savefig("N_total={}, K={}, D={} Ordinal response data_.png".format(N_total, K, D))
+    plt.savefig("N_total={}, J={}, D={} Ordinal response data_.png".format(N_total, J, D))
     plt.close()
 
 def calculate_metrics(y_test, t_test, Z, gamma):
@@ -1462,7 +1463,7 @@ def calculate_metrics(y_test, t_test, Z, gamma):
     t_star = np.argmax(Z, axis=1)
     print(t_star)
     print(t_test)
-    grid = np.ogrid[0:len(y_test)]
+    grid = np.ogrid[0:len(t_test)]
     # Other error
     predictive_likelihood = Z[grid, t_test]
     mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
@@ -1511,13 +1512,13 @@ class MinimizeStopper(object):
 
 if __name__ == "__main__":
     # generate_synthetic_data_new(
-    #     N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
+    #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
     # generate_synthetic_data_linear(
-    #     N_per_class=45, N_test=15*13, splits=20, K=13, D=1, varphi=1.0, noise_variance=1.0, scale=1.0)
+    #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=1.0, noise_variance=1.0, scale=1.0)
     # generate_prior_samples(
     #     kernel=Linear(constant_variance=0.1, c=1.0, scale=1.0), noise_variance=0.01, N_samples=9, N_show=2000, plot=True)
     generate_synthetic_data_linear(
-        N_per_class=45, N_test=15*3, splits=20, K=3, D=1,
+        N_per_class=45, N_test=15*3, splits=20, J=3, D=1,
         constant_variance=0.1, c=1.0, noise_variance=0.01, scale=1.0)
     # generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
     # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)

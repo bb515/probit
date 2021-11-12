@@ -53,7 +53,7 @@ def main():
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, Kernel) = load_data(
             dataset, bins)
-        steps = 1000
+        steps = 500
         # # Initiate classifier
         # outer_loops(
         #     test, VBOrdinalGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
@@ -63,15 +63,15 @@ def main():
         # Initiate classifier
         classifier = VBOrdinalGP(
             gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
-        classifier = train(classifier, method)
-        test(
-            classifier, X_tests[2], t_tests[2],
-            steps)
+        test(classifier, X_tests[2], t_tests[2], y_tests[2], steps)
     elif dataset in datasets["synthetic"]:
         (X, t,
         X_true, Y_true,
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+
+        print(len(t))
+        assert 0
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate classifier

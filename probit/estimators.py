@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import random
-from scipy.linalg.lapack import dtrtri  # Cholesky, TODO
 from tqdm import trange
 import warnings
 import math
@@ -823,6 +822,8 @@ class VBOrdinalGP(Estimator):
                     for i in range(self.J)):
                 raise CutpointValueError(gamma)
             self.gamma = gamma
+            self.gamma_ts = gamma[self.t_train]
+            self.gamma_tplus1s = gamma[self.t_train + 1]
         if varphi is not None or scale is not None:
             self.kernel.update_hyperparameter(
                 varphi=varphi, scale=scale)
