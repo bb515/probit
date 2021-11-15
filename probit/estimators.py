@@ -729,11 +729,9 @@ class VBOrdinalGP(Estimator):
         # partial derivative matrix?
         L_covT_inv = solve_triangular(
             self.L_cov.T, np.eye(self.N), lower=True)
-        cov_inv = solve_triangular(self.L_cov, L_covT_inv, lower=False)
-        self.trace_cov = np.sum(np.diag(cov_inv))
-        # self.trace_cov = np.sum(
-        #     solve_triangular(self.L_cov, L_covT_inv, lower=False))
-        self.trace_Sigma_div_var = np.einsum('ij, ij -> ', self.K, cov_inv)
+        self.cov = solve_triangular(self.L_cov, L_covT_inv, lower=False)
+        self.trace_cov = np.sum(np.diag(self.cov))
+        self.trace_Sigma_div_var = np.einsum('ij, ij -> ', self.K, self.cov)
 
     def _update_posteriorSS(self):
         """Update posterior covariances."""
@@ -927,7 +925,11 @@ class VBOrdinalGP(Estimator):
                 m_tilde, self.gamma, self.noise_std, numerically_stable=True)
             y_tilde = self._y_tilde(
                 p, m_tilde, self.gamma, self.noise_std)
+            time0 = time.time()
+            nu = self.cov @ y_tilde
+            time1 = time.time()
             nu = cho_solve((self.L_cov, self.lower), y_tilde)
+            time2 = time.time()
             # Use solve from chol (not matrix multiply) every step
             # TODO: Try to be consistent with the parametrisation of nu
             # as in the Opper VB GP paper
@@ -982,58 +984,6 @@ class VBOrdinalGP(Estimator):
         return m_tilde, dm_tilde, nu, y_tilde, p, containers
 
     def _predict_vector(
-            self, gamma, L_cov, y_tilde, noise_variance, X_test):
-        """
-        Make variational Bayes prediction over classes of X_test given the
-        posterior samples.
-
-        :arg gamma:
-        :arg cov:
-        :arg y_tilde:
-        :arg varphi_tilde:
-        :arg noise_variance:
-        :arg X_test:
-
-        :return: The class probabilities.
-        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-        """
-        N_test = np.shape(X_test)[0]
-        # C_news[:, i] is C_new for X_test[i]
-        C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-        c_news = self.kernel.kernel_prior_diagonal(X_test)  # (N_test,)
-        # SS TODO: this was a bottleneck
-        # c_news = np.diag(self.kernel.kernel_matrix(X_test, X_test)) # (N_test,)
-        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = solve_triangular(
-            L_cov.T, C_news, lower=True)
-        intermediate_vectors = solve_triangular(
-            L_cov, intermediate_vectors, lower=False)
-        # # SS
-        # intermediate_vectors = cov @ C_news  # (N, N_test)
-        intermediate_scalars = np.sum(
-            np.multiply(C_news, intermediate_vectors), axis=0)  # (N_test,)
-        # Calculate m_tilde_new # TODO: test this.
-        posterior_predictive_m = np.einsum(
-            'ij, i -> j', intermediate_vectors, y_tilde)  # (N_test,)
-        # plt.scatter(self.X_train, y_tilde)
-        # plt.plot(X_test, posterior_predictive_m)
-        # plt.hlines(gamma[[1, 2]], -0.5, 1.5)
-        # plt.show()
-        posterior_var = c_news - intermediate_scalars
-        posterior_std = np.sqrt(posterior_var)
-        posterior_predictive_var = posterior_var + noise_variance  # (N_test,)
-        posterior_predictive_std = np.sqrt(posterior_predictive_var)
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            Z1 = np.divide(np.subtract(
-                gamma[j + 1], posterior_predictive_m), posterior_predictive_std)
-            Z2 = np.divide(np.subtract(
-                gamma[j], posterior_predictive_m), posterior_predictive_std)
-            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
-        return predictive_distributions, posterior_predictive_m, posterior_std
-
-
-    def _predict_vectorSS(
             self, gamma, cov, y_tilde, noise_variance, X_test):
         """
         Make variational Bayes prediction over classes of X_test given the
@@ -1082,7 +1032,7 @@ class VBOrdinalGP(Estimator):
         return predictive_distributions, posterior_predictive_m, posterior_std
 
     def predict(
-        self, gamma, L_cov, y_tilde, noise_variance,
+        self, gamma, cov, y_tilde, noise_variance,
         X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
@@ -1110,7 +1060,7 @@ class VBOrdinalGP(Estimator):
         else:
             if vectorised:
                 return self._predict_vector(
-                    gamma, L_cov, y_tilde, noise_variance, X_test)
+                    gamma, cov, y_tilde, noise_variance, X_test)
             else:
                 return ValueError(
                     "The scalar implementation has been superseded. Please use"
@@ -1334,7 +1284,6 @@ class VBOrdinalGP(Estimator):
             noise_variance,
             log_det_K, log_det_cov, numerical_stability=True, verbose=False):
         """
-        #TODO: Need to replace cov_inv with L_cov. and just do a back substitution here.
         Calculate fx, the variational lower bound of the log marginal
         likelihood.
 
@@ -1560,13 +1509,13 @@ class VBOrdinalGP(Estimator):
                     # Update gx[-1], the partial derivative of the lower bound
                     # wrt the lengthscale. Using matrix inversion Lemma
                     one = (varphi / 2) * nu.T @ partial_K_varphi @ nu
-                    D = solve_triangular(
-                        L_cov.T, partial_K_varphi, lower=True)
-                    D_inv = solve_triangular(L_cov, D, lower=False)
-                    two = - (varphi / 2) * np.trace(D_inv)
                     # # SS
-                    # two_2 = - (varphi / 2) * np.einsum(
-                    #     'ij, ji ->', partial_K_varphi, self.cov_inv) # DAMMIT but its okay we have found this inverse.
+                    # D = solve_triangular(
+                    #     L_cov.T, partial_K_varphi, lower=True)
+                    # D_inv = solve_triangular(L_cov, D, lower=False)
+                    # two = - (varphi / 2) * np.trace(D_inv)
+                    two = - (varphi / 2) * np.einsum(
+                        'ij, ji ->', partial_K_varphi, self.cov)
                     gx[self.J + 1] = one + two
                     if verbose:
                         print("one", one)
