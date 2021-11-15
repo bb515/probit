@@ -265,7 +265,7 @@ def test(
     m_0 = None
     while error / steps > classifier.EPS:
         iteration += 1
-        (m_0, dm_0, y, p, *_) = classifier.estimate(
+        (m_0, dm_0, nu, y, p, *_) = classifier.estimate(
             steps, m_tilde_0=m_0, first_step=1, write=False)
         (calligraphic_Z,
         norm_pdf_z1s,
@@ -275,9 +275,9 @@ def test(
         *_ )= classifier._calligraphic_Z(
             classifier.gamma, classifier.noise_std, m_0)
         fx = classifier.objective(
-            classifier.N, m_0, y,
-            classifier.Sigma_div_var,
-            classifier.cov,
+            classifier.N, m_0, nu,
+            classifier.trace_cov,
+            classifier.trace_Sigma_div_var,
             classifier.K,
             calligraphic_Z, classifier.noise_variance,
             classifier.log_det_K,
@@ -289,7 +289,7 @@ def test(
     # Test
     (Z, posterior_predictive_m,
     posterior_std) = classifier.predict(
-        classifier.gamma, classifier.cov,
+        classifier.gamma, classifier.L_cov,
         y, classifier.noise_variance, X_test)  # (N_test, J)
     # # TODO: Placeholder
     # fx = 0.0 
@@ -306,7 +306,7 @@ def test(
         X_new_ = np.zeros((N * N, classifier.D))
         X_new_[:, :2] = X_new
         Z, posterior_predictive_m, posterior_std = classifier.predict(
-            classifier.gamma, classifier.cov, y,
+            classifier.gamma, classifier.L_cov, y,
             classifier.kernel.varphi, classifier.noise_variance, X_new_)
         Z_new = Z.reshape((N, N, classifier.J))
         print(np.sum(Z, axis=1), 'sum')

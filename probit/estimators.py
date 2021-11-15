@@ -8,6 +8,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm, multivariate_normal
+from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from .utilities import (
     sample_varphis, unnormalised_log_multivariate_normal_pdf,
     vectorised_unnormalised_log_multivariate_normal_pdf,
@@ -712,6 +713,30 @@ class VBOrdinalGP(Estimator):
 
     def _update_posterior(self):
         """Update posterior covariances."""
+        # Is this really the best cholesky to take. What are the eigenvalues?
+        # are they bounded?
+        (self.L_cov, self.lower) = cho_factor(
+            self.noise_variance * np.eye(self.N) + self.K)
+        # Unfortunately there is no getting round taking this cho_factor,
+        # as far as I know
+        (L_K, lower) = cho_factor(self.K + self.jitter * np.eye(self.N))
+        self.log_det_K = 2 * np.sum(np.log(np.diag(L_K)))
+        self.log_det_cov = -2 * np.sum(np.log(np.diag(self.L_cov)))
+        # Maybe it is best not to store this. But it saves solving
+        # for the gradient and the fx. Maybe have it as part of a separate
+        # function?
+        # Wait but can't this be calculated with a solve triangular with the
+        # partial derivative matrix?
+        L_covT_inv = solve_triangular(
+            self.L_cov.T, np.eye(self.N), lower=True)
+        cov_inv = solve_triangular(self.L_cov, L_covT_inv, lower=False)
+        self.trace_cov = np.sum(np.diag(cov_inv))
+        # self.trace_cov = np.sum(
+        #     solve_triangular(self.L_cov, L_covT_inv, lower=False))
+        self.trace_Sigma_div_var = np.einsum('ij, ij -> ', self.K, cov_inv)
+
+    def _update_posteriorSS(self):
+        """Update posterior covariances."""
         # (cov to avoid matrix multiplication at prediction)
         L_cov = np.linalg.cholesky(
             self.noise_variance * np.eye(self.N) + self.K)
@@ -902,8 +927,14 @@ class VBOrdinalGP(Estimator):
                 m_tilde, self.gamma, self.noise_std, numerically_stable=True)
             y_tilde = self._y_tilde(
                 p, m_tilde, self.gamma, self.noise_std)
-            m_tilde = self._m_tilde(
-                y_tilde, self.Sigma_div_var)
+            nu = cho_solve((self.L_cov, self.lower), y_tilde)
+            # Use solve from chol (not matrix multiply) every step
+            # TODO: Try to be consistent with the parametrisation of nu
+            # as in the Opper VB GP paper
+            m_tilde = self.K @ nu
+            # # SS
+            # m_tilde = self._m_tilde(
+            #     y_tilde, self.Sigma_div_var)
             if plot:
                 plt.scatter(self.X_train, y_tilde, label="y_tilde")
                 plt.scatter(self.X_train, m_tilde, label="m_tilde")
@@ -932,9 +963,15 @@ class VBOrdinalGP(Estimator):
                 calligraphic_Z, *_ = self._calligraphic_Z(
                     self.gamma, self.noise_std, m_tilde)
                 fx = self.objective(
-                    self.N, m_tilde, y_tilde, self.Sigma_div_var, self.cov,
-                    self.K, calligraphic_Z, self.noise_variance,
-                    self.log_det_K, self.log_det_cov)
+                    self.N, m_tilde, nu, self.trace_cov,
+                    self.trace_Sigma_div_var, self.L_cov, self.lower, self.K,
+                    calligraphic_Z, self.noise_variance, self.log_det_K,
+                    self.log_det_cov)
+                # # SS
+                # fx = self.objective(
+                #     self.N, m_tilde, y_tilde, self.Sigma_div_var, self.cov,
+                #     self.K, calligraphic_Z, self.noise_variance,
+                #     self.log_det_K, self.log_det_cov)
                 ms.append(m_tilde)
                 ys.append(y_tilde)
                 if self.psi is not None:
@@ -942,10 +979,10 @@ class VBOrdinalGP(Estimator):
                     psis.append(self.kernel.psi)
                 fxs.append(fx)
         containers = (ms, ys, varphis, psis, fxs)
-        return m_tilde, dm_tilde, y_tilde, p, containers
+        return m_tilde, dm_tilde, nu, y_tilde, p, containers
 
     def _predict_vector(
-            self, gamma, cov, y_tilde, noise_variance, X_test):
+            self, gamma, L_cov, y_tilde, noise_variance, X_test):
         """
         Make variational Bayes prediction over classes of X_test given the
         posterior samples.
@@ -967,7 +1004,12 @@ class VBOrdinalGP(Estimator):
         # SS TODO: this was a bottleneck
         # c_news = np.diag(self.kernel.kernel_matrix(X_test, X_test)) # (N_test,)
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = cov @ C_news  # (N, N_test)
+        intermediate_vectors = solve_triangular(
+            L_cov.T, C_news, lower=True)
+        intermediate_vectors = solve_triangular(
+            L_cov, intermediate_vectors, lower=False)
+        # # SS
+        # intermediate_vectors = cov @ C_news  # (N, N_test)
         intermediate_scalars = np.sum(
             np.multiply(C_news, intermediate_vectors), axis=0)  # (N_test,)
         # Calculate m_tilde_new # TODO: test this.
@@ -990,8 +1032,57 @@ class VBOrdinalGP(Estimator):
             predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
         return predictive_distributions, posterior_predictive_m, posterior_std
 
+
+    def _predict_vectorSS(
+            self, gamma, cov, y_tilde, noise_variance, X_test):
+        """
+        Make variational Bayes prediction over classes of X_test given the
+        posterior samples.
+
+        :arg gamma:
+        :arg cov:
+        :arg y_tilde:
+        :arg varphi_tilde:
+        :arg noise_variance:
+        :arg X_test:
+
+        :return: The class probabilities.
+        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
+        """
+        N_test = np.shape(X_test)[0]
+        # C_news[:, i] is C_new for X_test[i]
+        C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
+        c_news = self.kernel.kernel_prior_diagonal(X_test)  # (N_test,)
+        # SS TODO: this was a bottleneck
+        # c_news = np.diag(self.kernel.kernel_matrix(X_test, X_test)) # (N_test,)
+        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
+        # SS
+        intermediate_vectors = cov @ C_news  # (N, N_test)
+        intermediate_scalars = np.sum(
+            np.multiply(C_news, intermediate_vectors), axis=0)  # (N_test,)
+        # Calculate m_tilde_new # TODO: test this.
+        # Could This just be a cov @ y_tilde @ C_news then a sum?
+        posterior_predictive_m = np.einsum(
+            'ij, i -> j', intermediate_vectors, y_tilde)  # (N_test,)
+        # plt.scatter(self.X_train, y_tilde)
+        # plt.plot(X_test, posterior_predictive_m)
+        # plt.hlines(gamma[[1, 2]], -0.5, 1.5)
+        # plt.show()
+        posterior_var = c_news - intermediate_scalars
+        posterior_std = np.sqrt(posterior_var)
+        posterior_predictive_var = posterior_var + noise_variance  # (N_test,)
+        posterior_predictive_std = np.sqrt(posterior_predictive_var)
+        predictive_distributions = np.empty((N_test, self.J))
+        for j in range(self.J):
+            Z1 = np.divide(np.subtract(
+                gamma[j + 1], posterior_predictive_m), posterior_predictive_std)
+            Z2 = np.divide(np.subtract(
+                gamma[j], posterior_predictive_m), posterior_predictive_std)
+            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
+        return predictive_distributions, posterior_predictive_m, posterior_std
+
     def predict(
-        self, gamma, cov, y_tilde, noise_variance,
+        self, gamma, L_cov, y_tilde, noise_variance,
         X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
@@ -1019,7 +1110,7 @@ class VBOrdinalGP(Estimator):
         else:
             if vectorised:
                 return self._predict_vector(
-                    gamma, cov, y_tilde, noise_variance, X_test)
+                    gamma, L_cov, y_tilde, noise_variance, X_test)
             else:
                 return ValueError(
                     "The scalar implementation has been superseded. Please use"
@@ -1239,6 +1330,62 @@ class VBOrdinalGP(Estimator):
         return z * np.exp(-self._g(z))
 
     def objective(
+            self, N, m, nu, trace_cov, trace_Sigma_div_var, K, calligraphic_Z,
+            noise_variance,
+            log_det_K, log_det_cov, numerical_stability=True, verbose=False):
+        """
+        #TODO: Need to replace cov_inv with L_cov. and just do a back substitution here.
+        Calculate fx, the variational lower bound of the log marginal
+        likelihood.
+
+        .. math::
+                \mathcal{F(\Phi)} =,
+
+            where :math:`F(\Phi)` is the variational lower bound of the log
+                marginal likelihood at the EP equilibrium,
+            :math:`h`, :math:`\Pi`, :math:`K`. #TODO
+
+        :arg int N: The number of datapoints.
+        :arg m: The posterior mean.
+        :type m: :class:`numpy.ndarray`
+        :arg y: The posterior mean.
+        :type y: :class:`numpy.ndarray`
+        :arg K: The prior covariance.
+        :type K: :class:`numpy.ndarray`
+        :arg float noise_variance: The noise variance.
+        :arg float log_det_K: The log determinant of the prior covariance.
+        :arg float log_det_cov: The log determinant of (a factor in) the
+            posterior covariance.
+        :arg calligraphic_Z: The array of normalising constants.
+        :type calligraphic_Z: :class:`numpy.ndarray`
+        :arg bool numerical_stability: If the function is evaluated in a
+            numerically stable way, default `True`. `False`
+            is NOT recommended as often np.linalg.det(C) returns a value 0.0.
+        :return: fx
+        :rtype: float
+        """
+        trace_K_inv_Sigma = noise_variance * trace_cov
+        log_det_Sigma = log_det_K + N * np.log(noise_variance) + log_det_cov 
+        one = - trace_Sigma_div_var / 2
+        two = - log_det_K / 2
+        three = - trace_K_inv_Sigma / 2
+        four = - m.T @ nu / 2
+        five = log_det_Sigma / 2
+        six = N / 2
+        seven = np.sum(calligraphic_Z)
+        fx = one + two + three + four + five + six  + seven
+        if verbose:
+            print("one ", one)
+            print("two ", two)
+            print("three ", three)
+            print("four ", four)  # Sometimes largest contribution
+            print("five ", five)
+            print("six ", six)
+            print("seven ", seven)
+            print('fx = {}'.format(fx))
+        return -fx
+
+    def objectiveSS(
             self, N, m, y, Sigma_div_var, cov, K, calligraphic_Z,
             noise_variance, log_det_K, log_det_cov,
             numerical_stability=True, verbose=False):
@@ -1282,6 +1429,7 @@ class VBOrdinalGP(Estimator):
         one = - trace_Sigma_div_var / 2
         two = - log_det_K / 2
         three = - trace_K_inv_Sigma / 2
+        four = cho_solve(())
         four = - y.T @ Sigma_div_var @ cov @ y * (1. / 2)
         five = log_det_Sigma / 2
         six = N / 2
@@ -1332,6 +1480,101 @@ class VBOrdinalGP(Estimator):
         return -fx
 
     def objective_gradient(
+            self, gx, intervals, gamma, varphi, noise_variance, noise_std,
+            m, nu, L_cov, lower, trace_cov, partial_K_varphi, N,
+            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, indices,
+            numerical_stability=True, verbose=False):
+        """
+        Calculate gx, the jacobian of the variational lower bound of the log
+        marginal likelihood at the VB equilibrium,
+
+        .. math::
+                \mathcal{\frac{\partial F(\Phi)}{\partial \Phi}}
+
+            where :math:`F(\Phi)` is the variational lower bound of the log
+            marginal likelihood at the EP equilibrium,
+            :math:`\Phi` is the set of hyperparameters, :math:`h`,
+            :math:`\Pi`, :math:`K`. #TODO
+
+        :arg intervals: The vector of the first cutpoint and the intervals
+            between cutpoints for unconstrained optimisation of the cutpoint
+            parameters.
+        :type intervals: :class:`numpy.ndarray`
+        :arg varphi: The lengthscale parameters.
+        :type varphi: :class:`numpy.ndarray` or float
+        :arg float noise_variance:
+        :arg float noise_std:
+        :arg m: The posterior mean.
+        :type m: :class:`numpy.ndarray`
+        :arg cov: An intermediate matrix in calculating the posterior
+            covariance, Sigma.
+        :type cov: :class:`numpy.ndarray`
+        :arg Sigma: The posterior covariance.
+        :type Sigma: :class:`numpy.ndarray`
+        :arg K_inv: The inverse of the prior covariance.
+        :type K_inv: :class:`numpy.ndarray`
+        :arg calligraphic_Z: The array of normalising constants.
+        :type calligraphic_Z: :class:`numpy.ndarray`
+        :arg bool numerical_stability: If the function is evaluated in a
+            numerically stable way, default `True`.
+        :return: fx
+        :rtype: float
+        """
+        # For gx[0] -- ln\sigma  # TODO: currently seems analytically incorrect
+        if indices[0]:
+            one = N - noise_variance * trace_cov
+            sigma_dp = self._dp(m, gamma, noise_std,
+                self.upper_bound, self.upper_bound2)
+            two = - (1. / noise_std) * np.sum(sigma_dp)
+            if verbose:
+                print("one ", one)
+                print("two ", two)
+                print("gx_sigma = ", one + two)
+            gx[0] = one + two
+        # For gx[1] -- \b_1
+        if indices[1]:
+            # TODO: treat these with numerical stability, or fix them
+            intermediate_vector_1s = np.divide(norm_pdf_z1s, calligraphic_Z)
+            intermediate_vector_2s = np.divide(norm_pdf_z2s, calligraphic_Z)
+            indices = np.where(self.t_train == 0)
+            gx[1] += np.sum(intermediate_vector_1s[indices])
+            for j in range(2, self.J):
+                indices = np.where(self.t_train == j - 1)
+                gx[j - 1] -= np.sum(intermediate_vector_2s[indices])
+                gx[j] += np.sum(intermediate_vector_1s[indices])
+            # gx[self.J] -= 0  # Since J is number of classes
+            gx[1:self.J] /= noise_std
+            # For gx[2:self.J] -- ln\Delta^r
+            gx[2:self.J] *= intervals
+            if verbose:
+                print(gx[2:self.J])
+        # For gx[self.J] -- s
+        if indices[self.J]:
+            raise ValueError("TODO")
+        # For kernel parameters
+        if indices[self.J + 1]:
+            if self.kernel._general and self.kernel._ARD:
+                raise ValueError("TODO")
+            else:
+                if numerical_stability is True:
+                    # Update gx[-1], the partial derivative of the lower bound
+                    # wrt the lengthscale. Using matrix inversion Lemma
+                    one = (varphi / 2) * nu.T @ partial_K_varphi @ nu
+                    D = solve_triangular(
+                        L_cov.T, partial_K_varphi, lower=True)
+                    D_inv = solve_triangular(L_cov, D, lower=False)
+                    two = - (varphi / 2) * np.trace(D_inv)
+                    # # SS
+                    # two_2 = - (varphi / 2) * np.einsum(
+                    #     'ij, ji ->', partial_K_varphi, self.cov_inv) # DAMMIT but its okay we have found this inverse.
+                    gx[self.J + 1] = one + two
+                    if verbose:
+                        print("one", one)
+                        print("two", two)
+                        print("gx = {}".format(gx[self.J + 1]))
+        return -gx
+
+    def objective_gradientSS(
             self, gx, intervals, gamma, varphi, noise_variance, noise_std,
             m, y, cov, partial_K_varphi, N,
             calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, indices,
@@ -1465,7 +1708,7 @@ class VBOrdinalGP(Estimator):
             # Convergence is sometimes very fast so this may not be necessary
             while error / steps > self.EPS:
                 iteration += 1
-                (m_0, dm_0, y, p, *_) = self.estimate(
+                (m_0, dm_0, nu, y, p, *_) = self.estimate(
                     steps, m_tilde_0=m_0,
                     first_step=1, write=False)
                 (calligraphic_Z,
@@ -1476,9 +1719,14 @@ class VBOrdinalGP(Estimator):
                 *_ )= self._calligraphic_Z(
                     self.gamma, self.noise_std, m_0)
                 fx = self.objective(
-                    self.N, m_0, y, self.Sigma_div_var, self.cov, self.K,
-                    calligraphic_Z, self.noise_variance, self.log_det_K,
-                    self.log_det_cov)
+                    self.N, m_0, nu, self.trace_cov, self.trace_Sigma_div_var,
+                    self.K, calligraphic_Z,
+                    self.noise_variance, self.log_det_K, self.log_det_cov)
+                # # SS
+                # fx = self.objective(
+                #     self.N, m_0, y, self.Sigma_div_var, self.cov, self.K,
+                #     calligraphic_Z, self.noise_variance, self.log_det_K,
+                #     self.log_det_cov)
                 error = np.abs(fx_old - fx)  # TODO: redundant?
                 fx_old = fx
                 if 1:
@@ -1486,10 +1734,18 @@ class VBOrdinalGP(Estimator):
             print("{}/{}".format(i + 1, len(Phi_new)))
             gx = self.objective_gradient(
                 gx_0.copy(), intervals, self.gamma, self.kernel.varphi,
-                self.noise_variance, self.noise_std, m_0, y, self.cov,
-                self.partial_K_varphi,
-                self.N, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, indices,
+                self.noise_variance, self.noise_std, m_0, nu,
+                self.L_cov, self.lower, self.trace_cov,
+                self.partial_K_varphi, self.N, calligraphic_Z,
+                norm_pdf_z1s, norm_pdf_z2s, indices,
                 numerical_stability=True, verbose=False)
+            # # SS
+            # gx = self.objective_gradient(
+            #     gx_0.copy(), intervals, self.gamma, self.kernel.varphi,
+            #     self.noise_variance, self.noise_std, m_0, y, self.cov,
+            #     self.partial_K_varphi,
+            #     self.N, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, indices,
+            #     numerical_stability=True, verbose=False)
             fxs[i] = fx
             gxs[i] = gx[indices_where]
             if verbose:
@@ -1620,7 +1876,7 @@ class VBOrdinalGP(Estimator):
         # Convergence is sometimes very fast so this may not be necessary
         while error / steps > self.EPS:
             iteration += 1
-            (m_0, dm_0, y, p, *_) = self.estimate(
+            (m_0, dm_0, nu, y, p, *_) = self.estimate(
                 steps, m_tilde_0=m_0,
                 first_step=first_step, fix_hyperparameters=True, write=write)
             (calligraphic_Z,
@@ -1628,23 +1884,35 @@ class VBOrdinalGP(Estimator):
             norm_pdf_z2s,
             z1s,
             z2s,
-            *_ )= self._calligraphic_Z(
-                self.gamma, self.noise_std, m_0)
+            *_ )= self._calligraphic_Z(self.gamma, self.noise_std, m_0)
             fx = self.objective(
-                self.N, m_0, y, self.Sigma_div_var, self.cov, self.K,
-                calligraphic_Z, noise_variance, self.log_det_K,
-                self.log_det_cov)
+                self.N, m_0, nu, self.trace_cov, self.trace_Sigma_div_var,
+                self.K, calligraphic_Z,
+                self.noise_variance, self.log_det_K, self.log_det_cov)
+            # # SS
+            # fx = self.objective(
+            #     self.N, m_0, y, self.Sigma_div_var, self.cov, self.K,
+            #     calligraphic_Z, noise_variance, self.log_det_K,
+            #     self.log_det_cov)  # TODO should it not be self.noise_variance
             error = np.abs(fx_old - fx)  # TODO: redundant?
             fx_old = fx
             if 1:
                 print("({}), error={}".format(iteration, error))
         gx = self.objective_gradient(
-                gx, intervals, self.gamma, self.kernel.varphi,
-                self.noise_variance, self.noise_std, m_0, y, self.cov,
-                self.partial_K_varphi, self.N, calligraphic_Z,
-                norm_pdf_z1s, norm_pdf_z2s, indices,
-                numerical_stability=True, verbose=True
-            )
+            gx.copy(), intervals, self.gamma, self.kernel.varphi,
+            self.noise_variance, self.noise_std,
+            m_0, nu, self.L_cov, self.lower, self.trace_cov,
+            self.partial_K_varphi, self.N, calligraphic_Z,
+            norm_pdf_z1s, norm_pdf_z2s, indices,
+            numerical_stability=True, verbose=True)
+        # # SS
+        # gx = self.objective_gradient(
+        #         gx.copy(), intervals, self.gamma, self.kernel.varphi,
+        #         self.noise_variance, self.noise_std, m_0, y, self.cov,
+        #         self.partial_K_varphi, self.N, calligraphic_Z,
+        #         norm_pdf_z1s, norm_pdf_z2s, indices,
+        #         numerical_stability=True, verbose=True
+        #     )
         gx = gx[indices_where]
         if verbose:
             print("gamma=", repr(self.gamma), ", ")

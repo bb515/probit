@@ -69,9 +69,6 @@ def main():
         X_true, Y_true,
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
-
-        print(len(t))
-        assert 0
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate classifier
