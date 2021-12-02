@@ -1460,8 +1460,10 @@ def plot_ordinal(X, t, X_j, Y_j, J, D, colors=colors):
 
 def calculate_metrics(y_test, t_test, Z, gamma):
     """Calculate nPlan metrics and return a big tuple containing them."""
-    t_star = np.argmax(Z, axis=1)
-    print(t_star)
+    t_pred = np.argmax(Z, axis=1)
+    print("t_pred")
+    print(t_pred)
+    print("t_test")
     print(t_test)
     grid = np.ogrid[0:len(t_test)]
     # Other error
