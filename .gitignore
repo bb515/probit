@@ -148,6 +148,7 @@ post_processing/
 .vscode/
 probit/data/client*
 probit/data/tf_parse.py
+probit/data/tf_parseSS.py
 probit/data/tfrecord/
 probit/data/utilities_nplan.py
 probit/data/utils_nplan.py

@@ -13,7 +13,7 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
-from probit.estimators import VBOrderedGP
+from probit.estimators import VBOrdinalGP
 from probit.plot import outer_loops, grid_synthetic
 from probit.VB import test
 import pathlib
@@ -51,22 +51,19 @@ def main():
         X_tests, t_tests,
         X_true, y_tests,
         gamma_0, varphi_0, noise_variance_0, scale_0,
-        J, D, colors, Kernel) = load_data(
+        J, D, Kernel) = load_data(
             dataset, bins)
-        steps = 1000
-        # Initiate classifier
-        outer_loops(
-            test, VBOrderedGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
-            gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
-        # # Initiate kernel
-        # kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        steps = 500
         # # Initiate classifier
-        # classifier = VBOrderedGP(
-        #     gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
-        # classifier = train(classifier, method)
-        # test(
-        #     classifier, X_tests[2], t_tests[2],
-        #     steps)
+        # outer_loops(
+        #     test, VBOrdinalGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
+        #     gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
+        # Initiate kernel
+        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        # Initiate classifier
+        classifier = VBOrdinalGP(
+            gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
+        test(classifier, X_tests[2], t_tests[2], y_tests[2], steps)
     elif dataset in datasets["synthetic"]:
         (X, t,
         X_true, Y_true,
@@ -75,7 +72,7 @@ def main():
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate classifier
-        classifier = VBOrderedGP(
+        classifier = VBOrdinalGP(
             gamma_0, noise_variance_0, kernel, X, t, J) 
         indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen

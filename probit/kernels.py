@@ -1,6 +1,15 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "8" # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = "8" # export OPENBLAS_NUM_THREADS=4 
+os.environ["MKL_NUM_THREADS"] = "8" # export MKL_NUM_THREADS=6
+os.environ["VECLIB_MAXIMUM_THREADS"] = "8" # export VECLIB_MAXIMUM_THREADS=4
+os.environ["NUMEXPR_NUM_THREADS"] = "8" # export NUMEXPR_NUM_THREADS=6
+
+import lab as B
 import numpy as np
 from scipy.spatial import distance_matrix, distance
 from abc import ABC, abstractmethod
+from mlkernels import EQ
 
 
 class Kernel(ABC):
@@ -178,6 +187,8 @@ class Kernel(ABC):
         """
         Return a distance matrix using scipy spatial.
 
+        This is an attempt using cdist, which should be faster.
+
         :arg X1: The (N1, D) input array for the distance matrix.
         :type X1: :class:`numpy.ndarray`
         :arg X2: The (N2, D) input array for the distance matrix.
@@ -185,11 +196,8 @@ class Kernel(ABC):
         :return: Euclidean distance matrix (N1, N2).
         :rtype: :class:`numpy.ndarray`.
         """
-        # Case that D = 1
-        if len(np.shape(X1)) == 1:
-            X1 = X1.reshape(-1, 1)
-            X2 = X2.reshape(-1, 1)
-        return distance_matrix(X1, X2)
+        # cdist automatically handles the case that D = 1
+        return distance.cdist(X1, X2, metric='euclidean')
 
 
 class Linear(Kernel):
@@ -744,6 +752,354 @@ class Polynomial(Kernel):
             + self.constant_variance) ** (self.order - 1)
 
 
+class LabEQ(Kernel):
+    r"""
+    Uses BLab by WesselB, which is an generic interface for linear algebra
+    backends.
+
+    An isometric radial basis function (a.k.a. exponentiated quadratic,
+    a.k.a squared exponential) kernel class.
+
+    .. math::
+        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+
+    where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
+    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the single, shared lengthscale and hyperparameter, :math:`s` is the scale.
+    """
+    def __init__(self, varphi=None, psi=None, *args, **kwargs):
+        """
+        Create an :class:`SEIso` kernel object.
+
+        :arg varphi: The kernel lengthscale hyperparameter.
+        :type varphi: float or NoneType
+        :arg psi:
+        :type psi: :class:`numpy.ndarray` or float
+
+        :returns: An :class:`SEIso` object
+        """
+        super().__init__(*args, **kwargs)
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._initialise_hyperparameter(
+                varphi)
+        else:
+            raise ValueError(
+                "Lengthscale hyperparameter `varphi` must be provided for the "
+                "SEIso kernel class (got {})".format(None))
+        if psi is not None:
+            self.psi = self._initialise_hyperhyperparameter(self.varphi, psi)
+        else:
+            self.psi = None
+        # For this kernel, the shared and single kernel for each class
+        # (i.e. non general) and single lengthscale across
+        # all data dims (i.e. non ARD) is assumed.
+        if self.L != 1:
+            raise ValueError(
+                "L wrong for simple kernel (expected {}, got {})".format(
+                    1, self.L))
+        if self.M != 1:
+            raise ValueError(
+                "M wrong for non-ARD kernel (expected {}, got {})".format(
+                    1, self.M))
+        if self.scale is None:
+            raise ValueError(
+                "You must supply a scale for the simple kernel "
+                "(expected {} type, got {})".format(float, self.scale))
+        self.num_hyperparameters = np.size(self.varphi)
+
+    @property
+    def _ARD(self):
+        return False
+
+    @property
+    def _stationary(self):
+        return True
+
+    @property
+    def _Matern(self):
+        return True
+
+    @property
+    def _general(self):
+        return False
+
+    def kernel(self, X_i, X_j):
+        """
+        Get the ij'th element of the Gram matrix, given the data (X_i and X_j),
+        and hyper-parameters.
+
+        :arg X_i: (D, ) data point.
+        :type X_i: :class:`numpy.ndarray`
+        :arg X_j: (D, ) data point.
+        :type X_j: :class:`numpy.ndarray`
+        :returns: ij'th element of the Gram matrix.
+        :rtype: float
+        """
+        return (self.scale * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
+
+    def kernel_vector(self, x_new, X):
+        """
+        Get the kernel vector given an input vector (x_new) input matrix (X).
+
+        :arg x_new: The new (1, D) point drawn from the data space.
+        :type x_new: :class:`numpy.ndarray`
+        :arg X: (N, D) data matrix.
+        :type X: class:`numpy.ndarray`
+        :return: the (N,) covariance vector.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.scale * B.exp(-self.varphi * B.ew_dists2(
+            X, x_new.reshape(1, -1)))
+
+    def kernel_prior_diagonal(self, X):
+        return self.scale * np.ones(np.shape(X)[0])
+
+    def kernel_diagonal(self, X1, X2):
+        """
+        # TODO duplicate code and probably not correct
+        Get Gram diagonal efficiently using scipy's distance matrix function.
+
+        :arg X1: (N, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N,) Gram diagonal.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.scale * B.exp(-self.varphi * B.ew_dists2(X1, X2))
+
+    def kernel_matrix(self, X1, X2):
+        """
+        Get Gram matrix efficiently using MLKernels.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
+
+    def kernel_matrices(self, X1, X2, varphis):
+        """
+        Get Gaussian kernel matrices for varphi samples, varphis, as an array
+        of numpy arrays.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :arg varphis: (n_samples,) array of hyperparameter samples.
+        :type varphis: class:`numpy.ndarray`
+        :return: Cs_samples (n_samples, N1, N2) array of n_samples * (N1, N2)
+            Gram matrices.
+        :rtype: class:`numpy.ndarray`
+        """
+        n_samples = np.shape(varphis)[0]
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        Cs_samples = np.empty((n_samples, N1, N2))
+        for i, varphi in enumerate(varphis):
+            self.varphi = varphi
+            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
+        return Cs_samples
+
+    def kernel_partial_derivative_varphi(self, X1, X2):
+        """
+        Get partial derivative with respect to lengthscale hyperparameters as
+        a numpy array.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :returns partial_C: A (N1, N2) array of the partial derivative of the
+            covariance matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        distance_mat_2 = B.pw_dists2(X1, X2)
+        return -B.multiply(
+            distance_mat_2, self.scale * B.exp(-self.varphi * distance_mat_2))
+
+    def kernel_partial_derivative_scale(self, X1, X2):
+        """
+        Get Gram matrix efficiently using scipy's distance matrix function.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return B.exp(-self.varphi * B.pw_dists2(X1, X2))
+
+
+class LabCosine(Kernel):
+    r"""
+    Uses BLab by WesselB, which is an generic interface for linear algebra
+    backends.
+
+    An isometric radial basis function (a.k.a. exponentiated quadratic,
+    a.k.a squared exponential) kernel class.
+
+    .. math::
+        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+
+    where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
+    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the single, shared lengthscale and hyperparameter, :math:`s` is the scale.
+    """
+    def __init__(self, *args, **kwargs):
+        """
+        Create an :class:`SEIso` kernel object.
+
+        :arg varphi: The kernel lengthscale hyperparameter.
+        :type varphi: float or NoneType
+        :arg psi:
+        :type psi: :class:`numpy.ndarray` or float
+
+        :returns: An :class:`SEIso` object
+        """
+        super().__init__(*args, **kwargs)
+        self.psi = None
+        # This is a kernel for which no hyperparameters are required.
+
+    @property
+    def _ARD(self):
+        return False
+
+    @property
+    def _stationary(self):
+        return True
+
+    @property
+    def _Matern(self):
+        return False
+
+    @property
+    def _general(self):
+        return False
+
+    def kernel(self, X_i, X_j):
+        """
+        Get the ij'th element of the Gram matrix, given the data (X_i and X_j),
+        and hyper-parameters.
+
+        :arg X_i: (D, ) data point.
+        :type X_i: :class:`numpy.ndarray`
+        :arg X_j: (D, ) data point.
+        :type X_j: :class:`numpy.ndarray`
+        :returns: ij'th element of the Gram matrix.
+        :rtype: float
+        """
+        # TODO: may need to reshape
+        return 1.0 + self.scale * np.dot(X_i, X_j) / (
+            np.linalg.norm(X_i) * np.linalg.norm(X_j))
+        # return (self.scale * B.matmul(B.transpose(X_i), X_j))
+        # return (self.scale * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
+
+    def kernel_vector(self, x_new, X):
+        """
+        Get the kernel vector given an input vector (x_new) input matrix (X).
+
+        :arg x_new: The new (1, D) point drawn from the data space.
+        :type x_new: :class:`numpy.ndarray`
+        :arg X: (N, D) data matrix.
+        :type X: class:`numpy.ndarray`
+        :return: the (N,) covariance vector.
+        :rtype: class:`numpy.ndarray`
+        """
+        return 1.0 + self.scale * np.einsum('k, ik -> i', x_new, X) / (np.linalg.norm(x_new) * np.linalg.norm(X, axis=1))
+
+    def kernel_prior_diagonal(self, X):
+        return 1.0 + self.scale * np.ones(np.shape(X)[0])
+
+    def kernel_diagonal(self, X1, X2):
+        """
+        Get Gram diagonal efficiently using scipy's distance matrix function.
+
+        :arg X1: (N, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N,) Gram diagonal.
+        :rtype: class:`numpy.ndarray`
+        """
+        return 1.0 + self.scale * np.einsum('ik, jk -> ij', X1, X2) / (
+            np.outer(np.linalg.norm(X1, axis=1), np.linalg.norm(X2, axis=1)))
+        # return self.scale * B.exp(-self.varphi * B.ew_dists2(X1, X2))
+
+    def kernel_matrix(self, X1, X2):
+        """
+        Get Gram matrix efficiently using MLKernels.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return 1.0 + self.scale * np.einsum('ik, jk -> ij', X1, X2) / (
+            np.outer(np.linalg.norm(X1, axis=1), np.linalg.norm(X2, axis=1)))
+        #return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
+
+    def kernel_matrices(self, X1, X2, varphis):
+        """
+        Get Gaussian kernel matrices for varphi samples, varphis, as an array
+        of numpy arrays.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :arg varphis: (n_samples,) array of hyperparameter samples.
+        :type varphis: class:`numpy.ndarray`
+        :return: Cs_samples (n_samples, N1, N2) array of n_samples * (N1, N2)
+            Gram matrices.
+        :rtype: class:`numpy.ndarray`
+        """
+        n_samples = np.shape(varphis)[0]
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        Cs_samples = np.empty((n_samples, N1, N2))
+        for i, varphi in enumerate(varphis):
+            self.varphi = varphi
+            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
+        return Cs_samples
+
+    def kernel_partial_derivative_varphi(self, X1, X2):
+        """
+        Get partial derivative with respect to lengthscale hyperparameters as
+        a numpy array.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :returns partial_C: A (N1, N2) array of the partial derivative of the
+            covariance matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return np.zeros((len(X1), len(X1)))
+
+    def kernel_partial_derivative_scale(self, X1, X2):
+        """
+        Get Gram matrix efficiently using scipy's distance matrix function.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return np.einsum('ik, jk -> ij', X1, X2) / (
+            np.outer(np.linalg.norm(X1, axis=1), np.linalg.norm(X2, axis=1)))
+
+
 class SEIso(Kernel):
     r"""
     An isometric radial basis function (a.k.a. exponentiated quadratic,
@@ -756,6 +1112,9 @@ class SEIso(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and
     hyperparameter, :math:`s` is the scale.
+
+    Note that previous implementations used distance
+
     """
     def __init__(self, varphi=None, psi=None, *args, **kwargs):
         """
@@ -932,8 +1291,8 @@ class SEIso(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        distance_mat = self.distance_mat(X1, X2)
-        return np.exp(-1. * self.varphi * distance_mat**2)
+        # On a GPU, want to avoid storing the distance matrix, so recalculate
+        return np.exp(-1. * self.varphi * self.distance_mat(X1, X2)**2)
 
 
 class SSSEARDMultinomial(Kernel):
@@ -1277,7 +1636,7 @@ class SEARDMultinomial(Kernel):
         N2 = np.shape(X2)[0]
         Cs_samples = np.empty((n_samples, self.K, N1, N2))
         for i, varphi in enumerate(varphis):
-            self.varphi = varphi
+            self.varphi = varphi  # TODO maybe should explicitly update this
             Cs_samples[i, :, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
@@ -1567,3 +1926,26 @@ class InvalidKernel(Exception):
         )
 
         super().__init__(message)
+
+
+# X1 = np.random.rand(10, 3)
+# X2 = np.random.rand(10, 3)
+
+# kernel = LabCosine()
+
+# A = kernel.kernel_matrix(X1, X1)
+
+# print(A)
+
+# A = kernel.kernel_vector(X1[0], X1)
+
+# print(A)
+
+# A = kernel.kernel(X1[0], X1[1])
+
+# print(A)
+
+# A = kernel.kernel_prior_diagonal(X1)
+
+# print(A)
+# assert 0

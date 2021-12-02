@@ -40,7 +40,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
     """
     Z_av = []
     grad_av = []
-    for split in range(20):
+    for split in range(5):
         # Reinitiate classifier with new data
         # TODO: not sure if this is good code, but makes sense conceptually
         # as new data requires a new model.
@@ -51,7 +51,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
         x, y,
         xlabel, ylabel,
         xscale, yscale) = classifier.grid_over_hyperparameters(
-            domain, res, indices=indices, verbose=True)
+            domain, res, indices=indices, verbose=True, steps=1000)
         Z_av.append(Z)
         grad_av.append(grad)
         if ylabel is None:
@@ -90,11 +90,13 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
             v = grad[:, 1] / norm
             fig, ax = plt.subplots(1, 1)
             ax.set_aspect(1)
-            ax.contourf(x, y, np.log(Z), 100, cmap='viridis', zorder=1)
+            ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
             ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
             ax.plot(0.1, 30, 'm')
             plt.xscale(xscale)
             plt.yscale(yscale)
+            plt.xlim(0.1, 10.0)
+            plt.ylim(0.1, 10.0)
             plt.xlabel(xlabel, fontsize=16)
             plt.ylabel(ylabel, fontsize=16)
             plt.savefig("Contour plot - EP lower bound on the log "
@@ -137,9 +139,11 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
         v = grad_av[:, 1] / norm
         fig, ax = plt.subplots(1, 1)
         ax.set_aspect(1)
-        ax.contourf(x, y, np.log(Z_av), 100, cmap='viridis', zorder=1)
+        ax.contourf(x, y, Z_av, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
         ax.plot(0.1, 30, 'm')
+        plt.xlim(0.1, 10.0)
+        plt.ylim(0.1, 10.0)
         plt.xscale(xscale)
         plt.yscale(yscale)
         plt.xlabel(xlabel, fontsize=16)
@@ -181,7 +185,7 @@ def outer_loop_problem_size(
         test, Classifier, Kernel, method, X_trains, t_trains, X_tests, t_tests,
         y_tests, steps,
         gamma_0, varphi_0, noise_variance_0, scale_0, J, D, size, num,
-        string="client"):
+        string="VB"):
     """
     Plots outer loop for metrics and variational lower bound over N_train
     problem size.
@@ -398,7 +402,7 @@ def outer_loops(
     #moments_noise_variance = []
     #moments_gamma = []
     moments_metrics = []
-    for split in range(5):
+    for split in range(1):
         # Reset kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Build the classifier with the new training data
@@ -417,7 +421,6 @@ def outer_loops(
         # moments_gamma.append(classifier.gamma[1:-1])
     moments_fx = np.array(moments_fx)
     moments_metrics = np.array(moments_metrics)
-    
     mean_fx = np.average(moments_fx)
     mean_metrics = np.average(moments_metrics, axis=0)
     std_fx = np.std(moments_fx)

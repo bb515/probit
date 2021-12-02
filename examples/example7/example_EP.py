@@ -3,7 +3,6 @@ Ordinal regression concrete examples. Approximate inference: EP approximation.
 """
 # Make sure to limit CPU usage
 import os
-from probit.estimators import EPOrderedGP
 os.environ["OMP_NUM_THREADS"] = "4" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "4" # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
@@ -15,7 +14,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 import pathlib
-from probit.estimators import EPOrderedGP
+from probit.estimators import EPOrdinalGP
 from probit.plot import outer_loops, grid_synthetic, train, grid
 from probit.EP import test, plot_synthetic, plot
 from probit.data.utilities import datasets, load_data, load_data_synthetic
@@ -57,12 +56,12 @@ def main():
             dataset, bins)
         steps = 1000
         outer_loops(
-            EPOrderedGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
+            EPOrdinalGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
             gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
         # # Initiate kernel
         # kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # # Initiate the classifier with the training data
-        # classifier = EPOrderedGP(
+        # classifier = EPOrdinalGP(
         #     gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
         # indices = np.ones(5)  # three
         # # indices = np.ones(15)  # thirteen
@@ -87,7 +86,7 @@ def main():
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate classifier
-        classifier = EPOrderedGP(
+        classifier = EPOrdinalGP(
             gamma_0, noise_variance_0, kernel, X, t, J)
         indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen

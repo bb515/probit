@@ -14,24 +14,23 @@ def plot(classifier, m_0, steps, J, D, domain=None):
     error = np.inf
     while error / steps > classifier.EPS:
         iteration += 1
-        (m_0, dm_0, Sigma, cov, C, y, p, *_) = classifier.estimate(
+        (m_0, dm_0, nu, y, p, *_) = classifier.estimate(
             steps, m_tilde_0=m_0, first_step=1,
             fix_hyperparameters=True, write=False)
         (calligraphic_Z,
         norm_pdf_z1s, norm_pdf_z2s,
         z1s, z2s, *_) = classifier._calligraphic_Z(
             classifier.gamma, classifier.noise_std, m_0)
-        fx, C_inv = classifier.objective(
-            classifier.N,
-            m_0, Sigma, C, calligraphic_Z, classifier.noise_variance,
-            numerical_stability=True, verbose=False)
+        fx = classifier.objective(
+            classifier.N, m_0, nu, classifier.trace_cov,
+            classifier.trace_Sigma_div_var,
+            calligraphic_Z,
+            classifier.noise_variance,
+            classifier.log_det_K, classifier.log_det_cov)
         error = np.abs(fx_old - fx)  # TODO: redundant?
         fx_old = fx
         if 1:
             print("({}), error={}".format(iteration, error))
-    fx, C_inv= classifier.objective(
-        classifier.N, m_0, Sigma, C,
-        calligraphic_Z, classifier.noise_variance, verbose=True)
     if domain is not None:
         (xlims, ylims) = domain
         N = 75
@@ -44,7 +43,7 @@ def plot(classifier, m_0, steps, J, D, domain=None):
         X_new_[:, :2] = X_new
         # Test
         Z, posterior_predictive_m, posterior_std = classifier.predict(
-            classifier.gamma, cov, y, classifier.varphi,
+            classifier.gamma, classifier.cov, y, classifier.varphi,
             classifier.noise_variance, X_new_)  # (N_test, J)
         Z_new = Z.reshape((N, N, J))
         print(np.sum(Z, axis=1), 'sum')
@@ -76,8 +75,7 @@ def plot_synthetic(
 
     TODO: needs generalizing to other datasets other than Chu.
     """
-    (m_tilde, dm_tilde,
-    Sigma_tilde, cov, C, y_tilde, p, containers) = classifier.estimate(
+    (m_tilde, dm_tilde, nu, y_tilde, p, containers) = classifier.estimate(
         steps, m_tilde_0=m_tilde_0, fix_hyperparameters=True, write=True)
     plt.scatter(classifier.X, m_tilde)
     plt.plot(X_true, Y_true)
@@ -92,8 +90,12 @@ def plot_synthetic(
                     upper_bound2=classifier.upper_bound2)
     J = classifier.J
     N = classifier.N
-    fx, _ = classifier.objective(
-        N, m_tilde, Sigma_tilde, C, calligraphic_Z, classifier.noise_variance)
+    fx = classifier.objective(
+            classifier.N, m_tilde, nu, classifier.trace_cov,
+            classifier.trace_Sigma_div_var,
+            calligraphic_Z,
+            classifier.noise_variance,
+            classifier.log_det_K, classifier.log_det_cov)
     if dataset == "tertile":
         x_lims = (-0.5, 1.5)
         N = 1000
@@ -104,7 +106,8 @@ def plot_synthetic(
         print("noisevar", classifier.noise_variance)
         (Z, posterior_predictive_m,
         posterior_std) = classifier.predict(
-            classifier.gamma, cov, y_tilde, classifier.kernel.varphi,
+            classifier.gamma, classifier.cov, y_tilde,
+            classifier.kernel.varphi,
             classifier.noise_variance, X_new)
         print(np.sum(Z, axis=1), 'sum')
         plt.xlim(x_lims)
@@ -263,10 +266,9 @@ def test(
     error = np.inf
     fx_old = np.inf
     m_0 = None
-    print(steps)
     while error / steps > classifier.EPS:
         iteration += 1
-        (m_0, dm_0, y, p, *_) = classifier.estimate(
+        (m_0, dm_0, nu, y, p, *_) = classifier.estimate(
             steps, m_tilde_0=m_0, first_step=1, write=False)
         (calligraphic_Z,
         norm_pdf_z1s,
@@ -276,10 +278,9 @@ def test(
         *_ )= classifier._calligraphic_Z(
             classifier.gamma, classifier.noise_std, m_0)
         fx = classifier.objective(
-            classifier.N, m_0, y,
-            classifier.Sigma_div_var,
-            classifier.cov,
-            classifier.K,
+            classifier.N, m_0, nu,
+            classifier.trace_cov,
+            classifier.trace_Sigma_div_var,
             calligraphic_Z, classifier.noise_variance,
             classifier.log_det_K,
             classifier.log_det_cov)
