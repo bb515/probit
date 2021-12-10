@@ -1295,7 +1295,7 @@ def load_data_synthetic(dataset, bins, plot=False):
                 "true": (
                     data["gamma"],
                     data["varphi"],
-                    data["noise_variance"],  # np.sqrt(0.1) = 0.316 
+                    1.0,  #  not this: data["noise_variance"],  # np.sqrt(0.1) = 0.316 
                     data["scale"],
                 ),
                 "init_alt": (
@@ -1335,7 +1335,7 @@ def load_data_synthetic(dataset, bins, plot=False):
                 "true": (
                     data["gamma"],
                     data["varphi"],
-                    data["noise_variance"],  # np.sqrt(0.1) = 0.316 
+                    1.0,  # data["noise_variance"],  # np.sqrt(0.1) = 0.316 # Should be 1.0 not 0.1
                     data["scale"],
                 ),
                 "init_alt": (

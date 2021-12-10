@@ -144,20 +144,21 @@ class Kernel(ABC):
                     " should equal the type of the kernel hyperparameter,"
                     " varphi (got {}, expected {})".format(
                         type(psi), type(varphi)))
-            if type(psi) is np.ndarray:
-                if np.shape(psi) != np.shape(varphi):
-                    raise TypeError(
-                    "The shape of the kernel hyperhyperparameter, psi"
-                    " should equal the shape of the kernel hyperparameter,"
-                    " varphi (got {}, expected {})".format(
-                        np.shape(psi), np.shape(varphi)))
-            elif type(psi) is list:
-                if len(psi) != len(varphi):
-                    raise TypeError(
-                    "The length of the kernel hyperhyperparameter, psi"
-                    " should equal the shape of the kernel hyperparameter,"
-                    " varphi (got {}, expected {})".format(
-                        len(psi), len(varphi)))
+            # TODO: SS. It is not in general the case that the shape of the hyperparameter should be the same
+            # if type(psi) is np.ndarray:
+            #     if np.shape(psi) != np.shape(varphi):
+            #         raise TypeError(
+            #         "The shape of the kernel hyperhyperparameter, psi"
+            #         " should equal the shape of the kernel hyperparameter,"
+            #         " varphi (got {}, expected {})".format(
+            #             np.shape(psi), np.shape(varphi)))
+            # elif type(psi) is list:
+            #     if len(psi) != len(varphi):
+            #         raise TypeError(
+            #         "The length of the kernel hyperhyperparameter, psi"
+            #         " should equal the shape of the kernel hyperparameter,"
+            #         " varphi (got {}, expected {})".format(
+            #             len(psi), len(varphi)))
         return psi
 
     def update_hyperparameter(

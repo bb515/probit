@@ -1,11 +1,19 @@
 from abc import ABC, abstractmethod
+from operator import pos
+
+from numpy.core.fromnumeric import prod
+from probit.estimators import EPOrdinalGP
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
-from scipy.stats import norm, multivariate_normal, uniform
+from scipy.stats import norm, multivariate_normal, uniform, expon
+from scipy.stats import gamma as gamma_
+from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from tqdm import trange
 from .utilities import sample_Us, matrix_of_differences, matrix_of_differencess
+import warnings
 
+import matplotlib.pyplot as plt
 
 class Sampler(ABC):
     """
@@ -1281,10 +1289,553 @@ class GibbsMultinomialOrderedGP(Sampler):
                 return self._predict_scalar(y_samples, gamma_samples, X_test)
 
 
-class EllipticalSliceMultinomialOrderedGP(Sampler):
+class PseudoMarginalOrdinalGP(EPOrdinalGP):
     """
-    TODO: was refactored to factor out the cholesky decomposition on 13/07 without testing
-    Multinomial Probit regression using Gibbs sampling with GP priors. Inherits the sampler ABC
+    Pseudo-Marginal Bayesian Inference for Gaussian process ordinal regression.
+
+    ref: Filippone, Maurizio & Girolami, Mark. (2014). Pseudo-Marginal Bayesian Inference for Gaussian Processes.
+        IEEE Transactions on Pattern Analysis and Machine Intelligence. 10.1109/TPAMI.2014.2316530. 
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        Create an :class:`PseudoMarginalOrdinal` sampler object.
+
+        Inherits the :class:`EPOrdinalGP` estimator class.
+
+        :returns: An :class:`PseudoMarginalOrdinalGP` object.
+        """
+        super().__init__(*args, **kwargs)
+
+    def _prior_reparameterised(self, theta, indices):
+        """
+        A reparametrisation such that all of the hyperparameters can be sampled from the real line,
+        therefore there is no transformation (thus no jacobian) when sampling from the proposal distribution.
+        Hyperparameter priors assumed to be independent assumption so take the product of prior pdfs.
+        """
+        # Do not update these hyperparameters by default
+        noise_variance = None
+        gamma = None
+        scale = None
+        varphi = None
+        index = 0
+        log_prior_theta = np.zeros(len(theta))
+        if indices[0]:
+            # Gamma prior is placed on the noise std - evaluate the prior pdf
+            log_noise_std = theta[index]
+            log_prior_pdf = norm.logpdf(
+                log_noise_std,
+                loc=self.noise_std_hyperparameters[0],
+                scale=self.noise_std_hyperparameters[1])
+            log_prior_theta[index] = log_prior_pdf
+            noise_variance = np.exp(log_noise_std)**2
+            # scale = scale_0
+            if noise_variance < 1.0e-04:
+                warnings.warn(
+                    "WARNING: noise variance is very low - numerical stability"
+                    " issues may arise (noise_variance={}).".format(
+                        noise_variance))
+            elif noise_variance > 1.0e3:
+                warnings.warn(
+                    "WARNING: noise variance is very large - numerical "
+                    "stability issues may arise (noise_variance={}).".format(
+                        noise_variance))
+            index += 1
+        if indices[1]:
+            if gamma is None:
+                # Get gamma from classifier
+                gamma = self.gamma
+            gamma[1] = theta[index]
+            log_prior_pdf = norm.logpdf(
+                theta[index],
+                loc=self.gamma_hyperparameters[1, 0],
+                scale=self.gamma_hyperparameters[1, 1])
+            log_prior_theta[index] = log_prior_pdf
+            index += 1
+        for j in range(2, self.J):
+            if indices[j]:
+                if gamma is None:
+                    # Get gamma from classifier
+                    gamma = self.gamma
+                gamma[j] = gamma[j-1] + np.exp(theta[index])
+                log_prior_pdf = norm.pdf(
+                    theta[index],
+                    loc=self.gamma_hyperparameters[j, 0],
+                    scale=self.gamma_hyperparameters[j, 1])
+                log_prior_theta[index] = log_prior_pdf
+                index += 1
+        if indices[self.J]:
+            scale_std = np.exp(theta[index])
+            scale = scale_std**2
+            log_prior_pdf = norm.logpdf(
+                theta[index],
+                loc=self.kernel.scale_hyperparameters[self.J, 0],
+                scale=self.kernel.scale_hyperparameters[self.J, 1])
+            log_prior_pdf[index] = log_prior_pdf
+            index += 1
+        if indices[self.J + 1]:
+            if self.kernel._general and self.kernel._ARD:
+                # In this case, then there is a scale parameter, the first
+                # cutpoint, the interval parameters,
+                # and lengthscales parameter for each dimension and class
+                raise ValueError("TODO")
+            else:
+                # In this case, then there is a scale parameter, the first
+                # cutpoint, the interval parameters,
+                # and a single, shared lengthscale parameter
+                varphi = np.exp(theta[index])
+                log_prior_pdf = norm.logpdf(
+                    theta[index],
+                    loc=self.kernel.psi[0],
+                    scale=self.kernel.psi[1])
+                log_prior_theta[index] = log_prior_pdf
+                index += 1
+        # Update prior covariance
+        print(varphi)
+        self.hyperparameters_update(
+            gamma=gamma, varphi=varphi, scale=scale,
+            noise_variance=noise_variance)
+        # intervals = self.gamma[2:self.J] - self.gamma[1:self.J - 1]
+        return log_prior_theta 
+
+    def _prior(self, theta, indices):
+        """
+        A priors defined over their usual domains, and so a transformation of random variables is used
+        for sampling from proposal distrubutions defined over continuous domains.
+        Hyperparameter priors assumed to be independent assumption so take the product of prior pdfs.
+        """
+        # Do not update these hyperparameters by default
+        noise_variance = None
+        gamma = None
+        scale = None
+        varphi = None
+        log_prior_theta = np.zeros(len(theta))
+        index = 0
+        if indices[0]:
+            # Gamma prior is placed on the noise std - evaluate the prior pdf
+            noise_std = np.exp(theta[index])
+            log_prior_pdf = gamma_.logpdf(
+                noise_std,
+                loc=self.noise_std_hyperparameters[0],
+                scale=self.noise_std_hyperparameters[1])
+            log_prior_theta[index] = log_prior_pdf
+            # scale = scale_0
+            if noise_variance < 1.0e-04:
+                warnings.warn(
+                    "WARNING: noise variance is very low - numerical stability"
+                    " issues may arise (noise_variance={}).".format(
+                        noise_variance))
+            elif noise_variance > 1.0e3:
+                warnings.warn(
+                    "WARNING: noise variance is very large - numerical "
+                    "stability issues may arise (noise_variance={}).".format(
+                        noise_variance))
+            index += 1
+        if indices[1]:
+            if gamma is None:
+                # Get gamma from classifier
+                gamma = self.gamma
+            gamma[1] = theta[index]
+            log_prior_pdf = norm.logpdf(
+                theta[index],
+                loc=self.gamma_hyperparameters[1, 0],
+                scale=self.gamma_hyperparameters[1, 1])
+            log_prior_theta[index] = log_prior_pdf
+            index += 1
+        for j in range(2, self.J):
+            if indices[j]:
+                if gamma is None:
+                    # Get gamma from classifier
+                    gamma = self.gamma
+                gamma[j] = gamma[j-1] + np.exp(theta[index])
+                log_prior_pdf = norm.logpdf(
+                    theta[index],
+                    loc=self.gamma_hyperparameters[j, 0],
+                    scale=self.gamma_hyperparameters[j, 1])
+                log_prior_theta[index] = log_prior_pdf
+                index += 1
+        if indices[self.J]:
+            scale_std = np.exp(theta[index])
+            scale = scale_std**2
+            log_prior_pdf = norm.logpdf(
+                    theta[index],
+                    loc=self.gamma_hyperparameters[self.J, 0],
+                    scale=self.gamma_hyperparameters[self.J, 1])
+            log_prior_theta[index] = log_prior_pdf
+            index += 1
+        if indices[self.J + 1]:
+            if self.kernel._general and self.kernel._ARD:
+                # In this case, then there is a scale parameter, the first
+                # cutpoint, the interval parameters,
+                # and lengthscales parameter for each dimension and class
+                raise ValueError("TODO")
+            else:
+                # In this case, then there is a scale parameter, the first
+                # cutpoint, the interval parameters,
+                # and a single, shared lengthscale parameter
+                varphi = np.exp(theta[index])
+                log_prior_pdf = gamma_.logpdf(
+                    varphi,
+                    a=self.kernel.psi[0],
+                    scale=1./ self.kernel.psi[1])
+                log_prior_theta[index] = log_prior_pdf
+                index += 1
+        print("VARPHI", varphi)
+
+        # Update prior covariance
+        self.hyperparameters_update(
+            gamma=gamma, varphi=varphi, scale=scale,
+            noise_variance=noise_variance)
+        # intervals = self.gamma[2:self.J] - self.gamma[1:self.J - 1]
+        return log_prior_theta
+
+    def _proposal_initiate(self, theta, indices, proposal_cov):
+        """TODO: check this code"""
+        if np.shape(proposal_cov) == (len(theta),):
+            # Independent elliptical Gaussian proposals with standard deviations equal to proposal_L_cov
+            cov = np.diagonal(proposal_cov[np.ix_(indices)])
+            L_cov = np.sqrt(proposal_cov)
+        elif np.shape(proposal_cov) == ():
+            # Independent spherical Gaussian proposals with standard deviation equal to proposal_L_cov
+            L_cov = np.sqrt(proposal_cov)
+        elif np.shape(proposal_cov) == (len(theta), len(theta)):
+            # Multivariate Gaussian proposals with cholesky factor equal to proposal_L_cov
+            # The proposal distribution is a multivariate Gaussian
+            # Take the sub-matrix marginal Gaussian for the indices
+            mask = np.outer(indices, indices)
+            mask = np.array(mask, dtype=bool)
+            cov = proposal_cov[np.ix_(mask)]
+            (L_cov, _) = cho_factor(cov)
+        else:
+            raise ValueError("Unsupported dimensions of proposal_L_cov, got {},"
+                " expected square matrix or 1D vector or scalar".format(np.shape(proposal_cov)))
+        return L_cov
+
+    def _proposal_reparameterised(self, theta, indices, L_cov):
+        """independence assumption so take the product of prior pdfs."""
+        # No need to update parameters as this is done in the prior
+        z = np.random.normal(0, 1, len(theta))
+        delta = np.dot(L_cov, z)
+        theta = theta + delta
+        # Since the variables have been reparametrised to be sampled over the real domain, then there is
+        # no change of variables and no jacobian
+        log_jacobian_theta = 0.0
+        return theta, log_jacobian_theta
+
+    def _proposal(self, theta, indices, L_cov):
+        """independence assumption so take the product of prior pdfs."""
+        # No need to update parameters as this is done in the prior
+        z = np.random.normal(0, 1, len(theta))
+        delta = np.dot(L_cov, z)
+        theta = theta + delta
+        index = 0
+        log_jacobian_theta = np.zeros(len(theta))
+        # Calculate the jacobian from the theorem of transformation of continuous random variables
+        if indices[0]:
+            # noise_std is sampled from the domain of log(noise_std) and so the jacobian is
+            log_jacobian_theta[index] = -theta[index]  # -ve since jacobian is 1/\sigma
+            index += 1
+        if indices[1]:
+            # gamma_1 is sampled from the domain of gamma_1, so jacobian is unity
+            log_jacobian_theta[index] = 0.0
+            index += 1
+        for j in range(2, self.J):
+            if indices[j]:
+                # gamma_j is sampled from the domain of log(gamma_j - gamma_j-1) and so the jacobian is
+                log_jacobian_theta[index] = -theta[index] # -ve since jacobian is 1/(gamma_j - gamma_j-1)
+                index += 1
+        if indices[self.J]:
+            # scale is sampled from the domain of log(scale) and so the jacobian is
+            log_jacobian_theta[index] = -theta[index]
+            index += 1
+        if indices[self.J + 1]:
+            if self.kernel._general and self.kernel._ARD:
+                # In this case, then there is a scale parameter, the first
+                # cutpoint, the interval parameters,
+                # and lengthscales parameter for each dimension and class
+                raise ValueError("TODO")
+            else:
+                # In this case, then there is a scale parameter, the first
+                # cutpoint, the interval parameters,
+                # and a single, shared lengthscale parameter
+                # varphi is sampled from the domain of log(varphi) and so the jacobian is
+                log_jacobian_theta[index] = -theta[index]
+                index += 1
+        return theta, log_jacobian_theta
+
+    def _get_log_likelihood_vectorised(self, f):
+        """Likelihood of ordinal regression. This is product of scalar normal cdf."""
+        # TODO: probably need no upper bound on this for numerical stability purposes.
+        calligraphic_Z, *_ = self._calligraphic_Z_vectorised(
+                self.gamma, self.noise_std, f)
+        return np.sum(np.log(calligraphic_Z), axis=1)  # since calligraphic_Z is (num_samples, N) and sum along N
+
+    def _get_log_likelihood(self, f):
+        """Get log p(t|f) log likelihood."""
+        calligraphic_Z, *_ = self._calligraphic_Z(
+                self.gamma, self.noise_std, f)
+        return np.sum(np.log(calligraphic_Z))
+
+    def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
+        """Get the pdf of the multivariate normal distribution."""
+        if mean is not None:
+            x = x - mean
+        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
+
+    def _log_multivariate_normal_pdf_vectorised(self, xs, cov_inv, half_log_det_cov, mean=None):
+        """Get the pdf of the multivariate normal distribution."""
+        if mean is not None:
+            xs = xs - mean
+        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.einsum(
+            'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
+        # return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.einsum('ik, ik -> k', (cov_inv @ xs.T), xs.T)  # log likelihoods
+
+    # def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
+    #     """Get the pdf of the multivariate normal distribution."""
+    #     if mean is not None:
+    #         x -= mean
+    #     # Backwards substitution
+    #     intermediate_vector = solve_triangular(L_cov.T, x, lower=True)
+    #     # Forwards substitution
+    #     intermediate_vector = solve_triangular(L_cov, intermediate_vector, lower=False)
+    #     return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.dot(x, intermediate_vector)  # log likelihood
+
+    # def _weight(
+    #     self, f_samp, prior_L_cov, half_log_det_prior_cov, posterior_L_cov, half_log_det_posterior_cov, posterior_mean):
+    #     return (
+    #         self._get_log_likelihood(f_samp)
+    #         + self._log_multivariate_normal_pdf(
+    #             f_samp, prior_L_cov, half_log_det_prior_cov)
+    #         - self._log_multivariate_normal_pdf(
+    #             f_samp, posterior_L_cov, half_log_det_posterior_cov, mean=posterior_mean)
+    #     )
+
+    def _weight(
+        self, f_samp, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
+        print(self._get_log_likelihood(f_samp))
+        print(self._log_multivariate_normal_pdf(
+                f_samp, prior_cov_inv, half_log_det_prior_cov))
+        print(- self._log_multivariate_normal_pdf(
+                f_samp, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+        return (
+            self._get_log_likelihood(f_samp)
+            + self._log_multivariate_normal_pdf(
+                f_samp, prior_cov_inv, half_log_det_prior_cov)
+            - self._log_multivariate_normal_pdf(
+                f_samp, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean)
+        )
+
+    def _weight_vectorised(
+        self, f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov, posterior_L_cov, posterior_cov_inv,
+        half_log_det_posterior_cov, posterior_mean):
+        # print(self._get_log_likelihood_vectorised(f_samps))
+        # print(self._log_multivariate_normal_pdf_vectorised(
+        #         f_samps, prior_L_cov, half_log_det_prior_cov))
+        # print(self._log_multivariate_normal_pdf_vectorised(
+        #         f_samps, posterior_L_cov, half_log_det_posterior_cov, mean=posterior_mean))
+
+        print(self._get_log_likelihood_vectorised(f_samps))
+        print(self._log_multivariate_normal_pdf_vectorised(
+                f_samps, prior_cov_inv, half_log_det_prior_cov))
+        print(- self._log_multivariate_normal_pdf_vectorised(
+                f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+
+        log_ws = (self._get_log_likelihood_vectorised(f_samps)
+            + self._log_multivariate_normal_pdf_vectorised(
+                f_samps, prior_cov_inv, half_log_det_prior_cov)
+            - self._log_multivariate_normal_pdf_vectorised(
+                f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+        return log_ws
+
+    def _importance_sampler_vectorised(
+        self, num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
+        posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov):
+        """
+        Sampling from an unbiased estimate of the marginal likelihood p(y|\theta) given the likelihood of the parameters
+        p(y | f) and samples
+        from an (unbiased) approximating distribution q(f|y, \theta).
+        """
+        # TODO
+        zs = np.random.normal(0, 1, (num_importance_samples, self.N))
+        #zs = np.random.normal(0, 1, (self.N, num_importance_samples))
+        # f_samps = posterior_L_cov @ zs + posterior_mean
+        f_samps = np.einsum('ij, kj -> ki', posterior_L_cov, zs) + posterior_mean
+        # for i in range(num_importance_samples):
+        #     plt.scatter(self.X_train, f_samps[i])
+        # plt.show()
+
+        log_ws = self._weight_vectorised(
+            f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
+            posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov, posterior_mean)
+
+        #print(log_ws)
+
+        max_log_ws = np.max(log_ws)
+        log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
+
+        return log_sum_exp - np.log(num_importance_samples)
+
+    def _importance_sampler(
+            self, num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
+            posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov):
+        """
+        Sampling from an unbiased estimate of the marginal likelihood p(y|\theta) given the likelihood of the parameters
+        p(y | f) and samples
+        from an (unbiased) approximating distribution q(f|y, \theta).
+        """
+        log_ws = np.empty(num_importance_samples)
+        # TODO: vectorise this function
+        # This function is embarassingly paralellisable, however, there may be no easy way to do this with numba or jax.
+        for i in range(num_importance_samples):
+            # Draw sample from GP posterior
+            z = np.random.normal(0, 1, self.N)
+            f_samp = posterior_mean + np.dot(posterior_L_cov, z)
+            #plt.scatter(self.X_train, f_samp)
+            log_ws[i] = self._weight(
+                f_samp, prior_L_cov, half_log_det_prior_cov, posterior_L_cov,
+                half_log_det_posterior_cov, posterior_mean)
+        # print(log_ws)
+        #plt.show()
+        # Normalise the w vectors using the log-sum-exp operator
+        max_log_ws = np.max(log_ws)
+        log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
+        return log_sum_exp - np.log(num_importance_samples)
+
+    def _transition_operator(
+            self, u, log_prior_u, log_jacobian_u, log_marginal_likelihood_u,
+            indices, proposal_L_cov, num_importance_samples, reparameterised):
+        "Transition operator for the metropolis step."
+        # Evaluate priors and proposal conditionals
+        if reparameterised:
+            v, log_jacobian_v = self._proposal_reparameterised(u, indices, proposal_L_cov)
+            log_prior_v = self._prior_reparameterised(v, indices)
+        else:
+            v, log_jacobian_v = self._proposal(u, indices, proposal_L_cov)
+            log_prior_v = self._prior(v, indices)
+        fx, gx, posterior_mean, posterior_cov = self.approximate_posterior(
+            v, indices, first_step=1, write=False, verbose=False)
+        # perform cholesky decomposition since this was never performed in the EP posterior approximation
+        # (posterior_L_cov, lower) = cho_factor(posterior_cov + self.jitter * np.eye(self.N))  # Doesn't seem to work for samples
+        # half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
+
+        # perform cholesky decomposition since this was never performed in the EP posterior approximation
+        posterior_L_cov = np.linalg.cholesky(posterior_cov + self.jitter * np.eye(self.N))
+        half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
+        posterior_cov_inv = np.linalg.inv(posterior_cov + self.jitter * np.eye(self.N))
+ 
+        # Since this was never performed in the EP posterior approximation
+        # (prior_L_cov, lower) = cho_factor(self.K + self.jitter * np.eye(self.N))
+        # prior_L_cov = np.linalg.cholesky(self.K + self.jitter * np.eye(self.N))
+        # half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+
+        prior_L_cov = np.linalg.cholesky(self.K + self.jitter * np.eye(self.N))
+        half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+        prior_cov_inv = np.linalg.inv(self.K + self.jitter * np.eye(self.N))
+
+        log_marginal_likelihood_v = self._importance_sampler_vectorised(
+            num_importance_samples, prior_L_cov, half_log_det_prior_cov,
+            posterior_mean, posterior_L_cov, half_log_det_posterior_cov)
+
+        print("HELLO")
+        print(log_marginal_likelihood_v)
+
+        log_marginal_likelihood_v = self._importance_sampler(
+            num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
+            posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov)
+
+        print(log_marginal_likelihood_v)
+        assert 0
+        # Log ratio
+        log_a = (
+            log_marginal_likelihood_v + np.sum(log_prior_v) + np.sum(log_jacobian_v)
+            - log_marginal_likelihood_u - np.sum(log_prior_u) - np.sum(log_jacobian_u))
+        log_A = np.minimum(0, log_a)
+        threshold = np.random.uniform(low=0.0, high=1.0)
+        if log_A > np.log(threshold):
+            print(log_A, ">", np.log(threshold), " ACCEPT")
+            return (v, log_prior_v, log_jacobian_v, log_marginal_likelihood_v)
+        else:
+            print(log_A, "<", np.log(threshold), " REJECT")
+            return (u, log_prior_u, log_jacobian_u, log_marginal_likelihood_u)
+
+    def _sample_initiate(
+            self, theta_0, indices, proposal_cov, num_importance_samples, reparameterised):
+        # Get starting point for the Markov Chain
+        if theta_0 is None:
+            theta_0 = self.get_theta(indices)
+        # Get type of proposal density
+        proposal_L_cov = self._proposal_initiate(theta_0, indices, proposal_cov)
+        _, _, posterior_mean, posterior_cov = self.approximate_posterior(
+            theta_0, indices, first_step=1, write=False, verbose=True)
+
+        fx, gx, posterior_mean, posterior_cov = self.approximate_posterior(
+            theta_0, indices, first_step=1, write=False, verbose=False)
+
+        # perform cholesky decomposition since this was never performed in the EP posterior approximation
+        posterior_L_cov = np.linalg.cholesky(posterior_cov + self.jitter * np.eye(self.N))
+        half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
+        posterior_cov_inv = np.linalg.inv(posterior_cov + self.jitter * np.eye(self.N))
+
+        # (posterior_L_cov, lower) = cho_factor(posterior_cov + self.jitter * np.eye(self.N))
+        # half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
+        # posterior_L_covT_inv = solve_triangular(
+        #     posterior_L_cov.T, np.eye(self.N), lower=True)
+        # posterior_cov_inv = solve_triangular(posterior_L_cov, posterior_L_covT_inv, lower=False)
+
+        prior_L_cov = np.linalg.cholesky(self.K + self.jitter * np.eye(self.N))
+        half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+        prior_cov_inv = np.linalg.inv(self.K + self.jitter * np.eye(self.N))
+
+        # Since this was never performed in the EP posterior approximation
+        # (prior_L_cov, lower) = cho_factor(self.K + self.jitter * np.eye(self.N))
+        # prior_L_covT_inv = solve_triangular(
+        #     prior_L_cov.T, np.eye(self.N), lower=True)
+        # prior_cov_inv = solve_triangular(prior_L_cov, prior_L_covT_inv, lower=False)
+        # half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+
+        log_marginal_likelihood_theta = self._importance_sampler_vectorised(
+            num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
+            posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov
+        )
+
+        print(log_marginal_likelihood_theta)
+
+        log_marginal_likelihood_theta = self._importance_sampler(
+            num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
+            posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov)
+
+        print(log_marginal_likelihood_theta)
+        assert 0
+        # Evaluate priors and proposal conditionals
+        if reparameterised:
+            theta_0, log_jacobian_theta = self._proposal_reparameterised(theta_0, indices, proposal_L_cov)
+            log_prior_theta = self._prior_reparameterised(theta_0, indices)
+        else:
+            theta_0, log_jacobian_theta = self._proposal(theta_0, indices, proposal_L_cov)
+            log_prior_theta = self._prior(theta_0, indices)
+        theta_samples = []
+        return (
+            theta_0, theta_samples, log_prior_theta,
+            log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov)
+
+    def sample(
+            self, indices, proposal_cov, steps, first_step=1, num_importance_samples=100, theta_0=None,
+            reparameterised=True):
+        (theta, theta_samples, log_prior_theta,
+        log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov) = self._sample_initiate(
+            theta_0, indices, proposal_cov, num_importance_samples, reparameterised)
+        for _ in trange(
+            first_step, first_step + steps, desc="Psuedo-marginal Sampler Progress", unit="samples"):
+            theta, log_prior_theta, log_jacobian_theta, log_marginal_likelihood_theta = self._transition_operator(
+                theta, log_prior_theta, log_jacobian_theta, log_marginal_likelihood_theta, indices, proposal_L_cov,
+                num_importance_samples, reparameterised)
+            theta_samples.append(theta)
+        return np.array(theta_samples)
+
+
+class EllipticalSliceOrdinal(Sampler):
+    """
+    Elliptical Slice sampling
     """
 
     def __init__(self, *args, **kwargs):
@@ -1294,27 +1845,44 @@ class EllipticalSliceMultinomialOrderedGP(Sampler):
         :returns: An :class:`Gibbs_GP` object.
         """
         super().__init__(*args, **kwargs)
-        self.I = np.eye(self.K)
-        self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        self.Sigma = np.linalg.inv(np.eye(self.N) + self.C)  # Takes a different notation than in paper
-        self.cov = self.C @ self.Sigma
-        self.cov_cholesky = np.empty(np.size(self.cov))
-        if self.kernel.general_kernel:
-            for k in range(self.K):
-                self.cov_cholesky[k] = np.linalg.cholesky(self.cov[k])
-        else:
-            self.cov_cholesky = np.linalg.cholesky(self.cov)
 
-    def _sample_initiate(self, M_0):
+    def _sample_initiate(self, parameter):
         """Initialise variables for the sample method."""
-        K = np.shape(M_0)[1]
-        if K != self.K:
-            raise ValueError("Shape of axis 0 of M_0 must equal K (the number of classes)"
-                             " (expected {}, got {})".format(
-                self.K, K))
-        M_samples = []
-        Y_samples = []
-        return M_0, M_samples, Y_samples
+        parameter_samples = []
+        return parameter, parameter_samples
+
+    def ELLSS_transition_operator(self, L_K, N, y, f, log_likelihood, classifier):
+        """
+        TODO: might supercede this with an existing implementation in C
+        Draw samples from p(f|y, \theta). Similarly to probabilistic crank nicolson (implicit evaluation of the likelihood).
+
+        Requires to evaluate the likelihood p(y|f, \theta).
+        In GP metric regression this is a multivariate normal making use of the L_K.
+        In GP ordinal regression this is product of independent probit functions parametrised by the cutpoints.
+
+        If the y is ordinal data then the likelihood takes the form of the probit. But why not just use a factorisation
+        of the posterior distribution.
+        """
+        x = y - f
+        # Normal distribution
+        z = np.random.normal(loc=0.0, scale=1.0, size=N)
+        # Draw a sample from the prior TODO this looks incorrect
+        z = L_K @  solve_triangular(L_K.T, x, lower=True)
+        u = np.random.exponential(scale=1.0)
+        alpha = np.random.uniform(low=0.0, high=2 * np.pi)
+        alpha_bracket = [alpha - 2 * np.pi, alpha]
+        while True:
+            f_dash = f * np.cos(alpha) + z * np.sin(alpha)
+            log_likelihood_dash = self.get_log_likelihood(f_dash, classifier)
+            if log_likelihood_dash > log_likelihood - u:
+                return f_dash, log_likelihood_dash
+            else:
+                if alpha < 0:
+                    alpha_bracket[0] = 0.0
+                else:
+                    alpha_bracket[1] = 0.0
+                print(alpha)
+                alpha = np.random.uniform(low=alpha_bracket[0], high=alpha_bracket[1])
 
     def _elliptical(self, xx, chol_Sigma, log_like_fn, cur_log_like, angle_range):
         """

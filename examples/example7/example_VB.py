@@ -74,8 +74,7 @@ def main():
         # Initiate classifier
         classifier = VBOrdinalGP(
             gamma_0, noise_variance_0, kernel, X, t, J) 
-        indices = np.ones(5)  # three
-        # indices = np.ones(15)  # thirteen
+        indices = np.ones(J + 2)
         # Fix noise_variance
         indices[0] = 0
         # Fix scale

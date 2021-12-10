@@ -239,8 +239,7 @@ def plot_synthetic(
     return fx
 
 
-def test(
-        classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
+def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
     """Test the trained model."""
     steps = classifier.N
     error = np.inf

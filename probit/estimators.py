@@ -1,4 +1,7 @@
 from abc import ABC, abstractmethod
+from logging import warning
+
+from lab.linear_algebra import triangular_solve
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import random
@@ -15,7 +18,6 @@ from .utilities import (
     fromb_t1, fromb_t2, fromb_t3, fromb_t4, fromb_t5,
     fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
     fromb_t5_vector)
-
 import time
 
 class Estimator(ABC):
@@ -134,8 +136,32 @@ class Estimator(ABC):
         """
         return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
 
+    def get_theta(self, indices):
+        """
+        Get the parameters (theta) for unconstrained optimization.
+
+        :arg indices: Indicator array of the hyperparameters to optimize over.
+        :type indices: :class:`numpy.ndarray`
+        :returns: The unconstrained parameters to optimize over, theta.
+        :rtype: :class:`numpy.array`
+        """
+        theta = []
+        if indices[0]:
+            theta.append(np.log(np.sqrt(self.noise_variance)))
+        if indices[1]:
+            theta.append(self.gamma[1])
+        for j in range(2, self.J):
+            if indices[j]:
+                theta.append(np.log(self.gamma[j] - self.gamma[j - 1]))
+        if indices[self.J]:
+            theta.append(np.log(np.sqrt(self.kernel.scale)))
+        # TODO: replace this with kernel number of hyperparameters.
+        if indices[self.J + 1]:
+            theta.append(np.log(self.kernel.varphi))
+        return np.array(theta)
+
     def _grid_over_hyperparameters_initiate(
-        self, res, domain, indices, gamma):
+            self, res, domain, indices, gamma):
         """
         Initiate metadata and hyperparameters for plotting the objective
         function surface over hyperparameters.
@@ -287,7 +313,8 @@ class Estimator(ABC):
             index += 1
         else:
             varphi_update = None
-        assert index == 2
+        # assert index == 2
+        assert index == 1  # TODO: TEMPORARY
         # Update kernel parameters, update prior and posterior covariance
         self.hyperparameters_update(
                 gamma=gamma, 
@@ -326,12 +353,90 @@ class Estimator(ABC):
         """Prevents overflow at large z."""
         return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + self._g(z))
 
+    def _calligraphic_Z_vectorised(
+            self, gamma, noise_std, ms,
+            upper_bound=None, upper_bound2=None, verbose=False):
+        """
+        Return the normalising constants for the truncated normal distribution
+        in a numerically stable manner.
+
+        Vectorised version.
+
+        :arg gamma: The cutpoints.
+        :type gamma: :class:`numpy.array`
+        :arg float noise_std: The noise standard deviation.
+        :arg ms: The mean vectors, (num, N) where num could be e.g. a
+            number of importance samples.
+        :type ms: :class:`numpy.ndarray`
+        :arg float upper_bound: The threshold of the normal z value for which
+            the pdf is close enough to zero.
+        :arg float upper_bound2: The threshold of the normal z value for which
+            the pdf is close enough to zero. 
+        :arg bool numerical_stability: If set to true, will calculate in a
+            numerically stable way. If set to false,
+            will calculate in a faster, but less numerically stable way.
+        :returns: (
+            calligraphic_Z,
+            norm_pdf_z1s, norm_pdf_z2s,
+            norm_cdf_z1s, norm_cdf_z2s,
+            gamma_1s, gamma_2s,
+            z1s, z2s)
+        :rtype: tuple (
+            :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+            :class:`numpy.ndarray`, :class:`numpy.ndarray`)
+        """
+        # Otherwise
+        z1s = (self.gamma_ts - ms) / noise_std
+        z2s = (self.gamma_tplus1s - ms) / noise_std
+        norm_pdf_z1s = norm.pdf(z1s)
+        norm_pdf_z2s = norm.pdf(z2s)
+        norm_cdf_z1s = norm.cdf(z1s)
+        norm_cdf_z2s = norm.cdf(z2s)
+        calligraphic_Z = norm_cdf_z2s - norm_cdf_z1s
+        if upper_bound is not None:
+            # Using series expansion approximations
+            # TODO: these should be 2D indices, do they index such that z1_indices is correct
+            indices1 = np.where(z1s > upper_bound)
+            indices2 = np.where(z2s < -upper_bound)
+            indices = np.union1d(indices1, indices2)
+            z1_indices = z1s[indices]
+            print(z1_indices)
+            z2_indices = z2s[indices]
+            calligraphic_Z[indices] = self._calligraphic_Z_tails(z1_indices, z2_indices)
+            if upper_bound2 is not None:
+                indices = np.where(z1s > upper_bound2)
+                z1_indices = z1s[indices]
+                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(z1_indices)
+                indices = np.where(z2s < -upper_bound2)
+                z2_indices = z2s[indices]
+                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(-z2_indices)
+        if verbose is True:
+            number_small_densities = len(calligraphic_Z[calligraphic_Z < self.EPS])
+            if number_small_densities != 0:
+                warnings.warn(
+                    "calligraphic_Z (normalising constants for truncated normal) "
+                    "must be greater than tolerance={} (got {}): SETTING to Z_ns[Z_ns<tolerance]=tolerance\n"
+                            "z1s={}, z2s={}".format(
+                    self.EPS, calligraphic_Z, z1s, z2s))
+                for i, value in enumerate(calligraphic_Z):
+                    if value < 0.01:
+                        print("call_Z={}, z1 = {}, z2 = {}".format(value, z1s[i], z2s[i]))
+        return (
+            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s,
+            self.gamma_ts, self.gamma_tplus1s)
+
     def _calligraphic_Z(
             self, gamma, noise_std, m,
             upper_bound=None, upper_bound2=None, verbose=False):
         """
         Return the normalising constants for the truncated normal distribution
         in a numerically stable manner.
+
+        TODO: There is no way to calculate this in the log domain (unless expansion
+        approximations are used). Could investigate only using approximations here.
 
         :arg gamma: The cutpoints.
         :type gamma: :class:`numpy.array`
@@ -392,7 +497,9 @@ class Estimator(ABC):
                 for i, value in enumerate(calligraphic_Z):
                     if value < 0.01:
                         print("call_Z={}, z1 = {}, z2 = {}".format(value, z1s[i], z2s[i]))
-        return calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s, self.gamma_ts, self.gamma_tplus1s
+        return (
+            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s,
+            self.gamma_ts, self.gamma_tplus1s)
 
 
 class VBBinomialGP(Estimator):
@@ -662,7 +769,9 @@ class VBOrdinalGP(Estimator):
     :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
 
-    def __init__(self, gamma, noise_variance=1.0, *args, **kwargs):
+    def __init__(
+            self, gamma, noise_variance=1.0,
+            gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`VBOrderedGP` Estimator object.
 
@@ -674,6 +783,16 @@ class VBOrdinalGP(Estimator):
         :returns: A :class:`VBOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
+        if gamma_hyperparameters is not None:
+            warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
+            self.gamma_hyperparameters = gamma_hyperparameters
+        else:
+            self.gamma_hyperparameters = None
+        if noise_std_hyperparameters is not None:
+            warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
+            self.noise_std_hyperparameters = noise_std_hyperparameters
+        else:
+            self.noise_std_hyperparameters = None
         if self.kernel._ARD:
             raise ValueError(
                 "The kernel must not be ARD type (kernel._ARD=1),"
@@ -719,41 +838,19 @@ class VBOrdinalGP(Estimator):
         # only for log_det_K
         (L_K, lower) = cho_factor(self.K + self.jitter * np.eye(self.N))
         self.log_det_K = 2 * np.sum(np.log(np.diag(L_K)))
-        self.log_det_cov = -2 * np.sum(np.log(np.diag(self.L_cov)))
+        self.log_det_cov = 2 * np.sum(np.log(np.diag(self.L_cov)))  # TODO: 07/12 changed this sign error -ve to +ve
         # TODO: If jax @jit works really well with the GPU for cho_solve,
         # it is worth not storing this matrix - due to storage cost, and it
         # will be faster. See alternative implementation on feature/cho_solve
         # For the CPU, storing self.cov saves solving for the gradient and the
         # fx. Maybe have it as part of a seperate method.
+        # TODO: should be using  cho_solve and not solve_triangular, unless I used it because that is what is used
+        # in tensorflow for whatever reason (maybe tensorflow has no cho_solve)
         L_covT_inv = solve_triangular(
             self.L_cov.T, np.eye(self.N), lower=True)
         self.cov = solve_triangular(self.L_cov, L_covT_inv, lower=False)
         self.trace_cov = np.sum(np.diag(self.cov))
         self.trace_Sigma_div_var = np.einsum('ij, ij -> ', self.K, self.cov)
-
-    def get_theta(indices):
-        """
-        Get the parameters (theta) for unconstrained optimization.
-
-        :arg indices: Indicator array of the hyperparameters to optimize over.
-        :type indices: :class:`numpy.ndarray`
-        :returns: The unconstrained parameters to optimize over, theta.
-        :rtype: :class:`numpy.array`
-        """
-        theta = []
-        if indices[0]:
-            theta.append(np.log(np.sqrt(self.noise_variance)))
-        if indices[1]:
-            theta.append(self.gamma[1])
-        for j in range(2, self.J):
-            if indices[j]:
-                theta.append(np.log(self.gamma[j] - self.gamma[j - 1]))
-        if indices[self.J]:
-            theta.append(np.log(np.sqrt(self.kernel.scale)))
-        # TODO: replace this with kernel number of hyperparameters.
-        if indices[self.J + 1]:
-            theta.append(np.log(self.kernel.varphi))
-        return np.array(theta)
 
     def hyperparameters_update(
         self, gamma=None, varphi=None, scale=None, noise_variance=None):
@@ -1647,7 +1744,9 @@ class EPOrdinalGP(Estimator):
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian
     Process.
     """
-    def __init__(self, gamma, noise_variance=1.0, *args, **kwargs):
+    def __init__(
+        self, gamma, noise_variance=1.0, *args, **kwargs):
+        # gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`EPOrderedGP` Estimator object.
 
@@ -1659,6 +1758,16 @@ class EPOrdinalGP(Estimator):
         :returns: An :class:`EPOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
+        # if gamma_hyperparameters is not None:
+        #     warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
+        #     self.gamma_hyperparameters = gamma_hyperparameters
+        # else:
+        #     self.gamma_hyperparameters = None
+        # if noise_std_hyperparameters is not None:
+        #     warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
+        #     self.noise_std_hyperparameters = noise_std_hyperparameters
+        # else:
+        #     self.noise_std_hyperparameters = None
         if self.kernel._ARD:
             raise ValueError(
                 "The kernel must not be _ARD type (kernel._ARD=1),"
@@ -1692,6 +1801,7 @@ class EPOrdinalGP(Estimator):
     def hyperparameters_update(
         self, gamma=None, varphi=None, scale=None, noise_variance=None):
         """
+        TODO: can probably collapse this code into other hyperparameter update
         Reset kernel hyperparameters, generating new prior and posterior
         covariances. Note that hyperparameters are fixed parameters of the
         estimator, not variables that change during the estimation. The strange
@@ -1762,18 +1872,18 @@ class EPOrdinalGP(Estimator):
             self.gamma = gamma
             self.gamma_ts = gamma[self.t_train]
             self.gamma_tplus1s = gamma[self.t_train + 1]
-            if varphi is not None or scale is not None:
-                self.kernel.update_hyperparameter(
-                    varphi=varphi, scale=scale)
-                # Update prior covariance
-                warnings.warn("Updating prior covariance.")
-                self._update_prior()
-            # Initalise the noise variance
-            if noise_variance is not None:
-                self.noise_variance = noise_variance
-                self.noise_std = np.sqrt(noise_variance)
-            # Posterior covariance is calculated iteratively, in EP
-            # So, no update here.
+        if varphi is not None or scale is not None:
+            self.kernel.update_hyperparameter(
+                varphi=varphi, scale=scale)
+            # Update prior covariance
+            warnings.warn("Updating prior covariance.")
+            self._update_prior()
+        # Initalise the noise variance
+        if noise_variance is not None:
+            self.noise_variance = noise_variance
+            self.noise_std = np.sqrt(noise_variance)
+        # Posterior covariance is calculated iteratively in EP,
+        # so no update here.
 
     def _estimate_initiate(
             self, posterior_mean_0=None, Sigma_0=None,
@@ -1867,6 +1977,8 @@ class EPOrdinalGP(Estimator):
         :type posterior_mean_0: :class:`numpy.ndarray`
         :arg Sigma_0: The initial state of the posterior covariance (N, N).
             If `None` then initialised to prior covariance, default `None`.
+            TODO: should probably rename this since Sigma is confusing, and
+            not in line with notation on either paper.
         :type Sigma_0: :class:`numpy.ndarray`
         :arg mean_EP_0: The initial state of the individual (site) mean (N,).
             If `None` then initialised to zeros, default `None`.
@@ -2024,10 +2136,73 @@ class EPOrdinalGP(Estimator):
             Sigma, Sigma_nn, posterior_mean, cavity_mean_n, cavity_variance_n,
             mean_EP_n_old, precision_EP_n_old, amplitude_EP_n_old)
 
+    def _assert_valid_values(self, nu_n, variance, cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
+            norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n):
+        if math.isnan(grad_Z_wrt_cavity_mean_n):
+            print(
+                "cavity_mean_n={} \n"
+                "cavity_variance_n={} \n"
+                "target={} \n"
+                "z1 = {} z2 = {} \n"
+                "Z_n = {} \n"
+                "norm_pdf_z1 = {} \n"
+                "norm_pdf_z2 = {} \n"
+                "beta = {} alpha = {}".format(
+                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
+                    norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n))
+            raise ValueError(
+                "grad_Z_wrt_cavity_mean is nan (got {})".format(
+                grad_Z_wrt_cavity_mean_n))
+        if math.isnan(grad_Z_wrt_cavity_variance_n):
+            print(
+                "cavity_mean_n={} \n"
+                "cavity_variance_n={} \n"
+                "target={} \n"
+                "z1 = {} z2 = {} \n"
+                "Z_n = {} \n"
+                "norm_pdf_z1 = {} \n"
+                "norm_pdf_z2 = {} \n"
+                "beta = {} alpha = {}".format(
+                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
+                    norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n))
+            raise ValueError(
+                "grad_Z_wrt_cavity_variance is nan (got {})".format(
+                    grad_Z_wrt_cavity_variance_n))
+        if nu_n <= 0:
+            print(
+                "cavity_mean_n={} \n"
+                "cavity_variance_n={} \n"
+                "target={} \n"
+                "z1 = {} z2 = {} \n"
+                "Z_n = {} \n"
+                "norm_pdf_z1 = {} \n"
+                "norm_pdf_z2 = {} \n"
+                "beta = {} alpha = {}".format(
+                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
+                    norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n))
+            raise ValueError("nu_n must be positive (got {})".format(nu_n))
+        if nu_n > 1.0 / variance + self.EPS:
+            print(
+                "cavity_mean_n={} \n"
+                "cavity_variance_n={} \n"
+                "target={} \n"
+                "z1 = {} z2 = {} \n"
+                "Z_n = {} \n"
+                "norm_pdf_z1 = {} \n"
+                "norm_pdf_z2 = {} \n"
+                "beta = {} alpha = {}".format(
+                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
+                    norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n))
+            raise ValueError(
+                "nu_n must be less than 1.0 / (cavity_variance_n + "
+                "noise_variance) = {}, got {}".format(
+                    1.0 / variance, nu_n))
+        return 0
+
     def _include(
             self, index, posterior_mean, cavity_mean_n, cavity_variance_n,
             gamma, noise_variance, grad_Z_wrt_cavity_mean,
-            numerically_stable=True):
+            numerically_stable=True):  # numerically_stable should be set to True
         """
         Update the approximate posterior by incorporating the message
         p(t_i|m_i) into Q^{\i}(\bm{f}).
@@ -2061,7 +2236,9 @@ class EPOrdinalGP(Estimator):
             numerically stable implementation. When "True", will resort to
             thresholding at the cost of accuracy, when "False" will use a
             experimental, potentially more accurate, but less stable
-            implementation.
+            implementation. Recommended is numerically_stable is set to true
+            since it does not require :meth:scipy.stats.norm.pdf() to deal with
+            \infty values.
         :returns: A (11,) tuple containing cavity mean and variance, and old
             site states.
         """
@@ -2069,6 +2246,7 @@ class EPOrdinalGP(Estimator):
         std_dev = np.sqrt(variance)
         target = self.t_train[index]
         # TODO: implement this method in other implementations.<<<
+        # TODO: bottleneck here is evaluation of cdf and pdf
         if numerically_stable:
             # Compute Z
             norm_cdf_z2 = 0.0
@@ -2188,58 +2366,10 @@ class EPOrdinalGP(Estimator):
                 nu_n = self.EPS
         # Update alphas
         grad_Z_wrt_cavity_mean[index] = grad_Z_wrt_cavity_mean_n
-        if math.isnan(grad_Z_wrt_cavity_mean_n):
-            print("cavity_mean_n", cavity_mean_n)
-            print("cavity_variance_n", cavity_variance_n)
-            print("target", target)
-            print("z1", z1)
-            print("z2", z2)
-            print("Z_n", Z_n)
-            print("norm_pdf_z1", "norm_pdf_z2", norm_pdf_z1, norm_pdf_z2)
-            print("beta", grad_Z_wrt_cavity_variance_n)
-            print("alpha", grad_Z_wrt_cavity_mean_n)
-            raise ValueError(
-                "grad_Z_wrt_cavity_mean is nan (got {})".format(
-                grad_Z_wrt_cavity_mean_n))
-        if math.isnan(grad_Z_wrt_cavity_variance_n):
-            print("cavity_mean_n", cavity_mean_n)
-            print("cavity_variance_n", cavity_variance_n)
-            print("target", target)
-            print("z1", z1)
-            print("z2", z2)
-            print("Z_n", Z_n)
-            print("norm_pdf_z1", "norm_pdf_z2", norm_pdf_z1, norm_pdf_z2)
-            print("beta", grad_Z_wrt_cavity_variance_n)
-            print("alpha", grad_Z_wrt_cavity_mean_n)
-            raise ValueError(
-                "grad_Z_wrt_cavity_variance is nan (got {})".format(
-                    grad_Z_wrt_cavity_variance_n))
-        if nu_n <= 0:
-            print("cavity_mean_n", cavity_mean_n)
-            print("cavity_variance_n", cavity_variance_n)
-            print("target", target)
-            print("z1", z1)
-            print("z2", z2)
-            print("Z_n", Z_n)
-            print("norm_pdf_z1", "norm_pdf_z2", norm_pdf_z1, norm_pdf_z2)
-            print("beta", grad_Z_wrt_cavity_variance_n)
-            print("alpha", grad_Z_wrt_cavity_mean_n)
-            raise ValueError("nu_n must be positive (got {})".format(nu_n))
-        if nu_n > 1.0 / variance + self.EPS:
-            print("cavity_mean_n", cavity_mean_n)
-            print("cavity_variance_n", cavity_variance_n)
-            print("target", target)
-            print("target", target)
-            print("z1", z1)
-            print("z2", z2)
-            print("Z_n", Z_n)
-            print("norm_pdf_z1", "norm_pdf_z2", norm_pdf_z1, norm_pdf_z2)
-            print("beta", grad_Z_wrt_cavity_variance_n)
-            print("alpha", grad_Z_wrt_cavity_mean_n)
-            raise ValueError(
-                "nu_n must be less than 1.0 / (cavity_variance_n + "
-                "noise_variance) = {}, got {}".format(
-                    1.0 / variance, nu_n))
+        if numerically_stable:
+            self._assert_valid_values(
+                nu_n, variance, cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
+                norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n)
         # hnew = loomean + loovar * alpha;
         posterior_mean_n_new = (
             cavity_mean_n + cavity_variance_n * grad_Z_wrt_cavity_mean_n)
@@ -2269,10 +2399,9 @@ class EPOrdinalGP(Estimator):
         """
         Update the posterior mean and covariance.
 
-        Projects the tilted distribution on to an approximating family, giving
-        us a projection onto the approximating family. The update for the t_n
-        is a rank-1 update. Constructs a low rank approximation to the GP
-        posterior covariance matrix.
+        Projects the tilted distribution on to an approximating family.
+        The update for the t_n is a rank-1 update. Constructs a low rank
+        approximation to the GP posterior covariance matrix.
 
         :arg int index: The index of the current likelihood (the index of the
             datapoint that is "left out").
@@ -2305,6 +2434,7 @@ class EPOrdinalGP(Estimator):
         a_n = Sigma[:, index]  # The index'th column of Sigma
         ##a_n = Sigma[index, :]
         # postcov[j]-=rho*ai[i]*ai[j] ;
+        #Sigma -= (rho * np.outer(a_n, a_n))
         Sigma = Sigma - rho * np.outer(a_n, a_n)
         # postmean+=eta*ai[i];
         posterior_mean += eta * a_n
@@ -2476,7 +2606,7 @@ class EPOrdinalGP(Estimator):
         if indices[0]:
             noise_std = np.exp(theta[index])
             noise_variance = noise_std**2
-            scale = scale_0
+            # scale = scale_0
             if noise_variance < 1.0e-04:
                 warnings.warn(
                     "WARNING: noise variance is very low - numerical stability"
@@ -2531,7 +2661,8 @@ class EPOrdinalGP(Estimator):
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         intervals = self.gamma[2:self.J] - self.gamma[1:self.J - 1]
         # Reset error and posterior mean
-        steps = self.N // 10  # TODO justify
+        steps = 100
+        # steps = self.N // 10  # TODO justify
         error = np.inf
         iteration = 0
         indices_where = np.where(indices!=0)
@@ -2614,7 +2745,7 @@ class EPOrdinalGP(Estimator):
         else:
             return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
-    def hyperparameter_training_step(
+    def approximate_posterior(
             self, theta, indices,
             posterior_mean_0=None, Sigma_0=None, mean_EP_0=None,
             precision_EP_0=None,
@@ -2652,13 +2783,11 @@ class EPOrdinalGP(Estimator):
         mean_EP = mean_EP_0
         precision_EP = precision_EP_0
         amplitude_EP = amplitude_EP_0
-        intervals = gamma[2:self.J] - gamma[1:self.J - 1]
         while error / steps > self.EPS**2:
             iteration += 1
             (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
              precision_EP, amplitude_EP, containers) = self.estimate(
-                steps, gamma, varphi, noise_variance,
-                posterior_mean_0=posterior_mean,
+                steps, posterior_mean_0=posterior_mean,
                 Sigma_0=Sigma, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP,
                 amplitude_EP_0=amplitude_EP,
@@ -2675,7 +2804,7 @@ class EPOrdinalGP(Estimator):
             amplitude_EPs, approximate_marginal_likelihoods) = containers
         # Try optimisation routine
         t1, t2, t3, t4, t5 = self.compute_integrals_vector(
-            gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+            self.gamma, Sigma, precision_EP, posterior_mean, self.noise_variance)
         fx = self.objective(precision_EP, posterior_mean, t1,
             Lambda_cholesky, Lambda, weights)
         if self.kernel._general and self.kernel._ARD:
@@ -2683,22 +2812,56 @@ class EPOrdinalGP(Estimator):
         else:
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
-            gx, intervals, varphi, noise_variance,
+            gx, intervals, self.kernel.varphi, self.noise_variance,
             t2, t3, t4, t5, Lambda, weights, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
-            print("gamma=", repr(gamma), ", ")
-            print("varphi=", varphi)
+            print("gamma=", repr(self.gamma), ", ")
+            print("varphi=", self.kernel.varphi, ", ")
             # print("varphi=", self.kernel.constant_variance, ", ")
-            print("noise_variance=",noise_variance, ", ")
-            print("scale=", scale, ", ")
+            print("noise_variance=", self.noise_variance, ", ")
+            print("scale=", self.kernel.scale, ", ")
             print("\nfunction_eval={}\n jacobian_eval={}".format(
                 fx, gx))
         else:
             print(
-                "gamma={}, noise_variance={}, "
+                "\ngamma={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
-                    gamma, noise_variance, self.kernel.varphi, fx))
+                    self.gamma, self.noise_variance, self.kernel.varphi, fx))
+        return fx, gx, posterior_mean, Sigma
+
+    def hyperparameter_training_step(
+            self, theta, indices,
+            posterior_mean_0=None, Sigma_0=None, mean_EP_0=None,
+            precision_EP_0=None,
+            amplitude_EP_0=None, first_step=1, write=False, verbose=True):
+        """
+        Optimisation routine for hyperparameters.
+
+        :arg theta: (log-)hyperparameters to be optimised.
+        :type theta:
+        :arg indices:
+        :type indices:
+        :arg steps:
+        :type steps:
+        :arg posterior_mean_0:
+        :type posterior_mean_0:
+        :arg Sigma_0:
+        :type Sigma_0:
+        :arg mean_EP_0:
+        :type mean_EP_0:
+        :arg precision_EP_0:
+        :type precision_EP_0:
+        :arg amplitude_EP_0:
+        :type amplitude_EP_0:
+        :arg int first_step:
+        :arg bool write:
+        :arg bool verbose:
+        :return:
+        """
+        fx, gx, *_ = self.approximate_posterior(
+            theta, indices, posterior_mean_0, Sigma_0, mean_EP_0, precision_EP_0, amplitude_EP_0, first_step,
+            write, verbose)
         return fx, gx
 
     def compute_integrals_vector(
@@ -2707,7 +2870,6 @@ class EPOrdinalGP(Estimator):
         Compute the integrals required for the gradient evaluation.
 
         TODO: The vectorised function may be difficult to jit compile since it uses fancy indexing.
-
         """
         # calculate gamma_t and gamma_tplus1 here
         noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
@@ -2977,11 +3139,17 @@ class EPOrdinalGP(Estimator):
             precision_EP[precision_EP == 0.0] = self.EPS * self.EPS
         Pi_inv = np.diag(1. / precision_EP)
         if L is None or Lambda is None:
+            # SS
             # Cholesky factorisation  -- O(N^3)
             L = np.linalg.cholesky(np.add(Pi_inv, self.K))
             # Inverse at each hyperparameter update - TODO: DOES NOT USE CHOLESKY
             L_inv = np.linalg.inv(L)
             Lambda = L_inv.T @ L_inv  # (N, N)
+            # (L, lower) = cho_factor(np.add(Pi_inv, self.K))
+            # # Back substitution
+            # L_T_inv = solve_triangular(L.T, np.eye(self.N), lower=True)
+            # # Forward substitution
+            # Lambda = solve_triangular(L, L_T_inv, lower=False)
         # TODO: Need initialisation for the cholesky factors
         weights = Lambda @ mean_EP
         if np.any(
