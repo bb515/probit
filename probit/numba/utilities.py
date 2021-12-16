@@ -1,34 +1,38 @@
-""" """
+"""Numba implementation of EP."""
+from numba import njit, prange
+import numba_special  # generates Numba overloads for scipy.special 
 import numpy as np
 from scipy.stats import norm, expon
 from scipy.special import erf, ndtr, log_ndtr
-from numba import njit
-import numpy as np
 
 
 over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
 log_over_sqrt_2_pi = np.log(over_sqrt_2_pi)
 
 
+@njit
 def norm_pdf(x, loc=None, scale=1.0):
     if loc is not None:
         x = x - loc
     return (1./ scale) * over_sqrt_2_pi * np.exp(- x**2 / (2.0 * scale))
 
 
-def log_norm_pdf(x, loc=None, scale=1.0):
+@njit
+def norm_logpdf(x, loc=None, scale=1.0):
     if loc is not None:
         x = x - loc
     return -np.log(scale) + log_over_sqrt_2_pi - x**2 / (2.0 * scale)
 
 
+@njit
 def norm_cdf(x, loc=None, scale=1.0):
     if loc is not None:
         x = x - loc
     return ndtr(x / scale)
 
 
-def log_norm_cdf(x, loc=None, scale=1.0):
+@njit
+def norm_logcdf(x, loc=None, scale=1.0):
     if loc is not None:
         x = x - loc
     return log_ndtr(x / scale)
@@ -48,8 +52,9 @@ def vector_norm_pdf(x, loc=None, scale=1.0):
     n = len(x)
     out = np.empty(n)
     for i in range(n):
-        out[i] = norm_pdf(x, loc=loc, scale=scale)
+        out[i] = norm_pdf(x[i], loc=loc, scale=scale)
     return out
+
 
 @njit
 def vector_norm_cdf(x, loc=None, scale=1.0):
@@ -65,12 +70,12 @@ def vector_norm_cdf(x, loc=None, scale=1.0):
     n = len(x)
     out = np.empty(n)
     for i in range(n):
-        out[i] = norm_cdf(x, loc=loc, scale=scale)
+        out[i] = norm_cdf(x[i], loc=loc, scale=scale)
     return out
 
 
 @njit
-def vector_norm_log_pdf(x, loc=None, scale=1.0):
+def vector_norm_logpdf(x, loc=None, scale=1.0):
     """
     Return the pdf of a standard normal evaluated at multiple different values
 
@@ -83,12 +88,12 @@ def vector_norm_log_pdf(x, loc=None, scale=1.0):
     n = len(x)
     out = np.empty(n)
     for i in range(n):
-        out[i] = log_norm_pdf(x, loc=loc, scale=scale)
+        out[i] = norm_logpdf(x[i], loc=loc, scale=scale)
     return out
 
 
 @njit
-def vector_norm_log_cdf(x, loc=None, scale=1.0):
+def vector_norm_logcdf(x, loc=None, scale=1.0):
     """
     Return the pdf of a standard normal evaluated at multiple different values
 
@@ -101,5 +106,18 @@ def vector_norm_log_cdf(x, loc=None, scale=1.0):
     n = len(x)
     out = np.empty(n)
     for i in range(n):
-        out[i] = log_norm_cdf(x, loc=loc, scale=scale)
+        out[i] = norm_logcdf(x[i], loc=loc, scale=scale)
     return out
+
+
+x = np.random.rand(4)
+
+x = np.array([np.inf])
+
+print(x)
+
+print(norm.cdf(x))
+
+print(vector_norm_cdf(x))
+
+assert 0
