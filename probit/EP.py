@@ -31,9 +31,8 @@ def plot(classifier, domain=None):
     (weights, precision_EP, Lambda_cholesky, Lambda
     ) = classifier.compute_EP_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-    t1, *_ = classifier.compute_integrals(
-        classifier.gamma, Sigma, precision_EP, posterior_mean,
-        classifier.noise_variance)
+    t1, *_ = classifier.compute_integrals_vector(
+        np.diag(Sigma), posterior_mean, classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     if domain is not None:
@@ -105,9 +104,8 @@ def plot_synthetic(
     (weights, precision_EP,
     Lambda_cholesky, Lambda) = classifier.compute_EP_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-    t1, *_ = classifier.compute_integrals(
-        classifier.gamma, Sigma, precision_EP, posterior_mean,
-        classifier.noise_variance)
+    t1, *_ = classifier.compute_integrals_vector(
+        np.diag(Sigma), posterior_mean, classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     if dataset in datasets["synthetic"]:
@@ -253,9 +251,9 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
          precision_EP, amplitude_EP, *_) = classifier.estimate(
-            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma, mean_EP_0=mean_EP,
-            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
-            write=True)
+            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
+            mean_EP_0=mean_EP, precision_EP_0=precision_EP,
+            amplitude_EP_0=amplitude_EP, write=True)
         print("iteration {}, error={}".format(iteration, error / steps))
     (weights,
     precision_EP,
@@ -263,9 +261,8 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
     Lambda) = classifier.compute_EP_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean,
         L, Lambda)
-    t1, *_ = classifier.compute_integrals(
-        classifier.gamma, Sigma, precision_EP, posterior_mean,
-        classifier.noise_variance)
+    t1, *_ = classifier.compute_integrals_vector(
+        np.diag(Sigma), posterior_mean, classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, L, Lambda, weights)
     # Test

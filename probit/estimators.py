@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from logging import warning
-
 from lab.linear_algebra import triangular_solve
 from .kernels import Kernel, InvalidKernel
 import pathlib
@@ -124,15 +123,18 @@ class Estimator(ABC):
         """
         Return the posterior mean estimate of the hyperhyperparameters psi.
 
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial Probit Regression with Gaussian Process
-        Priors," in Neural Computation, vol. 18, no. 8, pp. 1790-1817, Aug. 2006, doi: 10.1162/neco.2006.18.8.1790.2005
-        Page 9 Eq.(10).
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial
+        Probit Regression with Gaussian Process Priors," in Neural Computation,
+        vol. 18, no. 8, pp. 1790-1817, Aug. 2006,
+        doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(10).
 
-        This is the same for all categorical estimators, and so can live in the Abstract Base Class.
+        This is the same for all categorical estimators, and so can live in the
+        Abstract Base Class.
 
         :arg varphi_tilde: Posterior mean estimate of varphi.
         :type varphi_tilde: :class:`numpy.ndarray`
-        :return: The posterior mean estimate of the hyperhyperparameters psi Girolami and Rogers Page 9 Eq.(10).
+        :return: The posterior mean estimate of the hyperhyperparameters psi
+            Girolami and Rogers Page 9 Eq.(10).
         """
         return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
 
@@ -1782,7 +1784,6 @@ class EPOrdinalGP(Estimator):
         # Threshold of single sided standard deviations
         # that normal cdf can be approximated to 0 or 1
         self.upper_bound = 4
-        # TODO I don't think I need these, anymore
         # where_t_0 = np.where(self.t_train==0)[0]
         # where_t_Jminus1 = np.where(self.t_train==self.J-1)[0]
         # where_t_neither = np.setxor1d(self.grid, where_t_0)
@@ -1793,6 +1794,10 @@ class EPOrdinalGP(Estimator):
         # self.where_t_notJminus1 = np.concatenate(
         #     (where_t_0, where_t_neither))
         self.jitter = 1e-6
+        # TODO: Not necessarily a bad thing to use fancy indexing with these
+        # However, JAX cannot do inplace and differentiate through
+        # Try to get away from fancy indexing using these indices
+        # Just use where straight up
         self.where_t_not0 = np.where(self.t_train!=0)[0]
         self.where_t_notJminus1 = np.where(self.t_train!=self.J-1)[0]
         # Initiate hyperparameters
@@ -2721,11 +2726,11 @@ class EPOrdinalGP(Estimator):
             Lambda_cholesky, Lambda) = self.compute_EP_weights(
                 precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
             t1, t2, t3, t4, t5 = self.compute_integrals_vector(
-                self.gamma, Sigma, precision_EP, posterior_mean,
-                self.noise_variance)
+                np.diag(Sigma), posterior_mean, self.noise_variance)
             # TODO: SS but try with Numba @jit compile
             # t1, t2, t3, t4, t5 = self.compute_integrals(
-            #     gamma, Sigma, precision_EP, posterior_mean, noise_variance)
+            #     self.gamma, np.diag(Sigma), posterior_mean,
+            #     self.noise_variance)
             fx = self.objective(
                 precision_EP, posterior_mean,
                 t1, Lambda_cholesky, Lambda, weights)
@@ -2804,7 +2809,7 @@ class EPOrdinalGP(Estimator):
             amplitude_EPs, approximate_marginal_likelihoods) = containers
         # Try optimisation routine
         t1, t2, t3, t4, t5 = self.compute_integrals_vector(
-            self.gamma, Sigma, precision_EP, posterior_mean, self.noise_variance)
+            np.diag(Sigma), posterior_mean, self.noise_variance)
         fx = self.objective(precision_EP, posterior_mean, t1,
             Lambda_cholesky, Lambda, weights)
         if self.kernel._general and self.kernel._ARD:
@@ -2865,28 +2870,23 @@ class EPOrdinalGP(Estimator):
         return fx, gx
 
     def compute_integrals_vector(
-            self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):
+            self, posterior_variance, posterior_mean, noise_variance):
         """
         Compute the integrals required for the gradient evaluation.
-
-        TODO: The vectorised function may be difficult to jit compile since it uses fancy indexing.
         """
         # calculate gamma_t and gamma_tplus1 here
         noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
-        gamma_t = gamma[self.t_train]
-        gamma_tplus1 = gamma[self.t_train + 1] 
-        posterior_covariance = np.diag(Sigma)
         mean_t = (posterior_mean[self.where_t_not0]
-            * noise_variance + posterior_covariance[self.where_t_not0]
+            * noise_variance + posterior_variance[self.where_t_not0]
             * self.gamma_ts[self.where_t_not0]) / (
-                noise_variance + posterior_covariance[self.where_t_not0])
+                noise_variance + posterior_variance[self.where_t_not0])
         mean_tplus1 = (posterior_mean[self.where_t_notJminus1]
-            * noise_variance + posterior_covariance[self.where_t_notJminus1]
+            * noise_variance + posterior_variance[self.where_t_notJminus1]
             * self.gamma_tplus1s[self.where_t_notJminus1]) / (
-                noise_variance + posterior_covariance[self.where_t_notJminus1])
+                noise_variance + posterior_variance[self.where_t_notJminus1])
         sigma = np.sqrt(
-            (noise_variance * posterior_covariance) / (
-            noise_variance + posterior_covariance))
+            (noise_variance * posterior_variance) / (
+            noise_variance + posterior_variance))
         sigma_t_not0 = sigma[self.where_t_not0]
         sigma_t_notJminus1 = sigma[self.where_t_notJminus1]
         a_t = mean_t - 5.0 * sigma_t_not0
@@ -2906,14 +2906,15 @@ class EPOrdinalGP(Estimator):
                 y_t_not0.copy(), mean_t, sigma_t_not0,
                 a_t, b_t, h_t,
                 posterior_mean[self.where_t_not0],
-                posterior_covariance[self.where_t_not0],
-                self.gamma_ts[self.where_t_not0], self.gamma_tplus1s[self.where_t_not0],
+                posterior_variance[self.where_t_not0],
+                self.gamma_ts[self.where_t_not0],
+                self.gamma_tplus1s[self.where_t_not0],
                 noise_variance, noise_std, self.EPS)
         t3[self.where_t_notJminus1] = fromb_t3_vector(
                 y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
                 a_tplus1, b_tplus1,
                 h_tplus1, posterior_mean[self.where_t_notJminus1],
-                posterior_covariance[self.where_t_notJminus1],
+                posterior_variance[self.where_t_notJminus1],
                 self.gamma_ts[self.where_t_notJminus1],
                 self.gamma_tplus1s[self.where_t_notJminus1],
                 noise_variance, noise_std, self.EPS)
@@ -2921,7 +2922,7 @@ class EPOrdinalGP(Estimator):
                 y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
                 a_tplus1, b_tplus1,
                 h_tplus1, posterior_mean[self.where_t_notJminus1],
-                posterior_covariance[self.where_t_notJminus1],
+                posterior_variance[self.where_t_notJminus1],
                 self.gamma_ts[self.where_t_notJminus1],
                 self.gamma_tplus1s[self.where_t_notJminus1],
                 noise_variance, noise_std, self.EPS),
@@ -2929,12 +2930,13 @@ class EPOrdinalGP(Estimator):
                 y_t_not0.copy(), mean_t, sigma_t_not0,
                 a_t, b_t, h_t,
                 posterior_mean[self.where_t_not0],
-                posterior_covariance[self.where_t_not0],
-                self.gamma_ts[self.where_t_not0], self.gamma_tplus1s[self.where_t_not0],
+                posterior_variance[self.where_t_not0],
+                self.gamma_ts[self.where_t_not0],
+                self.gamma_tplus1s[self.where_t_not0],
                 noise_variance, noise_std, self.EPS) 
         return (
             fromb_t1_vector(
-                y_0.copy(), posterior_mean, posterior_covariance,
+                y_0.copy(), posterior_mean, posterior_variance,
                 self.gamma_ts, self.gamma_tplus1s,
                 noise_std, self.EPS),
             t2,
@@ -2944,7 +2946,7 @@ class EPOrdinalGP(Estimator):
         )
 
     def compute_integrals(
-        self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):
+        self, gamma, posterior_variance, posterior_mean, noise_variance):
         """Compute the integrals required for the gradient evaluation."""
         # Call EP routine to find posterior distribution
         t1 = np.empty((self.N,))
@@ -2955,19 +2957,24 @@ class EPOrdinalGP(Estimator):
         # Compute integrals - expensive for loop
         for i in range(self.N):
             t1[i] = fromb_t1(
-                posterior_mean[i], Sigma[i, i], self.t_train[i], self.J,
+                posterior_mean[i], posterior_variance[i],
+                self.t_train[i], self.J,
                 gamma, noise_variance, self.EPS)
             t2[i] = fromb_t2(
-                posterior_mean[i], Sigma[i, i], self.t_train[i], self.J,
+                posterior_mean[i], posterior_variance[i],
+                self.t_train[i], self.J,
                 gamma, noise_variance, self.EPS)
             t3[i] = fromb_t3(
-                posterior_mean[i], Sigma[i, i], self.t_train[i], self.J,
+                posterior_mean[i], posterior_variance[i],
+                self.t_train[i], self.J,
                 gamma, noise_variance, self.EPS)
             t4[i] = fromb_t4(
-                posterior_mean[i], Sigma[i, i], self.t_train[i], self.J,
+                posterior_mean[i], posterior_variance[i],
+                self.t_train[i], self.J,
                 gamma, noise_variance, self.EPS)
             t5[i] = fromb_t5(
-                posterior_mean[i], Sigma[i, i], self.t_train[i], self.J,
+                posterior_mean[i], posterior_variance[i],
+                self.t_train[i], self.J,
                 gamma, noise_variance, self.EPS)
         return t1, t2, t3, t4, t5
 

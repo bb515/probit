@@ -52,8 +52,10 @@ def return_prob(b, t, J, gamma, noise_std, numerically_stable=True):
             z1 = (gamma[t + 1] - b) / noise_std
             phi1 = norm.cdf(z1)
     else:
-        phi1 = norm.cdf((gamma[t] - b) / noise_std)
-        phi2 = norm.cdf((gamma[t + 1] - b) / noise_std)
+        # TODO: this seemed to be defined the wrong way 16/12/2021
+        # which was probably the source of numerical stability issues
+        phi1 = norm.cdf((gamma[t + 1] - b) / noise_std)
+        phi2 = norm.cdf((gamma[t] - b) / noise_std)
     return phi1 - phi2
 
 
