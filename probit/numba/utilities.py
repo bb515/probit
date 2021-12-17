@@ -1,3 +1,11 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "4" # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = "4" # export OPENBLAS_NUM_THREADS=4 
+os.environ["MKL_NUM_THREADS"] = "4" # export MKL_NUM_THREADS=6
+os.environ["VECLIB_MAXIMUM_THREADS"] = "4" # export VECLIB_MAXIMUM_THREADS=4
+os.environ["NUMEXPR_NUM_THREADS"] = "4" # export NUMEXPR_NUM_THREADS=6
+os.environ["NUMBA_NUM_THREADS"] = "8" # export NUMBA_NUM_THREADS=6
+
 """Numba implementation of EP."""
 from numba import njit, prange
 import numpy as np
@@ -10,27 +18,27 @@ over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
 log_over_sqrt_2_pi = np.log(over_sqrt_2_pi)
 
 
-@njit
+@njit #  (parallel=True)
 def norm_pdf(x):
     return over_sqrt_2_pi * np.exp(- x**2 / 2.0 )
 
 
-@njit
+@njit #  (parallel=True)
 def norm_logpdf(x):
     return log_over_sqrt_2_pi - x**2 / 2.0
 
 
-@njit
+@njit #  (parallel=True)
 def norm_cdf(x):
     return ndtr(x)
 
 
-@njit
+@njit #  (parallel=True)
 def norm_logcdf(x):
     return log_ndtr(x)
 
 
-@njit
+@njit(parallel=True)
 def vector_norm_pdf(x):
     """
     Return the pdf of a standard normal evaluated at multiple different values
@@ -48,8 +56,8 @@ def vector_norm_pdf(x):
     return out
 
 
-@njit
-def vector_norm_cdf(x, loc=None, scale=1.0):
+@njit(parallel=True)
+def vector_norm_cdf(x):
     """
     Return the pdf of a standard normal evaluated at multiple different values
 
@@ -62,12 +70,12 @@ def vector_norm_cdf(x, loc=None, scale=1.0):
     n = len(x)
     out = np.empty(n)
     for i in prange(n):
-        out[i] = norm_cdf(x[i])
+        out[i] = ndtr(x[i])
     return out
 
 
-@njit
-def vector_norm_logpdf(x, loc=None, scale=1.0):
+@njit(parallel=True)
+def vector_norm_logpdf(x):
     """
     Return the pdf of a standard normal evaluated at multiple different values
 
@@ -84,7 +92,7 @@ def vector_norm_logpdf(x, loc=None, scale=1.0):
     return out
 
 
-@njit
+@njit(parallel=True)
 def vector_norm_logcdf(x):
     """
     Return the pdf of a standard normal evaluated at multiple different values
@@ -102,26 +110,46 @@ def vector_norm_logcdf(x):
     return out
 
 
-@njit
-def return_prob(b, gamma_t, gamma_tplus1, noise_std):
+@njit  # (parallel=True)
+def return_prob(b, gamma_t, gamma_tplus1, noise_std, EPS_2):
     """Return a Gaussian probability."""
     # TODO: could experiment with parallelising additions and divisions
     # but is probably neglidgeable speedup
-    return norm_cdf(
-        (gamma_t - b) / noise_std) - norm_cdf((gamma_tplus1 - b) / noise_std)
+    p = norm_cdf(
+        (gamma_tplus1 - b) / noise_std) - norm_cdf((gamma_t - b) / noise_std)
+    if p > EPS_2:
+        return p
+    else:
+        return EPS_2
 
 
-@njit
-def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):
+@njit  # (parallel=True)
+def return_prob2(z1, z2, EPS_2):
+    """Return a Gaussian probability."""
+    p = ndtr(z1) - ndtr(z2)
+    if p > EPS_2:
+        return p
+    else:
+        return EPS_2
+
+
+@njit(parallel=True)
+def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std, EPS_2):
     """Return a vector of Gaussian probability."""
-    return vector_norm_cdf(
-        (gamma_tplus1 - b) / noise_std) - vector_norm_cdf(
-            (gamma_t - b) / noise_std)
+    n = len(b)
+    out = np.empty(n)
+    for i in prange(n):
+        out[i] = return_prob(
+            b[i], gamma_t[i], gamma_tplus1[i], noise_std, EPS_2)
+    return out
+    # return vector_norm_cdf(
+    #     (gamma_tplus1 - b) / noise_std) - vector_norm_cdf(
+    #         (gamma_t - b) / noise_std)
 
 
-@njit
+@njit # (parallel=True)
 def fromb_fft1(
-    b, mean, sigma, gamma_t, gamma_tplus1, noise_std, EPS):
+    b, mean, sigma, gamma_t, gamma_tplus1, noise_std, EPS_2):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
     :arg float mean: A mean value of a pdf inside the integrand.
@@ -137,18 +165,17 @@ def fromb_fft1(
     :rtype: float
     """
     func = norm_pdf((b - mean) / sigma)
-    prob = return_prob(b, gamma_t, gamma_tplus1, noise_std)
-    tol = EPS*EPS
-    if prob < tol:
-        prob = tol
+    prob = return_prob(b, gamma_t, gamma_tplus1, noise_std, EPS_2)
+    # tol = EPS*EPS
     func = func * np.log(prob)
-    if np.isnan(func):
-        raise ValueError("fft1 {} {} {} {}".format(
-            gamma_t, gamma_tplus1, prob, func))
+    # perhaps not possible to raise errors with numba
+    # if np.isnan(func):
+    #     raise ValueError("fft1 {} {} {} {}".format(
+    #         gamma_t, gamma_tplus1, prob, func))
     return func
 
 
-@njit
+@njit(parallel=True)
 def fromb_fft1_vectorv1(
         b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
     """
@@ -174,9 +201,9 @@ def fromb_fft1_vectorv1(
     return fft1
 
 
-@njit
+@njit(parallel=True)
 def fromb_fft1_vectorv2(
-    b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
+        b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
     """
     :arg float b: The approximate posterior mean vector.
     :arg float mean: A mean value of a pdf inside the integrand.
@@ -192,14 +219,13 @@ def fromb_fft1_vectorv2(
     :rtype: float
     """
     prob = return_prob_vector(
-        b, gamma_t, gamma_tplus1, noise_std)
-    prob[prob < EPS_2] = EPS_2
+        b, gamma_t, gamma_tplus1, noise_std, EPS_2)
     return vector_norm_pdf((b - mean) / sigma) * np.log(prob)
 
 
-@njit
+@njit(parallel=True)
 def fromb_fft1_vectorv3(
-    b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
+        b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
     """
     :arg float b: The approximate posterior mean vector.
     :arg float mean: A mean value of a pdf inside the integrand.
@@ -214,16 +240,108 @@ def fromb_fft1_vectorv3(
     :return: fromberg numerical integral point evaluation.
     :rtype: float
     """
-    prob = ndtr(
-        (gamma_tplus1 - b) / noise_std) - ndtr(
-            (gamma_t - b) / noise_std)
-    prob[prob < EPS_2] = EPS_2
-    return over_sqrt_2_pi * np.exp(
-        -((b - mean) / sigma)**2 / 2.0) * np.log(prob)
+    z1 = (gamma_tplus1 - b) / noise_std
+    z2 = (gamma_t - b) / noise_std
+    N = len(z1)
+    prob = np.empty(N)
+    for i in prange(N):
+        p = ndtr(z1[i]) - ndtr(z2[i])
+        if p < EPS_2:
+            p = EPS_2
+        prob[i] = over_sqrt_2_pi * np.exp(-((b[i] - mean[i]) / sigma[i])**2 / 2.0) * np.log(p)
+    return prob
+
+
+@njit(parallel=True)
+def fromb_fft1_vectorv4(
+        b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
+    """
+    :arg float b: The approximate posterior mean vector.
+    :arg float mean: A mean value of a pdf inside the integrand.
+    :arg float sigma: A standard deviation of a pdf inside the integrand.
+    :arg int J: The number of ordinal classes.
+    :arg gamma_t: The vector of the lower cutpoints the data.
+    :type gamma_t: `nd.numpy.array`
+    :arg gamma_t_plus_1: The vector of the upper cutpoints the data.
+    :type gamma_t_plus_1: `nd.numpy.array`
+    :arg float noise_variance: A noise variance for the likelihood.
+    :arg float EPS_2: A (squared) machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
+    """
+    z1 = (gamma_tplus1 - b) / noise_std
+    z2 = (gamma_t - b) / noise_std
+    N = len(z1)
+    prob = np.empty(N)
+    for i in prange(N):
+        p = ndtr(z1[i]) - ndtr(z2[i])
+        if p < EPS_2:
+            p = EPS_2
+        prob[i] = np.log(p)
+    return prob * over_sqrt_2_pi * np.exp(-((b - mean) / sigma)**2 / 2.0)
+
+
+@njit(parallel=True)
+def fromb_fft1_vectorv5(
+        b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
+    """
+    TODO: This version works pretty well.
+    :arg float b: The approximate posterior mean vector.
+    :arg float mean: A mean value of a pdf inside the integrand.
+    :arg float sigma: A standard deviation of a pdf inside the integrand.
+    :arg int J: The number of ordinal classes.
+    :arg gamma_t: The vector of the lower cutpoints the data.
+    :type gamma_t: `nd.numpy.array`
+    :arg gamma_t_plus_1: The vector of the upper cutpoints the data.
+    :type gamma_t_plus_1: `nd.numpy.array`
+    :arg float noise_variance: A noise variance for the likelihood.
+    :arg float EPS_2: A (squared) machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
+    """
+    z1 = (gamma_tplus1 - b) / noise_std
+    z2 = (gamma_t - b) / noise_std
+    x = (b - mean) / sigma
+    n = len(b)
+    out = np.empty(n)
+    for i in prange(n):
+        p = return_prob2(z1[i], z2[i], EPS_2)
+        # p = ndtr(z1[i]) - ndtr(z2[i])
+        # if p < EPS_2:
+        #     p = EPS_2
+        out[i] =  norm_pdf(x[i])* np.log(p)
+    return out
+
+
+@njit(parallel=True)
+def fromb_fft1_vectorv6(
+        b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
+    """
+    :arg float b: The approximate posterior mean vector.
+    :arg float mean: A mean value of a pdf inside the integrand.
+    :arg float sigma: A standard deviation of a pdf inside the integrand.
+    :arg int J: The number of ordinal classes.
+    :arg gamma_t: The vector of the lower cutpoints the data.
+    :type gamma_t: `nd.numpy.array`
+    :arg gamma_t_plus_1: The vector of the upper cutpoints the data.
+    :type gamma_t_plus_1: `nd.numpy.array`
+    :arg float noise_variance: A noise variance for the likelihood.
+    :arg float EPS_2: A (squared) machine tolerance to be used.
+    :return: fromberg numerical integral point evaluation.
+    :rtype: float
+    """
+    n = len(b)
+    out = np.empty(n)
+    for i in prange(n):
+        p = ndtr((gamma_tplus1[i] - b[i]) / noise_std) - ndtr((gamma_t[i] - b[i]) / noise_std)
+        if p < EPS_2:
+            p = EPS_2
+        out[i] =  over_sqrt_2_pi * np.exp(- ((b[i] - mean[i]) / sigma[i])**2 / 2.0 ) * np.log(p)
+    return out
 
 
 def fromb_t1(
-    posterior_mean, posterior_covariance, t, J, gamma, noise_variance, EPS):
+        posterior_mean, posterior_covariance, t, J, gamma, noise_variance, EPS):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
         datapoint.
@@ -274,10 +392,9 @@ def fromb_t1(
     return q
 
 
-@njit
 def fromb_t1_vector(
-    y, posterior_mean, posterior_covariance, gamma_t, gamma_tplus1,
-    noise_std, EPS):
+        function, y, posterior_mean, posterior_covariance, gamma_t,
+        gamma_tplus1, noise_std, EPS):
     """
     :arg posterior_mean: The approximate posterior mean vector.
     :type posterior_mean: :class:`numpy.ndarray`
@@ -300,12 +417,13 @@ def fromb_t1_vector(
     a = posterior_mean - 5.0 * posterior_std
     b = posterior_mean + 5.0 * posterior_std
     h = b - a
+    # fromb_fft1_vectorv
     y[0, :] = h * (
-        fromb_fft1_vectorv1(
+        function(
             a, posterior_mean, posterior_std, noise_std,
             gamma_t, gamma_tplus1,
             EPS_2)
-        + fromb_fft1_vectorv1(
+        + function(
             b, posterior_mean, posterior_std, noise_std,
             gamma_t, gamma_tplus1,
             EPS_2)
@@ -317,7 +435,7 @@ def fromb_t1_vector(
         p = 0.0
         for i in range(n):
             x = a + (i + 0.5) * h
-            p += fromb_fft1_vectorv1(
+            p += function(
                 x, posterior_mean, posterior_std, noise_std,
                 gamma_t, gamma_tplus1,
                 EPS_2)
@@ -1030,22 +1148,207 @@ def fromb_t1_vector(
 #     return q
 
 
+def compute_integrals_vector(
+        function, gamma, t_train, posterior_variance, posterior_mean, noise_variance):
+    """
+    Compute the integrals required for the gradient evaluation.
+    """
+    # calculate gamma_t and gamma_tplus1 here
+    N = len(posterior_mean)
+    noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
+    gamma_t = gamma[t_train]
+    gamma_tplus1 = gamma[t_train + 1] 
+    y_0 = np.zeros((20,  N))
+    return (
+        fromb_t1_vector(
+            function, y_0.copy(), posterior_mean, posterior_variance,
+            gamma_t, gamma_tplus1,
+            noise_std, EPS=0.001),
+    )
 
- def compute_integrals_vector(
-            self, gamma, Sigma, precision_EP, posterior_mean, noise_variance):
-        """
-        Compute the integrals required for the gradient evaluation.
-        """
-        # calculate gamma_t and gamma_tplus1 here
-        noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
-        gamma_t = gamma[self.t_train]
-        gamma_tplus1 = gamma[self.t_train + 1] 
-        posterior_covariance = np.diag(Sigma)
-       
-        y_0 = np.zeros((20, self.N))
-        return (
-            fromb_t1_vector(
-                y_0.copy(), posterior_mean, posterior_covariance,
-                self.gamma_ts, self.gamma_tplus1s,
-                noise_std, self.EPS),
-        )
+
+import time
+
+
+N = 1000
+
+gamma = np.array([-np.inf, -0.2, 0.2, np.inf])
+
+posterior_variance = np.abs(np.random.rand(N))
+
+posterior_mean = np.random.rand(N)
+
+noise_variance = 1.0
+
+t_train = np.random.randint(low=0, high=3, size=N)
+
+# print(posterior_variance)
+# print(posterior_mean)
+# print(noise_variance)
+# print(t_train)
+
+
+# The first time that it runs, it will take a while
+time0 = time.time()
+
+print(compute_integrals_vector(
+    fromb_fft1_vectorv1, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance))
+print("\n")
+print(compute_integrals_vector(
+    fromb_fft1_vectorv2, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance))
+print("\n")
+print(compute_integrals_vector(
+    fromb_fft1_vectorv3, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance))
+print("\n")
+print(compute_integrals_vector(
+    fromb_fft1_vectorv4, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance))
+print("\n")
+print(compute_integrals_vector(
+    fromb_fft1_vectorv5, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance))
+print("\n")
+print(compute_integrals_vector(
+    fromb_fft1_vectorv6, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance))
+
+
+time1 = time.time()
+
+
+print("time={}".format(time1 - time0))
+
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv1, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time1={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv2, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time2={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv3, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time3={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv4, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time4={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv5, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time5={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv6, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time6={}".format(time1 - time0))
+
+posterior_variance = np.abs(np.random.rand(N))
+
+posterior_mean = np.random.rand(N)
+
+noise_variance = 1.0
+
+t_train = np.random.randint(low=0, high=3, size=N)
+
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv1, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time1={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv2, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time2={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv3, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time3={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv4, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time4={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv5, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time5={}".format(time1 - time0))
+
+time0 = time.time()
+
+compute_integrals_vector(
+    fromb_fft1_vectorv6, gamma, t_train,
+    posterior_variance, posterior_mean, noise_variance)
+
+time1 = time.time()
+
+print("time6={}".format(time1 - time0))
+
+assert 0
