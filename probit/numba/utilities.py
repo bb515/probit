@@ -285,7 +285,10 @@ def fromb_fft1_vectorv4(
 def fromb_fft1_vectorv5(
         b, mean, sigma, noise_std, gamma_t, gamma_tplus1, EPS_2):
     """
-    TODO: This version works pretty well.
+    TODO: This version works pretty well. as it vectorises the numpy (which numba parallelizes efficiently anyway), and uses
+    a single loop of scalar scipy functions.
+    Maybe uses a bit of extra code that is not needed, but probably fine.
+
     :arg float b: The approximate posterior mean vector.
     :arg float mean: A mean value of a pdf inside the integrand.
     :arg float sigma: A standard deviation of a pdf inside the integrand.
@@ -305,11 +308,7 @@ def fromb_fft1_vectorv5(
     n = len(b)
     out = np.empty(n)
     for i in prange(n):
-        p = return_prob2(z1[i], z2[i], EPS_2)
-        # p = ndtr(z1[i]) - ndtr(z2[i])
-        # if p < EPS_2:
-        #     p = EPS_2
-        out[i] =  norm_pdf(x[i])* np.log(p)
+        out[i] = norm_pdf(x[i]) * np.log(return_prob2(z1[i], z2[i], EPS_2))
     return out
 
 
@@ -1170,7 +1169,7 @@ def compute_integrals_vector(
 import time
 
 
-N = 1000
+N = 100000
 
 gamma = np.array([-np.inf, -0.2, 0.2, np.inf])
 
