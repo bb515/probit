@@ -9,6 +9,9 @@ import warnings
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+# from .numba.utilities import (
+#     fromb_t1_vector, fromb_t2_vector,
+#     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
 from scipy.stats import norm, multivariate_normal
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from .utilities import (
@@ -17,7 +20,7 @@ from .utilities import (
     fromb_t1, fromb_t2, fromb_t3, fromb_t4, fromb_t5,
     fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
     fromb_t5_vector)
-import time
+
 
 class Estimator(ABC):
     """
@@ -2868,6 +2871,69 @@ class EPOrdinalGP(Estimator):
             theta, indices, posterior_mean_0, Sigma_0, mean_EP_0, precision_EP_0, amplitude_EP_0, first_step,
             write, verbose)
         return fx, gx
+
+    def compute_integrals_vectorSS(
+            self, posterior_variance, posterior_mean, noise_variance):
+        """
+        Compute the integrals required for the gradient evaluation.
+        """
+        noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO: what on earth is this? 1d3ce073f32c2f7c3ef6f35f7a1e5bea2fed6669
+        mean = (posterior_mean * noise_variance
+            + posterior_variance * self.gamma_ts) / (
+                noise_variance + posterior_variance)
+        sigma = np.sqrt(
+            (noise_variance * posterior_variance) / (
+            noise_variance + posterior_variance))
+        a = mean - 5.0 * sigma
+        b = mean + 5.0 * sigma
+        h = b - a
+        y_0 = np.zeros((20, self.N))
+        t2 = np.zeros((self.N,))
+        t3 = np.zeros((self.N,))
+        t4 = np.zeros((self.N,))
+        t5 = np.zeros((self.N,))
+        t2 = fromb_t2_vector(
+                y_0.copy(), mean, sigma,
+                a, b, h,
+                posterior_mean,
+                posterior_variance,
+                self.gamma_ts,
+                self.gamma_tplus1s,
+                noise_variance, noise_std, self.EPS)
+        t3 = fromb_t3_vector(
+                y_0.copy(), mean, sigma,
+                a, b,
+                h, posterior_mean,
+                posterior_variance,
+                self.gamma_ts,
+                self.gamma_tplus1s,
+                noise_variance, noise_std, self.EPS)
+        t4 = fromb_t4_vector(
+                y_0.copy(), mean, sigma,
+                a, b,
+                h, posterior_mean,
+                posterior_variance,
+                self.gamma_ts,
+                self.gamma_tplus1s,
+                noise_variance, noise_std, self.EPS),
+        t5 = fromb_t5_vector(
+                y_0.copy(), mean, sigma,
+                a, b, h,
+                posterior_mean,
+                posterior_variance,
+                self.gamma_ts,
+                self.gamma_tplus1s,
+                noise_variance, noise_std, self.EPS) 
+        return (
+            fromb_t1_vector(
+                y_0.copy(), posterior_mean, posterior_variance,
+                self.gamma_ts, self.gamma_tplus1s,
+                noise_std, self.EPS),
+            t2,
+            t3,
+            t4,
+            t5
+        )
 
     def compute_integrals_vector(
             self, posterior_variance, posterior_mean, noise_variance):

@@ -2,6 +2,7 @@
 import numpy as np
 from scipy.stats import norm, expon
 from scipy.special import erf
+from scipy.special import ndtr
 import math
 import matplotlib.pyplot as plt
 
@@ -15,6 +16,10 @@ import matplotlib.pyplot as plt
 def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):
     return 0.5*(erf((gamma_tplus1 - b) / noise_std)
                 - erf((gamma_t - b) / noise_std))
+
+def return_prob_vectorSS(b, gamma_t, gamma_tplus1, noise_std):
+    return ndtr((gamma_tplus1 - b) / noise_std) - ndtr((gamma_t - b) / noise_std)
+
 
 # def return_prob_vector(
 #     N, b, gamma_t, gamma_tplus1,
