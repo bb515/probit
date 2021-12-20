@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from .numba.utilities import (
     norm_z_pdf, norm_cdf)
-# Sometimes, numba versions will work faster
+# Sometimes the numba implementation will work faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
 #     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
