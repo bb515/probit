@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from logging import warning
 from lab.linear_algebra import triangular_solve
 from .kernels import Kernel, InvalidKernel
 import pathlib
@@ -9,6 +8,9 @@ import warnings
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+from .numba.utilities import (
+    norm_z_pdf, norm_cdf)
+# Sometimes, numba versions will work faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
 #     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
@@ -17,7 +19,6 @@ from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from .utilities import (
     sample_varphis, unnormalised_log_multivariate_normal_pdf,
     vectorised_unnormalised_log_multivariate_normal_pdf,
-    fromb_t1, fromb_t2, fromb_t3, fromb_t4, fromb_t5,
     fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
     fromb_t5_vector)
 
@@ -812,6 +813,7 @@ class VBOrdinalGP(Estimator):
         #self.EPS = 0.000001  # Acts as a machine tolerance, controls error
         #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
         self.EPS = 0.0001
+        self.EPS_2 = self.EPS**2 
         #self.EPS = 0.001  # probably too large, will affect convergence 
         # Threshold of single sided standard deviations that
         # normal cdf can be approximated to 0 or 1
@@ -1784,6 +1786,7 @@ class EPOrdinalGP(Estimator):
                 " but simple type (kernel._general=0). "
                 "(got {}, expected)".format(self.kernel._general, 0))
         self.EPS = 0.001  # Acts as a machine tolerance
+        self.EPS_2 = self.EPS**2
         # Threshold of single sided standard deviations
         # that normal cdf can be approximated to 0 or 1
         self.upper_bound = 4
@@ -2023,30 +2026,32 @@ class EPOrdinalGP(Estimator):
                         desc="EP GP priors Estimator Progress",
                         unit="iterations", disable=True):
             index = self.new_point(step, random_selection=False)
+            target = self.t_train[index]
             # Find the mean and variance of the leave-one-out
             # posterior distribution Q^{\backslash i}(\bm{f})
-            (Sigma, Sigma_nn, posterior_mean, cavity_mean_n, cavity_variance_n,
-            mean_EP_n_old,
+            (posterior_variance_n, cavity_mean_n,
+            cavity_variance_n, mean_EP_n_old,
             precision_EP_n_old, amplitude_EP_n_old) = self._remove(
-                index, Sigma, posterior_mean,
-                mean_EP, precision_EP, amplitude_EP)
+                Sigma[index, index], posterior_mean[index],
+                mean_EP[index], precision_EP[index], amplitude_EP[index])
             # Tilt/ moment match
             (mean_EP_n, precision_EP_n, amplitude_EP_n, Z_n,
-            grad_Z_wrt_cavity_mean_n, grad_Z_wrt_cavity_mean,
-             posterior_mean, posterior_mean_n_new,
-             posterior_covariance_n_new, z1, z2, nu_n) = self._include(
-                index, posterior_mean, cavity_mean_n, cavity_variance_n,
-                self.gamma, self.noise_variance, grad_Z_wrt_cavity_mean)
+            grad_Z_wrt_cavity_mean_n, posterior_mean_n_new,
+            posterior_covariance_n_new, z1, z2, nu_n) = self._include(
+                target, cavity_mean_n, cavity_variance_n,
+                self.gamma[target], self.gamma[target + 1],
+                self.noise_variance)
+            # Update EP weight (alpha)
+            grad_Z_wrt_cavity_mean[index] = grad_Z_wrt_cavity_mean_n
             diff = precision_EP_n - precision_EP_n_old
             if (
                     np.abs(diff) > self.EPS
                     and Z_n > self.EPS
                     and precision_EP_n > 0.0
-                    and posterior_covariance_n_new > 0.0
-            ):
+                    and posterior_covariance_n_new > 0.0):
                 # Update posterior mean and rank-1 covariance
                 Sigma, posterior_mean = self._update(
-                    index, mean_EP_n_old, Sigma, Sigma_nn,
+                    index, mean_EP_n_old, Sigma, posterior_variance_n,
                     precision_EP_n_old, grad_Z_wrt_cavity_mean_n,
                     posterior_mean_n_new, posterior_mean,
                     posterior_covariance_n_new, diff)
@@ -2097,8 +2102,8 @@ class EPOrdinalGP(Estimator):
             return step % self.N
 
     def _remove(
-            self, index, Sigma, posterior_mean,
-            mean_EP, precision_EP, amplitude_EP):
+            self, posterior_variance_n, posterior_mean_n,
+            mean_EP_n_old, precision_EP_n_old, amplitude_EP_n_old):
         """
         Calculate the product of approximate posterior factors with the current
         index removed.
@@ -2106,29 +2111,17 @@ class EPOrdinalGP(Estimator):
         This is called the cavity distribution,
         "a bit like leaving a hole in the dataset".
 
-        :arg int index: The index of the current site (the index of the
-            datapoint that is "left out").
-        :arg Sigma: The current posterior covariance estimate (N, N).
-        :type Sigma: :class:`numpy.ndarray`
-        :arg posterior_mean: The state of the approximate posterior mean (N,).
-        :type posterior_mean: :class:`numpy.ndarray`
-        :arg mean_EP: The state of the individual (site) mean (N,).
-        :type mean_EP: :class:`numpy.ndarray`
-        :arg precision_EP: The state of the individual (site) variance (N,).
-        :type precision_EP: :class:`numpy.ndarray`
-        :arg amplitude_EP: The state of the individual (site) amplitudes (N,).
-        :type amplitude_EP: :class:`numpy.ndarray`
+        :arg float posterior_variance_n: Variance of latent function at index.
+        :arg float posterior_mean_n: The state of the approximate posterior mean.
+        :arg float mean_EP_n: The state of the individual (site) mean.
+        :arg precision_EP_n: The state of the individual (site) variance.
+        :arg amplitude_EP_n: The state of the individual (site) amplitudes.
         :returns: A (8,) tuple containing cavity mean and variance, and old
             site states.
         """
-        mean_EP_n_old = mean_EP[index]
-        diag_Sigma = np.diag(Sigma)  # (N,)
-        Sigma_nn = diag_Sigma[index]  # Variance of latent function at x_index
-        precision_EP_n_old = precision_EP[index]
-        amplitude_EP_n_old = amplitude_EP[index]
-        posterior_mean_n = posterior_mean[index]
-        if Sigma_nn > 0:
-            cavity_variance_n = Sigma_nn / (1 - Sigma_nn * precision_EP_n_old)
+        if posterior_variance_n > 0:
+            cavity_variance_n = posterior_variance_n / (
+                1 - posterior_variance_n * precision_EP_n_old)
             if cavity_variance_n > 0:
                 cavity_mean_n = (posterior_mean_n
                     + cavity_variance_n * precision_EP_n_old * (
@@ -2139,9 +2132,9 @@ class EPOrdinalGP(Estimator):
                         cavity_variance_n))
         else:
             raise ValueError(
-                "Sigma_nn must be non-negative (got {})".format(Sigma_nn))
+                "Sigma_nn must be non-negative (got {})".format(posterior_variance_n))
         return (
-            Sigma, Sigma_nn, posterior_mean, cavity_mean_n, cavity_variance_n,
+            posterior_variance_n, cavity_mean_n, cavity_variance_n,
             mean_EP_n_old, precision_EP_n_old, amplitude_EP_n_old)
 
     def _assert_valid_values(self, nu_n, variance, cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
@@ -2208,15 +2201,12 @@ class EPOrdinalGP(Estimator):
         return 0
 
     def _include(
-            self, index, posterior_mean, cavity_mean_n, cavity_variance_n,
-            gamma, noise_variance, grad_Z_wrt_cavity_mean,
-            numerically_stable=True):  # numerically_stable should be set to True
+            self, target, cavity_mean_n, cavity_variance_n,
+            gamma_t, gamma_tplus1, noise_variance, numerically_stable=False):
         """
         Update the approximate posterior by incorporating the message
         p(t_i|m_i) into Q^{\i}(\bm{f}).
-
         Wei Chu, Zoubin Ghahramani 2005 page 20, Eq. (23)
-
         This includes one true-observation likelihood, and 'tilts' the
         approximation towards the true posterior. It updates the approximation
         to the true posterior by minimising a moment-matching KL divergence
@@ -2226,158 +2216,98 @@ class EPOrdinalGP(Estimator):
         vectors), and so it essentially constructs a piecewise low rank
         approximation to the GP posterior covariance matrix, until convergence
         (by which point it will no longer be low rank).
-
-        :arg int index: The index of the current site
-            (the index of the datapoint that is "left out").
-        :arg posterior_mean: The state of the approximate posterior mean (N,).
-        :type posterior_mean: :class:`numpy.ndarray`
+        :arg int target: The ordinal class index of the current site
+            (the class of the datapoint that is "left out").
         :arg float cavity_mean_n: The cavity mean of the current site.
         :arg float cavity_variance_n: The cavity variance of the current site.
-        :arg gamma: The (J + 1, ) array of cutpoint parameters \bm{gamma}.
-        :type gamma: :class:`numpy.ndarray`
+        :arg float gamma_t: The upper cutpoint parameters.
+        :arg float gamma_tplus1: The lower cutpoint parameter.
         :arg float noise_variance: Initialisation of noise variance. If
             `None` then initialised to one, default `None`.
-        :arg grad_Z_wrt_cavity_mean: The gradient of the log normalising
-            constant with respect to the cavity mean (The EP "weights").
-        :type grad_Z_wrt_cavity_mean: :class:`numpy.ndarray`
-        :arg bool numerically_stable: Option to employ a technically more
-            numerically stable implementation. When "True", will resort to
-            thresholding at the cost of accuracy, when "False" will use a
-            experimental, potentially more accurate, but less stable
-            implementation. Recommended is numerically_stable is set to true
-            since it does not require :meth:scipy.stats.norm.pdf() to deal with
-            \infty values.
-        :returns: A (11,) tuple containing cavity mean and variance, and old
+        :arg bool numerically_stable: Boolean variable for assert valid
+            numerical values. Default `False'.
+        :returns: A (10,) tuple containing cavity mean and variance, and old
             site states.
         """
         variance = cavity_variance_n + noise_variance
         std_dev = np.sqrt(variance)
-        target = self.t_train[index]
-        # TODO: implement this method in other implementations.<<<
-        # TODO: bottleneck here is evaluation of cdf and pdf
-        if numerically_stable:
-            # Compute Z
-            norm_cdf_z2 = 0.0
-            norm_cdf_z1 = 1.0
-            norm_pdf_z1 = 0.0
-            norm_pdf_z2 = 0.0
-            z1 = 0.0
-            z2 = 0.0
-            if target == 0:
-                z1 = (gamma[target + 1] - cavity_mean_n) / std_dev
-                z1_abs = np.abs(z1)
-                if z1_abs > self.upper_bound:
-                    z1 = np.sign(z1) * self.upper_bound
-                Z_n = norm.cdf(z1) - norm_cdf_z2
-                norm_pdf_z1 = norm.pdf(z1)
-            elif target == self.J - 1:
-                z2 = (gamma[target] - cavity_mean_n) / std_dev
-                z2_abs = np.abs(z2)
-                if z2_abs > self.upper_bound:
-                    z2 = np.sign(z2) * self.upper_bound
-                Z_n = norm_cdf_z1 - norm.cdf(z2)
-                norm_pdf_z2 = norm.pdf(z2)
-            else:
-                z1 = (gamma[target + 1] - cavity_mean_n) / std_dev
-                z2 = (gamma[target] - cavity_mean_n) / std_dev
-                Z_n = norm.cdf(z1) - norm.cdf(z2)
-                norm_pdf_z1 = norm.pdf(z1)
-                norm_pdf_z2 = norm.pdf(z2)
-            if Z_n < self.EPS:
-                if np.abs(np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0) > self.EPS**2:
-                    grad_Z_wrt_cavity_mean_n = (z1 * np.exp(
-                            -0.5*z1**2 + 0.5*z2**2) - z2**2) / (
-                        (
-                            (np.exp(-0.5 * z1 ** 2) + 0.5 * z2 ** 2) - 1.0)
-                            * variance
-                    )
-                    grad_Z_wrt_cavity_variance_n = (
-                        -1.0 + (z1**2 + 0.5 * z2**2) - z2**2) / (
-                        (
-                            (np.exp(-0.5*z1**2 + 0.5 * z2**2) - 1.0)
-                            * 2.0 * variance)
-                    )
-                    grad_Z_wrt_cavity_mean_n_2 = grad_Z_wrt_cavity_mean_n**2
-                    nu_n = (
-                        grad_Z_wrt_cavity_mean_n_2
-                        - 2.0 * grad_Z_wrt_cavity_variance_n)
-                else:
-                    grad_Z_wrt_cavity_mean_n = 0.0
-                    grad_Z_wrt_cavity_mean_n_2 = 0.0
-                    grad_Z_wrt_cavity_variance_n = -(
-                        1.0 - self.EPS)/(2.0 * variance)
-                    nu_n = (1.0 - self.EPS) / variance
-                    warnings.warn(
-                        "Z_n must be greater than tolerance={} (got {}): "
-                        "SETTING to Z_n to approximate value\n"
-                        "z1={}, z2={}".format(
-                            self.EPS, Z_n, z1, z2))
-                if nu_n >= 1.0 / variance:
-                    nu_n = (1.0 - self.EPS) / variance
-                if nu_n <= 0.0:
-                    nu_n = self.EPS * variance
-            else:
-                grad_Z_wrt_cavity_variance_n = (
-                    - z1 * norm_pdf_z1 + z2 * norm_pdf_z2) / (
-                        2.0 * variance * Z_n)  # beta
-                grad_Z_wrt_cavity_mean_n = (
-                    - norm_pdf_z1 + norm_pdf_z2) / (
-                        std_dev * Z_n)  # alpha/gamma
-                grad_Z_wrt_cavity_mean_n_2 = grad_Z_wrt_cavity_mean_n**2
-                nu_n = (grad_Z_wrt_cavity_mean_n_2
-                    - 2.0 * grad_Z_wrt_cavity_variance_n)
+        # Compute Z
+        norm_cdf_z2 = 0.0
+        norm_cdf_z1 = 1.0
+        norm_pdf_z1 = 0.0
+        norm_pdf_z2 = 0.0
+        z1 = 0.0
+        z2 = 0.0
+        if target == 0:
+            z1 = (gamma_tplus1 - cavity_mean_n) / std_dev
+            z1_abs = np.abs(z1)
+            if z1_abs > self.upper_bound:
+                z1 = np.sign(z1) * self.upper_bound
+            Z_n = norm_cdf(z1) - norm_cdf_z2
+            norm_pdf_z1 = norm_z_pdf(z1)
+        elif target == self.J - 1:
+            z2 = (gamma_t - cavity_mean_n) / std_dev
+            z2_abs = np.abs(z2)
+            if z2_abs > self.upper_bound:
+                z2 = np.sign(z2) * self.upper_bound
+            Z_n = norm_cdf_z1 - norm_cdf(z2)
+            norm_pdf_z2 = norm_z_pdf(z2)
         else:
-            z1 = (gamma[target + 1] - cavity_mean_n) / std_dev
-            z2 = (gamma[target] - cavity_mean_n) / std_dev
-            norm_cdf_z1 = norm.cdf(z1)
-            norm_cdf_z2 = norm.cdf(z2)
-            norm_pdf_z1 = norm.pdf(z1)
-            norm_pdf_z2 = norm.pdf(z2)
-            Z_n = norm_cdf_z1 - norm_cdf_z2
-            if not Z_n > self.EPS:
+            z1 = (gamma_tplus1 - cavity_mean_n) / std_dev
+            z2 = (gamma_t - cavity_mean_n) / std_dev
+            Z_n = norm_cdf(z1) - norm_cdf(z2)
+            norm_pdf_z1 = norm_z_pdf(z1)
+            norm_pdf_z2 = norm_z_pdf(z2)
+        if Z_n < self.EPS:
+            if np.abs(np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0) > self.EPS**2:
+                grad_Z_wrt_cavity_mean_n = (z1 * np.exp(
+                        -0.5*z1**2 + 0.5*z2**2) - z2**2) / (
+                    (
+                        (np.exp(-0.5 * z1 ** 2) + 0.5 * z2 ** 2) - 1.0)
+                        * variance
+                )
+                grad_Z_wrt_cavity_variance_n = (
+                    -1.0 + (z1**2 + 0.5 * z2**2) - z2**2) / (
+                    (
+                        (np.exp(-0.5*z1**2 + 0.5 * z2**2) - 1.0)
+                        * 2.0 * variance)
+                )
+                grad_Z_wrt_cavity_mean_n_2 = grad_Z_wrt_cavity_mean_n**2
+                nu_n = (
+                    grad_Z_wrt_cavity_mean_n_2
+                    - 2.0 * grad_Z_wrt_cavity_variance_n)
+            else:
+                grad_Z_wrt_cavity_mean_n = 0.0
+                grad_Z_wrt_cavity_mean_n_2 = 0.0
+                grad_Z_wrt_cavity_variance_n = -(
+                    1.0 - self.EPS)/(2.0 * variance)
+                nu_n = (1.0 - self.EPS) / variance
                 warnings.warn(
                     "Z_n must be greater than tolerance={} (got {}): "
-                    "SETTING to Z_n=tolerance\n z1={}, z2={}".format(
+                    "SETTING to Z_n to approximate value\n"
+                    "z1={}, z2={}".format(
                         self.EPS, Z_n, z1, z2))
-                Z_n = self.EPS
-            if math.isinf(z1) and math.isinf(z2):
-                grad_Z_wrt_cavity_variance_n = 0.0
-            elif math.isinf(z2):
-                grad_Z_wrt_cavity_variance_n = (
-                    - z1 * norm_pdf_z1) / (2.0 * variance * Z_n)
-            elif math.isinf(z1):
-                grad_Z_wrt_cavity_variance_n = (
-                    z2 * norm_pdf_z2) / (2.0 * variance * Z_n)
-            else:
-                grad_Z_wrt_cavity_variance_n = (
-                    - z1 * norm_pdf_z1 + z2 * norm_pdf_z2) / (
-                        2.0 * variance * Z_n)  # beta
+            if nu_n >= 1.0 / variance:
+                nu_n = (1.0 - self.EPS) / variance
+            if nu_n <= 0.0:
+                nu_n = self.EPS * variance
+        else:
+            grad_Z_wrt_cavity_variance_n = (
+                - z1 * norm_pdf_z1 + z2 * norm_pdf_z2) / (
+                    2.0 * variance * Z_n)  # beta
             grad_Z_wrt_cavity_mean_n = (
                 - norm_pdf_z1 + norm_pdf_z2) / (
                     std_dev * Z_n)  # alpha/gamma
-            grad_Z_wrt_cavity_mean_n_2 = grad_Z_wrt_cavity_mean_n ** 2
+            grad_Z_wrt_cavity_mean_n_2 = grad_Z_wrt_cavity_mean_n**2
             nu_n = (grad_Z_wrt_cavity_mean_n_2
                 - 2.0 * grad_Z_wrt_cavity_variance_n)
-            if nu_n >= 1.0 / variance:
-                warnings.warn(
-                    "nu_n must be greater than 1. / variance (got {}): "
-                    "SETTING nu_n=(1.0 - self.EPS) / variance = {}\n"
-                    "z1={}, z2={}".format(
-                    nu_n, (1.0 - self.EPS) / variance, z1, z2))
-                nu_n = (1.0 - self.EPS) / variance
-            if nu_n <= 0.0:
-                warnings.warn(
-                    "nu_n must be greater than zero (got {}): SETTING "
-                    "nu_n=tolerance={}\n z1={}, z2={}".format(
-                        nu_n, self.EPS, z1, z2))
-                #nu_n = self.EPS * variance  # TODO: ?
-                nu_n = self.EPS
         # Update alphas
-        grad_Z_wrt_cavity_mean[index] = grad_Z_wrt_cavity_mean_n
         if numerically_stable:
             self._assert_valid_values(
-                nu_n, variance, cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
-                norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n)
+                nu_n, variance, cavity_mean_n, cavity_variance_n, target,
+                z1, z2, Z_n, norm_pdf_z1,
+                norm_pdf_z2, grad_Z_wrt_cavity_variance_n,
+                grad_Z_wrt_cavity_mean_n)
         # hnew = loomean + loovar * alpha;
         posterior_mean_n_new = (
             cavity_mean_n + cavity_variance_n * grad_Z_wrt_cavity_mean_n)
@@ -2397,13 +2327,14 @@ class EPOrdinalGP(Estimator):
                 0.5 * grad_Z_wrt_cavity_mean_n_2 / nu_n)
         return (
             mean_EP_n, precision_EP_n, amplitude_EP_n, Z_n,
-            grad_Z_wrt_cavity_mean_n, grad_Z_wrt_cavity_mean, posterior_mean,
+            grad_Z_wrt_cavity_mean_n,
             posterior_mean_n_new, posterior_covariance_n_new, z1, z2, nu_n)
 
     def _update(
-        self, index, mean_EP_n_old, Sigma, Sigma_nn, precision_EP_n_old,
+        self, index, mean_EP_n_old, Sigma, posterior_variance_n,
+        precision_EP_n_old,
         grad_Z_wrt_cavity_mean_n, posterior_mean_n_new, posterior_mean,
-        posterior_covariance_n_new, diff):
+        posterior_covariance_n_new, diff, numerically_stable=False):
         """
         Update the posterior mean and covariance.
 
@@ -2416,7 +2347,8 @@ class EPOrdinalGP(Estimator):
         :arg float mean_EP_n_old: The state of the individual (site) mean (N,).
         :arg Sigma: The current posterior covariance estimate (N, N).
         :type Sigma: :class:`numpy.ndarray`
-        :arg float Sigma_nn: The current site posterior covariance estimate.
+        :arg float posterior_variance_n: The current site posterior variance
+            estimate.
         :arg float precision_EP_n_old: The state of the individual (site)
             variance (N,).
         :arg float grad_Z_wrt_cavity_mean_n: The gradient of the log
@@ -2432,12 +2364,12 @@ class EPOrdinalGP(Estimator):
         :rtype: tuple (`numpy.ndarray`, `numpy.ndarray`)
         """
         # rho = diff/(1+diff*Aii);
-        rho = diff / (1 + diff * Sigma_nn)
+        rho = diff / (1 + diff * posterior_variance_n)
 		# eta = (alpha+epinvvar*(postmean-epmean))/(1.0-Aii*epinvvar) ;
         eta = (
             grad_Z_wrt_cavity_mean_n
             + precision_EP_n_old * (posterior_mean[index] - mean_EP_n_old)) / (
-                1.0 - Sigma_nn * precision_EP_n_old)
+                1.0 - posterior_variance_n * precision_EP_n_old)
         # ai[i] = Retrieve_Posterior_Covariance (i, index, settings) ;
         a_n = Sigma[:, index]  # The index'th column of Sigma
         ##a_n = Sigma[index, :]
@@ -2446,22 +2378,24 @@ class EPOrdinalGP(Estimator):
         Sigma = Sigma - rho * np.outer(a_n, a_n)
         # postmean+=eta*ai[i];
         posterior_mean += eta * a_n
-        # assert(fabs((settings->alpha+index)->pair->postmean-alpha->hnew)<EPS)
-        if np.abs(posterior_covariance_n_new - Sigma[index, index]) > self.EPS:
-            raise ValueError(
-                "np.abs(posterior_covariance_n_new - Sigma[index, index]) must"
-                " be less than some tolerance. Got (posterior_covariance_n_"
-                "new={}, Sigma_index_index={}, diff={})".format(
-                posterior_covariance_n_new, Sigma[index, index],
-                posterior_covariance_n_new - Sigma[index, index]))
-        # assert(fabs((settings->alpha+index)->postcov[index]-alpha->cnew)<EPS)
-        if np.abs(posterior_mean_n_new - posterior_mean[index]) > self.EPS:
-            raise ValueError(
-                "np.abs(posterior_mean_n_new - posterior_mean[index]) must be "
-                "less than some tolerance. Got (posterior_mean_n_new={}, "
-                "posterior_mean_index={}, diff={})".format(
-                    posterior_mean_n_new, posterior_mean[index],
-                    posterior_mean_n_new - posterior_mean[index]))
+        if numerically_stable is True:
+            # TODO is hnew meant to be the EP weights, grad_Z_wrt_cavity_mean_n
+            # assert(fabs((settings->alpha+index)->pair->postmean-alpha->hnew)<EPS)
+            if np.abs(posterior_covariance_n_new - Sigma[index, index]) > self.EPS:
+                raise ValueError(
+                    "np.abs(posterior_covariance_n_new - Sigma[index, index]) must"
+                    " be less than some tolerance. Got (posterior_covariance_n_"
+                    "new={}, Sigma_index_index={}, diff={})".format(
+                    posterior_covariance_n_new, Sigma[index, index],
+                    posterior_covariance_n_new - Sigma[index, index]))
+            # assert(fabs((settings->alpha+index)->postcov[index]-alpha->cnew)<EPS)
+            if np.abs(posterior_mean_n_new - posterior_mean[index]) > self.EPS:
+                raise ValueError(
+                    "np.abs(posterior_mean_n_new - posterior_mean[index]) must be "
+                    "less than some tolerance. Got (posterior_mean_n_new={}, "
+                    "posterior_mean_index={}, diff={})".format(
+                        posterior_mean_n_new, posterior_mean[index],
+                        posterior_mean_n_new - posterior_mean[index]))
         return Sigma, posterior_mean
 
     def _approximate_log_marginal_likelihood(
@@ -2730,10 +2664,6 @@ class EPOrdinalGP(Estimator):
                 precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
             t1, t2, t3, t4, t5 = self.compute_integrals_vector(
                 np.diag(Sigma), posterior_mean, self.noise_variance)
-            # TODO: SS but try with Numba @jit compile
-            # t1, t2, t3, t4, t5 = self.compute_integrals(
-            #     self.gamma, np.diag(Sigma), posterior_mean,
-            #     self.noise_variance)
             fx = self.objective(
                 precision_EP, posterior_mean,
                 t1, Lambda_cholesky, Lambda, weights)
@@ -2872,12 +2802,11 @@ class EPOrdinalGP(Estimator):
             write, verbose)
         return fx, gx
 
-    def compute_integrals_vectorSS(
+    def compute_integrals_vector(
             self, posterior_variance, posterior_mean, noise_variance):
         """
         Compute the integrals required for the gradient evaluation.
         """
-        #noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO: what on earth is this? 1d3ce073f32c2f7c3ef6f35f7a1e5bea2fed6669
         noise_std = np.sqrt(noise_variance)
         mean = (posterior_mean * noise_variance
             + posterior_variance * self.gamma_ts) / (
@@ -2900,7 +2829,7 @@ class EPOrdinalGP(Estimator):
                 posterior_variance,
                 self.gamma_ts,
                 self.gamma_tplus1s,
-                noise_variance, noise_std, self.EPS)
+                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
         t3 = fromb_t3_vector(
                 y_0.copy(), mean, sigma,
                 a, b,
@@ -2908,7 +2837,7 @@ class EPOrdinalGP(Estimator):
                 posterior_variance,
                 self.gamma_ts,
                 self.gamma_tplus1s,
-                noise_variance, noise_std, self.EPS)
+                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
         t4 = fromb_t4_vector(
                 y_0.copy(), mean, sigma,
                 a, b,
@@ -2916,7 +2845,7 @@ class EPOrdinalGP(Estimator):
                 posterior_variance,
                 self.gamma_ts,
                 self.gamma_tplus1s,
-                noise_variance, noise_std, self.EPS),
+                noise_variance, noise_std, self.EPS, self.EPS_2, self.N),
         t5 = fromb_t5_vector(
                 y_0.copy(), mean, sigma,
                 a, b, h,
@@ -2924,25 +2853,23 @@ class EPOrdinalGP(Estimator):
                 posterior_variance,
                 self.gamma_ts,
                 self.gamma_tplus1s,
-                noise_variance, noise_std, self.EPS) 
+                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
         return (
             fromb_t1_vector(
                 y_0.copy(), posterior_mean, posterior_variance,
                 self.gamma_ts, self.gamma_tplus1s,
-                noise_std, self.EPS),
+                noise_std, self.EPS, self.EPS_2, self.N),
             t2,
             t3,
             t4,
             t5
         )
 
-    def compute_integrals_vector(
+    def compute_integrals_vector_SS(
             self, posterior_variance, posterior_mean, noise_variance):
         """
         Compute the integrals required for the gradient evaluation.
         """
-        # calculate gamma_t and gamma_tplus1 here
-        #noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
         noise_std = np.sqrt(noise_variance)
         mean_t = (posterior_mean[self.where_t_not0]
             * noise_variance + posterior_variance[self.where_t_not0]
@@ -2977,7 +2904,8 @@ class EPOrdinalGP(Estimator):
                 posterior_variance[self.where_t_not0],
                 self.gamma_ts[self.where_t_not0],
                 self.gamma_tplus1s[self.where_t_not0],
-                noise_variance, noise_std, self.EPS)
+                noise_variance, noise_std, self.EPS, self.EPS_2,
+                len(self.where_t_not0))
         t3[self.where_t_notJminus1] = fromb_t3_vector(
                 y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
                 a_tplus1, b_tplus1,
@@ -2985,7 +2913,8 @@ class EPOrdinalGP(Estimator):
                 posterior_variance[self.where_t_notJminus1],
                 self.gamma_ts[self.where_t_notJminus1],
                 self.gamma_tplus1s[self.where_t_notJminus1],
-                noise_variance, noise_std, self.EPS)
+                noise_variance, noise_std, self.EPS, self.EPS_2,
+                len(self.where_t_notJminus1))
         t4[self.where_t_notJminus1] = fromb_t4_vector(
                 y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
                 a_tplus1, b_tplus1,
@@ -2993,7 +2922,8 @@ class EPOrdinalGP(Estimator):
                 posterior_variance[self.where_t_notJminus1],
                 self.gamma_ts[self.where_t_notJminus1],
                 self.gamma_tplus1s[self.where_t_notJminus1],
-                noise_variance, noise_std, self.EPS),
+                noise_variance, noise_std, self.EPS, self.EPS_2,
+                len(self.where_t_notJminus1))
         t5[self.where_t_not0] = fromb_t5_vector(
                 y_t_not0.copy(), mean_t, sigma_t_not0,
                 a_t, b_t, h_t,
@@ -3001,50 +2931,18 @@ class EPOrdinalGP(Estimator):
                 posterior_variance[self.where_t_not0],
                 self.gamma_ts[self.where_t_not0],
                 self.gamma_tplus1s[self.where_t_not0],
-                noise_variance, noise_std, self.EPS) 
+                noise_variance, noise_std, self.EPS, self.EPS_2,
+                len(self.where_t_not0))
         return (
             fromb_t1_vector(
                 y_0.copy(), posterior_mean, posterior_variance,
                 self.gamma_ts, self.gamma_tplus1s,
-                noise_std, self.EPS),
+                noise_std, self.EPS, self.EPS_2, self.N),
             t2,
             t3,
             t4,
             t5
         )
-
-    def compute_integrals(
-        self, gamma, posterior_variance, posterior_mean, noise_variance):
-        """Compute the integrals required for the gradient evaluation."""
-        # Call EP routine to find posterior distribution
-        t1 = np.empty((self.N,))
-        t2 = np.empty((self.N,))
-        t3 = np.empty((self.N,))
-        t4 = np.empty((self.N,))
-        t5 = np.empty((self.N,))
-        # Compute integrals - expensive for loop
-        for i in range(self.N):
-            t1[i] = fromb_t1(
-                posterior_mean[i], posterior_variance[i],
-                self.t_train[i], self.J,
-                gamma, noise_variance, self.EPS)
-            t2[i] = fromb_t2(
-                posterior_mean[i], posterior_variance[i],
-                self.t_train[i], self.J,
-                gamma, noise_variance, self.EPS)
-            t3[i] = fromb_t3(
-                posterior_mean[i], posterior_variance[i],
-                self.t_train[i], self.J,
-                gamma, noise_variance, self.EPS)
-            t4[i] = fromb_t4(
-                posterior_mean[i], posterior_variance[i],
-                self.t_train[i], self.J,
-                gamma, noise_variance, self.EPS)
-            t5[i] = fromb_t5(
-                posterior_mean[i], posterior_variance[i],
-                self.t_train[i], self.J,
-                gamma, noise_variance, self.EPS)
-        return t1, t2, t3, t4, t5
 
     def objective(
         self, precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda,
@@ -3197,6 +3095,9 @@ class EPOrdinalGP(Estimator):
         self, precision_EP, mean_EP, grad_Z_wrt_cavity_mean,
         L=None, Lambda=None):
         """
+        TODO: There may be an issue, where grad_Z_wrt_cavity_mean is updated
+        when it shouldn't be, on line 2045.
+
         Compute regression weights, and check that they are in equilibrium with
         the gradients of Z wrt cavity means.
 
