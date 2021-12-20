@@ -2877,7 +2877,8 @@ class EPOrdinalGP(Estimator):
         """
         Compute the integrals required for the gradient evaluation.
         """
-        noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO: what on earth is this? 1d3ce073f32c2f7c3ef6f35f7a1e5bea2fed6669
+        #noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO: what on earth is this? 1d3ce073f32c2f7c3ef6f35f7a1e5bea2fed6669
+        noise_std = np.sqrt(noise_variance)
         mean = (posterior_mean * noise_variance
             + posterior_variance * self.gamma_ts) / (
                 noise_variance + posterior_variance)
@@ -2941,7 +2942,8 @@ class EPOrdinalGP(Estimator):
         Compute the integrals required for the gradient evaluation.
         """
         # calculate gamma_t and gamma_tplus1 here
-        noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
+        #noise_std = np.sqrt(noise_variance) * np.sqrt(2)  # TODO
+        noise_std = np.sqrt(noise_variance)
         mean_t = (posterior_mean[self.where_t_not0]
             * noise_variance + posterior_variance[self.where_t_not0]
             * self.gamma_ts[self.where_t_not0]) / (

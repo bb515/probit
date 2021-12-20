@@ -13,11 +13,11 @@ import matplotlib.pyplot as plt
 #         ) - norm.cdf(
 #             (gamma_t - b) / noise_std)
 
-def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):
+def return_prob_vectorSS(b, gamma_t, gamma_tplus1, noise_std):
     return 0.5*(erf((gamma_tplus1 - b) / noise_std)
                 - erf((gamma_t - b) / noise_std))
 
-def return_prob_vectorSS(b, gamma_t, gamma_tplus1, noise_std):
+def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):
     return ndtr((gamma_tplus1 - b) / noise_std) - ndtr((gamma_t - b) / noise_std)
 
 
@@ -1155,3 +1155,31 @@ def matrix_of_valuess(nu, J, N_test):
     # Tile along the rows, as they are the elements of interest
     Lambdas_Ts = np.tile(nu, (1, 1, J))
     return Lambdas_Ts  # (N_test, J, J)
+
+
+
+# N = 4
+
+# gamma = np.array([-np.inf, -0.2, 0.2, np.inf])
+
+# posterior_variance = np.abs(np.random.rand(N))
+
+# posterior_mean = np.random.rand(N)
+
+# noise_variance = 1.0
+
+# t_train = np.random.randint(low=0, high=3, size=N)
+
+# gamma_t = gamma[t_train]
+# gamma_tplus1 = gamma[t_train + 1]
+
+# noise_std = np.sqrt(noise_variance)
+
+# a = return_prob_vectorSS(posterior_mean, gamma_t, gamma_tplus1, noise_std * np.sqrt(2))
+
+# e = return_prob_vector(posterior_mean, gamma_t, gamma_tplus1, noise_std)
+
+# print(a)
+# print(e)
+# np.allclose(a, e)
+# assert 0
