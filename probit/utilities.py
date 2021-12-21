@@ -1,10 +1,7 @@
 """Utility functions for probit."""
 import numpy as np
-from scipy.stats import norm, expon
-from scipy.special import erf
+from scipy.stats import expon
 from scipy.special import ndtr
-import math
-import matplotlib.pyplot as plt
 
 
 over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
