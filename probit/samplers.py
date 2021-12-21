@@ -1,7 +1,4 @@
 from abc import ABC, abstractmethod
-from operator import pos
-
-from numpy.core.fromnumeric import prod
 from probit.estimators import EPOrdinalGP
 from .kernels import Kernel, InvalidKernel
 import pathlib
@@ -10,7 +7,6 @@ from scipy.stats import norm, multivariate_normal, uniform, expon
 from scipy.stats import gamma as gamma_
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from tqdm import trange
-from .utilities import sample_Us, matrix_of_differences, matrix_of_differencess
 import warnings
 
 

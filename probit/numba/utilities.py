@@ -6,7 +6,7 @@ import numba_scipy  # Numba overloads for scipy and scipy.special
 
 
 # Make sure to limit CPU usage (here as a failsafe)
-set_num_threads(10)
+set_num_threads(6)
 
 
 over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
