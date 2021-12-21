@@ -4,11 +4,14 @@ showing convergence of the orginal probit with the Gibbs sampler.
 """
 # Make sure to limit CPU usage
 import os
-os.environ["OMP_NUM_THREADS"] = "4" # export OMP_NUM_THREADS=4
-os.environ["OPENBLAS_NUM_THREADS"] = "4" # export OPENBLAS_NUM_THREADS=4 
+os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
-os.environ["VECLIB_MAXIMUM_THREADS"] = "4" # export VECLIB_MAXIMUM_THREADS=4
+os.environ["VECLIB_MAXIMUM_THREADS"] = "6" # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = "6" # export NUMEXPR_NUM_THREADS=6
+os.environ["NUMBA_NUM_THREADS"] = "6"
+from numba import set_num_threads
+set_num_threads(6)
 
 import argparse
 import cProfile
