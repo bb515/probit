@@ -1790,22 +1790,7 @@ class EPOrdinalGP(Estimator):
         # Threshold of single sided standard deviations
         # that normal cdf can be approximated to 0 or 1
         self.upper_bound = 4
-        # where_t_0 = np.where(self.t_train==0)[0]
-        # where_t_Jminus1 = np.where(self.t_train==self.J-1)[0]
-        # where_t_neither = np.setxor1d(self.grid, where_t_0)
-        # where_t_neither = np.setxor1d(
-        #     where_t_neither, where_t_Jminus1)
-        # self.where_t_not0 = np.concatenate(
-        #     (where_t_neither, where_t_Jminus1))
-        # self.where_t_notJminus1 = np.concatenate(
-        #     (where_t_0, where_t_neither))
         self.jitter = 1e-6
-        # TODO: Not necessarily a bad thing to use fancy indexing with these
-        # However, JAX cannot do inplace and differentiate through
-        # Try to get away from fancy indexing using these indices
-        # Just use where straight up
-        #self.where_t_not0 = np.where(self.t_train!=0)[0]
-        #self.where_t_notJminus1 = np.where(self.t_train!=self.J-1)[0]
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
 
@@ -2866,85 +2851,6 @@ class EPOrdinalGP(Estimator):
                 self.gamma_ts,
                 self.gamma_tplus1s,
                 noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
-        return (
-            fromb_t1_vector(
-                y_0.copy(), posterior_mean, posterior_variance,
-                self.gamma_ts, self.gamma_tplus1s,
-                noise_std, self.EPS, self.EPS_2, self.N),
-            t2,
-            t3,
-            t4,
-            t5
-        )
-
-    def compute_integrals_vectorSS(
-            self, posterior_variance, posterior_mean, noise_variance):
-        """
-        Compute the integrals required for the gradient evaluation.
-        """
-        noise_std = np.sqrt(noise_variance)
-        mean_t = (posterior_mean[self.where_t_not0]
-            * noise_variance + posterior_variance[self.where_t_not0]
-            * self.gamma_ts[self.where_t_not0]) / (
-                noise_variance + posterior_variance[self.where_t_not0])
-        mean_tplus1 = (posterior_mean[self.where_t_notJminus1]
-            * noise_variance + posterior_variance[self.where_t_notJminus1]
-            * self.gamma_tplus1s[self.where_t_notJminus1]) / (
-                noise_variance + posterior_variance[self.where_t_notJminus1])
-        sigma = np.sqrt(
-            (noise_variance * posterior_variance) / (
-            noise_variance + posterior_variance))
-        sigma_t_not0 = sigma[self.where_t_not0]
-        sigma_t_notJminus1 = sigma[self.where_t_notJminus1]
-        a_t = mean_t - 5.0 * sigma_t_not0
-        b_t = mean_t + 5.0 * sigma_t_not0
-        h_t = b_t - a_t
-        a_tplus1 = mean_tplus1 - 5.0 * sigma_t_notJminus1
-        b_tplus1 = mean_tplus1 + 5.0 * sigma_t_notJminus1
-        h_tplus1 = b_tplus1 - a_tplus1
-        y_0 = np.zeros((20, self.N))
-        y_t_not0 = np.zeros((20, len(self.where_t_not0)))
-        y_t_notJminus1 = np.zeros((20, len(self.where_t_notJminus1)))
-        t2 = np.zeros((self.N,))
-        t3 = np.zeros((self.N,))
-        t4 = np.zeros((self.N,))
-        t5 = np.zeros((self.N,))
-        t2[self.where_t_not0] = fromb_t2_vector(
-                y_t_not0.copy(), mean_t, sigma_t_not0,
-                a_t, b_t, h_t,
-                posterior_mean[self.where_t_not0],
-                posterior_variance[self.where_t_not0],
-                self.gamma_ts[self.where_t_not0],
-                self.gamma_tplus1s[self.where_t_not0],
-                noise_variance, noise_std, self.EPS, self.EPS_2,
-                len(self.where_t_not0))
-        t3[self.where_t_notJminus1] = fromb_t3_vector(
-                y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
-                a_tplus1, b_tplus1,
-                h_tplus1, posterior_mean[self.where_t_notJminus1],
-                posterior_variance[self.where_t_notJminus1],
-                self.gamma_ts[self.where_t_notJminus1],
-                self.gamma_tplus1s[self.where_t_notJminus1],
-                noise_variance, noise_std, self.EPS, self.EPS_2,
-                len(self.where_t_notJminus1))
-        t4[self.where_t_notJminus1] = fromb_t4_vector(
-                y_t_notJminus1.copy(), mean_tplus1, sigma_t_notJminus1,
-                a_tplus1, b_tplus1,
-                h_tplus1, posterior_mean[self.where_t_notJminus1],
-                posterior_variance[self.where_t_notJminus1],
-                self.gamma_ts[self.where_t_notJminus1],
-                self.gamma_tplus1s[self.where_t_notJminus1],
-                noise_variance, noise_std, self.EPS, self.EPS_2,
-                len(self.where_t_notJminus1))
-        t5[self.where_t_not0] = fromb_t5_vector(
-                y_t_not0.copy(), mean_t, sigma_t_not0,
-                a_t, b_t, h_t,
-                posterior_mean[self.where_t_not0],
-                posterior_variance[self.where_t_not0],
-                self.gamma_ts[self.where_t_not0],
-                self.gamma_tplus1s[self.where_t_not0],
-                noise_variance, noise_std, self.EPS, self.EPS_2,
-                len(self.where_t_not0))
         return (
             fromb_t1_vector(
                 y_0.copy(), posterior_mean, posterior_variance,
