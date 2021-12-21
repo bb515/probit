@@ -58,7 +58,6 @@ def main():
         J, D, Kernel) = load_data(
             dataset, bins)
         steps = 500
-        # # Initiate classifier
         # outer_loops(
         #     test, VBOrdinalGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
         #     gamma_0, varphi_0, noise_variance_0, scale_0, J, D)

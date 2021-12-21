@@ -12,28 +12,37 @@ import warnings
 
 class Sampler(ABC):
     """
-    Base class for samplers. This class allows users to define a classification problem, get predictions
-    using a exact Bayesian inference.
+    # TODO: The Base class for samplers is very similar to the base class for
+    # estimators. Consider merging them.
+    Base class for samplers. This class allows users to define a classification
+    problem, get predictions using a exact Bayesian inference.
+    # TODO: Consider having "_transition_operator" as a required method,
+    which takes current sample to a new sample. The transition operator
+    will be quite different however, depending on the variables sampled over.
 
-    All samplers must define an init method, which may or may not inherit Sampler as a parent class using
-        `super()`.
-    All samplers that inherit Sampler define a number of methods that return the samples.
-    All samplers must define a _sample_initiate method that is used to initate the sampler.
-    All samplers must define an predict method can be  used to make predictions given test data.
+    All samplers must define an init method, which may or may not inherit
+        Sampler as a parent class using `super()`.
+    All samplers that inherit Sampler define a number of methods that return
+        the posterior samples.
+    All samplers must define a _sample_initiate method that is used to initate
+        the sampler.
+    All samplers must define an predict method can be  used to make predictions
+        given test data.
     """
 
     @abstractmethod
-    def __init__(self, X_train, t_train, kernel, write_path=None):
+    def __init__(self, kernel, X_train, t_train, J, write_path=None):
         """
         Create an :class:`Sampler` object.
 
-        This method should be implemented in every concrete sampler.
+        This method should be implemented in every concrete Sampler.
 
-        :arg X_train: The data vector.
+        :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.    
+        :arg X_train: (N, D) The data vector.
         :type X_train: :class:`numpy.ndarray`
-        :arg t_train: The target vector.
+        :arg t_train: (N, ) The target vector.
         :type t_train: :class:`numpy.ndarray`
-        :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.
+        :arg J: The number of (ordinal) classes.
         :arg str write_path: Write path for outputs.
 
         :returns: A :class:`Sampler` object
@@ -46,20 +55,35 @@ class Sampler(ABC):
             self.write_path = None
         else:
             self.write_path = pathlib.Path(write_path)
-
-        self.D = np.shape(X_train)[1]
         self.N = np.shape(X_train)[0]
-        self.X_train = X_train  # (N, D)
-        self.X_train_T = X_train.T
+        self.D = np.shape(X_train)[1]
+        self.X_train = X_train
         if np.all(np.mod(t_train, 1) == 0):
             t_train = t_train.astype(int)
         else:
-            raise ValueError("t must contain only integer values (got {})".format(t_train))
-        if np.all(t_train >= 0):
-            self.K = int(np.max(t_train) + 1)  # the number of classes
+            raise ValueError(
+                "t must contain only integer values (got {})".format(t_train))
+        if t_train.dtype != int:
+            raise TypeError(
+                "t must contain only integer values (got {})".format(
+                    t_train))
         else:
-            raise ValueError("t must contain only positive integer values (got {})").format(t_train)
-        self.t_train = t_train
+            self.t_train = t_train
+        self.J = J
+        if self.kernel._ARD:
+            sigma = np.reshape(self.kernel.sigma, (self.J, 1))
+            tau = np.reshape(self.kernel.tau, (self.J, 1))
+            self.sigma = np.tile(sigma, (1, self.D))  # (J, D)
+            self.tau = np.tile(tau, (1, self.D))  # (J, D)
+        else:
+            self.sigma = self.kernel.sigma
+            self.tau = self.kernel.tau
+        # See GPML by Williams et al. for a good explanation of jitter
+        self.jitter = 1e-8 
+        self.upper_bound = 6.0 # TODO: needed?
+        self.upper_bound2 = 18.0
+        warnings.warn("Updating prior covariance.")
+        self._update_prior()
 
     @abstractmethod
     def _sample_initiate(self):
@@ -85,23 +109,217 @@ class Sampler(ABC):
         This method should be implemented in every concrete sampler.
         """
 
-
-class GibbsMultinomialOrderedGPTemp(Sampler):
-    """
-        A Gibbs sampler for Multinomial regression of ordered data. Inherits the sampler ABC
-    """
-
-    def __init__(self, K, *args, **kwargs):
+    def get_theta(self, indices):
         """
-        Create an :class:`Gibbs_GP` sampler object.
+        Get the parameters (theta) for unconstrained sampling.
 
-        :returns: An :class:`Gibbs_GP` object.
+        :arg indices: Indicator array of the hyperparameters to sample over.
+        :type indices: :class:`numpy.ndarray`
+        :returns: The unconstrained parameters to optimize over, theta.
+        :rtype: :class:`numpy.array`
+        """
+        theta = []
+        if indices[0]:
+            theta.append(np.log(np.sqrt(self.noise_variance)))
+        if indices[1]:
+            theta.append(self.gamma[1])
+        for j in range(2, self.J):
+            if indices[j]:
+                theta.append(np.log(self.gamma[j] - self.gamma[j - 1]))
+        if indices[self.J]:
+            theta.append(np.log(np.sqrt(self.kernel.scale)))
+        # TODO: replace this with kernel number of hyperparameters.
+        if indices[self.J + 1]:
+            theta.append(np.log(self.kernel.varphi))
+        return np.array(theta)
+
+    def _grid_over_hyperparameters_initiate(
+            self, res, domain, indices, gamma):
+        """
+        Initiate metadata and hyperparameters for plotting the objective
+        function surface over hyperparameters.
+
+        :arg axis_scale:
+        :type axis_scale:
+        :arg int res:
+        :arg range_x1:
+        :type range_x1:
+        :arg range_x2:
+        :type range_x2:
+        :arg int J:
+        """
+        index = 0
+        label = []
+        axis_scale = []
+        space = []
+        if indices[0]:
+            # Grid over noise_std
+            label.append(r"$\sigma$")
+            axis_scale.append("log")
+            space.append(
+                np.logspace(domain[index][0], domain[index][1], res[index]))
+            index += 1
+        if indices[1]:
+            # Grid over b_1
+            label.append(r"$\gamma_{1}$")
+            axis_scale.append("linear")
+            space.append(
+                np.linspace(domain[index][0], domain[index][1], res[index]))
+            index += 1
+        for j in range(2, self.J):
+            if indices[j]:
+                # Grid over b_j
+                label.append(r"$\gamma_{} - \gamma{}$".format(j, j-1))
+                axis_scale.append("log")
+                space.append(
+                    np.logspace(
+                        domain[index][0], domain[index][1], res[index]))
+                index += 1
+        if indices[self.J]:
+            # Grid over scale
+            label.append("$scale$")
+            axis_scale.append("log")
+            space.append(
+                np.logspace(domain[index][0], domain[index][1], res[index]))
+            index += 1
+        if self.kernel._general and self.kernel._ARD:
+            gx_0 = np.empty(1 + self.J - 1 + 1 + self.J * self.D)
+            # In this case, then there is a scale parameter,
+            #  the first cutpoint, the interval parameters,
+            # and lengthscales parameter for each dimension and class
+            for j in range(self.J * self.D):
+                if indices[self.J + 1 + j]:
+                    # grid over this particular hyperparameter
+                    raise ValueError("TODO")
+                    index += 1
+        else:
+            gx_0 = np.empty(1 + self.J - 1 + 1 + 1)
+            if indices[self.J + 1]:
+                # Grid over only kernel hyperparameter, varphi
+                label.append(r"$\varphi$")
+                axis_scale.append("log")
+                space.append(
+                    np.logspace(
+                        domain[index][0], domain[index][1], res[index]))
+                index +=1
+        if index == 2:
+            meshgrid = np.meshgrid(space[0], space[1])
+            Phi_new = np.dstack(meshgrid)
+            Phi_new = Phi_new.reshape((len(space[0]) * len(space[1]), 2))
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty((len(Phi_new), 2))
+        elif index == 1:
+            meshgrid = (space[0], None)
+            space.append(None)
+            axis_scale.append(None)
+            label.append(None)
+            Phi_new = space[0]
+            fxs = np.empty(len(Phi_new))
+            gxs = np.empty(len(Phi_new))
+        else:
+            raise ValueError(
+                "Too many independent variables to plot objective over!"
+                " (got {}, expected {})".format(
+                index, "1, or 2"))
+        assert len(axis_scale) == 2
+        assert len(meshgrid) == 2
+        assert len(space) ==  2
+        assert len(label) == 2
+        intervals = gamma[2:self.J] - gamma[1:self.J - 1]
+        indices_where = np.where(indices != 0)
+        return (
+            space[0], space[1],
+            label[0], label[1],
+            axis_scale[0], axis_scale[1],
+            meshgrid[0], meshgrid[1],
+            Phi_new, fxs, gxs, gx_0, intervals, indices_where)
+
+    def _grid_over_hyperparameters_update(
+        self, phi, indices, gamma):
+        """
+        Update the hyperparameters, phi.
+
+        :arg kernel:
+        :type kernel:
+        :arg phi: The updated values of the hyperparameters.
+        :type phi:
+        """
+        index = 0
+        if indices[0]:
+            if np.isscalar(phi):
+                noise_std = phi
+            else:
+                noise_std = phi[index]
+            noise_variance = noise_std**2
+            noise_variance_update = noise_variance
+            # Update kernel parameters, update prior and posterior covariance
+            index += 1
+        else:
+            noise_variance_update = None
+        if indices[1]:
+            gamma = np.empty((self.J + 1,))
+            gamma[0] = np.NINF
+            gamma[-1] = np.inf
+            gamma[1] = phi[index]
+            index += 1
+        for j in range(2, self.J):
+            if indices[j]:
+                if np.isscalar(phi):
+                    gamma[j] = gamma[j-1] + phi
+                else:
+                    gamma[j] = gamma[j-1] + phi[index]
+                index += 1
+        gamma_update = None  # TODO TODO <<< hack
+        if indices[self.J]:
+            scale_std = phi[index]
+            scale = scale_std**2
+            index += 1
+            scale_update = scale
+        else:
+            scale_update = None
+        if indices[self.J + 1]:  # TODO: replace this with kernel number of hyperparameters.
+            if np.isscalar(phi):
+                varphi = phi
+            else:
+                varphi = phi[index]
+            varphi_update = varphi
+            index += 1
+        else:
+            varphi_update = None
+        # assert index == 2
+        assert index == 1  # TODO: TEMPORARY
+        # Update kernel parameters, update prior and posterior covariance
+        self.hyperparameters_update(
+                gamma=gamma, 
+                noise_variance=noise_variance_update,
+                scale=scale_update,
+                varphi=varphi_update)
+        return 0
+
+    def _update_prior(self):
+        """Update prior covariances."""
+        self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
+
+
+class GibbsOrdinalGP(Sampler):
+    """
+    Gibbs sampler for ordinal GP regression. Inherits the sampler ABC.
+    """
+
+    def __init__(self, J, *args, **kwargs):
+        """
+        Create an :class:`GibbsOrdinalGP` sampler object.
+
+        :returns: An :class:`GibbsOrdinalGP` object.
         """
         super().__init__(*args, **kwargs)
         if self.kernel.general_kernel:
-            raise ValueError('The kernel must not be ARD type (kernel.general_kernel=1),'
-                             ' but ISO type (kernel.general_kernel=0). (got {}, expected)'.format(
-                self.kernel.general_kernel, 0))
+            raise ValueError(
+                'The kernel must not be ARD type (kernel.general_kernel=1),'
+                ' but ISO type (kernel.general_kernel=0). '
+                '(got {}, expected {})'.format(self.kernel.general_kernel, 0))
+        # TODO: Need to apply the relevant chol factorisation refactoring here
+        # and move it all to an update prior function.
         self.K = K
         self.I = np.eye(self.K)
         self.C = self.kernel.kernel_matrix(self.X_train, self.X_train)

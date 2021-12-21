@@ -20,7 +20,8 @@ def plot(classifier, m_0, steps, J, D, domain=None):
         (calligraphic_Z,
         norm_pdf_z1s, norm_pdf_z2s,
         z1s, z2s, *_) = classifier._calligraphic_Z(
-            classifier.gamma, classifier.noise_std, m_0)
+            classifier.gamma_ts, classifier.gamma_tplus1s,
+            classifier.noise_std, m_0)
         fx = classifier.objective(
             classifier.N, m_0, nu, classifier.trace_cov,
             classifier.trace_Sigma_div_var,
@@ -85,7 +86,8 @@ def plot_synthetic(
     plt.title("Variational lower bound on the marginal likelihood")
     plt.show()
     (calligraphic_Z, *_) = classifier._calligraphic_Z(
-                    classifier.gamma, classifier.noise_std, m_tilde,
+                    classifier.gamma_ts, classifier.gamma_tplus1s,
+                    classifier.noise_std, m_tilde,
                     upper_bound=classifier.upper_bound,
                     upper_bound2=classifier.upper_bound2)
     J = classifier.J
@@ -275,8 +277,9 @@ def test(
         norm_pdf_z2s,
         z1s,
         z2s,
-        *_ )= classifier._calligraphic_Z(
-            classifier.gamma, classifier.noise_std, m_0)
+        *_)= classifier._calligraphic_Z(
+            classifier.gamma_ts, classifier.gamma_tplus1s,
+            classifier.noise_std, m_0)
         fx = classifier.objective(
             classifier.N, m_0, nu,
             classifier.trace_cov,

@@ -1,6 +1,12 @@
 """
-Ordered probit regression 3 bin example from Cowles 1996 empirical study
+Ordinal regression concrete examples. Exact inference: Gibbs sampling.
+
+Multiclass oredered probit regression
+3 bin example from Cowles 1996 empirical study
 showing convergence of the orginal probit with the Gibbs sampler.
+Gibbs vs Metropolis within Gibbs convergence for a 3 bin example.
+Except we take the mean (intercept) to be fixed, and don't fix the first
+cutpoint.
 """
 # Make sure to limit CPU usage
 import os
@@ -19,172 +25,112 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.samplers import GibbsOrderedGPTemp
+from probit.samplers import GibbsOrdinalGP
+from probit.plot import outer_loops, grid_synthetic
+from probit.Gibbs import plot
 from probit.kernels import SEIso
-import matplotlib.pyplot as plt
 import pathlib
-from probit.data.utilities import generate_prior_data, generate_synthetic_data, get_Y_trues, colors, datasets, metadata
+from probit.data.utilities import datasets, load_data, load_data_synthetic
+import time
 
 
+now = time.ctime()
 write_path = pathlib.Path()
 
-# Septiel varphi=30.0, scale=20.0
-# Tertile varphi=30.0, noise_variance=0.1
+
+def main():
+    """Conduct Gibbs exact inference and hyperparameter sampling."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "dataset_name", help="run example on a given dataset name")
+    parser.add_argument(
+        "bins", help="quantile or decile")
+    parser.add_argument(
+        "method", help="SA or AA")  # TODO: Surrogate
+    # The --profile argument generates profiling information for the example
+    parser.add_argument('--profile', action='store_const', const=True)
+    args = parser.parse_args()
+    dataset = args.dataset_name
+    bins = args.bins
+    method = args.method
+    write_path = pathlib.Path(__file__).parent.absolute()
+    if args.profile:
+        profile = cProfile.Profile()
+        profile.enable()
+    #sys.stdout = open("{}.txt".format(now), "w")
+    if dataset in datasets["benchmark"]:
+        (X_trains, t_trains,
+        X_tests, t_tests,
+        X_true, y_tests,
+        gamma_0, varphi_0, noise_variance_0, scale_0,
+        J, D, Kernel) = load_data(
+            dataset, bins)
+        burn_steps = 2000
+        steps = 1000
+        # outer_loops(
+        #     test, GibsOrdinalGP, Kernel, X_trains, t_trains, X_tests,
+        #     t_tests, burn_steps, steps,
+        #     gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
+        # Initiate kernel
+        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        # Initiate classifier
+        sampler = GibbsOrdinalGP(
+            gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
+        plot(sampler, X_tests[2], t_tests[2], y_tests[2], burn_steps, steps)
+    elif dataset in datasets["synthetic"]:
+        (X, t,
+        X_true, y_true,
+        gamma_0, varphi_0, noise_variance_0, scale_0,
+        J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+        # Initiate kernel
+        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        # Initiate classifier
+        # TODO: temporary, since we know the true latent variables here
+        burn_steps = 2000
+        steps = 1000
+        m_0 = y_true
+        y_0 = y_true
+        sampler = GibbsOrdinalGP(
+            gamma_0, noise_variance_0, kernel, X, t, J)
+        plot(sampler, m_0, y_0, gamma_0, burn_steps, steps, J, D)
+
+        # indices = np.ones(J + 2)
+        # # Fix noise_variance
+        # indices[0] = 0
+        # # Fix scale
+        # indices[J] = 0
+        # # Fix varphi
+        # #indices[-1] = 0
+        # # Fix gamma
+        # indices[1:J] = 0
+        # # Just varphi
+        # domain = ((-4, 4), None)
+        # res = (100, None)
+        # # #  just scale
+        # # domain = ((0., 1.8), None)
+        # # res = (20, None)
+        # # # just std
+        # # domain = ((-0.1, 1.), None)
+        # # res = (100, None)
+        # # # varphi and scale
+        # # domain = ((0, 2), (0, 2))
+        # # res = (100, None)
+        # # # varphi and std
+        # # domain = ((0, 2), (0, 2))
+        # # res = (100, None)
+        # grid_synthetic(sampler, domain, res, indices, show=False)
+    if args.profile:
+        profile.disable()
+        s = StringIO()
+        stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
+        stats.print_stats(.05)
+        print(s.getvalue())
+    #sys.stdout.close()
 
 
-if argument == "diabetes_quantile":
-    K = 5
-    D = 2
-    gamma_0 = np.array([np.NINF, 3.8, 4.5, 5.0, 5.6, np.inf])
-    data = np.load(write_path / "/data/5bin/diabetes.data.npz")
-    data_continuous = np.load("/data/continuous/diabetes.DATA.npz")
-elif argument == "stocks_quantile":
-    K = 5
-    D = 9
-    gamma_0 = np.array([np.NINF, 1.0, 2.0, 3.0, 4.0, np.inf])
-    data = np.load(write_path / "./data/5bin/stock.npz")
-    data_continuous = np.load(write_path / "./data/continuous/stock.npz")
-elif argument == "tertile":
-    K = 3
-    D = 1
-    N_per_class = 64
-    gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
-    # # Generate the synethetic data
-    # X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, kernel)
-    # np.savez(write_path / "data_tertile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
-    data = np.load("data_tertile.npz")
-elif argument == "septile":
-    K = 7
-    D = 1
-    N_per_class = 32
-    # Generate the synethetic data
-    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, kernel)
-    #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
-    data = np.load("data_septile.npz")
-    gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
+if __name__ == "__main__":
+    main()
 
-if argument in ["diabetes_quantile", "stocks_quantile"]:
-    X_trains = data["X_train"]
-    t_trains = data["t_train"]
-    X_tests = data["X_test"]
-    t_tests = data["t_test"]
-
-    # Python indexing
-    t_tests = t_tests - 1
-    t_trains = t_trains - 1
-    t_tests = t_tests.astype(int)
-    t_trains = t_trains.astype(int)
-
-    # Number of splits
-    N_splits = len(X_trains)
-    assert len(X_trains) == len(X_tests)
-
-    X = X_trains[0]
-    t = t_trains[0]
-    N_total = len(X)
-    # Since python indexes from 0
-    t = t - 1
-    print(len(X), len(t))
-    X_test = X_tests[0]
-    t_test = t_tests[0]
-    t_test = t_test - 1
-
-    X_true = data_continuous["X"]
-    Y_true = data_continuous["y"]  # this is not going to be the correct one
-    Y_trues = []
-
-    for k in range(20):
-        y = []
-        for i in range(len(X_trains[0, :, :])):
-            for j, two in enumerate(X_true):
-                one = X_trains[k, i]
-                if np.allclose(one, two):
-                    y.append(Y_true[j])
-        Y_trues.append(y)
-    Y_trues = np.array(Y_trues)
-else:
-    X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-    #Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-    X = data["X"]  # Contains (1792,) array of x values
-    t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-    Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-    N_total = int(N_per_class * K)
-
-    # # Plot
-    # colors_ = [colors[i] for i in t]
-    # plt.scatter(X, Y_true, color=colors_)
-    # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-    # plt.xlabel(r"$x$", fontsize=16)
-    # plt.ylabel(r"$y$", fontsize=16)
-    # plt.show()
-
-    # # Plot from the binned arrays
-    # for k in range(K):
-    #     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
-    # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-    # plt.legend()
-    # plt.xlabel(r"$x$", fontsize=16)
-    # plt.ylabel(r"$y$", fontsize=16)
-    # plt.show()
-
-
-# for i in range(len(X_test)):
-#     for j in range(len(X_true)):
-#         one = X_test[i]
-#         two = X_true[j]
-#         if np.allclose(one, two):
-#             t_test.append[j]
-
-
-# X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-# Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-# X = data["X"]  # Contains (1792,) array of x values
-# t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-# Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-# N_total = int(N_per_class * K)
-# print(Y_true_k[1][-1], Y_true_k[2][0], "cutpoint 2")
-
-# Initiate classifier
-gibbs_classifier = GibbsOrderedGPTemp(K, X, t, kernel)
-steps_burn = 100
-steps = 5000
-
-# # Plot
-# colors_ = [colors[i] for i in t]
-# plt.scatter(X, Y_true, color=colors_)
-# plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-# plt.xlabel(r"$x$", fontsize=16)
-# plt.ylabel(r"$y$", fontsize=16)
-# plt.show()
-
-# Plot from the binned arrays
-
-plt.scatter(X[np.where(t == 1)][:, 0], X[np.where(t == 1)][:, 1])
-plt.scatter(X[np.where(t == 2)][:, 0], X[np.where(t == 2)][:, 1])
-plt.scatter(X[np.where(t == 3)][:, 0], X[np.where(t == 3)][:, 1])
-plt.scatter(X[np.where(t == 4)][:, 0], X[np.where(t == 4)][:, 1])
-plt.scatter(X[np.where(t == 5)][:, 0], X[np.where(t == 5)][:, 1])
-
-# for k in range(K):
-#     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
-# plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-plt.legend()
-plt.xlabel(r"$x_1$", fontsize=16)
-plt.ylabel(r"$x_2$", fontsize=16)
-plt.show()
-
-# m_0 = np.random.rand(N_total)
-# Problem with this is that the intial guess must be close to the true values
-# As a result we have to approximate the latent function.
-if argument in ["diabetes_quantile", "stocks_quantile"]:
-    m_0 = Y_true
-    y_0 = Y_true
-elif argument == "tertile":
-    y_0 = t.flatten()
-    m_0 = y_0
-elif argument == "septile":
-    y_0 = t.flatten()
-    m_0 = y_0
 
 # Burn in
 m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0, y_0, gamma_0, steps_burn)
@@ -200,7 +146,7 @@ m_tilde = np.mean(m_samples, axis=0)
 y_tilde = np.mean(y_samples, axis=0)
 gamma_tilde = np.mean(gamma_samples, axis=0)
 
-if argument == "diabetes_quantile" or argument == "stocks_quantile":
+if argument == "diabetes_quantile":
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     ax[0].plot(gamma_samples[:, 1])
     ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)

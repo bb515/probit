@@ -1,5 +1,5 @@
 """
-Multiclass oredered probit regression 3 bin example from Cowles 1996 empirical study
+Ordered probit regression 3 bin example from Cowles 1996 empirical study
 showing convergence of the orginal probit with the Gibbs sampler.
 """
 # Make sure to limit CPU usage
@@ -19,161 +19,65 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.samplers import GibbsMultinomialOrderedGP
+from probit.samplers import GibbsOrderedGPTemp
 from probit.kernels import SEIso
 import matplotlib.pyplot as plt
 import pathlib
-from probit.utilities import generate_prior_data, generate_synthetic_data
+from probit.data.utilities import generate_prior_data, generate_synthetic_data, get_Y_trues, colors, datasets, metadata
 
 
 write_path = pathlib.Path()
 
-colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-
-arguments = [
-    "abalone",
-    "auto",
-    "diabetes_quantile",
-    "housing",
-    "machine",
-    "pyrim",
-    "stocks_quantile",
-    "triazines",
-    "wpbc"
-]
-
-argument = "tertile"
+# Septiel varphi=30.0, scale=20.0
+# Tertile varphi=30.0, noise_variance=0.1
 
 
-def split(list, K):
-    """Split a list into quantiles."""
-    divisor, remainder = divmod(len(list), K)
-    return np.array(list[i * divisor + min(i, remainder):(i+1) * divisor + min(i + 1, remainder)] for i in range(K))
+# TODO: Check indexing is correct
+# t_tests = t_tests - 1
+# t_trains = t_trains - 1
 
-
-# This is the general kernel for a GP prior for the multi-class problem
-# varphi = 30.0
-# scale = 20.0
-
-varphi = 30.0
-# varphi = 0.01
-scale = 3.0
-sigma = 10e-6
-tau = 10e-6
-
-kernel = SEIso(varphi, scale, sigma=sigma, tau=tau)
-
-# N_per_class = 64
-# K = 3
-#
-# X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
-#
-
-
-
-if argument == "diabetes_quantile":
-    K = 6
-    D = 2
-    gamma_0 = np.array([-np.inf, 0.0, 3.8, 4.5, 5.0, 5.6, np.inf])
-    data = np.load("data_diabetes_train.npz")
-    data_test = np.load("data_diabetes_test.npz")
-    data_continuous = np.load("data_diabetes_continuous.npz")
-elif argument == "tertile":
-    K = 3
-    D = 1
-    N_per_class = 64
-    gamma_0 = np.array([-np.inf, 0.0, 2.29, np.inf])
-    # # Generate the synethetic data
-    # X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
-    # np.savez(write_path / "data_tertile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
-    data = np.load("data_tertile.npz")
-elif argument == "septile":
-    K = 7
-    D = 1
-    N_per_class = 32
-    # Generate the synethetic data
-    #X_k, Y_true_k, X, Y_true, t = generate_synthetic_data(N_per_class, K, D, kernel)
-    #np.savez(write_path / "data_septile.npz", X_k=X_k, Y_k=Y_true_k, X=X, Y=Y_true, t=t)
-    data = np.load("data_septile.npz")
-    gamma_0 = np.array([-np.inf, 0.0, 1.0, 2.0, 4.0, 5.5, 6.5, np.inf])
-
-
-if argument in arguments:
-    X = data["X"]
-    t = data["t"]
-    N_total = len(X)
-    X_test = data_test["X"]
-    t_test = data_test["t"]
-
-    X_true = data_continuous["X"]
-    Y_true = data_continuous["y"]  # this is not going to be the correct one
-
-    y = []
-
-    for i in range(len(X)):
-        for j in range(len(X_true)):
-            one = X[i]
-            two = X_true[j]
-            if np.allclose(one, two):
-                y.append(Y_true[j])
-    y_true = np.array(y)
-    print(y_true)
-
-else:
-    X_k = data["X_k"]  # Contains (256, 7) array of binned x values
-    Y_true_k = data["Y_k"]  # Contains (256, 7) array of binned y values
-    X = data["X"]  # Contains (1792,) array of x values
-    t = data["t"]  # Contains (1792,) array of ordinal response variables, corresponding to Xs values
-    Y_true = data["Y"]  # Contains (1792,) array of y values, corresponding to Xs values (not in order)
-    N_total = int(N_per_class * K)
-    print(Y_true_k[1][-1], Y_true_k[2][0], "cutpoint 2")
-    # for i in range(len(X_test)):
-    #     for j in range(len(X_true)):
-    #         one = X_test[i]
-    #         two = X_true[j]
-    #         if np.allclose(one, two):
-    #             t_test.append[j]
 
 
 # Initiate classifier
-gibbs_classifier = GibbsMultinomialOrderedGP(K, X, t, kernel)
+gibbs_classifier = GibbsOrderedGPTemp(K, X, t, kernel)
 steps_burn = 100
 steps = 5000
-y_0 = t.flatten()
-#y_0 = Y_true.flatten()
 
+# # Plot
+# colors_ = [colors[i] for i in t]
+# plt.scatter(X, Y_true, color=colors_)
+# plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+# plt.xlabel(r"$x$", fontsize=16)
+# plt.ylabel(r"$y$", fontsize=16)
+# plt.show()
 
-if argument in arguments:
-    # Plot from the binned arrays
+# Plot from the binned arrays
 
-    plt.scatter(X[np.where(t == 1)][:, 0], X[np.where(t == 1)][:, 1])
-    plt.scatter(X[np.where(t == 2)][:, 0], X[np.where(t == 2)][:, 1])
-    plt.scatter(X[np.where(t == 3)][:, 0], X[np.where(t == 3)][:, 1])
-    plt.scatter(X[np.where(t == 4)][:, 0], X[np.where(t == 4)][:, 1])
-    plt.scatter(X[np.where(t == 5)][:, 0], X[np.where(t == 5)][:, 1])
-    plt.legend()
-    plt.xlabel(r"$x_1$", fontsize=16)
-    plt.ylabel(r"$x_2$", fontsize=16)
-    plt.show()
-else:
-    # Plot
-    colors_ = [colors[i] for i in t]
-    plt.scatter(X, Y_true, color=colors_)
-    plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
-    plt.xlabel(r"$x$", fontsize=16)
-    plt.ylabel(r"$y$", fontsize=16)
-    plt.show()
-    # for k in range(K):
-    #     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
-    # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+plt.scatter(X[np.where(t == 1)][:, 0], X[np.where(t == 1)][:, 1])
+plt.scatter(X[np.where(t == 2)][:, 0], X[np.where(t == 2)][:, 1])
+plt.scatter(X[np.where(t == 3)][:, 0], X[np.where(t == 3)][:, 1])
+plt.scatter(X[np.where(t == 4)][:, 0], X[np.where(t == 4)][:, 1])
+plt.scatter(X[np.where(t == 5)][:, 0], X[np.where(t == 5)][:, 1])
+
+# for k in range(K):
+#     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
+# plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
+plt.legend()
+plt.xlabel(r"$x_1$", fontsize=16)
+plt.ylabel(r"$x_2$", fontsize=16)
+plt.show()
 
 # m_0 = np.random.rand(N_total)
 # Problem with this is that the intial guess must be close to the true values
 # As a result we have to approximate the latent function.
-if argument in arguments:
-    m_0 = y_true
-    y_0 = y_true
-else:
+if argument in ["diabetes_quantile", "stocks_quantile"]:
+    m_0 = Y_true
+    y_0 = Y_true
+elif argument == "tertile":
+    y_0 = t.flatten()
+    m_0 = y_0
+elif argument == "septile":
+    y_0 = t.flatten()
     m_0 = y_0
 
 # Burn in
@@ -190,7 +94,7 @@ m_tilde = np.mean(m_samples, axis=0)
 y_tilde = np.mean(y_samples, axis=0)
 gamma_tilde = np.mean(gamma_samples, axis=0)
 
-if argument == "diabetes_quantile":
+if argument == "diabetes_quantile" or argument == "stocks_quantile":
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     ax[0].plot(gamma_samples[:, 1])
     ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)

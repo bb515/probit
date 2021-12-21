@@ -44,7 +44,7 @@ class Estimator(ABC):
     @abstractmethod
     def __init__(self, kernel, X_train, t_train, J, write_path=None):
         """
-        Create an :class:`Sampler` object.
+        Create an :class:`Estimator` object.
 
         This method should be implemented in every concrete Estimator.
 
@@ -66,15 +66,14 @@ class Estimator(ABC):
             self.write_path = pathlib.Path()
         else:
             self.write_path = pathlib.Path(write_path)
-        self.D = np.shape(X_train)[1]
         self.N = np.shape(X_train)[0]
+        self.D = np.shape(X_train)[1]
         self.X_train = X_train
         if np.all(np.mod(t_train, 1) == 0):
             t_train = t_train.astype(int)
         else:
             raise TypeError(
-                "t must contain only integer values (got {})".format(
-                    t_train))
+                "t must contain only integer values (got {})".format(t_train))
         if t_train.dtype != int:
             raise TypeError(
                 "t must contain only integer values (got {})".format(
@@ -171,14 +170,14 @@ class Estimator(ABC):
         Initiate metadata and hyperparameters for plotting the objective
         function surface over hyperparameters.
 
-        :arg axis_scale:
-        :type axis_scale:
         :arg int res:
-        :arg range_x1:
-        :type range_x1:
-        :arg range_x2:
-        :type range_x2:
-        :arg int J:
+        :arg domain: ((2,)tuple, (2.)tuple) of the start/stop in the domain to
+            grid over, for each axis, like: ((start, stop), (start, stop)).
+        :type domain:
+        :arg indices: Indicator array of the hyperparameters to sample over.
+        :type indices: :class:`numpy.ndarray`
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         """
         index = 0
         label = []
@@ -271,10 +270,12 @@ class Estimator(ABC):
         """
         Update the hyperparameters, phi.
 
-        :arg kernel:
-        :type kernel:
         :arg phi: The updated values of the hyperparameters.
         :type phi:
+        :arg indices:
+        :type indices:
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         """
         index = 0
         if indices[0]:
@@ -318,7 +319,7 @@ class Estimator(ABC):
             index += 1
         else:
             varphi_update = None
-        # assert index == 2
+        # assert index == 2  # TODO: TEMPORARY
         assert index == 1  # TODO: TEMPORARY
         # Update kernel parameters, update prior and posterior covariance
         self.hyperparameters_update(
@@ -338,16 +339,17 @@ class Estimator(ABC):
 
     def _g(self, x):
         """
-        Polynomial part of a series expansion for log survival function for a normal random variable. With the third
-        term, for x>4, this is accurate to three decimal places.
-        The third term becomes significant when sigma is large. 
+        Polynomial part of a series expansion for log survival function for a
+        normal random variable. With the third term, for x>4, this is accurate
+        to three decimal places. The third term becomes significant when sigma
+        is large. 
         """
         return -1. / x**2 + 5/ (2 * x**4) - 37 / (3 *  x**6)
 
     def _calligraphic_Z_tails(self, z1, z2):
         """
         Series expansion at infinity.
-        
+
         Even for z1, z2 >= 4 this is accurate to three decimal places.
         """
         return 1/np.sqrt(2 * np.pi) * (
@@ -359,7 +361,7 @@ class Estimator(ABC):
         return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + self._g(z))
 
     def _calligraphic_Z_vectorised(
-            self, gamma, noise_std, ms,
+            self, gamma_ts, gamma_tplus1s, noise_std, ms,
             upper_bound=None, upper_bound2=None, verbose=False):
         """
         Return the normalising constants for the truncated normal distribution
@@ -367,8 +369,8 @@ class Estimator(ABC):
 
         Vectorised version.
 
-        :arg gamma: The cutpoints.
-        :type gamma: :class:`numpy.array`
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg float noise_std: The noise standard deviation.
         :arg ms: The mean vectors, (num, N) where num could be e.g. a
             number of importance samples.
@@ -394,8 +396,8 @@ class Estimator(ABC):
             :class:`numpy.ndarray`, :class:`numpy.ndarray`)
         """
         # Otherwise
-        z1s = (self.gamma_ts - ms) / noise_std
-        z2s = (self.gamma_tplus1s - ms) / noise_std
+        z1s = (gamma_ts - ms) / noise_std
+        z2s = (gamma_tplus1s - ms) / noise_std
         norm_pdf_z1s = norm.pdf(z1s)
         norm_pdf_z2s = norm.pdf(z2s)
         norm_cdf_z1s = norm.cdf(z1s)
@@ -410,41 +412,48 @@ class Estimator(ABC):
             z1_indices = z1s[indices]
             print(z1_indices)
             z2_indices = z2s[indices]
-            calligraphic_Z[indices] = self._calligraphic_Z_tails(z1_indices, z2_indices)
+            calligraphic_Z[indices] = self._calligraphic_Z_tails(
+                z1_indices, z2_indices)
             if upper_bound2 is not None:
                 indices = np.where(z1s > upper_bound2)
                 z1_indices = z1s[indices]
-                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(z1_indices)
+                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(
+                    z1_indices)
                 indices = np.where(z2s < -upper_bound2)
                 z2_indices = z2s[indices]
-                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(-z2_indices)
+                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(
+                    -z2_indices)
         if verbose is True:
-            number_small_densities = len(calligraphic_Z[calligraphic_Z < self.EPS])
+            number_small_densities = len(
+                calligraphic_Z[calligraphic_Z < self.EPS])
             if number_small_densities != 0:
                 warnings.warn(
-                    "calligraphic_Z (normalising constants for truncated normal) "
-                    "must be greater than tolerance={} (got {}): SETTING to Z_ns[Z_ns<tolerance]=tolerance\n"
-                            "z1s={}, z2s={}".format(
-                    self.EPS, calligraphic_Z, z1s, z2s))
+                    "calligraphic_Z (normalising constants for truncated norma"
+                    "l) must be greater than tolerance={} (got {}): SETTING to"
+                    " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
+                        self.EPS, calligraphic_Z, z1s, z2s))
                 for i, value in enumerate(calligraphic_Z):
                     if value < 0.01:
-                        print("call_Z={}, z1 = {}, z2 = {}".format(value, z1s[i], z2s[i]))
+                        print("call_Z={}, z1 = {}, z2 = {}".format(
+                            value, z1s[i], z2s[i]))
         return (
-            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s,
-            self.gamma_ts, self.gamma_tplus1s)
+            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+            norm_cdf_z1s, norm_cdf_z2s)
 
     def _calligraphic_Z(
-            self, gamma, noise_std, m,
+            self, gamma_ts, gamma_tplus1s, noise_std, m,
             upper_bound=None, upper_bound2=None, verbose=False):
         """
+        TODO: I should pass in self.gamma_ts and self.gamma_tplus1s, and
+        remove them from the outputs.
         Return the normalising constants for the truncated normal distribution
         in a numerically stable manner.
 
         TODO: There is no way to calculate this in the log domain (unless expansion
         approximations are used). Could investigate only using approximations here.
 
-        :arg gamma: The cutpoints.
-        :type gamma: :class:`numpy.array`
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg float noise_std: The noise standard deviation.
         :arg m: The mean vector.
         :type m: :class:`numpy.ndarray`
@@ -459,18 +468,16 @@ class Estimator(ABC):
             calligraphic_Z,
             norm_pdf_z1s, norm_pdf_z2s,
             norm_cdf_z1s, norm_cdf_z2s,
-            gamma_1s, gamma_2s,
             z1s, z2s)
         :rtype: tuple (
             :class:`numpy.ndarray`,
             :class:`numpy.ndarray`, :class:`numpy.ndarray`,
             :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
             :class:`numpy.ndarray`, :class:`numpy.ndarray`)
         """
         # Otherwise
-        z1s = (self.gamma_ts - m) / noise_std
-        z2s = (self.gamma_tplus1s - m) / noise_std
+        z1s = (gamma_ts - m) / noise_std
+        z2s = (gamma_tplus1s - m) / noise_std
         norm_pdf_z1s = norm.pdf(z1s)
         norm_pdf_z2s = norm.pdf(z2s)
         norm_cdf_z1s = norm.cdf(z1s)
@@ -483,28 +490,33 @@ class Estimator(ABC):
             indices = np.union1d(indices1, indices2)
             z1_indices = z1s[indices]
             z2_indices = z2s[indices]
-            calligraphic_Z[indices] = self._calligraphic_Z_tails(z1_indices, z2_indices)
+            calligraphic_Z[indices] = self._calligraphic_Z_tails(
+                z1_indices, z2_indices)
             if upper_bound2 is not None:
                 indices = np.where(z1s > upper_bound2)
                 z1_indices = z1s[indices]
-                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(z1_indices)
+                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(
+                    z1_indices)
                 indices = np.where(z2s < -upper_bound2)
                 z2_indices = z2s[indices]
-                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(-z2_indices)
+                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(
+                    -z2_indices)
         if verbose is True:
-            number_small_densities = len(calligraphic_Z[calligraphic_Z < self.EPS])
+            number_small_densities = len(
+                calligraphic_Z[calligraphic_Z < self.EPS])
             if number_small_densities != 0:
                 warnings.warn(
-                    "calligraphic_Z (normalising constants for truncated normal) "
-                    "must be greater than tolerance={} (got {}): SETTING to Z_ns[Z_ns<tolerance]=tolerance\n"
-                            "z1s={}, z2s={}".format(
-                    self.EPS, calligraphic_Z, z1s, z2s))
+                    "calligraphic_Z (normalising constants for truncated norma"
+                    "l) must be greater than tolerance={} (got {}): SETTING to"
+                    " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
+                        self.EPS, calligraphic_Z, z1s, z2s))
                 for i, value in enumerate(calligraphic_Z):
                     if value < 0.01:
-                        print("call_Z={}, z1 = {}, z2 = {}".format(value, z1s[i], z2s[i]))
+                        print("call_Z={}, z1 = {}, z2 = {}".format(
+                            value, z1s[i], z2s[i]))
         return (
-            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s,
-            self.gamma_ts, self.gamma_tplus1s)
+            calligraphic_Z,
+            norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
 class VBOrdinalGP(Estimator):
@@ -523,8 +535,8 @@ class VBOrdinalGP(Estimator):
         """
         Create an :class:`VBOrderedGP` Estimator object.
 
-        :arg gamma:  The (J + 1, ) array of cutpoint parameters \bm{gamma}.
-        :type gamma: :class:`numpy.ndarray
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
             then initialised to one, default `None`.
 
@@ -587,7 +599,7 @@ class VBOrdinalGP(Estimator):
         # only for log_det_K
         (L_K, lower) = cho_factor(self.K + self.jitter * np.eye(self.N))
         self.log_det_K = 2 * np.sum(np.log(np.diag(L_K)))
-        self.log_det_cov = 2 * np.sum(np.log(np.diag(self.L_cov)))  # TODO: 07/12 changed this sign error -ve to +ve
+        self.log_det_cov = 2 * np.sum(np.log(np.diag(self.L_cov)))  # TODO: 07/12 changed this sign error -ve to +ve #TODO: test if it works still.
         # TODO: If jax @jit works really well with the GPU for cho_solve,
         # it is worth not storing this matrix - due to storage cost, and it
         # will be faster. See alternative implementation on feature/cho_solve
@@ -614,8 +626,8 @@ class VBOrdinalGP(Estimator):
         estimate. Problem is, if it changes at estimate time, then a
         hyperparameter update needs to be called.
 
-        :arg gamma: The (J + 1, ) array of cutpoint parameters \bm{gamma}.
-        :type gamma: :class:`numpy.ndarray`
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg varphi:
         :type varphi:
         :arg scale:
@@ -747,7 +759,8 @@ class VBOrdinalGP(Estimator):
                         disable=True):
             # Eq. ()
             p = self._p(
-                m_tilde, self.gamma, self.noise_std, numerically_stable=True)
+                m_tilde, self.gamma_ts, self.gamma_tplus1s, self.noise_std,
+                numerically_stable=True)
             y_tilde = self._y_tilde(
                 p, m_tilde, self.gamma, self.noise_std)
             m_tilde, nu = self._m_tilde(
@@ -759,7 +772,7 @@ class VBOrdinalGP(Estimator):
                 plt.show()
             if dm_tilde is not None:
                 sigma_dp = self._dp(
-                    m_tilde, self.gamma, self.noise_std,
+                    m_tilde, self.gamma_ts, self.gamma_tplus1s, self.noise_std,
                     self.upper_bound, self.upper_bound2)
                 dm_tilde = self._dm_tilde(
                     dm_tilde, y_tilde, sigma_dp,
@@ -778,7 +791,8 @@ class VBOrdinalGP(Estimator):
                 self.hyperparameters_update(varphi=varphi, psi=psi)
             if write:
                 calligraphic_Z, *_ = self._calligraphic_Z(
-                    self.gamma, self.noise_std, m_tilde)
+                    self.gamma_ts, self.gamma_tplus1s,
+                    self.noise_std, m_tilde)
                 fx = self.objective(
                     self.N, m_tilde, nu, self.trace_cov,
                     self.trace_Sigma_div_var, self.L_cov, self.lower, self.K,
@@ -799,7 +813,8 @@ class VBOrdinalGP(Estimator):
         Make variational Bayes prediction over classes of X_test given the
         posterior samples.
 
-        :arg gamma:
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg cov:
         :arg y_tilde:
         :arg varphi_tilde:
@@ -843,7 +858,8 @@ class VBOrdinalGP(Estimator):
         """
         Return the posterior predictive distribution over classes.
 
-        :arg gamma:
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg cov:
         :arg y_tilde: The posterior mean estimate of the latent variables y.
         :arg varphi_tilde: The posterior mean estimate of the
@@ -966,7 +982,9 @@ class VBOrdinalGP(Estimator):
         #             gamma_k, value, gamma_kplus1, z1, z2, m_i, i))
         return np.add(m_tilde, noise_std * p)
 
-    def _dp(self, m, gamma, noise_std, upper_bound, upper_bound2=None):
+    def _dp(
+            self, m, gamma_ts, gamma_tplus1s, noise_std,
+            upper_bound, upper_bound2=None):
         """
         Estimate the rightmost term of 2021 partial bound partial log sigma.
         """
@@ -974,7 +992,7 @@ class VBOrdinalGP(Estimator):
         norm_pdf_z1s, norm_pdf_z2s,
         z1s, z2s,
         *_) = self._calligraphic_Z(
-            gamma, noise_std, m)
+            gamma_ts, gamma_tplus1s, noise_std, m)
         sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / calligraphic_Z
         # Need to deal with the tails to prevent catestrophic cancellation
         indices1 = np.where(z1s > upper_bound)
@@ -1004,7 +1022,9 @@ class VBOrdinalGP(Estimator):
             sigma_dp[indices] = self._dp_far_tails(z2_indices)
         return sigma_dp
 
-    def _p(self, m, gamma, noise_std, numerically_stable=True):
+    def _p(
+            self, m, gamma_ts, gamma_tplus1s, noise_std,
+            numerically_stable=True):
         """
         Estimate the rightmost term of 2021 Page Eq.(), a ratio of Monte Carlo
             estimates of the expectation of a
@@ -1012,8 +1032,8 @@ class VBOrdinalGP(Estimator):
 
         :arg m: The current posterior mean estimate.
         :type m: :class:`numpy.ndarray`
-        :arg gamma: The threshold parameters.
-        :type gamma: :class:`numpy.ndarray`
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg float noise_std: The noise standard deviation.
         :returns: (p, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s)
         :rtype: tuple (
@@ -1025,7 +1045,7 @@ class VBOrdinalGP(Estimator):
         norm_pdf_z1s, norm_pdf_z2s,
         z1s, z2s,
         *_) = self._calligraphic_Z(
-            gamma, noise_std, m)
+            gamma_ts, gamma_tplus1s, noise_std, m)
         p = (norm_pdf_z1s - norm_pdf_z2s) / calligraphic_Z
         # TODO: clean up sigma_dp, which was depricated.
         # sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / calligraphic_Z
@@ -1144,7 +1164,8 @@ class VBOrdinalGP(Estimator):
         return -fx
 
     def objective_gradient(
-            self, gx, intervals, gamma, varphi, noise_variance, noise_std,
+            self, gx, intervals, gamma_ts, gamma_tplus1s, varphi,
+            noise_variance, noise_std,
             m, nu, cov, trace_cov, partial_K_varphi, N,
             calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, indices,
             numerical_stability=True, verbose=False):
@@ -1187,7 +1208,7 @@ class VBOrdinalGP(Estimator):
         # For gx[0] -- ln\sigma  # TODO: currently seems analytically incorrect
         if indices[0]:
             one = N - noise_variance * trace_cov
-            sigma_dp = self._dp(m, gamma, noise_std,
+            sigma_dp = self._dp(m, gamma_ts, gamma_tplus1s, noise_std,
                 self.upper_bound, self.upper_bound2)
             two = - (1. / noise_std) * np.sum(sigma_dp)
             if verbose:
@@ -1287,7 +1308,7 @@ class VBOrdinalGP(Estimator):
                 z1s,
                 z2s,
                 *_ )= self._calligraphic_Z(
-                    self.gamma, self.noise_std, m_0)
+                    self.gamma_ts, self.gamma_tplus1s, self.noise_std, m_0)
                 fx = self.objective(
                     self.N, m_0, nu, self.trace_cov, self.trace_Sigma_div_var,
                     calligraphic_Z,
@@ -1298,9 +1319,9 @@ class VBOrdinalGP(Estimator):
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
             gx = self.objective_gradient(
-                gx_0.copy(), intervals, self.gamma, self.kernel.varphi,
-                self.noise_variance, self.noise_std, m_0, nu,
-                self.cov, self.trace_cov,
+                gx_0.copy(), intervals, self.gamma_ts, self.gamma_tplus1s,
+                self.kernel.varphi, self.noise_variance, self.noise_std, m_0,
+                nu, self.cov, self.trace_cov,
                 self.partial_K_varphi, self.N, calligraphic_Z,
                 norm_pdf_z1s, norm_pdf_z2s, indices,
                 numerical_stability=True, verbose=False)
@@ -1417,10 +1438,6 @@ class VBOrdinalGP(Estimator):
         Optimisation routine for hyperparameters.
 
         :arg theta: (log-)hyperparameters to be optimised.
-        :arg gamma_0:
-        :arg varphi_0:
-        :arg noise_variance_0:
-        :arg scale_0:
         :arg indices:
         :arg first_step:
         :arg bool write:
@@ -1443,7 +1460,8 @@ class VBOrdinalGP(Estimator):
             norm_pdf_z2s,
             z1s,
             z2s,
-            *_ )= self._calligraphic_Z(self.gamma, self.noise_std, m_0)
+            *_ )= self._calligraphic_Z(
+                self.gamma_ts, self.gamma_tplus1s, self.noise_std, m_0)
             fx = self.objective(
                 self.N, m_0, nu, self.trace_cov, self.trace_Sigma_div_var,
                 calligraphic_Z,
@@ -1453,8 +1471,8 @@ class VBOrdinalGP(Estimator):
             if 1:
                 print("({}), error={}".format(iteration, error))
         gx = self.objective_gradient(
-            gx.copy(), intervals, self.gamma, self.kernel.varphi,
-            self.noise_variance, self.noise_std,
+            gx.copy(), intervals, self.gamma_ts, self.gamma_tplus1s,
+            self.kernel.varphi, self.noise_variance, self.noise_std,
             m_0, nu, self.cov, self.trace_cov,
             self.partial_K_varphi, self.N, calligraphic_Z,
             norm_pdf_z1s, norm_pdf_z2s, indices,
@@ -1499,8 +1517,8 @@ class EPOrdinalGP(Estimator):
         """
         Create an :class:`EPOrderedGP` Estimator object.
 
-        :arg gamma:  The (J + 1, ) array of cutpoint parameters \bm{gamma}.
-        :type gamma: :class:`numpy.ndarray
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
             then initialised to one, default `None`.
 
@@ -1550,8 +1568,8 @@ class EPOrdinalGP(Estimator):
         estimate. Problem is, if it changes at estimate time, then a
         hyperparameter update needs to be called.
 
-        :arg gamma: The (J + 1, ) array of cutpoint parameters \bm{gamma}.
-        :type gamma: :class:`numpy.ndarray`
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg varphi:
         :type varphi:
         :arg scale:
@@ -1703,8 +1721,8 @@ class EPOrdinalGP(Estimator):
         have to be optimized with model selection step.
 
         :arg int steps: The number of iterations the Estimator takes.
-        :arg gamma: The (J + 1, ) array of cutpoint parameters \bm{gamma}.
-        :type gamma: :class:`numpy.ndarray`
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg varphi: Initialisation of hyperparameter posterior mean estimates.
             If `None` then initialised to ones, default `None`.
         :type varphi: :class:`numpy.ndarray` or float
@@ -2176,7 +2194,8 @@ class EPOrdinalGP(Estimator):
         X_test, Lambda):
         """
         Make EP prediction over classes of X_test given the posterior samples.
-        :arg gamma:
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
         :arg Sigma: TODO: don't need Sigma here
         :arg posterior_mean:
         :arg varphi:
@@ -2719,12 +2738,13 @@ class EPOrdinalGP(Estimator):
                 raise ValueError("TODO")
             # elif 1:
             #     gx[self.J + 1] = varphi * 0.5 * weights.T @ partial_K_varphi @ weights
+            # TODO: This needs fixing/ checking vs original code
             elif 0:
                 for l in range(self.kernel.L):
-                    K = self.kernel.num_hyperparameters[i]
+                    K = self.kernel.num_hyperparameters[l]
                     KK = 0
                     for k in range(K):
-                        gx[self.J + KK + k] = varphi[i] * 0.5 * weights.T @ partial_K_varphi[l][k] @ weights
+                        gx[self.J + KK + k] = varphi[l] * 0.5 * weights.T @ partial_K_varphi[l][k] @ weights
                     KK += K
             else:
                 # VC * VC * a' * partial_K_varphi * a / 2
