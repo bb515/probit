@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from .numba.utilities import (
     norm_z_pdf, norm_cdf)
-# Sometimes the numba implementation will work faster
+# Usually the numba implementation is not faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
 #     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
@@ -776,8 +776,8 @@ class VBOrdinalGP(Estimator):
     """
 
     def __init__(
-            self, gamma, noise_variance=1.0,
-            gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
+            self, gamma, noise_variance=1.0, *args, **kwargs):
+            #gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`VBOrderedGP` Estimator object.
 
@@ -789,16 +789,16 @@ class VBOrdinalGP(Estimator):
         :returns: A :class:`VBOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
-        if gamma_hyperparameters is not None:
-            warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
-            self.gamma_hyperparameters = gamma_hyperparameters
-        else:
-            self.gamma_hyperparameters = None
-        if noise_std_hyperparameters is not None:
-            warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
-            self.noise_std_hyperparameters = noise_std_hyperparameters
-        else:
-            self.noise_std_hyperparameters = None
+        # if gamma_hyperparameters is not None:
+        #     warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
+        #     self.gamma_hyperparameters = gamma_hyperparameters
+        # else:
+        #     self.gamma_hyperparameters = None
+        # if noise_std_hyperparameters is not None:
+        #     warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
+        #     self.noise_std_hyperparameters = noise_std_hyperparameters
+        # else:
+        #     self.noise_std_hyperparameters = None
         if self.kernel._ARD:
             raise ValueError(
                 "The kernel must not be ARD type (kernel._ARD=1),"
@@ -1804,8 +1804,8 @@ class EPOrdinalGP(Estimator):
         # However, JAX cannot do inplace and differentiate through
         # Try to get away from fancy indexing using these indices
         # Just use where straight up
-        self.where_t_not0 = np.where(self.t_train!=0)[0]
-        self.where_t_notJminus1 = np.where(self.t_train!=self.J-1)[0]
+        #self.where_t_not0 = np.where(self.t_train!=0)[0]
+        #self.where_t_notJminus1 = np.where(self.t_train!=self.J-1)[0]
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
 
@@ -1946,7 +1946,7 @@ class EPOrdinalGP(Estimator):
         if posterior_mean_0 is None:
             posterior_mean_0 = (Sigma_0 @ np.diag(precision_EP_0)) @ mean_EP_0
         error = 0.0
-        grad_Z_wrt_cavity_mean_0 = np.empty((self.N,))  # Initialisation
+        grad_Z_wrt_cavity_mean_0 = np.zeros(self.N)  # Initialisation
         posterior_means = []
         Sigmas = []
         mean_EPs = []
@@ -2029,7 +2029,7 @@ class EPOrdinalGP(Estimator):
             target = self.t_train[index]
             # Find the mean and variance of the leave-one-out
             # posterior distribution Q^{\backslash i}(\bm{f})
-            (posterior_variance_n, cavity_mean_n,
+            (posterior_mean_n, posterior_variance_n, cavity_mean_n,
             cavity_variance_n, mean_EP_n_old,
             precision_EP_n_old, amplitude_EP_n_old) = self._remove(
                 Sigma[index, index], posterior_mean[index],
@@ -2043,15 +2043,16 @@ class EPOrdinalGP(Estimator):
                 self.noise_variance)
             # Update EP weight (alpha)
             grad_Z_wrt_cavity_mean[index] = grad_Z_wrt_cavity_mean_n
+            #print(grad_Z_wrt_cavity_mean)
             diff = precision_EP_n - precision_EP_n_old
-            if (
-                    np.abs(diff) > self.EPS
+            if (np.abs(diff) > self.EPS
                     and Z_n > self.EPS
                     and precision_EP_n > 0.0
                     and posterior_covariance_n_new > 0.0):
                 # Update posterior mean and rank-1 covariance
                 Sigma, posterior_mean = self._update(
-                    index, mean_EP_n_old, Sigma, posterior_variance_n,
+                    index, mean_EP_n_old, Sigma,
+                    posterior_mean_n, posterior_variance_n,
                     precision_EP_n_old, grad_Z_wrt_cavity_mean_n,
                     posterior_mean_n_new, posterior_mean,
                     posterior_covariance_n_new, diff)
@@ -2085,6 +2086,9 @@ class EPOrdinalGP(Estimator):
         return (
             error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
             mean_EP, precision_EP, amplitude_EP, containers)
+        # TODO: are there some other inputs missing here?
+        # error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
+        #  precision_EP, amplitude_EP, *_
 
     def new_point(self, step, random_selection=True):
         """
@@ -2099,6 +2103,8 @@ class EPOrdinalGP(Estimator):
         if random_selection:
             return random.randint(0, self.N-1)
         else:
+            # There is an issue here. If steps < N, then some points never
+            # get updated at all.
             return step % self.N
 
     def _remove(
@@ -2134,7 +2140,8 @@ class EPOrdinalGP(Estimator):
             raise ValueError(
                 "Sigma_nn must be non-negative (got {})".format(posterior_variance_n))
         return (
-            posterior_variance_n, cavity_mean_n, cavity_variance_n,
+            posterior_mean_n, posterior_variance_n,
+            cavity_mean_n, cavity_variance_n,
             mean_EP_n_old, precision_EP_n_old, amplitude_EP_n_old)
 
     def _assert_valid_values(self, nu_n, variance, cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
@@ -2331,7 +2338,8 @@ class EPOrdinalGP(Estimator):
             posterior_mean_n_new, posterior_covariance_n_new, z1, z2, nu_n)
 
     def _update(
-        self, index, mean_EP_n_old, Sigma, posterior_variance_n,
+        self, index, mean_EP_n_old, Sigma,
+        posterior_mean_n, posterior_variance_n,
         precision_EP_n_old,
         grad_Z_wrt_cavity_mean_n, posterior_mean_n_new, posterior_mean,
         posterior_covariance_n_new, diff, numerically_stable=False):
@@ -2349,6 +2357,7 @@ class EPOrdinalGP(Estimator):
         :type Sigma: :class:`numpy.ndarray`
         :arg float posterior_variance_n: The current site posterior variance
             estimate.
+        :arg float posterior_mean_n: The current site posterior mean estimate.
         :arg float precision_EP_n_old: The state of the individual (site)
             variance (N,).
         :arg float grad_Z_wrt_cavity_mean_n: The gradient of the log
@@ -2368,14 +2377,17 @@ class EPOrdinalGP(Estimator):
 		# eta = (alpha+epinvvar*(postmean-epmean))/(1.0-Aii*epinvvar) ;
         eta = (
             grad_Z_wrt_cavity_mean_n
-            + precision_EP_n_old * (posterior_mean[index] - mean_EP_n_old)) / (
+            + precision_EP_n_old * (posterior_mean_n - mean_EP_n_old)) / (
                 1.0 - posterior_variance_n * precision_EP_n_old)
         # ai[i] = Retrieve_Posterior_Covariance (i, index, settings) ;
         a_n = Sigma[:, index]  # The index'th column of Sigma
-        ##a_n = Sigma[index, :]
+        ##a_n = Sigma[index, :]]
+        #
         # postcov[j]-=rho*ai[i]*ai[j] ;
         #Sigma -= (rho * np.outer(a_n, a_n))
+        # Delta = - rho * np.outer(a_n, a_n)
         Sigma = Sigma - rho * np.outer(a_n, a_n)
+        # Sigma = Sigma - rho * np.outer(a_n, a_n)
         # postmean+=eta*ai[i];
         posterior_mean += eta * a_n
         if numerically_stable is True:
@@ -2865,7 +2877,7 @@ class EPOrdinalGP(Estimator):
             t5
         )
 
-    def compute_integrals_vector_SS(
+    def compute_integrals_vectorSS(
             self, posterior_variance, posterior_mean, noise_variance):
         """
         Compute the integrals required for the gradient evaluation.

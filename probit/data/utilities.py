@@ -1468,9 +1468,9 @@ def calculate_metrics(y_test, t_test, Z, gamma):
     grid = np.ogrid[0:len(t_test)]
     # Other error
     predictive_likelihood = Z[grid, t_test]
-    mean_absolute_error = np.sum(np.abs(t_star - t_test)) / len(t_test)
+    mean_absolute_error = np.sum(np.abs(t_pred - t_test)) / len(t_test)
     root_mean_squared_error = np.sqrt(
-        np.sum(pow(t_star - t_test, 2)) / len(t_test))
+        np.sum(pow(t_pred - t_test, 2)) / len(t_test))
     print("root_mean_squared_error", root_mean_squared_error)
     print("mean_absolute_error ", mean_absolute_error)
     log_predictive_probability = np.sum(np.log(predictive_likelihood))
@@ -1478,11 +1478,11 @@ def calculate_metrics(y_test, t_test, Z, gamma):
     predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
     print("predictive_likelihood ", predictive_likelihood)
     print("av_prob_of_correct ", predictive_likelihood)
-    print(np.sum(t_star != t_test), "sum incorrect")
-    mean_zero_one = np.sum(t_star != t_test) / len(t_test)
+    print(np.sum(t_pred != t_test), "sum incorrect")
+    mean_zero_one = np.sum(t_pred != t_test) / len(t_test)
     print("mean_zero_one_error", mean_zero_one)
-    print(np.sum(t_star == t_test), "sum correct")
-    mean_zero_one = np.sum(t_star == t_test) / len(t_test)
+    print(np.sum(t_pred == t_test), "sum correct")
+    mean_zero_one = np.sum(t_pred == t_test) / len(t_test)
     print("mean_zero_one_correct", mean_zero_one)
     return (
         mean_zero_one,

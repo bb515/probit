@@ -250,7 +250,7 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
     while error / steps > classifier.EPS**2:
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
-         precision_EP, amplitude_EP, *_) = classifier.estimate(
+            precision_EP, amplitude_EP, *_) = classifier.estimate(
             steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
             mean_EP_0=mean_EP, precision_EP_0=precision_EP,
             amplitude_EP_0=amplitude_EP, write=True)
