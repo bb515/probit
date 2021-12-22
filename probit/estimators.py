@@ -599,7 +599,7 @@ class VBOrdinalGP(Estimator):
         # only for log_det_K
         (L_K, lower) = cho_factor(self.K + self.jitter * np.eye(self.N))
         self.log_det_K = 2 * np.sum(np.log(np.diag(L_K)))
-        self.log_det_cov = 2 * np.sum(np.log(np.diag(self.L_cov)))  # TODO: 07/12 changed this sign error -ve to +ve #TODO: test if it works still.
+        self.log_det_cov = -2 * np.sum(np.log(np.diag(self.L_cov)))
         # TODO: If jax @jit works really well with the GPU for cho_solve,
         # it is worth not storing this matrix - due to storage cost, and it
         # will be faster. See alternative implementation on feature/cho_solve
