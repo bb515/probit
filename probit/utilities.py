@@ -1,7 +1,7 @@
 """Utility functions for probit."""
 import numpy as np
 from scipy.stats import expon
-from scipy.special import ndtr
+from scipy.special import ndtr, log_ndtr
 
 
 over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
@@ -24,6 +24,14 @@ def norm_pdf(x, loc=0.0, scale=1.0):
 def norm_logpdf(x, loc=0.0, scale=1.0):
     z = (x - loc) / scale
     return norm_z_logpdf(z) - np.log(scale)
+
+
+def norm_cdf(x):
+    return ndtr(x)
+
+
+def norm_logcdf(x):
+    return log_ndtr(x)
 
 
 def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):

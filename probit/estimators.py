@@ -776,7 +776,7 @@ class VBOrdinalGP(Estimator):
                     self.upper_bound, self.upper_bound2)
                 dm_tilde = self._dm_tilde(
                     dm_tilde, y_tilde, sigma_dp,
-                    self.partial_Sigma_div_var, self.Sigma_div_var)
+                    self.partial_Sigma_div_var, self.Sigma_div_var)  # TODO: Sigma_div_var deprecated
                 #dm2 = noise_variance * self.cov_ @ self.partial_K_varphi @ self.cov_ @ y_tilde
                 #plt.scatter(self.X_train, dm_tilde)
                 #plt.scatter(self.X_train, dm2)

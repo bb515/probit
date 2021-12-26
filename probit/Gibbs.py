@@ -5,7 +5,7 @@ from probit.data.utilities import colors
 from probit.data.utilities import calculate_metrics
 
 
-def plot(sampler, m_0, y_0, gamma_0, steps, burn_steps J, D, domain=None):
+def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
     """
     TODO: do i really need m_0 AND y_0. Isn't one enough?
     TODO: needs generalizing to other datasets other than Chu.
@@ -14,37 +14,48 @@ def plot(sampler, m_0, y_0, gamma_0, steps, burn_steps J, D, domain=None):
     # Burn in
     # TODO: sampler needs options to fix the cutpoint parameters.
     # For now, let them vary.
-    m_samples, y_samples, gamma_samples = sampler.sample(
-        m_0, y_0, gamma_0, burn_steps)
-    assert 0
-    # Sample
-    m_samples, y_samples, gamma_samples = sampler.sample(
-        m_samples[-1], y_samples[-1], gamma_samples[-1], steps)
+    m_samples, y_samples, gamma_samples = sampler.sample_metropolis_within_gibbs(
+        m_0, gamma_0, 0.05, burn_steps)
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     ax[0].plot(gamma_samples[:, 1])
     ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)
     ax[1].plot(gamma_samples[:, 2])
     ax[1].set_ylabel(r"$\gamma_2$", fontsize=16)
-    plt.savefig('Mixing for cutpoint posterior samples $\gamma$.pdf')
+    plt.savefig('Mixing for cutpoint posterior samples.png')
+    plt.show()
     plt.close()
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     ax[0].plot(gamma_samples[:, 3])
     ax[0].set_ylabel(r"$\gamma_3$", fontsize=16)
-    ax[1].plot(gamma_samples[:, 4])
-    ax[1].set_ylabel(r"$\gamma_4$", fontsize=16)
-    plt.savefig('Mixing for cutpoint posterior samples $\gamma$.pdf')
+    ax[1].scatter(np.tile(sampler.X_train, (burn_steps, 1)), m_samples, alpha=0.01)
+    ax[1].set_ylabel(r"$m$", fontsize=16)
+    plt.savefig('Mixing for cutpoint posterior samples2.png')
+    plt.show()
+    plt.close()
+    # Sample
+    m_samples, y_samples, gamma_samples = sampler.sample(
+        m_samples[-1], gamma_samples[-1], 0.5, steps)
+
+    fig, ax = plt.subplots(1, 2, figsize=(15, 5))
+    ax[0].plot(gamma_samples[:, 1])
+    ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)
+    ax[1].plot(gamma_samples[:, 2])
+    ax[1].set_ylabel(r"$\gamma_2$", fontsize=16)
+    plt.savefig('Mixing for cutpoint posterior samples.png')
+    plt.show()
     plt.close()
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-    ax[0].plot(gamma_samples[:, 5])
-    ax[0].set_ylabel(r"$\gamma_5$", fontsize=16)
-    ax[1].plot(gamma_samples[:, 6])
-    ax[1].set_ylabel(r"$\gamma_6$", fontsize=16)
-    plt.savefig('Mixing for cutpoint posterior samples $\gamma$.pdf')
+    ax[0].plot(gamma_samples[:, 3])
+    ax[0].set_ylabel(r"$\gamma_3$", fontsize=16)
+    ax[1].scatter(np.tile(sampler.X_train, (burn_steps, 1)), m_samples, alpha=0.01)
+    ax[1].set_ylabel(r"$m$", fontsize=16)
+    plt.savefig('Mixing for cutpoint posterior samples2.png')
     plt.show()
-
+    plt.close()
+    assert 0
     if domain is not None:
         (xlims, ylims) = domain
         N = 75
