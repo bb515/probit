@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from .numba.utilities import (
     norm_z_pdf, norm_cdf)
+from .utilities import (
+    truncated_norm_normalising_constant, p, dp)
 # Usually the numba implementation is not faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
@@ -337,187 +339,6 @@ class Estimator(ABC):
         self.partial_K_scale = self.kernel.kernel_partial_derivative_scale(
             self.X_train, self.X_train)
 
-    def _g(self, x):
-        """
-        Polynomial part of a series expansion for log survival function for a
-        normal random variable. With the third term, for x>4, this is accurate
-        to three decimal places. The third term becomes significant when sigma
-        is large. 
-        """
-        return -1. / x**2 + 5/ (2 * x**4) - 37 / (3 *  x**6)
-
-    def _calligraphic_Z_tails(self, z1, z2):
-        """
-        Series expansion at infinity.
-
-        Even for z1, z2 >= 4 this is accurate to three decimal places.
-        """
-        return 1/np.sqrt(2 * np.pi) * (
-        1 / z1 * np.exp(-0.5 * z1**2 + self._g(z1)) - 1 / z2 * np.exp(
-            -0.5 * z2**2 + self._g(z2)))
-
-    def _calligraphic_Z_far_tails(self, z):
-        """Prevents overflow at large z."""
-        return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + self._g(z))
-
-    def _calligraphic_Z_vectorised(
-            self, gamma_ts, gamma_tplus1s, noise_std, ms,
-            upper_bound=None, upper_bound2=None, verbose=False):
-        """
-        Return the normalising constants for the truncated normal distribution
-        in a numerically stable manner.
-
-        Vectorised version.
-
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
-        :arg float noise_std: The noise standard deviation.
-        :arg ms: The mean vectors, (num, N) where num could be e.g. a
-            number of importance samples.
-        :type ms: :class:`numpy.ndarray`
-        :arg float upper_bound: The threshold of the normal z value for which
-            the pdf is close enough to zero.
-        :arg float upper_bound2: The threshold of the normal z value for which
-            the pdf is close enough to zero. 
-        :arg bool numerical_stability: If set to true, will calculate in a
-            numerically stable way. If set to false,
-            will calculate in a faster, but less numerically stable way.
-        :returns: (
-            calligraphic_Z,
-            norm_pdf_z1s, norm_pdf_z2s,
-            norm_cdf_z1s, norm_cdf_z2s,
-            gamma_1s, gamma_2s,
-            z1s, z2s)
-        :rtype: tuple (
-            :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`)
-        """
-        # Otherwise
-        z1s = (gamma_ts - ms) / noise_std
-        z2s = (gamma_tplus1s - ms) / noise_std
-        norm_pdf_z1s = norm.pdf(z1s)
-        norm_pdf_z2s = norm.pdf(z2s)
-        norm_cdf_z1s = norm.cdf(z1s)
-        norm_cdf_z2s = norm.cdf(z2s)
-        calligraphic_Z = norm_cdf_z2s - norm_cdf_z1s
-        if upper_bound is not None:
-            # Using series expansion approximations
-            # TODO: these should be 2D indices, do they index such that z1_indices is correct
-            indices1 = np.where(z1s > upper_bound)
-            indices2 = np.where(z2s < -upper_bound)
-            indices = np.union1d(indices1, indices2)
-            z1_indices = z1s[indices]
-            print(z1_indices)
-            z2_indices = z2s[indices]
-            calligraphic_Z[indices] = self._calligraphic_Z_tails(
-                z1_indices, z2_indices)
-            if upper_bound2 is not None:
-                indices = np.where(z1s > upper_bound2)
-                z1_indices = z1s[indices]
-                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(
-                    z1_indices)
-                indices = np.where(z2s < -upper_bound2)
-                z2_indices = z2s[indices]
-                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(
-                    -z2_indices)
-        if verbose is True:
-            number_small_densities = len(
-                calligraphic_Z[calligraphic_Z < self.EPS])
-            if number_small_densities != 0:
-                warnings.warn(
-                    "calligraphic_Z (normalising constants for truncated norma"
-                    "l) must be greater than tolerance={} (got {}): SETTING to"
-                    " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
-                        self.EPS, calligraphic_Z, z1s, z2s))
-                for i, value in enumerate(calligraphic_Z):
-                    if value < 0.01:
-                        print("call_Z={}, z1 = {}, z2 = {}".format(
-                            value, z1s[i], z2s[i]))
-        return (
-            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-            norm_cdf_z1s, norm_cdf_z2s)
-
-    def _calligraphic_Z(
-            self, gamma_ts, gamma_tplus1s, noise_std, m,
-            upper_bound=None, upper_bound2=None, verbose=False):
-        """
-        TODO: I should pass in self.gamma_ts and self.gamma_tplus1s, and
-        remove them from the outputs.
-        Return the normalising constants for the truncated normal distribution
-        in a numerically stable manner.
-
-        TODO: There is no way to calculate this in the log domain (unless expansion
-        approximations are used). Could investigate only using approximations here.
-
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
-        :arg float noise_std: The noise standard deviation.
-        :arg m: The mean vector.
-        :type m: :class:`numpy.ndarray`
-        :arg float upper_bound: The threshold of the normal z value for which
-            the pdf is close enough to zero.
-        :arg float upper_bound2: The threshold of the normal z value for which
-            the pdf is close enough to zero. 
-        :arg bool numerical_stability: If set to true, will calculate in a
-            numerically stable way. If set to false,
-            will calculate in a faster, but less numerically stable way.
-        :returns: (
-            calligraphic_Z,
-            norm_pdf_z1s, norm_pdf_z2s,
-            norm_cdf_z1s, norm_cdf_z2s,
-            z1s, z2s)
-        :rtype: tuple (
-            :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`)
-        """
-        # Otherwise
-        z1s = (gamma_ts - m) / noise_std
-        z2s = (gamma_tplus1s - m) / noise_std
-        norm_pdf_z1s = norm.pdf(z1s)
-        norm_pdf_z2s = norm.pdf(z2s)
-        norm_cdf_z1s = norm.cdf(z1s)
-        norm_cdf_z2s = norm.cdf(z2s)
-        calligraphic_Z = norm_cdf_z2s - norm_cdf_z1s
-        if upper_bound is not None:
-            # Using series expansion approximations
-            indices1 = np.where(z1s > upper_bound)
-            indices2 = np.where(z2s < -upper_bound)
-            indices = np.union1d(indices1, indices2)
-            z1_indices = z1s[indices]
-            z2_indices = z2s[indices]
-            calligraphic_Z[indices] = self._calligraphic_Z_tails(
-                z1_indices, z2_indices)
-            if upper_bound2 is not None:
-                indices = np.where(z1s > upper_bound2)
-                z1_indices = z1s[indices]
-                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(
-                    z1_indices)
-                indices = np.where(z2s < -upper_bound2)
-                z2_indices = z2s[indices]
-                calligraphic_Z[indices] = self._calligraphic_Z_far_tails(
-                    -z2_indices)
-        if verbose is True:
-            number_small_densities = len(
-                calligraphic_Z[calligraphic_Z < self.EPS])
-            if number_small_densities != 0:
-                warnings.warn(
-                    "calligraphic_Z (normalising constants for truncated norma"
-                    "l) must be greater than tolerance={} (got {}): SETTING to"
-                    " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
-                        self.EPS, calligraphic_Z, z1s, z2s))
-                for i, value in enumerate(calligraphic_Z):
-                    if value < 0.01:
-                        print("call_Z={}, z1 = {}, z2 = {}".format(
-                            value, z1s[i], z2s[i]))
-        return (
-            calligraphic_Z,
-            norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
-
 
 class VBOrdinalGP(Estimator):
     """
@@ -757,12 +578,11 @@ class VBOrdinalGP(Estimator):
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples",
                         disable=True):
-            # Eq. ()
-            p = self._p(
+            p_ = p(
                 m_tilde, self.gamma_ts, self.gamma_tplus1s, self.noise_std,
-                numerically_stable=True)
+                self.EPS, self.upper_bound, self.upper_bound2)
             y_tilde = self._y_tilde(
-                p, m_tilde, self.gamma, self.noise_std)
+                p_, m_tilde, self.gamma, self.noise_std)
             m_tilde, nu = self._m_tilde(
                 y_tilde, self.cov, self.K)
             if plot:
@@ -771,12 +591,13 @@ class VBOrdinalGP(Estimator):
                 plt.legend()
                 plt.show()
             if dm_tilde is not None:
-                sigma_dp = self._dp(
+                sigma_dp = dp(
                     m_tilde, self.gamma_ts, self.gamma_tplus1s, self.noise_std,
-                    self.upper_bound, self.upper_bound2)
+                    self.EPS, self.upper_bound, self.upper_bound2)
+                # TODO: depricate dm_tilde, does Sigma_div_var need to be depricated?
                 dm_tilde = self._dm_tilde(
                     dm_tilde, y_tilde, sigma_dp,
-                    self.partial_Sigma_div_var, self.Sigma_div_var)  # TODO: Sigma_div_var deprecated
+                    self.partial_Sigma_div_var, self.Sigma_div_var)
                 #dm2 = noise_variance * self.cov_ @ self.partial_K_varphi @ self.cov_ @ y_tilde
                 #plt.scatter(self.X_train, dm_tilde)
                 #plt.scatter(self.X_train, dm2)
@@ -790,13 +611,13 @@ class VBOrdinalGP(Estimator):
                 psi = self._psi_tilde(self.kernel.varphi)
                 self.hyperparameters_update(varphi=varphi, psi=psi)
             if write:
-                calligraphic_Z, *_ = self._calligraphic_Z(
+                Z, *_ = truncated_norm_normalising_constant(
                     self.gamma_ts, self.gamma_tplus1s,
-                    self.noise_std, m_tilde)
+                    self.noise_std, m_tilde, self.EPS)
                 fx = self.objective(
                     self.N, m_tilde, nu, self.trace_cov,
                     self.trace_Sigma_div_var, self.L_cov, self.lower, self.K,
-                    calligraphic_Z, self.noise_variance, self.log_det_K,
+                    Z, self.noise_variance, self.log_det_K,
                     self.log_det_cov)
                 ms.append(m_tilde)
                 ys.append(y_tilde)
@@ -982,134 +803,8 @@ class VBOrdinalGP(Estimator):
         #             gamma_k, value, gamma_kplus1, z1, z2, m_i, i))
         return np.add(m_tilde, noise_std * p)
 
-    def _dp(
-            self, m, gamma_ts, gamma_tplus1s, noise_std,
-            upper_bound, upper_bound2=None):
-        """
-        Estimate the rightmost term of 2021 partial bound partial log sigma.
-        """
-        (calligraphic_Z,
-        norm_pdf_z1s, norm_pdf_z2s,
-        z1s, z2s,
-        *_) = self._calligraphic_Z(
-            gamma_ts, gamma_tplus1s, noise_std, m)
-        sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / calligraphic_Z
-        # Need to deal with the tails to prevent catestrophic cancellation
-        indices1 = np.where(z1s > upper_bound)
-        indices2 = np.where(z2s < -upper_bound)
-        indices = np.union1d(indices1, indices2)
-        z1_indices = z1s[indices]
-        z2_indices = z2s[indices]
-        sigma_dp[indices] = self._dp_tails(z1_indices, z2_indices)
-        # The derivative when (z2/z1) take a value of (+/-)infinity
-        indices = np.where(z1s==-np.inf)
-        sigma_dp[indices] = (- z2s[indices] * norm_pdf_z2s[indices]
-            / calligraphic_Z[indices])
-        indices = np.intersect1d(indices, indices2)
-        sigma_dp[indices] = self._dp_far_tails(z2s[indices])
-        indices = np.where(z2s==np.inf)
-        sigma_dp[indices] = (z1s[indices] * norm_pdf_z1s[indices]
-            / calligraphic_Z[indices])
-        indices = np.intersect1d(indices, indices1)
-        sigma_dp[indices] = self._dp_far_tails(z1s[indices])
-        # Get the far tails for the non-infinity case to prevent overflow
-        if upper_bound2 is not None:
-            indices = np.where(z1s > upper_bound2)
-            z1_indices = z1s[indices]
-            sigma_dp[indices] = self._dp_far_tails(z1_indices)
-            indices = np.where(z2s < -upper_bound2)
-            z2_indices = z2s[indices]
-            sigma_dp[indices] = self._dp_far_tails(z2_indices)
-        return sigma_dp
-
-    def _p(
-            self, m, gamma_ts, gamma_tplus1s, noise_std,
-            numerically_stable=True):
-        """
-        Estimate the rightmost term of 2021 Page Eq.(), a ratio of Monte Carlo
-            estimates of the expectation of a
-            functions of M wrt to the distribution p.
-
-        :arg m: The current posterior mean estimate.
-        :type m: :class:`numpy.ndarray`
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
-        :arg float noise_std: The noise standard deviation.
-        :returns: (p, calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s)
-        :rtype: tuple (
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-            :class:`numpy.ndarray`, :class:`numpy.ndarray`)
-        """
-        (calligraphic_Z,
-        norm_pdf_z1s, norm_pdf_z2s,
-        z1s, z2s,
-        *_) = self._calligraphic_Z(
-            gamma_ts, gamma_tplus1s, noise_std, m)
-        p = (norm_pdf_z1s - norm_pdf_z2s) / calligraphic_Z
-        # TODO: clean up sigma_dp, which was depricated.
-        # sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / calligraphic_Z
-        # Need to deal with the tails to prevent catestrophic cancellation
-        indices1 = np.where(z1s > self.upper_bound)
-        indices2 = np.where(z2s < -self.upper_bound)
-        indices = np.union1d(indices1, indices2)
-        z1_indices = z1s[indices]
-        z2_indices = z2s[indices]
-        p[indices] = self._p_tails(z1_indices, z2_indices)
-        # sigma_dp[indices] = self._dp_tails(z1_indices, z2_indices)
-        # Define the derivative for when z2 and z1 values take a value of (+/-)infinity respectively
-        # indices = np.where(z1s==-np.inf)
-        # sigma_dp[indices] = - z2s[indices] * norm_pdf_z2s[indices] / calligraphic_Z[indices]
-        # indices = np.intersect1d(indices, indices2)
-        # sigma_dp[indices] = self._dp_far_tails(z2s[indices])
-        # indices = np.where(z2s==np.inf)
-        # sigma_dp[indices] = z1s[indices] * norm_pdf_z1s[indices] / calligraphic_Z[indices]
-        # indices = np.intersect1d(indices, indices1)
-        # sigma_dp[indices] = self._dp_far_tails(z1s[indices])
-        # Finally, get the far tails for the non-infinity case to prevent overflow
-        if numerically_stable is True:
-            indices = np.where(z1s > self.upper_bound2)
-            z1_indices = z1s[indices]
-            p[indices] = self._p_far_tails(z1_indices)
-            # sigma_dp[indices] = self._dp_far_tails(z1_indices)
-            indices = np.where(z2s < -self.upper_bound2)
-            z2_indices = z2s[indices]
-            p[indices] = self._p_far_tails(z2_indices)
-            # sigma_dp[indices] = self._dp_far_tails(z2_indices)
-        # sigma_dp -= p**2
-        #plt.scatter(m, sigma_dp/noise_std)
-        #plt.scatter(m, p)
-        #plt.scatter(self.X_train, p)
-        #plt.show()
-        return p # , sigma_dp
-
-    def _dp_tails(self, z1, z2):
-        """Series expansion at infinity."""
-        return (
-            z1 * np.exp(-0.5 * z1**2) - z2 * np.exp(-0.5 * z2**2)) / (
-                1 / z1 * np.exp(-0.5 * z1**2)* np.exp(self._g(z1))
-                - 1 / z2 * np.exp(-0.5 * z2**2) * np.exp(self._g(z2)))
-
-    def _dp_far_tails(self, z):
-        """Prevents overflow at large z."""
-        return z**2 * np.exp(-self._g(z))
-
-    def _p_tails(self, z1, z2):
-        """
-        Series expansion at infinity. Even for z1, z2 >= 4,
-        this is accurate to three decimal places.
-        """
-        return (
-            np.exp(-0.5 * z1**2) - np.exp(-0.5 * z2**2)) / (
-                1 / z1 * np.exp(-0.5 * z1**2)* np.exp(self._g(z1))
-                - 1 / z2 * np.exp(-0.5 * z2**2) * np.exp(self._g(z2)))
-
-    def _p_far_tails(self, z):
-        """Prevents overflow at large z."""
-        return z * np.exp(-self._g(z))
-
     def objective(
-            self, N, m, nu, trace_cov, trace_Sigma_div_var, calligraphic_Z,
+            self, N, m, nu, trace_cov, trace_Sigma_div_var, Z,
             noise_variance,
             log_det_K, log_det_cov, verbose=False):
         """
@@ -1134,8 +829,8 @@ class VBOrdinalGP(Estimator):
         :arg float log_det_K: The log determinant of the prior covariance.
         :arg float log_det_cov: The log determinant of (a factor in) the
             posterior covariance.
-        :arg calligraphic_Z: The array of normalising constants.
-        :type calligraphic_Z: :class:`numpy.ndarray`
+        :arg Z: The array of normalising constants.
+        :type Z: :class:`numpy.ndarray`
         :arg bool numerical_stability: If the function is evaluated in a
             numerically stable way, default `True`. `False`
             is NOT recommended as often np.linalg.det(C) returns a value 0.0.
@@ -1150,7 +845,7 @@ class VBOrdinalGP(Estimator):
         four = - m.T @ nu / 2
         five = log_det_Sigma / 2
         six = N / 2
-        seven = np.sum(calligraphic_Z)
+        seven = np.sum(Z)
         fx = one + two + three + four + five + six  + seven
         if verbose:
             print("one ", one)
@@ -1167,7 +862,7 @@ class VBOrdinalGP(Estimator):
             self, gx, intervals, gamma_ts, gamma_tplus1s, varphi,
             noise_variance, noise_std,
             m, nu, cov, trace_cov, partial_K_varphi, N,
-            calligraphic_Z, norm_pdf_z1s, norm_pdf_z2s, indices,
+            Z, norm_pdf_z1s, norm_pdf_z2s, indices,
             numerical_stability=True, verbose=False):
         """
         Calculate gx, the jacobian of the variational lower bound of the log
@@ -1198,8 +893,8 @@ class VBOrdinalGP(Estimator):
         :type Sigma: :class:`numpy.ndarray`
         :arg K_inv: The inverse of the prior covariance.
         :type K_inv: :class:`numpy.ndarray`
-        :arg calligraphic_Z: The array of normalising constants.
-        :type calligraphic_Z: :class:`numpy.ndarray`
+        :arg Z: The array of normalising constants.
+        :type Z: :class:`numpy.ndarray`
         :arg bool numerical_stability: If the function is evaluated in a
             numerically stable way, default `True`.
         :return: fx
@@ -1208,7 +903,7 @@ class VBOrdinalGP(Estimator):
         # For gx[0] -- ln\sigma  # TODO: currently seems analytically incorrect
         if indices[0]:
             one = N - noise_variance * trace_cov
-            sigma_dp = self._dp(m, gamma_ts, gamma_tplus1s, noise_std,
+            sigma_dp = dp(m, gamma_ts, gamma_tplus1s, noise_std,
                 self.upper_bound, self.upper_bound2)
             two = - (1. / noise_std) * np.sum(sigma_dp)
             if verbose:
@@ -1219,8 +914,8 @@ class VBOrdinalGP(Estimator):
         # For gx[1] -- \b_1
         if indices[1]:
             # TODO: treat these with numerical stability, or fix them
-            intermediate_vector_1s = np.divide(norm_pdf_z1s, calligraphic_Z)
-            intermediate_vector_2s = np.divide(norm_pdf_z2s, calligraphic_Z)
+            intermediate_vector_1s = np.divide(norm_pdf_z1s, Z)
+            intermediate_vector_2s = np.divide(norm_pdf_z2s, Z)
             indices = np.where(self.t_train == 0)
             gx[1] += np.sum(intermediate_vector_1s[indices])
             for j in range(2, self.J):
@@ -1302,16 +997,17 @@ class VBOrdinalGP(Estimator):
                 (m_0, dm_0, nu, y, p, *_) = self.estimate(
                     steps, m_tilde_0=m_0,
                     first_step=1, write=False)
-                (calligraphic_Z,
+                (Z,
                 norm_pdf_z1s,
                 norm_pdf_z2s,
                 z1s,
                 z2s,
-                *_ )= self._calligraphic_Z(
-                    self.gamma_ts, self.gamma_tplus1s, self.noise_std, m_0)
+                *_ )= truncated_norm_normalising_constant(
+                    self.gamma_ts, self.gamma_tplus1s,
+                    self.noise_std, m_0, self.EPS)
                 fx = self.objective(
                     self.N, m_0, nu, self.trace_cov, self.trace_Sigma_div_var,
-                    calligraphic_Z,
+                    Z,
                     self.noise_variance, self.log_det_K, self.log_det_cov)
                 error = np.abs(fx_old - fx)  # TODO: redundant?
                 fx_old = fx
@@ -1322,7 +1018,7 @@ class VBOrdinalGP(Estimator):
                 gx_0.copy(), intervals, self.gamma_ts, self.gamma_tplus1s,
                 self.kernel.varphi, self.noise_variance, self.noise_std, m_0,
                 nu, self.cov, self.trace_cov,
-                self.partial_K_varphi, self.N, calligraphic_Z,
+                self.partial_K_varphi, self.N, Z,
                 norm_pdf_z1s, norm_pdf_z2s, indices,
                 numerical_stability=True, verbose=False)
             fxs[i] = fx
@@ -1344,6 +1040,7 @@ class VBOrdinalGP(Estimator):
     def _hyperparameter_training_step_initialise(
             self, theta, indices):
         """
+        TODO: Is this code duplicate
         TODO: this doesn't look correct, for example if only training a subset
         Initialise the hyperparameter training step.
 
@@ -1455,16 +1152,17 @@ class VBOrdinalGP(Estimator):
             (m_0, dm_0, nu, y, p, *_) = self.estimate(
                 steps, m_tilde_0=m_0,
                 first_step=first_step, fix_hyperparameters=True, write=write)
-            (calligraphic_Z,
+            (Z,
             norm_pdf_z1s,
             norm_pdf_z2s,
             z1s,
             z2s,
-            *_ )= self._calligraphic_Z(
-                self.gamma_ts, self.gamma_tplus1s, self.noise_std, m_0)
+            *_ )= truncated_norm_normalising_constant(
+                self.gamma_ts, self.gamma_tplus1s, self.noise_std, m_0,
+                self.EPS)
             fx = self.objective(
                 self.N, m_0, nu, self.trace_cov, self.trace_Sigma_div_var,
-                calligraphic_Z,
+                Z,
                 self.noise_variance, self.log_det_K, self.log_det_cov)
             error = np.abs(fx_old - fx)
             fx_old = fx
@@ -1474,7 +1172,7 @@ class VBOrdinalGP(Estimator):
             gx.copy(), intervals, self.gamma_ts, self.gamma_tplus1s,
             self.kernel.varphi, self.noise_variance, self.noise_std,
             m_0, nu, self.cov, self.trace_cov,
-            self.partial_K_varphi, self.N, calligraphic_Z,
+            self.partial_K_varphi, self.N, Z,
             norm_pdf_z1s, norm_pdf_z2s, indices,
             numerical_stability=True, verbose=True)
         gx = gx[indices_where]

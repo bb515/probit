@@ -25,7 +25,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.samplers import GibbsOrdinalGP
+from probit.samplers import GibbsOrdinalGP, EllipticalSliceGP
 from probit.plot import outer_loops, grid_synthetic
 from probit.Gibbs import plot
 from probit.kernels import SEIso
@@ -92,7 +92,8 @@ def main():
         steps = 1000
         m_0 = y_true
         y_0 = y_true
-        sampler = GibbsOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
+        # sampler = GibbsOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
+        sampler = EllipticalSliceGP(gamma_0, noise_variance_0, kernel, X, t, J)
         plot(sampler, m_0, gamma_0, burn_steps, steps, J, D)
         # indices = np.ones(J + 2)
         # # Fix noise_variance

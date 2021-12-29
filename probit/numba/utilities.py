@@ -611,7 +611,7 @@ def fromb_t5_vector(
 
 # For sampling
 @njit(parallel=True)
-def sample_y(y, t_train, gamma, noise_std, N):
+def sample_y(y, m, t_train, gamma, noise_std, N):
     for i in prange(N):
         # Target class index
         j_true = t_train[i]
@@ -619,7 +619,7 @@ def sample_y(y, t_train, gamma, noise_std, N):
         # Sample from the truncated Gaussian
         while y_n > gamma[j_true + 1] or y_n <= gamma[j_true]:
             # sample y
-            y_n = norm.rvs(loc=m_n, scale=noise_std)
+            y_n = norm.rvs(loc=m[i], scale=noise_std)
         # Add sample to the Y vector
         y[n] = y_n
     return y

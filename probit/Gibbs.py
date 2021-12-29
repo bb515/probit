@@ -14,26 +14,36 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
     # Burn in
     # TODO: sampler needs options to fix the cutpoint parameters.
     # For now, let them vary.
-    m_samples, y_samples, gamma_samples = sampler.sample_metropolis_within_gibbs(
-        m_0, gamma_0, 0.05, burn_steps)
+    # m_samples, y_samples, gamma_samples = sampler.sample_metropolis_within_gibbs(
+    #     m_0, gamma_0, 0.05, burn_steps)
+    m_samples, y_samples = sampler.sample(
+        m_0, burn_steps)
 
-    fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-    ax[0].plot(gamma_samples[:, 1])
-    ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)
-    ax[1].plot(gamma_samples[:, 2])
-    ax[1].set_ylabel(r"$\gamma_2$", fontsize=16)
-    plt.savefig('Mixing for cutpoint posterior samples.png')
-    plt.show()
-    plt.close()
-
-    fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-    ax[0].plot(gamma_samples[:, 3])
-    ax[0].set_ylabel(r"$\gamma_3$", fontsize=16)
-    ax[1].scatter(np.tile(sampler.X_train, (burn_steps, 1)), m_samples, alpha=0.01)
-    ax[1].set_ylabel(r"$m$", fontsize=16)
+    plt.scatter(np.tile(sampler.X_train, (burn_steps, 1)), m_samples, alpha=0.01)
+    plt.ylabel(r"$m$", fontsize=16)
     plt.savefig('Mixing for cutpoint posterior samples2.png')
     plt.show()
     plt.close()
+
+    assert 0
+
+    # fig, ax = plt.subplots(1, 2, figsize=(15, 5))
+    # ax[0].plot(gamma_samples[:, 1])
+    # ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)
+    # ax[1].plot(gamma_samples[:, 2])
+    # ax[1].set_ylabel(r"$\gamma_2$", fontsize=16)
+    # plt.savefig('Mixing for cutpoint posterior samples.png')
+    # plt.show()
+    # plt.close()
+
+    # fig, ax = plt.subplots(1, 2, figsize=(15, 5))
+    # ax[0].plot(gamma_samples[:, 3])
+    # ax[0].set_ylabel(r"$\gamma_3$", fontsize=16)
+    # ax[1].scatter(np.tile(sampler.X_train, (burn_steps, 1)), m_samples, alpha=0.01)
+    # ax[1].set_ylabel(r"$m$", fontsize=16)
+    # plt.savefig('Mixing for cutpoint posterior samples2.png')
+    # plt.show()
+    # plt.close()
     # Sample
     m_samples, y_samples, gamma_samples = sampler.sample(
         m_samples[-1], gamma_samples[-1], 0.5, steps)

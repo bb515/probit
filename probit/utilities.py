@@ -1,7 +1,8 @@
 """Utility functions for probit."""
 import numpy as np
-from scipy.stats import expon
+from scipy.stats import expon, norm
 from scipy.special import ndtr, log_ndtr
+import warnings
 
 
 over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
@@ -145,9 +146,6 @@ def fromb_fft2_vector(
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
         posterior_mean, loc=gamma_t, scale=np.sqrt(
         noise_variance + posterior_covariance))
-    # return norm.pdf(b, loc=mean, scale=sigma) / prob * norm.pdf(
-    #     posterior_mean, loc=gamma_t, scale=np.sqrt(
-    #     noise_variance + posterior_covariance))
 
 
 def fromb_t2_vector(
@@ -234,9 +232,6 @@ def fromb_fft3_vector(
     return  norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
         posterior_mean, loc=gamma_tplus1, scale=np.sqrt(
         noise_variance + posterior_covariance))
-    # return  norm.pdf(b, loc=mean, scale=sigma) / prob * norm.pdf(
-    #     posterior_mean, loc=gamma_tplus1, scale=np.sqrt(
-    #     noise_variance + posterior_covariance))
 
 
 def fromb_t3_vector(
@@ -316,9 +311,6 @@ def fromb_fft4_vector(
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
         posterior_mean, loc=gamma_tplus1, scale=np.sqrt(
         noise_variance + posterior_covariance)) * (gamma_tplus1 - b)
-    # return norm.pdf(b, loc=mean, scale=sigma) / prob * norm.pdf(
-    #     posterior_mean, loc=gamma_tplus1, scale=np.sqrt(
-    #     noise_variance + posterior_covariance)) * (gamma_tplus1 - b)
 
 
 def fromb_t4_vector(
@@ -402,9 +394,6 @@ def fromb_fft5_vector(
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
         posterior_mean, loc=gamma_t, scale=np.sqrt(
         noise_variance + posterior_covariance)) * (gamma_t - b)
-    # return norm.pdf(b, loc=mean, scale=sigma) / prob * norm.pdf(
-    #     posterior_mean, loc=gamma_t, scale=np.sqrt(
-    #     noise_variance + posterior_covariance)) * (gamma_t - b)
 
 
 def fromb_t5_vector(
@@ -514,3 +503,345 @@ def sample_varphis(psi, n_samples):
     else:
         size = (n_samples, shape[0], shape[1])
     return expon.rvs(scale=scale, size=size)
+
+
+def _g(x):
+    """
+    Polynomial part of a series expansion for log survival function for a
+    normal random variable. With the third term, for x>4, this is accurate
+    to three decimal places. The third term becomes significant when sigma
+    is large. 
+    """
+    return -1. / x**2 + 5/ (2 * x**4) - 37 / (3 *  x**6)
+
+
+def _Z_tails(z1, z2):
+    """
+    Series expansion at infinity.
+
+    Even for z1, z2 >= 4 this is accurate to three decimal places.
+    """
+    return 1/np.sqrt(2 * np.pi) * (
+    1 / z1 * np.exp(-0.5 * z1**2 + _g(z1)) - 1 / z2 * np.exp(
+        -0.5 * z2**2 + _g(z2)))
+
+
+def _Z_far_tails(z):
+    """Prevents overflow at large z."""
+    return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + _g(z))
+
+
+def dp_tails(self, z1, z2):
+    """Series expansion at infinity."""
+    return (
+        z1 * np.exp(-0.5 * z1**2) - z2 * np.exp(-0.5 * z2**2)) / (
+            1 / z1 * np.exp(-0.5 * z1**2)* np.exp(_g(z1))
+            - 1 / z2 * np.exp(-0.5 * z2**2) * np.exp(_g(z2)))
+
+
+def dp_far_tails(z):
+    """Prevents overflow at large z."""
+    return z**2 * np.exp(-_g(z))
+
+
+def p_tails(z1, z2):
+    """
+    Series expansion at infinity. Even for z1, z2 >= 4,
+    this is accurate to three decimal places.
+    """
+    return (
+        np.exp(-0.5 * z1**2) - np.exp(-0.5 * z2**2)) / (
+            1 / z1 * np.exp(-0.5 * z1**2)* np.exp(_g(z1))
+            - 1 / z2 * np.exp(-0.5 * z2**2) * np.exp(_g(z2)))
+
+
+def p_far_tails(z):
+    """Prevents overflow at large z."""
+    return z * np.exp(-_g(z))
+
+
+def truncated_norm_normalising_constant(
+        gamma_ts, gamma_tplus1s, noise_std, m, EPS,
+        upper_bound=None, upper_bound2=None, verbose=False):
+    """
+    Return the normalising constants for the truncated normal distribution
+    in a numerically stable manner.
+
+    TODO: Make a numba version, shouldn't be difficult, but will have to be
+        parallelised scalar (due to the boolean logic).
+    TODO: There is no way to calculate this in the log domain (unless expansion
+    approximations are used). Could investigate only using approximations here.
+    :arg gamma_ts: gamma[t_train] (N, ) array of cutpoints
+    :type gamma_ts: :class:`numpy.ndarray`
+    :arg gamma_tplus1s: gamma[t_train + 1] (N, ) array of cutpoints
+    :type gamma_ts: :class:`numpy.ndarray`
+    :arg float noise_std: The noise standard deviation.
+    :arg m: The mean vector.
+    :type m: :class:`numpy.ndarray`
+    :arg float EPS: The tolerated absolute error.
+    :arg float upper_bound: The threshold of the normal z value for which
+        the pdf is close enough to zero.
+    :arg float upper_bound2: The threshold of the normal z value for which
+        the pdf is close enough to zero. 
+    :arg bool numerical_stability: If set to true, will calculate in a
+        numerically stable way. If set to false,
+        will calculate in a faster, but less numerically stable way.
+    :returns: (
+        Z,
+        norm_pdf_z1s, norm_pdf_z2s,
+        norm_cdf_z1s, norm_cdf_z2s,
+        z1s, z2s)
+    :rtype: tuple (
+        :class:`numpy.ndarray`,
+        :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+        :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+        :class:`numpy.ndarray`, :class:`numpy.ndarray`)
+    """
+    # Otherwise
+    z1s = (gamma_ts - m) / noise_std
+    z2s = (gamma_tplus1s - m) / noise_std
+
+    # norm_pdf_z1s = norm_pdf(z1s)
+    # norm_pdf_z2s = norm_pdf(z2s)
+    # norm_cdf_z1s = norm_cdf(z1s)
+    # norm_cdf_z2s = norm_cdf(z2s)
+
+    ## SS: test timings
+    norm_pdf_z1s = norm.pdf(z1s)
+    norm_pdf_z2s = norm.pdf(z2s)
+    norm_cdf_z1s = norm.cdf(z1s)
+    norm_cdf_z2s = norm.cdf(z2s)
+
+    Z = norm_cdf_z2s - norm_cdf_z1s
+    if upper_bound is not None:
+        # Using series expansion approximations
+        indices1 = np.where(z1s > upper_bound)
+        indices2 = np.where(z2s < -upper_bound)
+        indices = np.union1d(indices1, indices2)
+        z1_indices = z1s[indices]
+        z2_indices = z2s[indices]
+        Z[indices] = _Z_tails(
+            z1_indices, z2_indices)
+        if upper_bound2 is not None:
+            indices = np.where(z1s > upper_bound2)
+            z1_indices = z1s[indices]
+            Z[indices] = _Z_far_tails(
+                z1_indices)
+            indices = np.where(z2s < -upper_bound2)
+            z2_indices = z2s[indices]
+            Z[indices] = _Z_far_tails(
+                -z2_indices)
+    if verbose is True:
+        number_small_densities = len(
+            Z[Z < EPS])
+        if number_small_densities != 0:
+            warnings.warn(
+                "Z (normalising constants for truncated norma"
+                "l random variables) must be greater than"
+                " tolerance={} (got {}): SETTING to"
+                " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
+                    EPS, Z, z1s, z2s))
+            for i, value in enumerate(Z):
+                if value < 0.01:
+                    print("call_Z={}, z1 = {}, z2 = {}".format(
+                        value, z1s[i], z2s[i]))
+    return (
+        Z,
+        norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
+
+
+def truncated_norm_vector_normalising_constant(
+        gamma_ts, gamma_tplus1s, noise_std, ms, EPS,
+        upper_bound=None, upper_bound2=None, verbose=False):
+    """
+    Return the normalising constants for the truncated normal distribution
+    in a numerically stable manner.
+
+    Vectorised version.
+
+    :arg gamma_ts: gamma[t_train] (N, ) array of cutpoints
+    :type gamma_ts: :class:`numpy.ndarray`
+    :arg gamma_tplus1s: gamma[t_train + 1] (N, ) array of cutpoints
+    :type gamma_ts: :class:`numpy.ndarray`
+    :arg float noise_std: The noise standard deviation.
+    :arg ms: The mean vectors, (num, N) where num could be e.g. a
+        number of importance samples.
+    :type ms: :class:`numpy.ndarray`
+    :arg float EPS: The tolerated absolute error.
+    :arg float upper_bound: The threshold of the normal z value for which
+        the pdf is close enough to zero.
+    :arg float upper_bound2: The threshold of the normal z value for which
+        the pdf is close enough to zero. 
+    :arg bool numerical_stability: If set to true, will calculate in a
+        numerically stable way. If set to false,
+        will calculate in a faster, but less numerically stable way.
+    :returns: (
+        Z,
+        norm_pdf_z1s, norm_pdf_z2s,
+        norm_cdf_z1s, norm_cdf_z2s,
+        gamma_1s, gamma_2s,
+        z1s, z2s)
+    :rtype: tuple (
+        :class:`numpy.ndarray`,
+        :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+        :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+        :class:`numpy.ndarray`, :class:`numpy.ndarray`,
+        :class:`numpy.ndarray`, :class:`numpy.ndarray`)
+    """
+    # Otherwise
+    z1s = (gamma_ts - ms) / noise_std
+    z2s = (gamma_tplus1s - ms) / noise_std
+
+    # norm_pdf_z1s = norm_pdf(z1s)
+    # norm_pdf_z2s = norm_pdf(z2s)
+    # norm_cdf_z1s = norm_cdf(z1s)
+    # norm_cdf_z2s = norm_cdf(z2s)
+
+    ## SS: test timings
+    norm_pdf_z1s = norm.pdf(z1s)
+    norm_pdf_z2s = norm.pdf(z2s)
+    norm_cdf_z1s = norm.cdf(z1s)
+    norm_cdf_z2s = norm.cdf(z2s)
+    Z = norm_cdf_z2s - norm_cdf_z1s
+    if upper_bound is not None:
+        # Using series expansion approximations
+        # TODO: these should be 2D indices, do they index such that z1_indices is correct
+        indices1 = np.where(z1s > upper_bound)
+        indices2 = np.where(z2s < -upper_bound)
+        indices = np.union1d(indices1, indices2)
+        z1_indices = z1s[indices]
+        print(z1_indices)
+        z2_indices = z2s[indices]
+        Z[indices] = _Z_tails(
+            z1_indices, z2_indices)
+        if upper_bound2 is not None:
+            indices = np.where(z1s > upper_bound2)
+            z1_indices = z1s[indices]
+            Z[indices] = _Z_far_tails(
+                z1_indices)
+            indices = np.where(z2s < -upper_bound2)
+            z2_indices = z2s[indices]
+            Z[indices] = _Z_far_tails(
+                -z2_indices)
+    if verbose is True:
+        number_small_densities = len(
+            Z[Z < EPS])
+        if number_small_densities != 0:
+            warnings.warn(
+                "Z (normalising constants for truncated norma"
+                "l random variables) must be greater than "
+                "tolerance={} (got {}): SETTING to"
+                " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
+                    EPS, Z, z1s, z2s))
+            for i, value in enumerate(Z):
+                if value < 0.01:
+                    print("call_Z={}, z1 = {}, z2 = {}".format(
+                        value, z1s[i], z2s[i]))
+    return (
+        Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+        norm_cdf_z1s, norm_cdf_z2s)
+
+
+def p(m, gamma_ts, gamma_tplus1s, noise_std,
+        EPS, upper_bound, upper_bound2):
+    """
+    The rightmost term of 2021 Page Eq.(),
+        correction terms that squish the function value m
+        between the two cutpoints for that particle.
+
+    :arg m: The current posterior mean estimate.
+    :type m: :class:`numpy.ndarray`
+    :arg gamma_ts: gamma[t_train] (N, ) array of cutpoints
+    :type gamma_ts: :class:`numpy.ndarray`
+    :arg gamma_tplus1s: gamma[t_train + 1] (N, ) array of cutpoints
+    :type gamma_ts: :class:`numpy.ndarray`
+    :arg float noise_std: The noise standard deviation.
+    :arg float EPS: The tolerated absolute error.
+    :arg float upper_bound: Threshold of single sided standard
+        deviations that the normal cdf can be approximated to 0 or 1.
+    :arg float upper_bound2: Optional threshold to be robust agains
+        numerical overflow. Default `None`.
+
+    :returns: p
+    :rtype: :class:`numpy.ndarray`
+    """
+    (Z,
+    norm_pdf_z1s, norm_pdf_z2s,
+    z1s, z2s,
+    *_) = truncated_norm_normalising_constant(
+        gamma_ts, gamma_tplus1s, noise_std, m, EPS)
+    p = (norm_pdf_z1s - norm_pdf_z2s) / Z
+    # Need to deal with the tails to prevent catestrophic cancellation
+    indices1 = np.where(z1s > upper_bound)
+    indices2 = np.where(z2s < -upper_bound)
+    indices = np.union1d(indices1, indices2)
+    z1_indices = z1s[indices]
+    z2_indices = z2s[indices]
+    p[indices] = p_tails(z1_indices, z2_indices)
+    # Finally, get the far tails for the non-infinity case to prevent overflow
+    if upper_bound2:
+        indices = np.where(z1s > upper_bound2)
+        z1_indices = z1s[indices]
+        p[indices] = p_far_tails(z1_indices)
+        indices = np.where(z2s < -upper_bound2)
+        z2_indices = z2s[indices]
+        p[indices] = p_far_tails(z2_indices)
+    return p
+
+
+def dp(m, gamma_ts, gamma_tplus1s, noise_std, EPS,
+        upper_bound, upper_bound2=None):
+    """
+    The analytic derivative of :meth:`p` (p are the correction
+        terms that squish the function value m
+        between the two cutpoints for that particle).
+
+    :arg m: The current posterior mean estimate.
+    :type m: :class:`numpy.ndarray`
+    :arg gamma_ts: gamma[t_train] (N, ) array of cutpoints
+    :type gamma_ts: :class:`numpy.ndarray`
+    :arg gamma_tplus1s: gamma[t_train + 1] (N, ) array of cutpoints
+    :type gamma_ts: :class:`numpy.ndarray`
+    :arg float noise_std: The noise standard deviation.
+    :arg float EPS: The tolerated absolute error.
+    :arg float upper_bound: Threshold of single sided standard
+        deviations that the normal cdf can be approximated to 0 or 1.
+    :arg float upper_bound2: Optional threshold to be robust agains
+        numerical overflow. Default `None`.
+
+    :returns: dp
+    :rtype: :class:`numpy.ndarray`
+    """
+    (Z,
+    norm_pdf_z1s, norm_pdf_z2s,
+    z1s, z2s,
+    *_) = truncated_norm_normalising_constant(
+        gamma_ts, gamma_tplus1s, noise_std, m, EPS)
+    sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / Z
+    # Need to deal with the tails to prevent catestrophic cancellation
+    indices1 = np.where(z1s > upper_bound)
+    indices2 = np.where(z2s < -upper_bound)
+    indices = np.union1d(indices1, indices2)
+    z1_indices = z1s[indices]
+    z2_indices = z2s[indices]
+    sigma_dp[indices] = dp_tails(z1_indices, z2_indices)
+    # The derivative when (z2/z1) take a value of (+/-)infinity
+    indices = np.where(z1s==-np.inf)
+    sigma_dp[indices] = (- z2s[indices] * norm_pdf_z2s[indices]
+        / Z[indices])
+    indices = np.intersect1d(indices, indices2)
+    sigma_dp[indices] = dp_far_tails(z2s[indices])
+    indices = np.where(z2s==np.inf)
+    sigma_dp[indices] = (z1s[indices] * norm_pdf_z1s[indices]
+        / Z[indices])
+    indices = np.intersect1d(indices, indices1)
+    sigma_dp[indices] = dp_far_tails(z1s[indices])
+    # Get the far tails for the non-infinity case to prevent overflow
+    if upper_bound2 is not None:
+        indices = np.where(z1s > upper_bound2)
+        z1_indices = z1s[indices]
+        sigma_dp[indices] = dp_far_tails(z1_indices)
+        indices = np.where(z2s < -upper_bound2)
+        z2_indices = z2s[indices]
+        sigma_dp[indices] = dp_far_tails(z2_indices)
+    return sigma_dp
