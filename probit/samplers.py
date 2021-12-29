@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
-from probit.estimators import EPOrdinalGP
+from probit.approximator import EPOrdinalGP
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
 from .utilities import (
-    norm_z_pdf, norm_cdf)
+    norm_z_pdf, norm_cdf,
+    truncated_norm_normalising_constant,
+    truncated_norm_normalising_constant_vector)
 from .numba.utilities import sample_y
 from scipy.stats import norm, uniform, expon
 from scipy.stats import gamma as gamma_
@@ -83,6 +85,7 @@ class Sampler(ABC):
         self.jitter = 1e-8 
         self.upper_bound = 6.0 # TODO: needed?
         self.upper_bound2 = 18.0
+        self.EPS = 0.0001 
         warnings.warn("Updating prior covariance.")
         self._update_prior()
 
@@ -110,23 +113,23 @@ class Sampler(ABC):
         This method should be implemented in every concrete sampler.
         """
 
-    def _get_log_likelihood_vectorised(self, f, gamma, noise_std):
-        """
-        Likelihood of ordinal regression. This is product of scalar normal cdf.
-
-        TODO: Investigate if upper bound is needed for numerical stability purposes.        
-        """
-        calligraphic_Z, *_ = self._calligraphic_Z_vectorised(
-                gamma, noise_std, f)
-        return np.sum(np.log(calligraphic_Z), axis=1)  # (num_samples,)
-
-    def _get_log_likelihood(self, f, gamma, noise_std):
+    def _get_log_likelihood_vectorised(self, m):
         """
         Likelihood of ordinal regression. This is product of scalar normal cdf.
         """
-        calligraphic_Z, *_ = self._calligraphic_Z(
-            gamma, noise_std, f)
-        return np.sum(np.log(calligraphic_Z))  # (1,)
+        Z, *_ = truncated_norm_normalising_constant_vector(
+            self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
+            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
+        return np.sum(np.log(Z), axis=1)  # (num_samples,)
+
+    def _get_log_likelihood(self, m):
+        """
+        Likelihood of ordinal regression. This is product of scalar normal cdf.
+        """
+        Z, *_ = truncated_norm_normalising_constant(
+            self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
+            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
+        return np.sum(np.log(Z))  # (1,)
 
     def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
         """Get the pdf of the multivariate normal distribution."""
@@ -1078,8 +1081,194 @@ class GibbsOrdinalGP(Sampler):
         return np.array(m_samples), np.array(y_samples), np.array(gamma_samples)
 
 
+class EllipticalSliceGP(Sampler):
+    """
+    Elliptical Slice sampling of the latent variables.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        Create an :class:`Gibbs_GP` sampler object.
+
+        :returns: An :class:`Gibbs_GP` object.
+        """
+        super().__init__(*args, **kwargs)
+
+    def _sample_initiate(self, m_0):
+        """Initialise variables for the sample method."""
+        # Initiate containers for samples
+        m = m_0
+        y_container = np.empty(self.N)
+        m_samples = []
+        y_samples = []
+        return m_0, y_container, m_samples, y_samples
+
+    def sample(self, m_0, steps, first_step=1):
+        """
+        Sample from the posterior.
+
+        Elliptical slice sampling tansition operator, for f only.
+        Can then use a Gibbs sampler to sample from y.
+
+        Sampling occurs in Gibbs blocks over the parameters: m (GP regression
+            posterior means) and then over y (auxilliaries). In this sampler,
+            gamma (cutpoint parameters) are fixed.
+
+        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type m_0: :class:`np.ndarray`.
+        :arg int steps: The number of steps in the sampler.
+        :arg int first_step: The first step. Useful for burn in algorithms.
+        """
+        m, y_container, m_samples, y_samples = self._sample_initiate(m_0)
+        for _ in trange(first_step, first_step + steps,
+                        desc="GP priors Sampler Progress", unit="samples"):
+            # Sample m using the elliptical slice sampler transition operator
+            m, log_likelihood = self.EllipticalSS_transition_operator(
+                self.L_K, self.N, m, log_likelihood)
+            # Sample y from the full conditional
+            y = sample_y(
+                y_container.copy(), m, self.t_train,
+                self.gamma, self.noise_std, self.N)
+            plt.scatter(self.X_train, m)
+            plt.show()
+            m_samples.append(m.flatten())
+            y_samples.append(y.flatten())
+        return np.array(m_samples), np.array(y_samples)
+
+    def EllipticalSS_transition_operator(self, L_K, N, m, log_likelihood, classifier, pi2=2 * np.pi):
+        """
+        Elliptical slice sampling transition operator.
+
+        Draw samples from p(m|y, \theta).
+
+        If the y is ordinal data then the likelihood takes the form of the probit. But why not just use a factorisation
+        of the posterior distribution.
+        """
+        auxiliary_nu = L_K @ norm.rvs(N)
+        auxiliary_theta = auxiliary_theta = np.random.uniform(low=0, high=2 * np.pi)
+        auxiliary_theta_min = auxiliary_theta - pi2
+        auxiliary_theta_max = auxiliary_theta
+        log_likelihood_plus_uniform = log_likelihood + np.random.uniform()
+        while True:
+            m_proposed = m * np.cos(auxiliary_theta) + auxiliary_nu * np.sin(auxiliary_theta)
+            log_likelihood_proposed = self._get_log_likelihood(m_proposed, classifier)
+            if log_likelihood_proposed > log_likelihood_plus_uniform:  # Accept reject
+                log_likelihood = log_likelihood_proposed
+                break
+            if auxiliary_theta < 0:
+                auxiliary_theta_min = auxiliary_theta
+            elif auxiliary_theta >= 0:
+                auxiliary_theta_max = auxiliary_theta
+            auxiliary_theta = np.random.uniform(low=auxiliary_theta_min, high=auxiliary_theta_max)
+        return m_proposed, log_likelihood
+
+    def ELLSS_transition_operatorSS(self, L_K, N, y, f, log_likelihood, classifier):
+        """
+        TODO: might supercede this with an existing implementation in C
+        Draw samples from p(f|y, \theta). Similarly to probabilistic crank nicolson (implicit evaluation of the likelihood).
+
+        Requires to evaluate the likelihood p(y|f, \theta).
+        In GP metric regression this is a multivariate normal making use of the L_K.
+        In GP ordinal regression this is product of independent probit functions parametrised by the cutpoints.
+
+        If the y is ordinal data then the likelihood takes the form of the probit. But why not just use a factorisation
+        of the posterior distribution.
+        """
+        x = y - f
+        # Normal distribution
+        z = np.random.normal(loc=0.0, scale=1.0, size=N)
+        # Draw a sample from the prior TODO this looks incorrect
+        z = L_K @  solve_triangular(L_K.T, x, lower=True)
+        u = np.random.exponential(scale=1.0)
+        alpha = np.random.uniform(low=0.0, high=2 * np.pi)
+        alpha_bracket = [alpha - 2 * np.pi, alpha]
+        while True:
+            f_dash = f * np.cos(alpha) + z * np.sin(alpha)
+            log_likelihood_dash = self._get_log_likelihood(f_dash, classifier)
+            if log_likelihood_dash > log_likelihood - u:
+                return f_dash, log_likelihood_dash
+            else:
+                if alpha < 0:
+                    alpha_bracket[0] = 0.0
+                else:
+                    alpha_bracket[1] = 0.0
+                print(alpha)
+                alpha = np.random.uniform(low=alpha_bracket[0], high=alpha_bracket[1])
+
+    def _elliptical(self, xx, chol_Sigma, log_like_fn, cur_log_like, angle_range):
+        """
+        Elliptical slice Gaussian prior posterior update attributed to Iain Murray, September 2009.
+`
+        -------------------------------------------------------------------------------
+        The standard MIT License for gppu_elliptical.m and other code in this
+        distribution that was written by Iain Murray and/or Ryan P. Adams.
+        http://www.opensource.org/licenses/mit-license.php
+        -------------------------------------------------------------------------------
+        Copyright (c) 2010 Iain Murray, Ryan P. Adams
+
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to
+        deal in the Software without restriction, including without limitation the
+        rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+
+        The above copyright notice and this permission notice shall be included in
+        all copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+        FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+        IN THE SOFTWARE.
+        -------------------------------------------------------------------------------
+
+        Here is the original docstring from the original matlab implementation by Iain Murray:
+        % GPPU_ELLIPTICAL Gaussian prior posterior update - slice sample on random ellipses
+        %
+        % [xx, cur_log_like] = gppu_elliptical(xx, chol_Sigma, log_like_fn[, cur_log_like])
+        %
+        % A Dx1 vector xx with prior N(0, Sigma) is updated leaving the posterior
+        % distribution invariant.
+        %
+        % Inputs:
+        % xx Dx1 initial vector (can be any array with D elements)
+        % chol_Sigma DxD chol(Sigma).Sigma is the prior covariance of xx
+        % log_like_fn @ fn log_like_fn(xx) returns 1x1 log likelihood
+        % cur_log_like 1x1 Optional: log_like_fn(xx) of initial vector.
+        % You can omit this argument or pass [].
+        % angle_range 1x1 Default 0: explore whole ellipse with break point at
+        % first rejection.Set in (0, 2 * pi] to explore a bracket of
+        % the specified width centred uniformly at randomly.
+        %
+        % Outputs:
+        % xx Dx1(size matches input) perturbed vector
+        % cur_log_like 1x1 log_like_fn(xx) of final vector
+        %
+        % See also: GPPU_UNDERRELAX, GPPU_LINESLICE
+        %
+        % Iain Murray, September 2009
+        """
+        N = len(xx)
+
+
+class SufficientAugmentation(Sampler):
+    """Samples from p(theta| f)"""
+    pass
+
+
+class AuxilliaryAugmentation(Sampler):
+    """Samples from p(theta| y, \nu)"""
+    pass
+
+
 class PseudoMarginalOrdinalGP(EPOrdinalGP):
     """
+    Samples from the PseudoMarginal \tilde{p}(theta| y).
+    Requires an approximator to work.
+
     Pseudo-Marginal Bayesian Inference for Gaussian process ordinal regression.
 
     ref: Filippone, Maurizio & Girolami, Mark. (2014). Pseudo-Marginal Bayesian Inference for Gaussian Processes.
@@ -1583,179 +1772,6 @@ class PseudoMarginalOrdinalGP(EPOrdinalGP):
                 num_importance_samples, reparameterised)
             theta_samples.append(theta)
         return np.array(theta_samples)
-
-
-class EllipticalSliceGP(Sampler):
-    """
-    Elliptical Slice sampling of the latent variables.
-    """
-
-    def __init__(self, *args, **kwargs):
-        """
-        Create an :class:`Gibbs_GP` sampler object.
-
-        :returns: An :class:`Gibbs_GP` object.
-        """
-        super().__init__(*args, **kwargs)
-
-    def _sample_initiate(self, m_0):
-        """Initialise variables for the sample method."""
-        # Initiate containers for samples
-        m = m_0
-        y_container = np.empty(self.N)
-        m_samples = []
-        y_samples = []
-        return m_0, y_container, m_samples, y_samples
-
-    def sample(self, m_0, steps, first_step=1):
-        """
-        Sample from the posterior.
-
-        Elliptical slice sampling tansition operator, for f only.
-        Can then use a Gibbs sampler to sample from y.
-
-        Sampling occurs in Gibbs blocks over the parameters: m (GP regression
-            posterior means) and then over y (auxilliaries). In this sampler,
-            gamma (cutpoint parameters) are fixed.
-
-        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
-        :type m_0: :class:`np.ndarray`.
-        :arg int steps: The number of steps in the sampler.
-        :arg int first_step: The first step. Useful for burn in algorithms.
-        """
-        m, y_container, m_samples, y_samples = self._sample_initiate(m_0)
-        for _ in trange(first_step, first_step + steps,
-                        desc="GP priors Sampler Progress", unit="samples"):
-            # Sample m using the elliptical slice sampler transition operator
-            m, log_likelihood = self.EllipticalSS_transition_operator(
-                self.L_K, self.N, m, log_likelihood)
-            # Sample y from the full conditional
-            y = sample_y(
-                y_container.copy(), m, self.t_train,
-                self.gamma, self.noise_std, self.N)
-            plt.scatter(self.X_train, m)
-            plt.show()
-            m_samples.append(m.flatten())
-            y_samples.append(y.flatten())
-        return np.array(m_samples), np.array(y_samples)
-
-    def EllipticalSS_transition_operator(self, L_K, N, m, log_likelihood, classifier, pi2=2 * np.pi):
-        """
-        Elliptical slice sampling transition operator.
-
-        Draw samples from p(m|y, \theta).
-
-        If the y is ordinal data then the likelihood takes the form of the probit. But why not just use a factorisation
-        of the posterior distribution.
-        """
-        auxiliary_nu = L_K @ norm.rvs(N)
-        auxiliary_theta = auxiliary_theta = np.random.uniform(low=0, high=2 * np.pi)
-        auxiliary_theta_min = auxiliary_theta - pi2
-        auxiliary_theta_max = auxiliary_theta
-        log_likelihood_plus_uniform = log_likelihood + np.random.uniform()
-        while True:
-            m_proposed = m * np.cos(auxiliary_theta) + auxiliary_nu * np.sin(auxiliary_theta)
-            log_likelihood_proposed = self._get_log_likelihood(m_proposed, classifier)
-            if log_likelihood_proposed > log_likelihood_plus_uniform:  # Accept reject
-                log_likelihood = log_likelihood_proposed
-                break
-            if auxiliary_theta < 0:
-                auxiliary_theta_min = auxiliary_theta
-            elif auxiliary_theta >= 0:
-                auxiliary_theta_max = auxiliary_theta
-            auxiliary_theta = np.random.uniform(low=auxiliary_theta_min, high=auxiliary_theta_max)
-        return m_proposed, log_likelihood
-
-    def ELLSS_transition_operatorSS(self, L_K, N, y, f, log_likelihood, classifier):
-        """
-        TODO: might supercede this with an existing implementation in C
-        Draw samples from p(f|y, \theta). Similarly to probabilistic crank nicolson (implicit evaluation of the likelihood).
-
-        Requires to evaluate the likelihood p(y|f, \theta).
-        In GP metric regression this is a multivariate normal making use of the L_K.
-        In GP ordinal regression this is product of independent probit functions parametrised by the cutpoints.
-
-        If the y is ordinal data then the likelihood takes the form of the probit. But why not just use a factorisation
-        of the posterior distribution.
-        """
-        x = y - f
-        # Normal distribution
-        z = np.random.normal(loc=0.0, scale=1.0, size=N)
-        # Draw a sample from the prior TODO this looks incorrect
-        z = L_K @  solve_triangular(L_K.T, x, lower=True)
-        u = np.random.exponential(scale=1.0)
-        alpha = np.random.uniform(low=0.0, high=2 * np.pi)
-        alpha_bracket = [alpha - 2 * np.pi, alpha]
-        while True:
-            f_dash = f * np.cos(alpha) + z * np.sin(alpha)
-            log_likelihood_dash = self._get_log_likelihood(f_dash, classifier)
-            if log_likelihood_dash > log_likelihood - u:
-                return f_dash, log_likelihood_dash
-            else:
-                if alpha < 0:
-                    alpha_bracket[0] = 0.0
-                else:
-                    alpha_bracket[1] = 0.0
-                print(alpha)
-                alpha = np.random.uniform(low=alpha_bracket[0], high=alpha_bracket[1])
-
-    def _elliptical(self, xx, chol_Sigma, log_like_fn, cur_log_like, angle_range):
-        """
-        Elliptical slice Gaussian prior posterior update attributed to Iain Murray, September 2009.
-`
-        -------------------------------------------------------------------------------
-        The standard MIT License for gppu_elliptical.m and other code in this
-        distribution that was written by Iain Murray and/or Ryan P. Adams.
-        http://www.opensource.org/licenses/mit-license.php
-        -------------------------------------------------------------------------------
-        Copyright (c) 2010 Iain Murray, Ryan P. Adams
-
-        Permission is hereby granted, free of charge, to any person obtaining a copy
-        of this software and associated documentation files (the "Software"), to
-        deal in the Software without restriction, including without limitation the
-        rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        copies of the Software, and to permit persons to whom the Software is
-        furnished to do so, subject to the following conditions:
-
-        The above copyright notice and this permission notice shall be included in
-        all copies or substantial portions of the Software.
-
-        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-        FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-        IN THE SOFTWARE.
-        -------------------------------------------------------------------------------
-
-        Here is the original docstring from the original matlab implementation by Iain Murray:
-        % GPPU_ELLIPTICAL Gaussian prior posterior update - slice sample on random ellipses
-        %
-        % [xx, cur_log_like] = gppu_elliptical(xx, chol_Sigma, log_like_fn[, cur_log_like])
-        %
-        % A Dx1 vector xx with prior N(0, Sigma) is updated leaving the posterior
-        % distribution invariant.
-        %
-        % Inputs:
-        % xx Dx1 initial vector (can be any array with D elements)
-        % chol_Sigma DxD chol(Sigma).Sigma is the prior covariance of xx
-        % log_like_fn @ fn log_like_fn(xx) returns 1x1 log likelihood
-        % cur_log_like 1x1 Optional: log_like_fn(xx) of initial vector.
-        % You can omit this argument or pass [].
-        % angle_range 1x1 Default 0: explore whole ellipse with break point at
-        % first rejection.Set in (0, 2 * pi] to explore a bracket of
-        % the specified width centred uniformly at randomly.
-        %
-        % Outputs:
-        % xx Dx1(size matches input) perturbed vector
-        % cur_log_like 1x1 log_like_fn(xx) of final vector
-        %
-        % See also: GPPU_UNDERRELAX, GPPU_LINESLICE
-        %
-        % Iain Murray, September 2009
-        """
-        N = len(xx)
 
 
 class CutpointValueError(Exception):

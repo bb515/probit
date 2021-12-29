@@ -650,7 +650,7 @@ def truncated_norm_normalising_constant(
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
-def truncated_norm_vector_normalising_constant(
+def truncated_norm_normalising_constant_vector(
         gamma_ts, gamma_tplus1s, noise_std, ms, EPS,
         upper_bound=None, upper_bound2=None, verbose=False):
     """

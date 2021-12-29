@@ -24,31 +24,31 @@ from .utilities import (
     fromb_t5_vector)
 
 
-class Estimator(ABC):
+class Approximator(ABC):
     """
-    Base class for variational Bayes estimators.
+    Base class for variational Bayes approximators.
 
     This class allows users to define a classification problem,
     get predictions using an approximate Bayesian inference.
 
-    All estimators must define an init method, which may or may not
+    All approximators must define an init method, which may or may not
         inherit Sampler as a parent class using `super()`.
-    All estimators that inherit Estimator define a number of methods that
-        return the posterior estimates.
-    All estimators must define a :meth:`estimate` that can be used to estimate
-        (converge to) the posterior.
-    All estimators must define a :meth:`_estimate_initiate` that is used to
-        initiate estimate.
-    All estimators must define a :meth:`predict` can be used to make
+    All approximators that inherit Approximator define a number of methods that
+        return the approximate posterior.
+    All approximators must define a :meth:`approximate` that can be used to approximate
+        the posterior.
+    All approximators must define a :meth:`_approximate_initiate` that is used to
+        initiate approximate.
+    All approximators must define a :meth:`predict` can be used to make
         predictions given test data.
     """
 
     @abstractmethod
     def __init__(self, kernel, X_train, t_train, J, write_path=None):
         """
-        Create an :class:`Estimator` object.
+        Create an :class:`Approximator` object.
 
-        This method should be implemented in every concrete Estimator.
+        This method should be implemented in every concrete Approximator.
 
         :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.    
         :arg X_train: (N, D) The data vector.
@@ -58,7 +58,7 @@ class Estimator(ABC):
         :arg J: The number of (ordinal) classes.
         :arg str write_path: Write path for outputs.
 
-        :returns: A :class:`Estimator` object
+        :returns: A :class:`Approximator` object
         """
         if not (isinstance(kernel, Kernel)):
             raise InvalidKernel(kernel)
@@ -100,19 +100,19 @@ class Estimator(ABC):
         self._update_prior()
 
     @abstractmethod
-    def _estimate_initiate(self):
+    def _approximate_initiate(self):
         """
-        Initialise the Estimator.
+        Initialise the Approximator.
 
-        This method should be implemented in every concrete Estimator.
+        This method should be implemented in every concrete Approximator.
         """
 
     @abstractmethod
-    def estimate(self):
+    def approximate(self):
         """
         Return the samples
 
-        This method should be implemented in every concrete Estimator.
+        This method should be implemented in every concrete Approximator.
         """
 
     @abstractmethod
@@ -120,24 +120,24 @@ class Estimator(ABC):
         """
         Return the samples
 
-        This method should be implemented in every concrete Estimator.
+        This method should be implemented in every concrete Approximator.
         """
 
     def _psi_tilde(self, varphi_tilde):
         """
-        Return the posterior mean estimate of the hyperhyperparameters psi.
+        Return the approximate posterior mean of the hyperhyperparameters psi.
 
         Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial
         Probit Regression with Gaussian Process Priors," in Neural Computation,
         vol. 18, no. 8, pp. 1790-1817, Aug. 2006,
         doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(10).
 
-        This is the same for all categorical estimators, and so can live in the
+        This is the same for all categorical approximators, and so can live in the
         Abstract Base Class.
 
-        :arg varphi_tilde: Posterior mean estimate of varphi.
+        :arg varphi_tilde: Posterior mean approximate of varphi.
         :type varphi_tilde: :class:`numpy.ndarray`
-        :return: The posterior mean estimate of the hyperhyperparameters psi
+        :return: The approximate posterior mean of the hyperhyperparameters psi
             Girolami and Rogers Page 9 Eq.(10).
         """
         return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi_tilde))
@@ -340,11 +340,11 @@ class Estimator(ABC):
             self.X_train, self.X_train)
 
 
-class VBOrdinalGP(Estimator):
+class VBOrdinalGP(Approximator):
     """
     A Variational Bayes classifier for ordered likelihood.
  
-    Inherits the Estimator ABC. This class allows users to define a
+    Inherits the Approximator ABC. This class allows users to define a
     classification problem, get predictions using approximate Bayesian
     inference. It is for the ordered likelihood. For this a
     :class:`probit.kernels.Kernel` is required for the Gaussian Process.
@@ -354,7 +354,7 @@ class VBOrdinalGP(Estimator):
             self, gamma, noise_variance=1.0, *args, **kwargs):
             #gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
-        Create an :class:`VBOrderedGP` Estimator object.
+        Create an :class:`VBOrderedGP` Approximator object.
 
         :arg gamma: (J + 1, ) array of the cutpoints.
         :type gamma: :class:`np.ndarray`.
@@ -439,12 +439,12 @@ class VBOrdinalGP(Estimator):
         """
         Reset kernel hyperparameters, generating new prior and posterior
         covariances. Note that hyperparameters are fixed parameters of the
-        estimator, not variables that change during the estimation. The strange
+        approximator, not variables that change during the estimation. The strange
         thing is that hyperparameters can be absorbed into the set of variables
         and so the definition of hyperparameters and variables becomes
         muddled. Since varphi can be a variable or a parameter, then optionally
         initiate it as a parameter, and then intitate it as a variable within
-        estimate. Problem is, if it changes at estimate time, then a
+        :meth:`approximate`. Problem is, if it changes at approximate time, then a
         hyperparameter update needs to be called.
 
         :arg gamma: (J + 1, ) array of the cutpoints.
@@ -521,9 +521,9 @@ class VBOrdinalGP(Estimator):
         self._update_posterior()
         warnings.warn("Done updating posterior covariance.")
 
-    def _estimate_initiate(self, m_0, dm_0):
+    def _approximate_initiate(self, m_0, dm_0):
         """
-        Initialise the estimator.
+        Initialise the approximator.
 
         :arg m_0: The initial state of the approximate posterior mean (N,).
             If `None` then initialised to zeros, default `None`. 
@@ -549,7 +549,7 @@ class VBOrdinalGP(Estimator):
         containers = (ms, ys, varphis, psis, fxs)
         return m_0, dm_0, containers
 
-    def estimate(
+    def approximate(
             self, steps, m_tilde_0=None, dm_tilde_0=None,
             first_step=1, write=False, plot=False):
         """
@@ -557,7 +557,7 @@ class VBOrdinalGP(Estimator):
         varphi_tilde and psi_tilde Eq.(8), (9), (10), respectively or,
         optionally, just an iteration over m_tilde.
 
-        :arg int steps: The number of iterations the Estimator takes.
+        :arg int steps: The number of iterations the Approximator takes.
         :arg m_tilde_0: The initial state of the approximate posterior mean
             (N,). If `None` then initialised to zeros, default `None`.
         :type m_tilde_0: :class:`numpy.ndarray`
@@ -567,12 +567,12 @@ class VBOrdinalGP(Estimator):
             containers of evolution of the statistics over the steps. If
             set to "False", statistics will not be written and those
             containers will remain empty.
-        :return: Posterior mean and covariance estimates.
+        :return: Approximate posterior means and covariances.
         :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
             posterior means, other statistics and tuple of lists of per-step
             evolution of those statistics.
         """
-        m_tilde, dm_tilde, containers = self._estimate_initiate(
+        m_tilde, dm_tilde, containers = self._approximate_initiate(
             m_tilde_0, dm_tilde_0)
         ms, ys, varphis, psis, fxs = containers
         for _ in trange(first_step, first_step + steps,
@@ -682,8 +682,8 @@ class VBOrdinalGP(Estimator):
         :arg gamma: (J + 1, ) array of the cutpoints.
         :type gamma: :class:`np.ndarray`.
         :arg cov:
-        :arg y_tilde: The posterior mean estimate of the latent variables y.
-        :arg varphi_tilde: The posterior mean estimate of the
+        :arg y_tilde: The approximate posterior mean of the latent variables y.
+        :arg varphi_tilde: The approximate posterior mean of the
             hyperparameters varphi.
         :arg noise_variance:
         :arg X_test: The new data points, array like (N_test, D).
@@ -697,7 +697,7 @@ class VBOrdinalGP(Estimator):
             # This is the general case where there are hyper-parameters
             # varphi (J, D) for all dimensions and classes.
             raise ValueError(
-                "For the ordered likelihood estimator, the kernel must not be"
+                "For the ordered likelihood approximator, the kernel must not be"
                 " ARD type (kernel._ARD=1), but ISO type (kernel._ARD=0). "
                 "(got {}, expected)".format(self.kernel._ARD, 0))
         else:
@@ -718,8 +718,8 @@ class VBOrdinalGP(Estimator):
         vol. 18, no. 8, pp. 1790-1817, Aug. 2006,
         doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(9).
 
-        :arg m_tilde: Posterior mean estimate of M_tilde.
-        :arg psi_tilde: Posterior mean estimate of psi.
+        :arg m_tilde: approximate posterior mean of M_tilde.
+        :arg psi_tilde: approximate posterior mean of psi.
         :arg int n_samples: The number of samples for the importance sampling
             estimate, 500 is used in 2005 Page 13.
         """
@@ -757,7 +757,7 @@ class VBOrdinalGP(Estimator):
 
     def _m_tilde(self, y_tilde, cov, K):
         """
-        Return the posterior mean estimate of m.
+        Return the approximate posterior mean of m.
 
         2021 Page Eq.()
 
@@ -774,7 +774,7 @@ class VBOrdinalGP(Estimator):
         partial_Sigma_div_var, Sigma_div_var):
         """
         TODO: test this
-        Return the derivative wrt varphi of the posterior mean estimate of m.
+        Return the derivative wrt varphi of the approximate posterior mean of m.
         """
         return (
             partial_Sigma_div_var @ y_tilde
@@ -994,7 +994,7 @@ class VBOrdinalGP(Estimator):
             # Convergence is sometimes very fast so this may not be necessary
             while error / steps > self.EPS:
                 iteration += 1
-                (m_0, dm_0, nu, y, p, *_) = self.estimate(
+                (m_0, dm_0, nu, y, p, *_) = self.approximate(
                     steps, m_tilde_0=m_0,
                     first_step=1, write=False)
                 (Z,
@@ -1149,7 +1149,7 @@ class VBOrdinalGP(Estimator):
         # Convergence is sometimes very fast so this may not be necessary
         while error / steps > self.EPS:
             iteration += 1
-            (m_0, dm_0, nu, y, p, *_) = self.estimate(
+            (m_0, dm_0, nu, y, p, *_) = self.approximate(
                 steps, m_tilde_0=m_0,
                 first_step=first_step, fix_hyperparameters=True, write=write)
             (Z,
@@ -1193,10 +1193,10 @@ class VBOrdinalGP(Estimator):
         return fx, gx
 
 
-class EPOrdinalGP(Estimator):
+class EPOrdinalGP(Approximator):
     """
     An Expectation Propagation classifier for ordered likelihood.
-    Inherits the Estimator ABC.
+    Inherits the Approximator ABC.
 
     Expectation propagation algorithm as written in Appendix B
     Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes for Ordinal
@@ -1213,7 +1213,7 @@ class EPOrdinalGP(Estimator):
         self, gamma, noise_variance=1.0, *args, **kwargs):
         # gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
-        Create an :class:`EPOrderedGP` Estimator object.
+        Create an :class:`EPOrderedGP` Approximator object.
 
         :arg gamma: (J + 1, ) array of the cutpoints.
         :type gamma: :class:`np.ndarray`.
@@ -1258,12 +1258,12 @@ class EPOrdinalGP(Estimator):
         TODO: can probably collapse this code into other hyperparameter update
         Reset kernel hyperparameters, generating new prior and posterior
         covariances. Note that hyperparameters are fixed parameters of the
-        estimator, not variables that change during the estimation. The strange
+        approximator, not variables that change during the estimation. The strange
         thing is that hyperparameters can be absorbed into the set of variables
         and so the definition of hyperparameters and variables becomes
         muddled. Since varphi can be a variable or a parameter, then optionally
         initiate it as a parameter, and then intitate it as a variable within
-        estimate. Problem is, if it changes at estimate time, then a
+        :meth:`approximate`. Problem is, if it changes at approximate time, then a
         hyperparameter update needs to be called.
 
         :arg gamma: (J + 1, ) array of the cutpoints.
@@ -1339,15 +1339,15 @@ class EPOrdinalGP(Estimator):
         # Posterior covariance is calculated iteratively in EP,
         # so no update here.
 
-    def _estimate_initiate(
+    def _approximate_initiate(
             self, posterior_mean_0=None, Sigma_0=None,
             mean_EP_0=None, precision_EP_0=None, amplitude_EP_0=None):
         """
-        Initialise the Estimator.
+        Initialise the Approximator.
 
         Need to make sure that the prior covariance is changed!
 
-        :arg int steps: The number of steps in the Estimator.
+        :arg int steps: The number of steps in the Approximator.
         :arg posterior_mean_0: The initial state of the posterior mean (N,). If
              `None` then initialised to zeros, default `None`.
         :type posterior_mean_0: :class:`numpy.ndarray`
@@ -1373,7 +1373,7 @@ class EPOrdinalGP(Estimator):
             likelihood wrt to the 'cavity distribution mean'. If `None`
             then initialised to zeros, default `None`.
         :type grad_Z_wrt_cavity_mean_0: :class:`numpy.ndarray`
-        :return: Containers for the mean estimates of parameters and
+        :return: Containers for the approximate posterior means of parameters and
             hyperparameters.
         :rtype: (12,) tuple.
         """
@@ -1402,7 +1402,7 @@ class EPOrdinalGP(Estimator):
                 precision_EP_0, amplitude_EP_0, grad_Z_wrt_cavity_mean_0,
                 containers, error)
 
-    def estimate(
+    def approximate(
             self, steps, posterior_mean_0=None, Sigma_0=None, mean_EP_0=None,
             precision_EP_0=None, amplitude_EP_0=None,
             first_step=1, write=False):
@@ -1418,10 +1418,10 @@ class EPOrdinalGP(Estimator):
         the joint posterior given some hyperparameters. The hyperpamaeters
         have to be optimized with model selection step.
 
-        :arg int steps: The number of iterations the Estimator takes.
+        :arg int steps: The number of iterations the Approximator takes.
         :arg gamma: (J + 1, ) array of the cutpoints.
         :type gamma: :class:`np.ndarray`.
-        :arg varphi: Initialisation of hyperparameter posterior mean estimates.
+        :arg varphi: Initialisation of hyperparameter approximate posterior means.
             If `None` then initialised to ones, default `None`.
         :type varphi: :class:`numpy.ndarray` or float
         :arg float noise_variance: Initialisation of noise variance. If `None`
@@ -1453,20 +1453,20 @@ class EPOrdinalGP(Estimator):
             containers of evolution of the statistics over the steps.
             If set to "False", statistics will not be written and those
             containers will remain empty.
-        :return: Posterior mean and covariance estimates.
+        :return: approximate posterior mean and covariances.
         :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
             posterior means, other statistics and tuple of lists of per-step
             evolution of those statistics.
         """
         (posterior_mean, Sigma, mean_EP, precision_EP,
         amplitude_EP, grad_Z_wrt_cavity_mean, containers,
-        error) = self._estimate_initiate(
+        error) = self._approximate_initiate(
             posterior_mean_0, Sigma_0, mean_EP_0, precision_EP_0,
             amplitude_EP_0)
         (posterior_means, Sigmas, mean_EPs, precision_EPs, amplitude_EPs,
          approximate_log_marginal_likelihoods) = containers
         for step in trange(first_step, first_step + steps,
-                        desc="EP GP priors Estimator Progress",
+                        desc="EP GP priors Approximator Progress",
                         unit="iterations", disable=True):
             index = self.new_point(step, random_selection=False)
             target = self.t_train[index]
@@ -1796,11 +1796,10 @@ class EPOrdinalGP(Estimator):
         :arg int index: The index of the current likelihood (the index of the
             datapoint that is "left out").
         :arg float mean_EP_n_old: The state of the individual (site) mean (N,).
-        :arg Sigma: The current posterior covariance estimate (N, N).
+        :arg Sigma: The current approximate posterior covariance (N, N).
         :type Sigma: :class:`numpy.ndarray`
-        :arg float posterior_variance_n: The current site posterior variance
-            estimate.
-        :arg float posterior_mean_n: The current site posterior mean estimate.
+        :arg float posterior_variance_n: The current approximate posterior site variance.
+        :arg float posterior_mean_n: The current site approximate posterior mean.
         :arg float precision_EP_n_old: The state of the individual (site)
             variance (N,).
         :arg float grad_Z_wrt_cavity_mean_n: The gradient of the log
@@ -1812,7 +1811,7 @@ class EPOrdinalGP(Estimator):
             approximate posterior variance.
         :arg float diff: The differance between precision_EP_n and
             precision_EP_n_old.
-        :returns: The updated posterior mean and covariance estimates.
+        :returns: The updated approximate posterior mean and covariance.
         :rtype: tuple (`numpy.ndarray`, `numpy.ndarray`)
         """
         # rho = diff/(1+diff*Aii);
@@ -1941,9 +1940,9 @@ class EPOrdinalGP(Estimator):
         """
         Return the posterior predictive distribution over classes.
 
-        :arg Sigma: The EP posterior covariance estimate.
-        :arg y_tilde: The posterior mean estimate of the latent variable Y.
-        :arg varphi_tilde: The posterior mean estimate of the
+        :arg Sigma: The approximate posterior covariance.
+        :arg y_tilde: The approximate posterior mean of the latent variable Y.
+        :arg varphi_tilde: The approximate posterior mean of the
             hyper-parameters varphi.
         :arg X_test: The new data points, array like (N_test, D).
         :arg n_samples: The number of samples in the Monte Carlo estimate.
@@ -1953,7 +1952,7 @@ class EPOrdinalGP(Estimator):
             # This is the general case where there are hyper-parameters
             # varphi (J, D) for all dimensions and classes.
             raise ValueError(
-                "For the ordered likelihood estimator,the kernel "
+                "For the ordered likelihood approximator,the kernel "
                 "must not be _ARD type (kernel._ARD=1), but"
                 " ISO type (kernel._ARD=0). (got {}, expected)".format(
                     self.kernel._ARD, 0))
@@ -2107,7 +2106,7 @@ class EPOrdinalGP(Estimator):
             while error / steps > self.EPS**2:
                 iteration += 1
                 (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
-                 precision_EP, amplitude_EP, containers) = self.estimate(
+                 precision_EP, amplitude_EP, containers) = self.approximate(
                     steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
                     mean_EP_0=mean_EP, precision_EP_0=precision_EP,
                     amplitude_EP_0=amplitude_EP,
@@ -2180,7 +2179,7 @@ class EPOrdinalGP(Estimator):
         while error / steps > self.EPS**2:
             iteration += 1
             (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
-             precision_EP, amplitude_EP, containers) = self.estimate(
+             precision_EP, amplitude_EP, containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
                 Sigma_0=Sigma, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP,
