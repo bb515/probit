@@ -18,7 +18,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 import pathlib
-from probit.estimators import EPOrdinalGP
+from probit.approximators import EPOrdinalGP
 from probit.plot import outer_loops, grid_synthetic, train, grid
 from probit.EP import test, plot_synthetic, plot
 from probit.data.utilities import datasets, load_data, load_data_synthetic
@@ -32,7 +32,7 @@ write_path = pathlib.Path()
 
 
 def main():
-    """Conduct an EP estimation/optimisation."""
+    """Conduct an EP approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")

@@ -137,6 +137,7 @@ class Kernel(ABC):
         return varphi, L, M
 
     def _initialise_hyperhyperparameter(self, varphi, psi):
+        # TODO rename psi to hyperhypervarphi
         if psi is not None:
             if type(psi) != type(varphi):
                 raise TypeError(
@@ -1911,14 +1912,14 @@ class SEARD(Kernel):
 
 
 class InvalidKernel(Exception):
-    """An invalid kernel has been passed to `Sampler`"""
+    """An invalid kernel has been passed to `Approximator` or `Sampler`"""
 
     def __init__(self, kernel):
         """
         Construct the exception.
 
-        :arg kernel: The object pass to :class:`Sampler` as the kernel
-            argument.
+        :arg kernel: The object pass to :class:`Approximator` or `Sampler`
+            as the kernel argument.
         :rtype: :class:`InvalidKernel`
         """
         message = (

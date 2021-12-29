@@ -20,13 +20,13 @@ from pstats import Stats, SortKey
 import pathlib
 from probit.plot import train, outer_loops, outer_loop_problem_size, grid
 from probit.VB import test
-from probit.estimators import VBOrdinalGP
+from probit.approximators import VBOrdinalGP
 from probit.data.utilities_nplan import datasets, load_data
 import numpy as np
 
 
 def main():
-    """Conduct an EP estimation/optimisation."""
+    """Conduct a VB approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")

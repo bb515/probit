@@ -13,8 +13,8 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.kernels import LabEQ
-from probit.estimators import VBOrdinalGP
-from probit.estimators import EPOrdinalGP
+from probit.approximators import VBOrdinalGP
+from probit.approximators import EPOrdinalGP
 from probit.samplers import PseudoMarginalOrdinalGP
 from probit.plot import outer_loops, grid_synthetic
 from probit.VB import test

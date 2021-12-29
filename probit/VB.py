@@ -14,7 +14,7 @@ def plot(classifier, m_0, steps, J, D, domain=None):
     error = np.inf
     while error / steps > classifier.EPS:
         iteration += 1
-        (m_0, dm_0, nu, y, p, *_) = classifier.estimate(
+        (m_0, dm_0, nu, y, p, *_) = classifier.approximate(
             steps, m_tilde_0=m_0, first_step=1,
             fix_hyperparameters=True, write=False)
         (calligraphic_Z,
@@ -76,7 +76,7 @@ def plot_synthetic(
 
     TODO: needs generalizing to other datasets other than Chu.
     """
-    (m_tilde, dm_tilde, nu, y_tilde, p, containers) = classifier.estimate(
+    (m_tilde, dm_tilde, nu, y_tilde, p, containers) = classifier.approximate(
         steps, m_tilde_0=m_tilde_0, fix_hyperparameters=True, write=True)
     plt.scatter(classifier.X, m_tilde)
     plt.plot(X_true, Y_true)
@@ -270,7 +270,7 @@ def test(
     m_0 = None
     while error / steps > classifier.EPS:
         iteration += 1
-        (m_0, dm_0, nu, y, p, *_) = classifier.estimate(
+        (m_0, dm_0, nu, y, p, *_) = classifier.approximate(
             steps, m_tilde_0=m_0, first_step=1, write=False)
         (calligraphic_Z,
         norm_pdf_z1s,

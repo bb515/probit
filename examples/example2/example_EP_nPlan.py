@@ -18,7 +18,7 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import pathlib
-from probit.estimators import EPOrdinalGP
+from probit.approximators import EPOrdinalGP
 from probit.plot import train, outer_loops, outer_loop_problem_size, grid
 from probit.EP import test
 from probit.data.utilities_nplan import datasets, load_data
@@ -27,7 +27,7 @@ import numpy as np
 
 
 def main():
-    """Conduct an EP estimation/optimisation."""
+    """Conduct an EP approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")

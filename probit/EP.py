@@ -22,7 +22,7 @@ def plot(classifier, domain=None):
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
         mean_EP, precision_EP, amplitude_EP, containers
-        ) = classifier.estimate(
+        ) = classifier.approximate(
             steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
             mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
@@ -89,7 +89,7 @@ def plot_synthetic(
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
             mean_EP, precision_EP, amplitude_EP,
-            containers) = classifier.estimate(
+            containers) = classifier.approximate(
             steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
             mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
@@ -247,10 +247,10 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
     mean_EP = None
     precision_EP = None
     amplitude_EP = None
-    while error / steps > classifier.EPS**2:
+    while error / steps > classifier.EPS**2:  # TODO: use EPS_2?
         iteration += 1
         (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
-            precision_EP, amplitude_EP, *_) = classifier.estimate(
+            precision_EP, amplitude_EP, *_) = classifier.approximate(
             steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
             mean_EP_0=mean_EP, precision_EP_0=precision_EP,
             amplitude_EP_0=amplitude_EP, write=True)

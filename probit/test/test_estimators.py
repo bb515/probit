@@ -1,5 +1,8 @@
-"""Tests for the estimator class."""
-from probit.estimators import VBBinomialGP
+"""
+TODO: Update (add regression unit tests).
+
+Tests for the estimator class."""
+from probit.approximators import VBBinomialGP
 import numpy as np
 from scipy.stats import gamma
 import matplotlib.pyplot as plt

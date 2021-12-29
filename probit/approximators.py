@@ -2534,3 +2534,22 @@ class CutpointValueError(Exception):
                 )
 
         super().__init__(message)
+
+
+class InvalidApproximator(Exception):
+    """An invalid approximator has been passed to `PseudoMarginal`"""
+
+    def __init__(self, approximator):
+        """
+        Construct the exception.
+
+        :arg kernel: The object pass to :class:`PseudoMarginal` as the approximator
+            argument.
+        :rtype: :class:`InvalidApproximator`
+        """
+        message = (
+            f"{approximator} is not an instance of"
+            "probit.approximators.Approximator"
+        )
+
+        super().__init__(message)
