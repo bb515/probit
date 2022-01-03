@@ -6,10 +6,10 @@ from .kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
 from .utilities import (
-    norm_z_pdf, norm_cdf,
+    norm_z_pdf, norm_cdf, sample_y,
     truncated_norm_normalising_constant,
     truncated_norm_normalising_constant_vector)
-from .numba.utilities import sample_y
+# from .numba.utilities import sample_y
 from scipy.stats import norm, uniform, expon
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from tqdm import trange
@@ -399,8 +399,7 @@ class Sampler(ABC):
         :type L_K:        
         """
         if L_K is None:
-            (self.L_K, self.lower) = cho_factor(
-                self.jitter * np.eye(self.N) + self.K)
+            self.L_K = np.linalg.cholesky(self.jitter * np.eye(self.N) + self.K)
         if log_det_K is None:
             self.log_det_K = 2 * np.sum(np.log(np.diag(self.L_K)))
         (self.L_cov, self.lower) = cho_factor(
@@ -744,29 +743,6 @@ class GibbsOrdinalGP(Sampler):
         nu = cov @ y
         return K @ nu, nu  # (N, J), (N, )
 
-    def _nu(self, m, K):
-        """
-        Calculate the ancilliary augmentation "whitened" variables.
-
-        :arg m: (N,) array
-        :type m: :class:`np.ndarray`
-        :arg cov:
-        :type cov:
-        :arg K:
-        :type K:
-        """
-        # m = L \nu
-        # m ~ N(0, K)
-        # p(m | theta)
-        # m.T @ K^{-1} @ m
-        # \nu.T @ L.T @ K^{-1} @ L @ \nu
-        # \nu.T @ L.T @ L.{-1}.T @ L^{-1} @ L @ \nu
-        # \nu.T @ \nu
-        # so m = L\nu
-        # so \nu = solve_triangular(m, L)
-        return solve_triangular(m, K)
-
-
     def sample_gibbs(self, m_0, steps, first_step=1):
         """
         Sample from the posterior.
@@ -787,16 +763,12 @@ class GibbsOrdinalGP(Sampler):
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
             # Sample y from the usual full conditional
-            y = -1. * np.ones(self.N)  # Empty y (N, ) container
             y = sample_y(y_container.copy(), m, self.t_train, self.gamma, self.noise_std, self.N)
             # Calculate statistics, then sample other conditional
             m_tilde, _ = self._m_tilde(y, self.cov, self.K)
-            m = m_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
-            # plt.scatter(self.X_train, m)
-            # plt.show()
-            # print(gamma)
-            m_samples.append(m.flatten())
-            y_samples.append(y.flatten())
+            m = m_tilde + self.L_Sigma @ norm.rvs(size=self.N)
+            m_samples.append(m)
+            y_samples.append(y)
         return np.array(m_samples), np.array(y_samples)
 
     def _sample_metropolis_within_gibbs_initiate(self, m_0, gamma_0):
@@ -952,31 +924,48 @@ class GibbsOrdinalGP(Sampler):
         return np.array(m_samples), np.array(y_samples), np.array(gamma_samples)
 
 
-class EllipticalSliceGP(Sampler):
+class EllipticalSliceOrdinalGP(Sampler):
     """
     Elliptical Slice sampling of the latent variables.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, gamma, noise_variance=1.0, *args, **kwargs):
         """
-        Create an :class:`Gibbs_GP` sampler object.
+        Create an :class:`EllipticalSliceOrdinalGP` sampler object.
 
-        :returns: An :class:`Gibbs_GP` object.
+        :returns: An :class:`EllipticalSliceOrdinalGP` object.
         """
         super().__init__(*args, **kwargs)
+        if self.kernel._ARD:
+            raise ValueError(
+                "The kernel must not be ARD type (kernel._ARD=1),"
+                " but ISO type (kernel._ARD=0). (got {}, expected)".format(
+                    self.kernel._ARD, 0))
+        if self.kernel._general:
+            raise ValueError(
+                "The kernel must not be general "
+                "type (kernel._general=1), but simple type "
+                "(kernel._general=0). (got {}, expected)".format(
+                    self.kernel._general, 0))
+        self.EPS = 0.0001
+        self.EPS_2 = self.EPS**2 
+        self.upper_bound = 6
+        self.upper_bound2 = 30
+        self.jitter = 1e-6
+        self.t_trainplus1 = self.t_train + 1
+        # Initiate hyperparameters
+        self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
 
     def _sample_initiate(self, m_0):
         """Initialise variables for the sample method."""
-        # Initiate containers for samples
-        m = m_0
-        y_container = np.empty(self.N)
         m_samples = []
-        y_samples = []
-        return m_0, y_container, m_samples, y_samples
+        log_likelihood_samples = []
+        log_likelihood = self._get_log_likelihood(m_0)
+        return m_0, log_likelihood, m_samples, log_likelihood_samples
 
     def sample(self, m_0, steps, first_step=1):
         """
-        Sample from the posterior.
+        Sample from the latent variables posterior.
 
         Elliptical slice sampling tansition operator, for f only.
         Can then use a Gibbs sampler to sample from y.
@@ -990,39 +979,30 @@ class EllipticalSliceGP(Sampler):
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
         """
-        m, y_container, m_samples, y_samples = self._sample_initiate(m_0)
+        (m, log_likelihood, m_samples, log_likelihood_samples) = self._sample_initiate(m_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            # Sample m using the elliptical slice sampler transition operator
-            m, log_likelihood = self.EllipticalSS_transition_operator(
+            # Sample m
+            m, log_likelihood = self.transition_operator(
                 self.L_K, self.N, m, log_likelihood)
-            # Sample y from the full conditional
-            y = sample_y(
-                y_container.copy(), m, self.t_train,
-                self.gamma, self.noise_std, self.N)
-            plt.scatter(self.X_train, m)
-            plt.show()
             m_samples.append(m.flatten())
-            y_samples.append(y.flatten())
-        return np.array(m_samples), np.array(y_samples)
+            log_likelihood_samples.append(log_likelihood)
+        return np.array(m_samples), log_likelihood_samples
 
-    def EllipticalSS_transition_operator(self, L_K, N, m, log_likelihood, classifier, pi2=2 * np.pi):
+    def transition_operator(self, L_K, N, m, log_likelihood, pi2=2 * np.pi):
         """
         Elliptical slice sampling transition operator.
 
         Draw samples from p(m|y, \theta).
-
-        If the y is ordinal data then the likelihood takes the form of the probit. But why not just use a factorisation
-        of the posterior distribution.
         """
-        auxiliary_nu = L_K @ norm.rvs(N)
-        auxiliary_theta = auxiliary_theta = np.random.uniform(low=0, high=2 * np.pi)
+        auxiliary_nu = L_K @ norm.rvs(size=N)
+        auxiliary_theta = np.random.uniform(low=0, high=2 * np.pi)
         auxiliary_theta_min = auxiliary_theta - pi2
         auxiliary_theta_max = auxiliary_theta
-        log_likelihood_plus_uniform = log_likelihood + np.random.uniform()
+        log_likelihood_plus_uniform = log_likelihood + np.log(np.random.uniform())
         while True:
             m_proposed = m * np.cos(auxiliary_theta) + auxiliary_nu * np.sin(auxiliary_theta)
-            log_likelihood_proposed = self._get_log_likelihood(m_proposed, classifier)
+            log_likelihood_proposed = self._get_log_likelihood(m_proposed)
             if log_likelihood_proposed > log_likelihood_plus_uniform:  # Accept reject
                 log_likelihood = log_likelihood_proposed
                 break
@@ -1066,63 +1046,10 @@ class EllipticalSliceGP(Sampler):
                 print(alpha)
                 alpha = np.random.uniform(low=alpha_bracket[0], high=alpha_bracket[1])
 
-    def _elliptical(self, xx, chol_Sigma, log_like_fn, cur_log_like, angle_range):
-        """
-        Elliptical slice Gaussian prior posterior update attributed to Iain Murray, September 2009.
-`
-        -------------------------------------------------------------------------------
-        The standard MIT License for gppu_elliptical.m and other code in this
-        distribution that was written by Iain Murray and/or Ryan P. Adams.
-        http://www.opensource.org/licenses/mit-license.php
-        -------------------------------------------------------------------------------
-        Copyright (c) 2010 Iain Murray, Ryan P. Adams
 
-        Permission is hereby granted, free of charge, to any person obtaining a copy
-        of this software and associated documentation files (the "Software"), to
-        deal in the Software without restriction, including without limitation the
-        rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        copies of the Software, and to permit persons to whom the Software is
-        furnished to do so, subject to the following conditions:
-
-        The above copyright notice and this permission notice shall be included in
-        all copies or substantial portions of the Software.
-
-        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-        FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-        IN THE SOFTWARE.
-        -------------------------------------------------------------------------------
-
-        Here is the original docstring from the original matlab implementation by Iain Murray:
-        % GPPU_ELLIPTICAL Gaussian prior posterior update - slice sample on random ellipses
-        %
-        % [xx, cur_log_like] = gppu_elliptical(xx, chol_Sigma, log_like_fn[, cur_log_like])
-        %
-        % A Dx1 vector xx with prior N(0, Sigma) is updated leaving the posterior
-        % distribution invariant.
-        %
-        % Inputs:
-        % xx Dx1 initial vector (can be any array with D elements)
-        % chol_Sigma DxD chol(Sigma).Sigma is the prior covariance of xx
-        % log_like_fn @ fn log_like_fn(xx) returns 1x1 log likelihood
-        % cur_log_like 1x1 Optional: log_like_fn(xx) of initial vector.
-        % You can omit this argument or pass [].
-        % angle_range 1x1 Default 0: explore whole ellipse with break point at
-        % first rejection.Set in (0, 2 * pi] to explore a bracket of
-        % the specified width centred uniformly at randomly.
-        %
-        % Outputs:
-        % xx Dx1(size matches input) perturbed vector
-        % cur_log_like 1x1 log_like_fn(xx) of final vector
-        %
-        % See also: GPPU_UNDERRELAX, GPPU_LINESLICE
-        %
-        % Iain Murray, September 2009
-        """
-        N = len(xx)
+# class HyperparameterSampler(object):
+#     """
+#     """
 
 
 class SufficientAugmentation(object):
@@ -1155,9 +1082,214 @@ class SufficientAugmentation(object):
         else:
             self.sampler = sampler
 
-    def _transition_operator_ancilliary_augmentation(
+    def tmp_compute_marginal(self, theta, indices, proposal_L_cov, reparameterised=True):
+        """Temporary function to compute the marginal given theta"""
+        if reparameterised:
+            log_p_theta = prior_reparameterised(
+                theta, indices, self.sampler.J, self.sampler.kernel.psi,
+                self.sampler.kernel.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.gamma)
+        else:
+            log_p_theta = prior(
+                theta, indices, self.sampler.J, self.sampler.kernel.psi,
+                self.sampler.kernel.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.gamma)
+        log_p_f_giv_theta = None
+        log_p_theta_giv_f = log_p_theta + log_p_f_giv_theta
+        return log_p_theta_giv_f
+        
+
+    def transition_operator(
             self, u, log_prior_u, log_jacobian_u,
-            indices, proposal_L_cov, nu, reparameterised):
+            indices, proposal_L_cov, nu, log_p_y_given_m, reparameterised):
+        """
+        Transition operator for the metropolis step.
+
+        Samples from p(theta|f) \propto p(f|theta)p(theta).
+        """
+        #
+
+
+        # SS the below is AA
+        # Different nu requires recalculation of this
+        log_p_m_given_u = - 0.5 * self.sampler.log_det_K - self.sampler.N / 2 - 0.5 * nu.T @ nu
+        log_p_u_given_m = log_p_m_given_u + log_prior_u
+        # Make copies of previous hyperparameters in case of reject
+        # So we don't need to recalculate
+        # TODO do I need copy?
+        gamma = self.sampler.gamma.copy()
+        varphi = self.sampler.kernel.varphi.copy()
+        scale = self.sampler.scale.copy()
+        noise_variance = self.sampler.noise_variance.copy()
+        L_K = self.sampler.L_K.copy()
+        log_det_K = self.sampler.log_det_K.copy()
+        K = self.sampler.K.copy()
+        cov = self.sampler.cov.copy()
+        L_Sigma = self.sampler.L_Sigma.copy()
+        # Evaluate priors and proposal conditionals
+        if reparameterised:
+            v, log_jacobian_v = proposal_reparameterised(u, indices, proposal_L_cov)
+            log_prior_v = prior_reparameterised(v, indices)
+        else:
+            v, log_jacobian_v = proposal(u, indices, proposal_L_cov)
+            log_prior_v = prior(v, indices)
+        # Initialise proposed hyperparameters, and update prior and posterior covariances
+        self.sampler._hyperparameter_initialise(v, indices)
+        log_p_m_given_v = - 0.5 * self.sampler.log_det_K - self.sampler.N / 2 - 0.5 * nu.T @ nu
+        log_p_v_given_m = log_p_m_given_v + log_prior_v
+        print(log_p_v_given_m)
+        # Log ratio
+        log_a = (
+            log_p_v_given_m + np.sum(log_prior_v) + np.sum(log_jacobian_v)
+            - log_p_u_given_m - np.sum(log_prior_u) - np.sum(log_jacobian_u))
+        log_A = np.minimum(0, log_a)
+        threshold = np.random.uniform(low=0.0, high=1.0)
+        if log_A > np.log(threshold):
+            print(log_A, ">", np.log(threshold), " ACCEPT")
+            #joint_log_likelihood = log p(theta,f,y) = log p(y|f) + log p (f|theta) + log p(theta)
+            joint_log_likelihood = log_p_y_given_m + log_p_m_given_v + log_prior_v
+            # Prior and posterior covariances have already been updated
+            return (v, log_prior_v, log_jacobian_v, 1)
+        else:
+            print(log_A, "<", np.log(threshold), " REJECT")
+            # Revert the hyperparameters and
+            # prior and posterior covariances to previous values
+            self.sampler.hyperparameters_update(
+                gamma=gamma, varphi=varphi, scale=scale,
+                noise_variance=noise_variance,
+                K=K, L_K=L_K, log_det_K=log_det_K, cov=cov, L_Sigma=L_Sigma)
+            joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
+            return (u, log_prior_u, log_jacobian_u, 0)
+
+    def _sample_initiate(self, theta_0, indices, proposal_cov, reparameterised):
+        """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
+        # Get starting point for the Markov Chain
+        if theta_0 is None:
+            theta_0 = self.sampler.get_theta(indices)
+        # Get type of proposal density
+        proposal_L_cov = self._proposal_initiate(theta_0, indices, proposal_cov)
+        # Evaluate priors and proposal conditionals
+        if reparameterised:
+            theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, indices, proposal_L_cov)
+            log_prior_theta = prior_reparameterised(theta_0, indices)
+        else:
+            theta_0, log_jacobian_theta = proposal(theta_0, indices, proposal_L_cov)
+            log_prior_theta = prior(theta_0, indices)
+        # Initialise hyperparameters, and update prior and posterior covariances
+        self.sampler._hyperparameter_initialise(theta_0, indices)
+        # Initiate containers for samples
+        theta_samples = []
+        m_samples = []
+        joint_log_likelihood_samples = []
+        return (
+            theta_0, theta_samples, log_prior_theta,
+            log_jacobian_theta, proposal_L_cov,
+            m_samples, joint_log_likelihood_samples, 0)
+
+    def sample(self, m_0, indices, proposal_cov, steps, first_step=1,
+            theta_0=None, reparameterised=True):
+        """
+        Sample from the posterior.
+
+        Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
+            then over y (auxilliaries). In this sampler, gamma (cutpoint parameters) are fixed.
+
+        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type m_0: :class:`np.ndarray`.
+        :arg int steps: The number of steps in the sampler.
+        :arg int first_step: The first step. Useful for burn in algorithms.
+        """
+        (theta, theta_samples, log_prior_theta,
+        log_jacobian_theta, log_marginal_likelihood_theta,
+        proposal_L_cov, joint_log_likelihood_samples, naccepted) = self._sample_initiate(
+            theta_0, indices, proposal_cov, reparameterised)
+        (m, log_likelihood, m_samples, log_likelihood_samples) = self.sampler._sample_initiate(m_0)
+        for _ in trange(first_step, first_step + steps,
+                        desc="GP priors Sampler Progress", unit="samples"):
+            # Need p(v | \nu, y) and p(y | \ny, y), but need to condition on the same \nu, y
+            # and since these change, then we need to change the variables.
+            m, log_likelihood = self.sampler.transition_operator(
+                self.L_K, self.N, m, log_likelihood)
+            # In code_pseudo they have f | nu, L_chol, not f | L_cho, y. Weird.
+            # Solve for nu
+            # TODO: Is this in the correct order?
+            # nu | f, theta, so should be different depending on which theta is used.
+            # So required two solves per step?
+            # No if m is not the same for each
+            # Yes if m is the same for each
+            nu = self.sampler._nu(m, self.sampler.K)
+            (theta, log_prior_theta,
+            log_jacobian_theta,
+            bool) = self.transition_operator(
+                theta, log_prior_theta, log_jacobian_theta,
+                indices, proposal_L_cov, nu, reparameterised)
+            naccepted += bool
+            # Update hyperparameters from theta.
+            # plt.scatter(self.sampler.X_train, m)
+            # plt.show()
+            # print(gamma)
+            m_samples.append(m)
+            theta_samples.append(theta)
+            joint_log_likelihood_samples.append(joint_log_likelihood)
+        return np.array(m_samples), naccepted/steps
+
+
+class AuxilliaryAugmentation(Sampler):
+    """
+    An auxilliary augmentation (AA) hyperparameter sampler.
+
+    This class allows users to define a sampler of the AA posterior
+        :math:`\tilde{p}(\theta| \nu, \y)`, where
+        :math:`\theta` and the hyperparameters of a Gaussian Process (GP) model,
+        :math:`\nu` are the variables auxiliary to theta and :math:`\y` are the data.
+    The sampler is defined by a particular GP model,
+    for this an :class:`probit.samplers.Sampler` is required.
+    For learning how to use Probit, see
+    :ref:`complete documentation <probit_docs_mainpage>`, and for getting
+    started, please see :ref:`quickstart <probit_docs_user_quickstart>`.
+
+    ref: Filippone, Maurizio & Girolami, Mark. (2014). Pseudo-Marginal Bayesian Inference for Gaussian Processes.
+        IEEE Transactions on Pattern Analysis and Machine Intelligence. 10.1109/TPAMI.2014.2316530. 
+    """
+
+    def __init__(self, sampler, write_path=None):
+        """
+        Create an :class:`AuxilliaryAugmentation` object.
+
+        :arg sampler: The approximator to use, see :mod:`probit.samplers` for options.    
+        :arg str write_path: Write path for outputs.
+        :returns: An :class:`SufficientAugmentation` object.
+        """
+        if not (isinstance(sampler, Sampler)):
+            raise InvalidSampler(sampler)
+        else:
+            self.sampler = sampler
+
+    def _nu(self, m, K):
+        """
+        Calculate the ancilliary augmentation "whitened" variables.
+
+        :arg m: (N,) array
+        :type m: :class:`np.ndarray`
+        :arg cov:
+        :type cov:
+        :arg K:
+        :type K:
+        """
+        # m = L \nu
+        # m ~ N(0, K)
+        # p(m | theta)
+        # m.T @ K^{-1} @ m
+        # \nu.T @ L.T @ K^{-1} @ L @ \nu
+        # \nu.T @ L.T @ L.{-1}.T @ L^{-1} @ L @ \nu
+        # \nu.T @ \nu
+        # so m = L\nu
+        # so \nu = solve_triangular(m, L)
+        return solve_triangular(m, K)  # Why have I put (m, K)?
+
+    def transition_operator(
+            self, u, log_prior_u, log_jacobian_u,
+            indices, proposal_L_cov, nu, log_p_y_given_m, reparameterised):
         """
         Transition operator for the metropolis step.
 
@@ -1180,10 +1312,10 @@ class SufficientAugmentation(object):
         L_Sigma = self.sampler.L_Sigma.copy()
         # Evaluate priors and proposal conditionals
         if reparameterised:
-            v, log_jacobian_v = self.sampler._proposal_reparameterised(u, indices, proposal_L_cov)
-            log_prior_v = self.sampler._prior_reparameterised(v, indices)
+            v, log_jacobian_v = proposal_reparameterised(u, indices, proposal_L_cov)
+            log_prior_v = prior_reparameterised(v, indices)
         else:
-            v, log_jacobian_v = self.sampler._proposal(u, indices, proposal_L_cov)
+            v, log_jacobian_v = proposal(u, indices, proposal_L_cov)
             log_prior_v = prior(v, indices)
         # Initialise proposed hyperparameters, and update prior and posterior covariances
         self.sampler._hyperparameter_initialise(v, indices)
@@ -1198,8 +1330,10 @@ class SufficientAugmentation(object):
         threshold = np.random.uniform(low=0.0, high=1.0)
         if log_A > np.log(threshold):
             print(log_A, ">", np.log(threshold), " ACCEPT")
+            #joint_log_likelihood = log p(theta,f,y) = log p(y|f) + log p (f|theta) + log p(theta)
+            joint_log_likelihood = log_p_y_given_m + log_p_m_given_v + log_prior_v
             # Prior and posterior covariances have already been updated
-            return (v, log_prior_v, log_jacobian_v)
+            return (v, log_prior_v, log_jacobian_v, 1)
         else:
             print(log_A, "<", np.log(threshold), " REJECT")
             # Revert the hyperparameters and
@@ -1208,15 +1342,16 @@ class SufficientAugmentation(object):
                 gamma=gamma, varphi=varphi, scale=scale,
                 noise_variance=noise_variance,
                 K=K, L_K=L_K, log_det_K=log_det_K, cov=cov, L_Sigma=L_Sigma)
-            return (u, log_prior_u, log_jacobian_u)
+            joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
+            return (u, log_prior_u, log_jacobian_u, 0)
 
-    def _sample_sufficient_augmentation_initiate(self, theta_0, indices, proposal_cov, reparameterised):
+    def _sample_initiate(self, theta_0, indices, proposal_cov, reparameterised):
         """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
         # Get starting point for the Markov Chain
         if theta_0 is None:
             theta_0 = self.sampler.get_theta(indices)
         # Get type of proposal density
-        proposal_L_cov = self.sampler._proposal_initiate(theta_0, indices, proposal_cov)
+        proposal_L_cov = self._proposal_initiate(theta_0, indices, proposal_cov)
         # Evaluate priors and proposal conditionals
         if reparameterised:
             theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, indices, proposal_L_cov)
@@ -1228,14 +1363,14 @@ class SufficientAugmentation(object):
         self.sampler._hyperparameter_initialise(theta_0, indices)
         # Initiate containers for samples
         theta_samples = []
-        y_container = np.empty(self.sampler.N)
         m_samples = []
-        y_samples = []
+        joint_log_likelihood_samples = []
         return (
             theta_0, theta_samples, log_prior_theta,
-            log_jacobian_theta, proposal_L_cov, y_container, m_samples, y_samples)
+            log_jacobian_theta, proposal_L_cov,
+            m_samples, joint_log_likelihood_samples, 0)
 
-    def sample_ancilliary_augmentation(self, m_0, indices, proposal_cov, steps, first_step=1,
+    def sample(self, m_0, indices, proposal_cov, steps, first_step=1,
             theta_0=None, reparameterised=True):
         """
         Sample from the posterior.
@@ -1250,51 +1385,37 @@ class SufficientAugmentation(object):
         """
         (theta, theta_samples, log_prior_theta,
         log_jacobian_theta, log_marginal_likelihood_theta,
-        proposal_L_cov, y_container, m_samples,
-        y_samples) = self.sampler._sample_sufficient_augmentation_initiate(
+        proposal_L_cov, joint_log_likelihood_samples, naccepted) = self._sample_initiate(
             theta_0, indices, proposal_cov, reparameterised)
+        (m, log_likelihood, m_samples, log_likelihood_samples) = self.sampler._sample_initiate(m_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            # TODO: note that any sampler can be used to sample from p(f|theta), here!
-            # TODO: in AA do we still sample from p(f|theta), but then solve for \nu? or just sample from \nu?
-            # Sample y from the usual full conditional
-            y = -1. * np.ones(self.sampler.N)  # Empty y (N, ) container
-            y = sample_y(y_container.copy(), m, self.sampler.t_train, self.sampler.gamma, self.sampler.noise_std, self.sampler.N)
-            # Calculate statistics, then sample other conditional
             # Need p(v | \nu, y) and p(y | \ny, y), but need to condition on the same \nu, y
             # and since these change, then we need to change the variables.
-            m_tilde, _ = self.sampler._m_tilde(y, self.sampler.cov, self.sampler.K)
-            # TODO This might not be the update needed
+            m, log_likelihood = self.sampler.transition_operator(
+                self.L_K, self.N, m, log_likelihood)
             # In code_pseudo they have f | nu, L_chol, not f | L_cho, y. Weird.
-            m = m_tilde.flatten() + self.sampler.L_Sigma @ norm.rvs(size=self.sampler.N)
             # Solve for nu
             # TODO: Is this in the correct order?
             # nu | f, theta, so should be different depending on which theta is used.
             # So required two solves per step?
             # No if m is not the same for each
             # Yes if m is the same for each
-            nu = self.sampler._nu(m, self.sampler.K)
-            # Sample the hyperparameters from the GP variables
+            nu = self._nu(m, self.sampler.K)
             (theta, log_prior_theta,
-            log_jacobian_theta) = self.sampler._transition_operator_ancilliary_augmentation(
+            log_jacobian_theta,
+            bool) = self.transition_operator(
                 theta, log_prior_theta, log_jacobian_theta,
                 indices, proposal_L_cov, nu, reparameterised)
+            naccepted += bool
             # Update hyperparameters from theta.
             # plt.scatter(self.sampler.X_train, m)
             # plt.show()
             # print(gamma)
-            m_samples.append(m.flatten())
-            y_samples.append(y.flatten())
-        return np.array(m_samples), np.array(y_samples)
-
-
-class AuxilliaryAugmentation(Sampler):
-    """
-    Samples from p(theta| y, \nu)
-
-    requires access to a kernel prior covariance, the data, values of \nu.    
-    """
-    pass
+            m_samples.append(m)
+            theta_samples.append(theta)
+            joint_log_likelihood_samples.append(joint_log_likelihood)
+        return np.array(m_samples), naccepted/steps
 
 
 class PseudoMarginal(object):
@@ -1340,28 +1461,6 @@ class PseudoMarginal(object):
             noise_variance=noise_variance)
         # intervals = self.approximator.gamma[2:self.approximator.J] - self.approximator.gamma[1:self.approximator.J - 1]
         return log_prior_theta
-
-    def _proposal_initiate(self, theta, indices, proposal_cov):
-        """TODO: check this code"""
-        if np.shape(proposal_cov) == (len(theta),):
-            # Independent elliptical Gaussian proposals with standard deviations equal to proposal_L_cov
-            cov = np.diagonal(proposal_cov[np.ix_(indices)])
-            L_cov = np.sqrt(proposal_cov)
-        elif np.shape(proposal_cov) == ():
-            # Independent spherical Gaussian proposals with standard deviation equal to proposal_L_cov
-            L_cov = np.sqrt(proposal_cov)
-        elif np.shape(proposal_cov) == (len(theta), len(theta)):
-            # Multivariate Gaussian proposals with cholesky factor equal to proposal_L_cov
-            # The proposal distribution is a multivariate Gaussian
-            # Take the sub-matrix marginal Gaussian for the indices
-            mask = np.outer(indices, indices)
-            mask = np.array(mask, dtype=bool)
-            cov = proposal_cov[np.ix_(mask)]
-            (L_cov, _) = cho_factor(cov)
-        else:
-            raise ValueError("Unsupported dimensions of proposal_L_cov, got {},"
-                " expected square matrix or 1D vector or scalar".format(np.shape(proposal_cov)))
-        return L_cov
 
     # def _weight(
     #     self, f_samp, prior_L_cov, half_log_det_prior_cov, posterior_L_cov, half_log_det_posterior_cov, posterior_mean):
@@ -1527,7 +1626,7 @@ class PseudoMarginal(object):
         if theta_0 is None:
             theta_0 = self.approximator.get_theta(indices)
         # Get type of proposal density
-        proposal_L_cov = self.approximator._proposal_initiate(theta_0, indices, proposal_cov)
+        proposal_L_cov = self._proposal_initiate(theta_0, indices, proposal_cov)
         _, _, posterior_mean, posterior_cov = self.approximator.approximate_posterior(
             theta_0, indices, first_step=1, write=False, verbose=True)
 

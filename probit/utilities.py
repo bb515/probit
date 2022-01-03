@@ -845,3 +845,16 @@ def dp(m, gamma_ts, gamma_tplus1s, noise_std, EPS,
         z2_indices = z2s[indices]
         sigma_dp[indices] = dp_far_tails(z2_indices)
     return sigma_dp
+
+def sample_y(y, m, t_train, gamma, noise_std, N):
+    for i in range(N):
+        # Target class index
+        j_true = t_train[i]
+        y_i = np.NINF  # this is a trick for the next line
+        # Sample from the truncated Gaussian
+        while y_i > gamma[j_true + 1] or y_i <= gamma[j_true]:
+            # sample y
+            y_i = m[i] + np.random.normal(loc=m[i], scale=noise_std)
+        # Add sample to the Y vector
+        y[i] = y_i
+    return y

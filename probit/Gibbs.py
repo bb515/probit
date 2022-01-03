@@ -16,14 +16,25 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
     # For now, let them vary.
     # m_samples, y_samples, gamma_samples = sampler.sample_metropolis_within_gibbs(
     #     m_0, gamma_0, 0.05, burn_steps)
-    m_samples, y_samples = sampler.sample(
+    m_samples, y_samples, log_likelihood_samples = sampler.sample(
         m_0, burn_steps)
 
     plt.scatter(np.tile(sampler.X_train, (burn_steps, 1)), m_samples, alpha=0.01)
     plt.ylabel(r"$m$", fontsize=16)
-    plt.savefig('Mixing for cutpoint posterior samples2.png')
+    plt.savefig('Mixing for cutpoint posterior samples m.png')
     plt.show()
     plt.close()
+
+    plt.plot(log_likelihood_samples)
+    plt.savefig('Mixing for cutpoint posterior samples logl.png')
+    plt.show()
+    plt.close()
+
+    # plt.scatter(np.tile(sampler.X_train, (burn_steps, 1)), y_samples, alpha=0.01)
+    # plt.ylabel(r"$m$", fontsize=16)
+    # plt.savefig('Mixing for cutpoint posterior samples y.png')
+    # plt.show()
+    # plt.close()
 
     assert 0
 

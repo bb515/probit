@@ -4,6 +4,9 @@ import numpy as np
 from scipy.special import ndtr, log_ndtr
 import numba_scipy  # Numba overloads for scipy and scipy.special
 from scipy.stats import norm
+from numba import cuda
+from numba.cuda.random import xoroshiro128p_normal_float64, create_xoroshiro128p_states
+
 
 # Make sure to limit CPU usage (here as a failsafe)
 set_num_threads(6)
@@ -609,17 +612,15 @@ def fromb_t5_vector(
     return q
 
 
-# For sampling
-@njit(parallel=True)
 def sample_y(y, m, t_train, gamma, noise_std, N):
     for i in prange(N):
         # Target class index
         j_true = t_train[i]
-        y_n = np.NINF  # this is a trick for the next line
+        y_i = np.NINF  # this is a trick for the next line
         # Sample from the truncated Gaussian
-        while y_n > gamma[j_true + 1] or y_n <= gamma[j_true]:
+        while y_i > gamma[j_true + 1] or y_i <= gamma[j_true]:
             # sample y
-            y_n = norm.rvs(loc=m[i], scale=noise_std)
+            y_i = m[i] + np.random.normal(loc=m[i], scale=noise_std)
         # Add sample to the Y vector
-        y[n] = y_n
+        y[i] = y_i
     return y

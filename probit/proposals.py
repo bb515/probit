@@ -1,5 +1,29 @@
 """Proposals for hyperparameters."""
 import numpy as np
+from scipy.linalg import cho_solve, cho_factor, solve_triangular
+
+
+def proposal_initiate(theta, indices, proposal_cov):
+    """TODO: check this code"""
+    if np.shape(proposal_cov) == (len(theta),):
+        # Independent elliptical Gaussian proposals with standard deviations equal to proposal_L_cov
+        cov = np.diagonal(proposal_cov[np.ix_(indices)])
+        L_cov = np.sqrt(proposal_cov)
+    elif np.shape(proposal_cov) == ():
+        # Independent spherical Gaussian proposals with standard deviation equal to proposal_L_cov
+        L_cov = np.sqrt(proposal_cov)
+    elif np.shape(proposal_cov) == (len(theta), len(theta)):
+        # Multivariate Gaussian proposals with cholesky factor equal to proposal_L_cov
+        # The proposal distribution is a multivariate Gaussian
+        # Take the sub-matrix marginal Gaussian for the indices
+        mask = np.outer(indices, indices)
+        mask = np.array(mask, dtype=bool)
+        cov = proposal_cov[np.ix_(mask)]
+        (L_cov, _) = cho_factor(cov)
+    else:
+        raise ValueError("Unsupported dimensions of proposal_L_cov, got {},"
+            " expected square matrix or 1D vector or scalar".format(np.shape(proposal_cov)))
+    return L_cov
 
 
 def proposal_reparameterised(theta, indices, L_cov):

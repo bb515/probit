@@ -10,6 +10,7 @@ cutpoint.
 """
 # Make sure to limit CPU usage
 import os
+from re import A
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
@@ -25,7 +26,9 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.samplers import GibbsOrdinalGP, EllipticalSliceGP
+from probit.samplers import (
+    GibbsOrdinalGP, EllipticalSliceOrdinalGP,
+    SufficientAugmentation, AuxilliaryAugmentation, PseudoMarginal)
 from probit.plot import outer_loops, grid_synthetic
 from probit.Gibbs import plot
 from probit.kernels import SEIso
@@ -90,10 +93,31 @@ def main():
         # TODO: temporary, since we know the true latent variables here
         burn_steps = 500
         steps = 1000
-        m_0 = y_true
-        y_0 = y_true
+        m_0 = y_true.flatten()
+        y_0 = y_true.flatten()
+        import matplotlib.pyplot as plt
+        print(np.shape(m_0))
+        plt.scatter(X, y_true)
+        plt.show()
         # sampler = GibbsOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
-        sampler = EllipticalSliceGP(gamma_0, noise_variance_0, kernel, X, t, J)
+        sampler = EllipticalSliceOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
+        M = 30
+        log_varphis = np.logspace(-3, 1, M)
+        p_theta_giv_f = np.empty(M)
+        hyper_sampler = AuxilliaryAugmentation(sampler)
+        if J==3:
+            theta = np.empty(10)
+        elif J==5:
+            theta = np.empty(10)
+        else:
+            raise ValueError("K")
+        for log_varphi, i in enumerate(log_varphis):
+            print(i)
+            theta = log_varphi
+            hyper_sampler.tmp_compute_marginal(
+                theta, indices, proposal_L_cov, reparameterised=True)
+
+        
         plot(sampler, m_0, gamma_0, burn_steps, steps, J, D)
         # indices = np.ones(J + 2)
         # # Fix noise_variance
