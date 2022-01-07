@@ -412,8 +412,11 @@ class VBOrdinalGP(Approximator):
 
     def _update_posterior(self):
         """Update posterior covariances."""
-        # Is this really the best cholesky to take. What are the eigenvalues?
+        # TODO: Is this really the best cholesky to take. What are the eigenvalues?
         # are they bounded?
+        # Note that this scipy implementation returns an upper triangular matrix
+        # whereas numpy, tf, scipy.cholesky return a lower triangular,
+        # then the position of the matrix transpose in the code would change.
         (self.L_cov, self.lower) = cho_factor(
             self.noise_variance * np.eye(self.N) + self.K)
         # Unfortunately, it is necessary to take this cho_factor,
@@ -428,6 +431,7 @@ class VBOrdinalGP(Approximator):
         # fx. Maybe have it as part of a seperate method.
         # TODO: should be using  cho_solve and not solve_triangular, unless I used it because that is what is used
         # in tensorflow for whatever reason (maybe tensorflow has no cho_solve)
+        # Note that Tensorflow uses tf.linalg.triangular_solve
         L_covT_inv = solve_triangular(
             self.L_cov.T, np.eye(self.N), lower=True)
         self.cov = solve_triangular(self.L_cov, L_covT_inv, lower=False)

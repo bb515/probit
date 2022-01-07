@@ -105,12 +105,18 @@ def main():
         log_varphis = np.logspace(-3, 1, M)
         p_theta_giv_f = np.empty(M)
         hyper_sampler = AuxilliaryAugmentation(sampler)
-        if J==3:
-            theta = np.empty(10)
-        elif J==5:
-            theta = np.empty(10)
-        else:
-            raise ValueError("K")
+        indices = np.ones(J + 2)
+        # Fix noise_variance
+        indices[0] = 0
+        # Fix scale
+        indices[J] = 0
+        # Fix varphi
+        #indices[-1] = 0
+        # Fix gamma
+        indices[1:J] = 0
+        # Just varphi
+        domain = ((-4, 4), None)
+        res = (100, None)
         for log_varphi, i in enumerate(log_varphis):
             print(i)
             theta = log_varphi
