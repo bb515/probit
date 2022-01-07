@@ -309,7 +309,7 @@ def generate_prior_data_new(
     if plot:
         cmap = plt.cm.get_cmap('PiYG', J)    # J discrete colors
         colors = []
-        for k in range(J):
+        for j in range(J):
             colors.append(cmap((k+0.5)/J))
             plt.scatter(X_j[j], Y_true_j[j], color=cmap((k+0.5)/J))
         plt.close()
@@ -1305,8 +1305,6 @@ def load_data_synthetic(dataset, bins, plot=False):
                     1.0
                 ),
             }
-            plt.scatter(X, Y_true)
-            plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
             colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
         elif bins == "thirteen":
@@ -1345,8 +1343,6 @@ def load_data_synthetic(dataset, bins, plot=False):
                     1.0
                 ),
             }
-            plt.scatter(X, Y_true)
-            plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
     elif dataset == "Linear":
         D = 1
@@ -1379,8 +1375,6 @@ def load_data_synthetic(dataset, bins, plot=False):
                     data["scale"],
                 ),
             }
-            plt.scatter(X, Y_true)
-            plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
         elif bins == "thirteen":
             J = 13
@@ -1410,10 +1404,10 @@ def load_data_synthetic(dataset, bins, plot=False):
                     data["scale"]
                 ),
             }
-            plt.scatter(X, Y_true)
-            plt.show()
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters[
                 "true"]
+    # plt.scatter(X, Y_true)
+    # plt.show()
     gamma_0 = np.array(gamma_0)
     if plot:
         plot_ordinal(X, t, X_j, Y_true_j, J, D)

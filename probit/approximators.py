@@ -7,10 +7,10 @@ import warnings
 import math
 import matplotlib.pyplot as plt
 import numpy as np
-from .numba.utilities import (
-    norm_z_pdf, norm_cdf)
 from .utilities import (
-    truncated_norm_normalising_constant, p, dp)
+    norm_z_pdf, norm_cdf,
+    truncated_norm_normalising_constant,
+    truncated_norm_normalising_constant_vector, p, dp)
 # Usually the numba implementation is not faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
@@ -1255,6 +1255,39 @@ class EPOrdinalGP(Approximator):
         self.jitter = 1e-6
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
+
+    # TODO: these probably need to go somewhere else. 
+    def get_log_likelihood_vectorised(self, m):
+        """
+        Likelihood of ordinal regression. This is product of scalar normal cdf.
+        """
+        Z, *_ = truncated_norm_normalising_constant_vector(
+            self.gamma_ts, self.gamma_tplus1s,
+            self.noise_std, m, self.EPS,
+            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
+        return np.sum(np.log(Z), axis=1)  # (num_samples,)
+
+    def get_log_likelihood(self, m):
+        """
+        Likelihood of ordinal regression. This is product of scalar normal cdf.
+        """
+        Z, *_ = truncated_norm_normalising_constant(
+            self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
+            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
+        return np.sum(np.log(Z))  # (1,)
+
+    def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
+        """Get the pdf of the multivariate normal distribution."""
+        if mean is not None:
+            x = x - mean
+        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
+
+    def _log_multivariate_normal_pdf_vectorised(self, xs, cov_inv, half_log_det_cov, mean=None):
+        """Get the pdf of the multivariate normal distribution."""
+        if mean is not None:
+            xs = xs - mean
+        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.einsum(
+            'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
 
     def hyperparameters_update(
         self, gamma=None, varphi=None, scale=None, noise_variance=None):

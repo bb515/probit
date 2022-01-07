@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from probit.approximators import Approximator, InvalidApproximator, EPOrdinalGP
 from probit.priors import prior, prior_reparameterised
-from probit.proposals import proposal, proposal_reparameterised
+from probit.proposals import proposal, proposal_reparameterised, proposal_initiate
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
@@ -114,7 +114,7 @@ class Sampler(ABC):
         This method should be implemented in every concrete sampler.
         """
 
-    def _get_log_likelihood_vectorised(self, m):
+    def get_log_likelihood_vectorised(self, m):
         """
         Likelihood of ordinal regression. This is product of scalar normal cdf.
         """
@@ -123,7 +123,7 @@ class Sampler(ABC):
             upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
         return np.sum(np.log(Z), axis=1)  # (num_samples,)
 
-    def _get_log_likelihood(self, m):
+    def get_log_likelihood(self, m):
         """
         Likelihood of ordinal regression. This is product of scalar normal cdf.
         """
@@ -398,8 +398,10 @@ class Sampler(ABC):
         :arg L_K: Optionally supply prior covariance cholesky factor if it has already been calculated.
         :type L_K:        
         """
+        # TODO: I should be consitant with which cholesky using.
         if L_K is None:
-            self.L_K = np.linalg.cholesky(self.jitter * np.eye(self.N) + self.K)
+            self.L_K, lower = cho_factor(self.jitter * np.eye(self.N) + self.K)
+            # self.L_K = np.linalg.cholesky(self.jitter * np.eye(self.N) + self.K)
         if log_det_K is None:
             self.log_det_K = 2 * np.sum(np.log(np.diag(self.L_K)))
         (self.L_cov, self.lower) = cho_factor(
@@ -502,6 +504,7 @@ class Sampler(ABC):
             self.noise_variance = noise_variance
             self.noise_std = np.sqrt(noise_variance)
         # Update posterior covariance
+        print("posterior update")
         warnings.warn("Updating posterior covariance.")
         self._update_posterior(L_K=L_K, log_det_K=log_det_K)
         warnings.warn("Done updating posterior covariance.")
@@ -929,13 +932,25 @@ class EllipticalSliceOrdinalGP(Sampler):
     Elliptical Slice sampling of the latent variables.
     """
 
-    def __init__(self, gamma, noise_variance=1.0, *args, **kwargs):
+    def __init__(self, gamma, noise_variance=1.0,
+            gamma_hyperparameters=None, noise_std_hyperparameters=None,
+            *args, **kwargs):
         """
         Create an :class:`EllipticalSliceOrdinalGP` sampler object.
 
         :returns: An :class:`EllipticalSliceOrdinalGP` object.
         """
         super().__init__(*args, **kwargs)
+        if gamma_hyperparameters is not None:
+            warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
+            self.gamma_hyperparameters = gamma_hyperparameters
+        else:
+            self.gamma_hyperparameters = None
+        if noise_std_hyperparameters is not None:
+            warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
+            self.noise_std_hyperparameters = noise_std_hyperparameters
+        else:
+            self.noise_std_hyperparameters = None
         if self.kernel._ARD:
             raise ValueError(
                 "The kernel must not be ARD type (kernel._ARD=1),"
@@ -960,7 +975,7 @@ class EllipticalSliceOrdinalGP(Sampler):
         """Initialise variables for the sample method."""
         m_samples = []
         log_likelihood_samples = []
-        log_likelihood = self._get_log_likelihood(m_0)
+        log_likelihood = self.get_log_likelihood(m_0)
         return m_0, log_likelihood, m_samples, log_likelihood_samples
 
     def sample(self, m_0, steps, first_step=1):
@@ -1002,7 +1017,7 @@ class EllipticalSliceOrdinalGP(Sampler):
         log_likelihood_plus_uniform = log_likelihood + np.log(np.random.uniform())
         while True:
             m_proposed = m * np.cos(auxiliary_theta) + auxiliary_nu * np.sin(auxiliary_theta)
-            log_likelihood_proposed = self._get_log_likelihood(m_proposed)
+            log_likelihood_proposed = self.get_log_likelihood(m_proposed)
             if log_likelihood_proposed > log_likelihood_plus_uniform:  # Accept reject
                 log_likelihood = log_likelihood_proposed
                 break
@@ -1035,7 +1050,7 @@ class EllipticalSliceOrdinalGP(Sampler):
         alpha_bracket = [alpha - 2 * np.pi, alpha]
         while True:
             f_dash = f * np.cos(alpha) + z * np.sin(alpha)
-            log_likelihood_dash = self._get_log_likelihood(f_dash, classifier)
+            log_likelihood_dash = self.get_log_likelihood(f_dash, classifier)
             if log_likelihood_dash > log_likelihood - u:
                 return f_dash, log_likelihood_dash
             else:
@@ -1082,22 +1097,22 @@ class SufficientAugmentation(object):
         else:
             self.sampler = sampler
 
-    def tmp_compute_marginal(self, theta, indices, proposal_L_cov, reparameterised=True):
+    def tmp_compute_marginal(self, m, theta, indices, proposal_L_cov, reparameterised=True):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
-            log_p_theta = prior_reparameterised(
-                theta, indices, self.sampler.J, self.sampler.kernel.psi,
-                self.sampler.kernel.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.gamma)
+            gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
+                theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.sampler.gamma)
         else:
-            log_p_theta = prior(
-                theta, indices, self.sampler.J, self.sampler.kernel.psi,
-                self.sampler.kernel.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.gamma)
-        log_p_f_giv_theta = None
-        log_p_theta_giv_f = log_p_theta + log_p_f_giv_theta
-        return log_p_theta_giv_f
-        
+            gamma, varphi, scale, noise_variance, log_p_theta = prior(
+                theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.sampler.gamma)
+        nu = solve_triangular(self.sampler.L_K.T, m, lower=True)  # TODO just make sure this is the correct solve.
+        log_p_m_giv_theta = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
+        log_p_theta_giv_m = log_p_theta[0] + log_p_m_giv_theta
+        return log_p_theta_giv_m
 
     def transition_operator(
             self, u, log_prior_u, log_jacobian_u,
@@ -1107,9 +1122,6 @@ class SufficientAugmentation(object):
 
         Samples from p(theta|f) \propto p(f|theta)p(theta).
         """
-        #
-
-
         # SS the below is AA
         # Different nu requires recalculation of this
         log_p_m_given_u = - 0.5 * self.sampler.log_det_K - self.sampler.N / 2 - 0.5 * nu.T @ nu
@@ -1167,7 +1179,7 @@ class SufficientAugmentation(object):
         if theta_0 is None:
             theta_0 = self.sampler.get_theta(indices)
         # Get type of proposal density
-        proposal_L_cov = self._proposal_initiate(theta_0, indices, proposal_cov)
+        proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
         # Evaluate priors and proposal conditionals
         if reparameterised:
             theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, indices, proposal_L_cov)
@@ -1234,9 +1246,9 @@ class SufficientAugmentation(object):
         return np.array(m_samples), naccepted/steps
 
 
-class AuxilliaryAugmentation(Sampler):
+class AncilliaryAugmentation(Sampler):
     """
-    An auxilliary augmentation (AA) hyperparameter sampler.
+    An ancilliary augmentation (AA) hyperparameter sampler.
 
     This class allows users to define a sampler of the AA posterior
         :math:`\tilde{p}(\theta| \nu, \y)`, where
@@ -1287,6 +1299,22 @@ class AuxilliaryAugmentation(Sampler):
         # so \nu = solve_triangular(m, L)
         return solve_triangular(m, K)  # Why have I put (m, K)?
 
+    def tmp_compute_marginal(self, m, theta, indices, proposal_L_cov, reparameterised=True):
+        """Temporary function to compute the marginal given theta"""
+        if reparameterised:
+            gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
+                theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.sampler.gamma)
+        else:
+            gamma, varphi, scale, noise_variance, log_p_theta = prior(
+                theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.sampler.gamma)
+        log_p_y_giv_nu_theta = self.sampler.get_log_likelihood(m)
+        log_p_theta_giv_y_nu = log_p_theta[0] + log_p_y_giv_nu_theta
+        return log_p_theta_giv_y_nu
+
     def transition_operator(
             self, u, log_prior_u, log_jacobian_u,
             indices, proposal_L_cov, nu, log_p_y_given_m, reparameterised):
@@ -1319,7 +1347,7 @@ class AuxilliaryAugmentation(Sampler):
             log_prior_v = prior(v, indices)
         # Initialise proposed hyperparameters, and update prior and posterior covariances
         self.sampler._hyperparameter_initialise(v, indices)
-        log_p_m_given_v = - 0.5 * self.sampler.log_det_K - self.sampler.N / 2 - 0.5 * nu.T @ nu
+        log_p_m_given_v = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
         log_p_v_given_m = log_p_m_given_v + log_prior_v
         print(log_p_v_given_m)
         # Log ratio
@@ -1351,7 +1379,7 @@ class AuxilliaryAugmentation(Sampler):
         if theta_0 is None:
             theta_0 = self.sampler.get_theta(indices)
         # Get type of proposal density
-        proposal_L_cov = self._proposal_initiate(theta_0, indices, proposal_cov)
+        proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
         # Evaluate priors and proposal conditionals
         if reparameterised:
             theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, indices, proposal_L_cov)
@@ -1474,13 +1502,13 @@ class PseudoMarginal(object):
 
     def _weight(
         self, f_samp, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
-        print(self.approximator._get_log_likelihood(f_samp))
+        print(self.approximator.get_log_likelihood(f_samp))
         print(self.approximator._log_multivariate_normal_pdf(
                 f_samp, prior_cov_inv, half_log_det_prior_cov))
         print(- self.approximator._log_multivariate_normal_pdf(
                 f_samp, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
         return (
-            self.approximator._get_log_likelihood(f_samp)
+            self.approximator.get_log_likelihood(f_samp)
             + self.approximator._log_multivariate_normal_pdf(
                 f_samp, prior_cov_inv, half_log_det_prior_cov)
             - self.approximator._log_multivariate_normal_pdf(
@@ -1490,19 +1518,18 @@ class PseudoMarginal(object):
     def _weight_vectorised(
         self, f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov, posterior_L_cov, posterior_cov_inv,
         half_log_det_posterior_cov, posterior_mean):
-        # print(self.approximator._get_log_likelihood_vectorised(f_samps))
-        # print(self.approximator._log_multivariate_normal_pdf_vectorised(
+        # print(self.approximator.get_log_likelihood_vectorised(f_samps))
+        # print(self._log_multivariate_normal_pdf_vectorised(
         #         f_samps, prior_L_cov, half_log_det_prior_cov))
         # print(self.approximator._log_multivariate_normal_pdf_vectorised(
         #         f_samps, posterior_L_cov, half_log_det_posterior_cov, mean=posterior_mean))
 
-        print(self.approximator._get_log_likelihood_vectorised(f_samps))
-        print(self.approximator._log_multivariate_normal_pdf_vectorised(
-                f_samps, prior_cov_inv, half_log_det_prior_cov))
-        print(- self.approximator._log_multivariate_normal_pdf_vectorised(
-                f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
-
-        log_ws = (self.approximator._get_log_likelihood_vectorised(f_samps)
+        # print(self.approximator.get_log_likelihood_vectorised(f_samps))
+        # print(self.approximator._log_multivariate_normal_pdf_vectorised(
+        #         f_samps, prior_cov_inv, half_log_det_prior_cov))
+        # print(- self.approximator._log_multivariate_normal_pdf_vectorised(
+        #         f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+        log_ws = (self.approximator.get_log_likelihood_vectorised(f_samps)
             + self.approximator._log_multivariate_normal_pdf_vectorised(
                 f_samps, prior_cov_inv, half_log_det_prior_cov)
             - self.approximator._log_multivariate_normal_pdf_vectorised(
@@ -1526,7 +1553,7 @@ class PseudoMarginal(object):
         #     plt.scatter(self.approximator.X_train, f_samps[i])
         # plt.show()
 
-        log_ws = self.approximator._weight_vectorised(
+        log_ws = self._weight_vectorised(
             f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
             posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov, posterior_mean)
 
@@ -1553,7 +1580,7 @@ class PseudoMarginal(object):
             z = np.random.normal(0, 1, self.approximator.N)
             f_samp = posterior_mean + np.dot(posterior_L_cov, z)
             #plt.scatter(self.approximator.X_train, f_samp)
-            log_ws[i] = self.approximator._weight(
+            log_ws[i] = self._weight(
                 f_samp, prior_L_cov, half_log_det_prior_cov, posterior_L_cov,
                 half_log_det_posterior_cov, posterior_mean)
         # print(log_ws)
@@ -1562,6 +1589,34 @@ class PseudoMarginal(object):
         max_log_ws = np.max(log_ws)
         log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
         return log_sum_exp - np.log(num_importance_samples)
+
+    def tmp_compute_marginal(self, m, theta, indices, proposal_L_cov, num_importance_samples=1000, reparameterised=True):
+        """Temporary function to compute the marginal given theta"""
+        if reparameterised:
+            gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
+                theta, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
+                None, None,
+                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
+        else:
+            gamma, varphi, scale, noise_variance, log_p_theta = prior(
+                theta, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
+                None, None,
+                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
+        fx, gx, posterior_mean, posterior_cov = self.approximator.approximate_posterior(
+            theta, indices, first_step=1, write=False, verbose=False)
+        prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
+        half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+        prior_cov_inv = np.linalg.inv(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
+        # perform cholesky decomposition since this was never performed in the EP posterior approximation
+        posterior_L_cov = np.linalg.cholesky(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
+        half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
+        posterior_cov_inv = np.linalg.inv(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
+        log_p_pseudo_marginals = []
+        for i in range(10):
+            log_p_pseudo_marginals.append(self._importance_sampler_vectorised(
+                num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
+                posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov))
+        return np.array(log_p_pseudo_marginals) + log_p_theta[0]
 
     def _transition_operator(
             self, u, log_prior_u, log_jacobian_u, log_marginal_likelihood_u,
@@ -1594,14 +1649,14 @@ class PseudoMarginal(object):
         half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
         prior_cov_inv = np.linalg.inv(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
 
-        log_marginal_likelihood_v = self.approximator._importance_sampler_vectorised(
+        log_marginal_likelihood_v = self._importance_sampler_vectorised(
             num_importance_samples, prior_L_cov, half_log_det_prior_cov,
             posterior_mean, posterior_L_cov, half_log_det_posterior_cov)
 
         print("HELLO")
         print(log_marginal_likelihood_v)
 
-        log_marginal_likelihood_v = self.approximator._importance_sampler(
+        log_marginal_likelihood_v = self._importance_sampler(
             num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
             posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov)
 
@@ -1626,7 +1681,7 @@ class PseudoMarginal(object):
         if theta_0 is None:
             theta_0 = self.approximator.get_theta(indices)
         # Get type of proposal density
-        proposal_L_cov = self._proposal_initiate(theta_0, indices, proposal_cov)
+        proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
         _, _, posterior_mean, posterior_cov = self.approximator.approximate_posterior(
             theta_0, indices, first_step=1, write=False, verbose=True)
 
@@ -1655,14 +1710,14 @@ class PseudoMarginal(object):
         # prior_cov_inv = solve_triangular(prior_L_cov, prior_L_covT_inv, lower=False)
         # half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
 
-        log_marginal_likelihood_theta = self.approximator._importance_sampler_vectorised(
+        log_marginal_likelihood_theta = self._importance_sampler_vectorised(
             num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
             posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov
         )
 
         print(log_marginal_likelihood_theta)
 
-        log_marginal_likelihood_theta = self.approximator._importance_sampler(
+        log_marginal_likelihood_theta = self._importance_sampler(
             num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
             posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov)
 
@@ -1681,7 +1736,7 @@ class PseudoMarginal(object):
             log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov)
 
     def sample(
-            self, indices, proposal_cov, steps, first_step=1, num_importance_samples=100, theta_0=None,
+            self, indices, proposal_cov, steps, first_step=1, num_importance_samples=80, theta_0=None,
             reparameterised=True):
         (theta, theta_samples, log_prior_theta,
         log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov) = self.approximator._sample_initiate(

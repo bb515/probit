@@ -1,7 +1,7 @@
 """
 TODO: Update (add regression unit tests).
 
-Tests for the estimator class."""
+Tests for the approximators class."""
 from probit.approximators import VBBinomialGP
 import numpy as np
 from scipy.stats import gamma

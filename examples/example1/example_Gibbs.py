@@ -26,15 +26,18 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
+from probit.approximators import EPOrdinalGP
 from probit.samplers import (
     GibbsOrdinalGP, EllipticalSliceOrdinalGP,
-    SufficientAugmentation, AuxilliaryAugmentation, PseudoMarginal)
+    SufficientAugmentation, AncilliaryAugmentation, PseudoMarginal)
 from probit.plot import outer_loops, grid_synthetic
 from probit.Gibbs import plot
 from probit.kernels import SEIso
+from probit.proposals import proposal_initiate
 import pathlib
 from probit.data.utilities import datasets, load_data, load_data_synthetic
 import time
+import matplotlib.pyplot as plt
 
 
 now = time.ctime()
@@ -87,24 +90,33 @@ def main():
         X_true, y_true,
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+        # Set varphi hyperparameters
+        varphi_hyperparameters = np.array([3.4, 2.0])  # [loc, scale] of a normal on np.exp(varphi)
         # Initiate kernel
-        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        kernel = Kernel(varphi=varphi_0, scale=scale_0, varphi_hyperparameters=varphi_hyperparameters)
         # Initiate classifier
         # TODO: temporary, since we know the true latent variables here
         burn_steps = 500
         steps = 1000
         m_0 = y_true.flatten()
         y_0 = y_true.flatten()
-        import matplotlib.pyplot as plt
-        print(np.shape(m_0))
-        plt.scatter(X, y_true)
-        plt.show()
         # sampler = GibbsOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
-        sampler = EllipticalSliceOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
-        M = 30
-        log_varphis = np.logspace(-3, 1, M)
+        noise_std_hyperparameters = None
+        gamma_hyperparameters = None
+        sampler = EllipticalSliceOrdinalGP(
+            gamma_0, noise_variance_0,
+            noise_std_hyperparameters,
+            gamma_hyperparameters, kernel, X, t, J)
+        nu_true = sampler.cov @ y_true.flatten()
+        m_true = sampler.K @ nu_true
+        # plt.scatter(sampler.X_train, m_true)
+        # plt.show()
+        M = 100
+        varphis = np.logspace(-2.0, 2.0, M+1)
+        print(varphis)
+        varphis_step = varphis[1:] - varphis[:-1]
+        varphis = varphis[:-1]
         p_theta_giv_f = np.empty(M)
-        hyper_sampler = AuxilliaryAugmentation(sampler)
         indices = np.ones(J + 2)
         # Fix noise_variance
         indices[0] = 0
@@ -117,39 +129,97 @@ def main():
         # Just varphi
         domain = ((-4, 4), None)
         res = (100, None)
-        for log_varphi, i in enumerate(log_varphis):
-            print(i)
-            theta = log_varphi
-            hyper_sampler.tmp_compute_marginal(
-                theta, indices, proposal_L_cov, reparameterised=True)
+        theta = sampler.get_theta(indices)
+        proposal_cov = 0.05
+        proposal_L_cov = proposal_initiate(theta, indices, proposal_cov)
 
-        
-        plot(sampler, m_0, gamma_0, burn_steps, steps, J, D)
-        # indices = np.ones(J + 2)
-        # # Fix noise_variance
-        # indices[0] = 0
-        # # Fix scale
-        # indices[J] = 0
-        # # Fix varphi
-        # #indices[-1] = 0
-        # # Fix gamma
-        # indices[1:J] = 0
-        # # Just varphi
-        # domain = ((-4, 4), None)
-        # res = (100, None)
-        # # #  just scale
-        # # domain = ((0., 1.8), None)
-        # # res = (20, None)
-        # # # just std
-        # # domain = ((-0.1, 1.), None)
-        # # res = (100, None)
-        # # # varphi and scale
-        # # domain = ((0, 2), (0, 2))
-        # # res = (100, None)
-        # # # varphi and std
-        # # domain = ((0, 2), (0, 2))
-        # # res = (100, None)
-        # grid_synthetic(sampler, domain, res, indices, show=False)
+        # # Ancilliary Augmentation approach
+        # hyper_sampler = AncilliaryAugmentation(sampler)
+        # log_p_theta_giv_y_nus = []
+        # for i, varphi in enumerate(varphis):
+        #     print(i)
+        #     # Need to update sampler hyperparameters
+        #     sampler.hyperparameters_update(varphi=varphi)
+        #     theta=sampler.get_theta(indices)
+        #     log_p_theta_giv_y_nu = hyper_sampler.tmp_compute_marginal(
+        #         m_true, theta, indices, proposal_L_cov, reparameterised=True)
+        #     log_p_theta_giv_y_nus.append(log_p_theta_giv_y_nu)
+        # plt.plot(log_p_theta_giv_y_nus)
+        # plt.show()
+        # max_log_p_theta_giv_y_nus = np.max(log_p_theta_giv_y_nus)
+        # log_sum_exp = max_log_p_theta_giv_y_nus + np.log(np.sum(np.exp(log_p_theta_giv_y_nus - max_log_p_theta_giv_y_nus)))
+        # p_theta_giv_y_nus = np.exp(log_p_theta_giv_y_nus - log_sum_exp - np.log(varphis_step))
+        # plt.plot(varphis, p_theta_giv_y_nus)
+        # plt.show()
+
+        # # Sufficient Augmentation approach
+        # hyper_sampler = SufficientAugmentation(sampler)
+        # log_p_theta_giv_ms = []
+        # for i, varphi in enumerate(varphis):
+        #     print(i)
+        #     # Need to update sampler hyperparameters
+        #     sampler.hyperparameters_update(varphi=varphi)
+        #     theta=sampler.get_theta(indices)
+        #     log_p_theta_giv_ms.append(hyper_sampler.tmp_compute_marginal(
+        #             m_true, theta, indices, proposal_L_cov, reparameterised=True))
+        # plt.plot(log_p_theta_giv_ms, 'k')
+        # plt.show()
+        # max_log_p_theta_giv_ms = np.max(log_p_theta_giv_ms)
+        # log_sum_exp = max_log_p_theta_giv_ms + np.log(np.sum(np.exp(log_p_theta_giv_ms - max_log_p_theta_giv_ms)))
+        # p_theta_giv_ms = np.exp(log_p_theta_giv_ms - log_sum_exp - np.log(varphis_step))
+        # plt.plot(varphis, p_theta_giv_ms)
+        # plt.show()
+
+        # Pseudo Marginal approach
+        approximator = EPOrdinalGP(
+            gamma_0, noise_variance_0,
+            kernel, X, t, J)
+        hyper_sampler = PseudoMarginal(approximator)
+        log_p_pseudo_marginalss = []
+        for i, varphi in enumerate(varphis):
+            # Need to update sampler hyperparameters
+            approximator.hyperparameters_update(varphi=varphi)
+            theta=sampler.get_theta(indices)
+            log_p_pseudo_marginals = hyper_sampler.tmp_compute_marginal(
+                    m_true, theta, indices, proposal_L_cov, reparameterised=True)
+            log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
+        log_p_pseudo_marginalss = np.array(log_p_pseudo_marginalss)
+        print(np.shape(log_p_pseudo_marginalss))
+        log_p_pseudo_marginals_ms = np.mean(log_p_pseudo_marginalss, axis=1)
+        log_p_pseudo_marginals_std = np.std(log_p_pseudo_marginalss, axis=1)
+        plt.plot(varphis, log_p_pseudo_marginals_ms, 'k')
+        plt.plot(varphis, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
+        plt.plot(varphis, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b') 
+        plt.show()
+
+        max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginals_ms)
+        log_sum_exp = max_log_p_pseudo_marginals + np.log(np.sum(np.exp(log_p_pseudo_marginals_ms - max_log_p_pseudo_marginals)))
+        p_pseudo_marginals = np.exp(log_p_pseudo_marginals_ms - log_sum_exp - np.log(varphis_step))
+
+        plt.plot(varphis, p_pseudo_marginals)
+        # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
+        # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r') 
+        plt.show()
+
+        max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginalss, axis=0)
+        print(np.shape(max_log_p_pseudo_marginals))
+        log_sum_exp = np.tile(max_log_p_pseudo_marginals, (M, 1)) + np.tile(np.log(np.sum(np.exp(log_p_pseudo_marginalss - max_log_p_pseudo_marginals), axis=0)), (M, 1))
+        p_pseudo_marginals = np.exp(log_p_pseudo_marginalss - log_sum_exp - np.log(varphis_step).reshape(-1, 1))
+
+        p_pseudo_marginals_mean = np.mean(p_pseudo_marginals, axis=1)
+        p_pseudo_marginals_std = np.std(p_pseudo_marginals, axis=1)
+
+        plt.plot(varphis, p_pseudo_marginals_mean)
+        plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
+        plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r') 
+        plt.show()
+
+        # plt.plot(varphis, p_pseudo_marginals, label="PM")
+        # plt.plot(varphis, p_theta_giv_ms, label="SA")
+        # plt.plot(varphis, p_theta_giv_y_nus, label="AA")
+
+        # plot(sampler, m_0, gamma_0, burn_steps, steps, J, D)
+
     if args.profile:
         profile.disable()
         s = StringIO()

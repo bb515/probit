@@ -6,7 +6,7 @@ from scipy.special import ndtr, log_ndtr
 import warnings
 
 def prior_reparameterised(
-        theta, indices, J, psi, noise_std_hyperparameters,
+        theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
         gamma_hyperparameters, scale_hyperparameters, gamma=None):
     """
     A reparametrisation such that all of the hyperparameters can be sampled from the real line,
@@ -19,7 +19,7 @@ def prior_reparameterised(
     scale = None
     varphi = None
     index = 0
-    log_prior_theta = np.zeros(len(theta))
+    log_prior_theta = np.zeros(np.size(theta))
     if indices[0]:
         # Gamma prior is placed on the noise std - evaluate the prior pdf
         log_noise_std = theta[index]
@@ -89,8 +89,8 @@ def prior_reparameterised(
         varphi = np.exp(theta[index])
         log_prior_pdf = norm.logpdf(
             theta[index],
-            loc=psi[0],
-            scale=psi[1])
+            loc=varphi_hyperparameters[0],
+            scale=varphi_hyperparameters[1])
         log_prior_theta[index] = log_prior_pdf
         index += 1
     return gamma, varphi, scale, noise_variance, log_prior_theta
