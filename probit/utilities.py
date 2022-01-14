@@ -562,7 +562,7 @@ def p_far_tails(z):
 
 def truncated_norm_normalising_constant(
         gamma_ts, gamma_tplus1s, noise_std, m, EPS,
-        upper_bound=None, upper_bound2=None, verbose=False):
+        upper_bound=None, upper_bound2=None, numerically_stable=False):
     """
     Return the normalising constants for the truncated normal distribution
     in a numerically stable manner.
@@ -631,20 +631,20 @@ def truncated_norm_normalising_constant(
             z2_indices = z2s[indices]
             Z[indices] = _Z_far_tails(
                 -z2_indices)
-    if verbose is True:
-        number_small_densities = len(
-            Z[Z < EPS])
-        if number_small_densities != 0:
+    if numerically_stable is True:
+        small_densities = np.where(Z < EPS)
+        if np.size(small_densities) != 0:
             warnings.warn(
                 "Z (normalising constants for truncated norma"
                 "l random variables) must be greater than"
                 " tolerance={} (got {}): SETTING to"
                 " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
                     EPS, Z, z1s, z2s))
-            for i, value in enumerate(Z):
+            for i, value in enumerate(Z[small_densities]):
+                # Z[small_densities[i]] = EPS
                 if value < 0.01:
                     print("call_Z={}, z1 = {}, z2 = {}".format(
-                        value, z1s[i], z2s[i]))
+                        value, z1s[small_densities[i]], z2s[small_densities[i]]))
     return (
         Z,
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
@@ -652,7 +652,7 @@ def truncated_norm_normalising_constant(
 
 def truncated_norm_normalising_constant_vector(
         gamma_ts, gamma_tplus1s, noise_std, ms, EPS,
-        upper_bound=None, upper_bound2=None, verbose=False):
+        upper_bound=None, upper_bound2=None, numerically_stable=False):
     """
     Return the normalising constants for the truncated normal distribution
     in a numerically stable manner.
@@ -723,20 +723,20 @@ def truncated_norm_normalising_constant_vector(
             z2_indices = z2s[indices]
             Z[indices] = _Z_far_tails(
                 -z2_indices)
-    if verbose is True:
-        number_small_densities = len(
-            Z[Z < EPS])
-        if number_small_densities != 0:
+    if numerically_stable is True:
+        small_densities = np.where(Z < EPS)
+        if np.size(small_densities) != 0:
             warnings.warn(
                 "Z (normalising constants for truncated norma"
-                "l random variables) must be greater than "
-                "tolerance={} (got {}): SETTING to"
+                "l random variables) must be greater than"
+                " tolerance={} (got {}): SETTING to"
                 " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
                     EPS, Z, z1s, z2s))
-            for i, value in enumerate(Z):
+            for i, value in enumerate(Z[small_densities]):
+                # Z[small_densities[i]] = EPS
                 if value < 0.01:
                     print("call_Z={}, z1 = {}, z2 = {}".format(
-                        value, z1s[i], z2s[i]))
+                        value, z1s[small_densities[i]], z2s[small_densities[i]]))
     return (
         Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
         norm_cdf_z1s, norm_cdf_z2s)

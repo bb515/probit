@@ -1295,7 +1295,7 @@ def load_data_synthetic(dataset, bins, plot=False):
                 "true": (
                     data["gamma"],
                     data["varphi"],
-                    data["noise_variance"], # 1.0,  #  correct value is 1.0, not this: data["noise_variance"],  # np.sqrt(0.1) = 0.316 
+                    1.0,  #  data["noise_variance"], # 1.0,  #  correct value is 1.0, not this: data["noise_variance"],  # np.sqrt(0.1) = 0.316 
                     data["scale"],
                 ),
                 "init_alt": (
@@ -1406,8 +1406,8 @@ def load_data_synthetic(dataset, bins, plot=False):
             }
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters[
                 "true"]
-    # plt.scatter(X, Y_true)
-    # plt.show()
+    plt.scatter(X, Y_true)
+    plt.show()
     gamma_0 = np.array(gamma_0)
     if plot:
         plot_ordinal(X, t, X_j, Y_true_j, J, D)

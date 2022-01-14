@@ -1,9 +1,11 @@
 """Approximate inference: VB approximation. Methods for inference and test."""
 import numpy as np
 import matplotlib.pyplot as plt
-from probit.data.utilities import colors
+from probit.data.utilities import datasets, colors
 from probit.data.utilities import calculate_metrics
-
+from .utilities import (
+    truncated_norm_normalising_constant,
+    truncated_norm_normalising_constant_vector)
 
 def plot(classifier, m_0, steps, J, D, domain=None):
     """
@@ -44,7 +46,7 @@ def plot(classifier, m_0, steps, J, D, domain=None):
         X_new_[:, :2] = X_new
         # Test
         Z, posterior_predictive_m, posterior_std = classifier.predict(
-            classifier.gamma, classifier.cov, y, classifier.varphi,
+            classifier.gamma, classifier.cov, y,
             classifier.noise_variance, X_new_)  # (N_test, J)
         Z_new = Z.reshape((N, N, J))
         print(np.sum(Z, axis=1), 'sum')
@@ -77,186 +79,248 @@ def plot_synthetic(
     TODO: needs generalizing to other datasets other than Chu.
     """
     (m_tilde, dm_tilde, nu, y_tilde, p, containers) = classifier.approximate(
-        steps, m_tilde_0=m_tilde_0, fix_hyperparameters=True, write=True)
-    plt.scatter(classifier.X, m_tilde)
-    plt.plot(X_true, Y_true)
+        steps, m_tilde_0=m_tilde_0, write=True)
+    plt.scatter(classifier.X_train, m_tilde, color='r')
+    plt.scatter(X_true, Y_true, color='b')
     plt.show()
     (ms, ys, varphis, psis, fxs) = containers
     plt.plot(fxs)
     plt.title("Variational lower bound on the marginal likelihood")
     plt.show()
-    (calligraphic_Z, *_) = classifier._calligraphic_Z(
-                    classifier.gamma_ts, classifier.gamma_tplus1s,
-                    classifier.noise_std, m_tilde,
-                    upper_bound=classifier.upper_bound,
-                    upper_bound2=classifier.upper_bound2)
+    Z, *_ = truncated_norm_normalising_constant(
+        classifier.gamma_ts, classifier.gamma_tplus1s,
+        classifier.noise_std, m_tilde, classifier.EPS,
+        upper_bound=classifier.upper_bound,
+        upper_bound2=classifier.upper_bound2)
+    # (calligraphic_Z, *_) = classifier._calligraphic_Z(
+    #                 classifier.gamma_ts, classifier.gamma_tplus1s,
+    #                 classifier.noise_std, m_tilde,
+    #                 upper_bound=classifier.upper_bound,
+    #                 upper_bound2=classifier.upper_bound2)
     J = classifier.J
     N = classifier.N
     fx = classifier.objective(
             classifier.N, m_tilde, nu, classifier.trace_cov,
             classifier.trace_Sigma_div_var,
-            calligraphic_Z,
+            Z,
             classifier.noise_variance,
             classifier.log_det_K, classifier.log_det_cov)
-    if dataset == "tertile":
-        x_lims = (-0.5, 1.5)
-        N = 1000
-        x = np.linspace(x_lims[0], x_lims[1], N)
-        X_new = x.reshape((N, classifier.D))
-        print("y", y_tilde)
-        print("varphi", classifier.kernel.varphi)
-        print("noisevar", classifier.noise_variance)
-        (Z, posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            classifier.gamma, classifier.cov, y_tilde,
-            classifier.kernel.varphi,
-            classifier.noise_variance, X_new)
-        print(np.sum(Z, axis=1), 'sum')
-        plt.xlim(x_lims)
-        plt.ylim(0.0, 1.0)
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$p(\omega_{*}|x, X, \omega)$", fontsize=16)
-        plt.stackplot(x, Z.T,
-                      labels=(
-                          r"$p(\omega_{*}=0|x, X, \omega)$",
-                          r"$p(\omega_{*}=1|x, X, \omega)$",
-                          r"$p(\omega_{*}=2|x, X, \omega)$"),
-                      colors=(
-                          colors[0], colors[1], colors[2])
-                      )
-        val = 0.5  # the value where you want the data to appear on the y-axis
-        for j in range(J):
-            plt.scatter(X[np.where(t == j)], np.zeros_like(
-                X[np.where(t == j)]) + val, s=15, facecolors=colors[j],
-                edgecolors='white')
-        plt.savefig(
-            "Ordered Gibbs Cumulative distribution plot of class distributions"
-            " for x_new=[{}, {}].png".format(x_lims[0], x_lims[1]))
-        plt.show()
-        plt.close()
-        np.savez(
-            "VB_tertile.npz",
-            x=X_new, y=posterior_predictive_m, s=posterior_std)
-        plt.plot(X_new, posterior_predictive_m, 'r')
-        plt.fill_between(
-            X_new[:, 0],
-            posterior_predictive_m - 2*posterior_std,
-            posterior_predictive_m + 2*posterior_std,
-            color='red', alpha=0.2)
-        plt.plot(X_true, Y_true, 'b')
-        plt.ylim(-2.2, 2.2)
-        plt.xlim(-0.5, 1.5)
-        for j in range(J):
-            plt.scatter(
-                X[np.where(t == j)],
-                np.zeros_like(X[np.where(t == j)]) + val,
-                s=15, facecolors=colors[j], edgecolors='white')
-        plt.savefig("scatter_versus_posterior_mean.png")
-        plt.show()
-        plt.close()
-    elif dataset == "septile":
-        x_lims = (-0.5, 1.5)
-        N = 1000
-        x = np.linspace(x_lims[0], x_lims[1], N)
-        X_new = x.reshape((N, D))
-        (Z, posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            classifier.gamma, cov, y_tilde, classifier.kernel.varphi,
-            classifier.noise_variance, X_new)
-        print(np.sum(Z, axis=1), 'sum')
-        plt.xlim(x_lims)
-        plt.ylim(0.0, 1.0)
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$p(\omega_{*}={}|x, X, \omega)$", fontsize=16)
-        plt.stackplot(x, Z.T,
-            labels=(
-                r"$p(\omega_{*}=0|x, X, \omega)$",
-                r"$p(\omega_{*}=1|x, X, \omega)$",
-                r"$p(\omega_{*}=2|x, X, \omega)$",
-                r"$p(\omega_{*}=3|x, X, \omega)$",
-                r"$p(\omega_{*}=4|x, X, \omega)$",
-                r"$p(\omega_{*}=5|x, X, \omega)$",
-                r"$p(\omega_{*}=6|x, X, \omega)$"),
-            colors=(
-                colors[0], colors[1], colors[2],
-                colors[3], colors[4], colors[5], colors[6]))
-        plt.legend()
-        val = 0.5  # the value where the data appears on the y-axis
-        for j in range(J):
-            plt.scatter(
-                X[np.where(t == j)],
-                np.zeros_like(X[np.where(t == j)]) + val,
-                s=15, facecolors=colors[j], edgecolors='white')
-        plt.savefig(
-            "Ordered Gibbs Cumulative distribution plot of\nclass "
-            "distributions for x_new=[{}, {}].png".format(
-                x_lims[1], x_lims[0]))
-        plt.close()
-    elif dataset=="thirteen":
-        x_lims = (-0.5, 1.5)
-        N = 1000
-        x = np.linspace(x_lims[0], x_lims[1], N)
-        X_new = x.reshape((N, D))
-        (Z,
-        posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            classifier.gamma, cov, y_tilde, classifier.kernel.varphi,
-            classifier.noise_variance, X_new)
-        print(np.sum(Z, axis=1), 'sum')
-        plt.xlim(x_lims)
-        plt.ylim(0.0, 1.0)
-        plt.xlabel(r"$x$", fontsize=16)
-        plt.ylabel(r"$p(\omega_{*}|x, X, \omega)$", fontsize=16)
-        plt.stackplot(x, Z.T,
-                      labels=(
-                          r"$p(\omega_{*}=0|x, X, \omega)$",
-                          r"$p(\omega_{*}=1|x, X, \omega)$",
-                          r"$p(\omega_{*}=2|x, X, \omega)$",
-                          r"$p(\omega_{*}=3|x, X, \omega)$",
-                          r"$p(\omega_{*}=4|x, X, \omega)$",
-                          r"$p(\omega_{*}=5|x, X, \omega)$",
-                          r"$p(\omega_{*}=6|x, X, \omega)$",
-                          r"$p(\omega_{*}=7|x, X, \omega)$",
-                          r"$p(\omega_{*}=8|x, X, \omega)$",
-                          r"$p(\omega_{*}=9|x, X, \omega)$",
-                          r"$p(\omega_{*}=10|x, X, \omega)$",
-                          r"$p(\omega_{*}=11|x, X, \omega)$",
-                          r"$p(\omega_{*}=12|x, X, \omega)$"),
-                      colors=colors
-                      )
-        val = 0.5  # where the data to appears on the y-axis
-        for j in range(J):
-            plt.scatter(
-                classifier.X_train[np.where(classifier.t_train == j)],
-                np.zeros_like(
-                    classifier.X_train[np.where(
-                        classifier.t_train == j)]) + val,
-                s=15, facecolors=colors[j], edgecolors='white')
-        plt.savefig(
-            "Ordered Gibbs Cumulative distribution plot of class distributions"
-            " for x_new=[{}, {}].png".format(x_lims[0], x_lims[1]))
-        plt.show()
-        plt.close()
-        np.savez(
-            "VB_thirteen.npz",
-            x=X_new, y=posterior_predictive_m, s=posterior_std)
-        plt.plot(X_new, posterior_predictive_m, 'r')
-        plt.fill_between(
-            X_new[:, 0],
-            posterior_predictive_m - 2*posterior_std,
-            posterior_predictive_m + 2*posterior_std, color='red', alpha=0.2)
-        plt.plot(X_true, Y_true, 'b')
-        plt.ylim(-2.2, 2.2)
-        plt.xlim(-0.5, 1.5)
-        for j in range(J):
-            plt.scatter(
-                classifier.X_train[np.where(classifier.t_train == j)],
-                np.zeros_like(
-                    classifier.X_train[np.where(classifier.t_train == j)]),
-                s=15, facecolors=colors[j], edgecolors='white')
-        plt.savefig("scatter_versus_posterior_mean.png")
-        plt.show()
-        plt.close()
+    if dataset in datasets["synthetic"]:
+        if classifier.J == 3:
+            x_lims = (-0.5, 1.5)
+            N = 1000
+            x = np.linspace(x_lims[0], x_lims[1], N)
+            X_new = x.reshape((N, classifier.D))
+            print("y", y_tilde)
+            print("varphi", classifier.kernel.varphi)
+            print("noisevar", classifier.noise_variance)
+            (Z, posterior_predictive_m,
+            posterior_std) = classifier.predict(
+                classifier.gamma, classifier.cov, y_tilde,
+                classifier.noise_variance, X_new)
+            print(np.sum(Z, axis=1), 'sum')
+            plt.xlim(x_lims)
+            plt.ylim(0.0, 1.0)
+            plt.xlabel(r"$x$", fontsize=16)
+            plt.ylabel(r"$p(\omega_{*}|x, X, \omega)$", fontsize=16)
+            plt.stackplot(x, Z.T,
+                        labels=(
+                            r"$p(\omega_{*}=0|x, X, \omega)$",
+                            r"$p(\omega_{*}=1|x, X, \omega)$",
+                            r"$p(\omega_{*}=2|x, X, \omega)$"),
+                        colors=(
+                            colors[0], colors[1], colors[2])
+                        )
+            val = 0.5  # the value where you want the data to appear on the y-axis
+            for j in range(J):
+                plt.scatter(classifier.X_train[np.where(classifier.t_train == j)], np.zeros_like(
+                    classifier.X_train[np.where(classifier.t_train == j)]) + val, s=15, facecolors=colors[j],
+                    edgecolors='white')
+            plt.savefig(
+                "Ordered Gibbs Cumulative distribution plot of class distributions"
+                " for x_new=[{}, {}].png".format(x_lims[0], x_lims[1]))
+            plt.show()
+            plt.close()
+            np.savez(
+                "VB_tertile.npz",
+                x=X_new, y=posterior_predictive_m, s=posterior_std)
+            plt.plot(X_new, posterior_predictive_m, 'r')
+            plt.fill_between(
+                X_new[:, 0],
+                posterior_predictive_m - 2*posterior_std,
+                posterior_predictive_m + 2*posterior_std,
+                color='red', alpha=0.2)
+            plt.scatter(X_true, Y_true, color='b', s=4)
+            plt.ylim(-2.2, 2.2)
+            plt.xlim(-0.5, 1.5)
+            for j in range(J):
+                plt.scatter(
+                    classifier.X_train[np.where(classifier.t_train == j)],
+                    np.zeros_like(classifier.X_train[np.where(classifier.t_train == j)]) + val,
+                    s=15, facecolors=colors[j], edgecolors='white')
+            plt.savefig("scatter_versus_posterior_mean.png")
+            plt.show()
+            plt.close()
+
+            # x_lims = (-0.5, 1.5)
+            # N = 1000
+            # x = np.linspace(x_lims[0], x_lims[1], N)
+            # X_new = x.reshape((N, classifier.D))
+            # (Z,
+            # posterior_predictive_m,
+            # posterior_std) = classifier.predict(
+            #     classifier.gamma, Sigma, mean_EP, precision_EP,
+            #     classifier.kernel.varphi, classifier.noise_variance,
+            #     X_new, Lambda, vectorised=True)
+            # print(np.sum(Z, axis=1), 'sum')
+            # plt.xlim(x_lims)
+            # plt.ylim(0.0, 1.0)
+            # plt.xlabel(r"$x$", fontsize=16)
+            # plt.ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
+            # plt.stackplot(x, Z.T,
+            #             labels=(
+            #                 r"$p(\omega=0|x, X, t)$",
+            #                 r"$p(\omega=1|x, X, t)$",
+            #                 r"$p(\omega=2|x, X, t)$"),
+            #             colors=(
+            #                 colors[0], colors[1], colors[2])
+            #             )
+            # val = 0.5  # where the data lies on the y-axis.
+            # for j in range(classifier.J):
+            #     plt.scatter(
+            #         classifier.X_train[np.where(classifier.t_train == j)],
+            #         np.zeros_like(classifier.X_train[np.where(
+            #             classifier.t_train == j)]) + val,
+            #         s=15, facecolors=colors[j], edgecolors='white')
+            # plt.savefig(
+            #     "Ordered Gibbs Cumulative distribution plot of class "
+            #     "distributions for x_new=[{}, {}].png".format(
+            #         x_lims[0], x_lims[1]))
+            # plt.show()
+            # plt.close()
+            # np.savez(
+            #     "EP_tertile.npz",
+            #     x=X_new, y=posterior_predictive_m, s=posterior_std)
+            # plt.plot(X_new, posterior_predictive_m, 'r')
+            # plt.fill_between(
+            #     X_new[:, 0], posterior_predictive_m - 2*posterior_std,
+            #     posterior_predictive_m + 2*posterior_std,
+            #     color='red', alpha=0.2)
+            # plt.scatter(X_true, Y_true, color='b', s=4)
+            # plt.ylim(-2.2, 2.2)
+            # plt.xlim(-0.5, 1.5)
+            # for j in range(classifier.J):
+            #     plt.scatter(
+            #         classifier.X_train[np.where(classifier.t_train == j)],
+            #         np.zeros_like(classifier.X_train[np.where(classifier.t_train == j)]),
+            #         s=15, facecolors=colors[j], edgecolors='white')
+            # plt.savefig("scatter_versus_posterior_mean.png")
+            # plt.show()
+            # plt.close()
+        
+    # elif dataset == "septile":
+    #     x_lims = (-0.5, 1.5)
+    #     N = 1000
+    #     x = np.linspace(x_lims[0], x_lims[1], N)
+    #     X_new = x.reshape((N, classifier.D))
+    #     (Z, posterior_predictive_m,
+    #     posterior_std) = classifier.predict(
+    #         classifier.gamma, classifier.cov, y_tilde, classifier.kernel.varphi,
+    #         classifier.noise_variance, X_new)
+    #     print(np.sum(Z, axis=1), 'sum')
+    #     plt.xlim(x_lims)
+    #     plt.ylim(0.0, 1.0)
+    #     plt.xlabel(r"$x$", fontsize=16)
+    #     plt.ylabel(r"$p(\omega_{*}={}|x, X, \omega)$", fontsize=16)
+    #     plt.stackplot(x, Z.T,
+    #         labels=(
+    #             r"$p(\omega_{*}=0|x, X, \omega)$",
+    #             r"$p(\omega_{*}=1|x, X, \omega)$",
+    #             r"$p(\omega_{*}=2|x, X, \omega)$",
+    #             r"$p(\omega_{*}=3|x, X, \omega)$",
+    #             r"$p(\omega_{*}=4|x, X, \omega)$",
+    #             r"$p(\omega_{*}=5|x, X, \omega)$",
+    #             r"$p(\omega_{*}=6|x, X, \omega)$"),
+    #         colors=(
+    #             colors[0], colors[1], colors[2],
+    #             colors[3], colors[4], colors[5], colors[6]))
+    #     plt.legend()
+    #     val = 0.5  # the value where the data appears on the y-axis
+    #     for j in range(J):
+    #         plt.scatter(
+    #             classifier.X_train[np.where(classifier.t_train == j)],
+    #             np.zeros_like(classifier.X_train[np.where(classifier.t_train == j)]) + val,
+    #             s=15, facecolors=colors[j], edgecolors='white')
+    #     plt.savefig(
+    #         "Ordered Gibbs Cumulative distribution plot of\nclass "
+    #         "distributions for x_new=[{}, {}].png".format(
+    #             x_lims[1], x_lims[0]))
+    #     plt.close()
+    # elif dataset=="thirteen":
+    #     x_lims = (-0.5, 1.5)
+    #     N = 1000
+    #     x = np.linspace(x_lims[0], x_lims[1], N)
+    #     X_new = x.reshape((N, classifier.D))
+    #     (Z,
+    #     posterior_predictive_m,
+    #     posterior_std) = classifier.predict(
+    #         classifier.gamma, classifier.cov, y_tilde, classifier.kernel.varphi,
+    #         classifier.noise_variance, X_new)
+    #     print(np.sum(Z, axis=1), 'sum')
+    #     plt.xlim(x_lims)
+    #     plt.ylim(0.0, 1.0)
+    #     plt.xlabel(r"$x$", fontsize=16)
+    #     plt.ylabel(r"$p(\omega_{*}|x, X, \omega)$", fontsize=16)
+    #     plt.stackplot(x, Z.T,
+    #                   labels=(
+    #                       r"$p(\omega_{*}=0|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=1|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=2|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=3|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=4|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=5|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=6|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=7|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=8|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=9|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=10|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=11|x, X, \omega)$",
+    #                       r"$p(\omega_{*}=12|x, X, \omega)$"),
+    #                   colors=colors
+    #                   )
+    #     val = 0.5  # where the data to appears on the y-axis
+    #     for j in range(J):
+    #         plt.scatter(
+    #             classifier.X_train[np.where(classifier.t_train == j)],
+    #             np.zeros_like(
+    #                 classifier.X_train[np.where(
+    #                     classifier.t_train == j)]) + val,
+    #             s=15, facecolors=colors[j], edgecolors='white')
+    #     plt.savefig(
+    #         "Ordered Gibbs Cumulative distribution plot of class distributions"
+    #         " for x_new=[{}, {}].png".format(x_lims[0], x_lims[1]))
+    #     plt.show()
+    #     plt.close()
+    #     np.savez(
+    #         "VB_thirteen.npz",
+    #         x=X_new, y=posterior_predictive_m, s=posterior_std)
+    #     plt.plot(X_new, posterior_predictive_m, 'r')
+    #     plt.fill_between(
+    #         X_new[:, 0],
+    #         posterior_predictive_m - 2*posterior_std,
+    #         posterior_predictive_m + 2*posterior_std, color='red', alpha=0.2)
+    #     plt.plot(X_true, Y_true, 'b')
+    #     plt.ylim(-2.2, 2.2)
+    #     plt.xlim(-0.5, 1.5)
+    #     for j in range(J):
+    #         plt.scatter(
+    #             classifier.X_train[np.where(classifier.t_train == j)],
+    #             np.zeros_like(
+    #                 classifier.X_train[np.where(classifier.t_train == j)]),
+    #             s=15, facecolors=colors[j], edgecolors='white')
+    #     plt.savefig("scatter_versus_posterior_mean.png")
+    #     plt.show()
+    #     plt.close()
     return fx
 
 

@@ -19,11 +19,10 @@ from pstats import Stats, SortKey
 import numpy as np
 from probit.approximators import VBOrdinalGP
 from probit.plot import outer_loops, grid_synthetic
-from probit.VB import test
+from probit.VB import test, plot_synthetic
 import pathlib
 from probit.data.utilities import datasets, load_data, load_data_synthetic
 import time
-
 
 
 now = time.ctime()
@@ -101,7 +100,9 @@ def main():
         # # varphi and std
         # domain = ((0, 2), (0, 2))
         # res = (100, None)
-        grid_synthetic(classifier, domain, res, indices, show=False)
+        # grid_synthetic(classifier, domain, res, indices, show=False)
+        plot_synthetic(classifier, dataset, X_true, Y_true, None, 1000, colors=colors)
+        # plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
     if args.profile:
         profile.disable()
         s = StringIO()

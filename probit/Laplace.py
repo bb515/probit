@@ -1,4 +1,7 @@
-"""Approximate inference: EP approximation. Methods for inference and test."""
+"""
+TODO: much of this is similar to EP.py. merge.
+Approximate inference: Laplace MAP approximation. Methods for inference and test.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from probit.data.utilities import datasets, colors
@@ -14,27 +17,21 @@ def plot(classifier, domain=None):
     error = np.inf
     iteration = 0
     posterior_mean = None
-    Sigma = None
+    Sigma = None  # ?
     mean_EP = None
     precision_EP = None
     amplitude_EP = None
     while error / steps > classifier.EPS ** 2:
         iteration += 1
-        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
-        mean_EP, precision_EP, amplitude_EP, containers
-        ) = classifier.approximate(
-            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
-            mean_EP_0=mean_EP,
-            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
-            write=False)
+        (error, weight, posterior_mean, containers) = classifier.approximate(
+            steps, posterior_mean_0=posterior_mean, write=False)
         print("iteration {}, error={}".format(iteration, error / steps))
-    (weights, precision_EP, Lambda_cholesky, Lambda
-    ) = classifier.compute_weights(
-            precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-    t1, *_ = classifier.compute_integrals_vector(
-        np.diag(Sigma), posterior_mean, classifier.noise_variance)
-    fx = classifier.objective(
-        precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
+    (weight, epinvvar, L_cov, invcov) = classifier.compute_weights(
+            np.empty(classifier.N), np.empty(classifier.N), classifier.K, classifier.gamma,
+            classifier.t_train, posterior_mean, classifier.noise_std, classifier.J, classifier.N, classifier.EPS)
+    fx, w1, w2, g1, g2, v1, v2, q1, q2 = classifier.objective(
+        weight, epinvvar, classifier.K, classifier.gamma, classifier.t_train, posterior_mean, classifier.noise_std,
+        classifier.J, classifier.N, classifier.EPS)
     if domain is not None:
         (xlims, ylims) = domain
         N = 75
@@ -46,9 +43,9 @@ def plot(classifier, domain=None):
         X_new_ = np.zeros((N * N, classifier.D))
         X_new_[:, :2] = X_new
         Z, posterior_predictive_m, posterior_std = classifier.predict(
-            classifier.gamma, Sigma, mean_EP, precision_EP,
+            classifier.gamma, invcov, posterior_mean,
             classifier.kernel.varphi,
-            classifier.noise_variance, X_new_, Lambda, vectorised=True)
+            classifier.noise_variance, X_new_, vectorised=True)
         Z_new = Z.reshape((N, N, classifier.J))
         print(np.sum(Z, axis=1), 'sum')
         for j in range(classifier.J):
@@ -77,23 +74,14 @@ def plot_synthetic(
 
     TODO: needs generalizing to other datasets other than Chu.
     """
-    steps = classifier.N
+    steps = 10  # TODO: justify
     error = np.inf
     iteration = 0
     posterior_mean = None
-    Sigma = None
-    mean_EP = None
-    precision_EP = None
-    amplitude_EP = None
     while error / steps > classifier.EPS**2:
         iteration += 1
-        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
-            mean_EP, precision_EP, amplitude_EP,
-            containers) = classifier.approximate(
-            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
-            mean_EP_0=mean_EP,
-            precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
-            write=False)
+        (error, weight, posterior_mean, containers) = classifier.approximate(
+            steps, posterior_mean_0=posterior_mean, write=False)
         # plot for animations TODO: make an animation function
         # plt.scatter(X, posterior_mean)
         # plt.scatter(X_true, Y_true)
@@ -101,13 +89,13 @@ def plot_synthetic(
         # plt.savefig("scatter_versus_posterior_mean.png")
         # plt.close()
         print("iteration {}, error={}".format(iteration, error / steps))
-    (weights, precision_EP,
-    Lambda_cholesky, Lambda) = classifier.compute_weights(
-        precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-    t1, *_ = classifier.compute_integrals_vector(
-        np.diag(Sigma), posterior_mean, classifier.noise_variance)
-    fx = classifier.objective(
-        precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
+    (weight, epinvvar, L_cov, invcov) = classifier.compute_weights(
+            np.empty(classifier.N), np.empty(classifier.N), classifier.K, classifier.gamma,
+            classifier.t_train, posterior_mean, classifier.noise_std, classifier.J, classifier.N,
+            classifier.EPS)
+    fx, w1, w2, g1, g2, v1, v2, q1, q2 = classifier.objective(
+        weight, epinvvar, classifier.K, classifier.gamma, classifier.t_train, posterior_mean, classifier.noise_std,
+        classifier.J, classifier.N, classifier.EPS)
     if dataset in datasets["synthetic"]:
         if classifier.J == 3:
             x_lims = (-0.5, 1.5)
@@ -117,9 +105,13 @@ def plot_synthetic(
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                classifier.gamma, Sigma, mean_EP, precision_EP,
-                classifier.kernel.varphi, classifier.noise_variance,
-                X_new, Lambda, vectorised=True)
+                classifier.gamma, invcov, posterior_mean,
+                classifier.kernel.varphi,
+                classifier.noise_variance, X_new, vectorised=True)
+            plt.scatter(classifier.X_train, posterior_mean)
+            plt.show()
+            plt.scatter(X_new, posterior_predictive_m)
+            plt.show()
             print(np.sum(Z, axis=1), 'sum')
             plt.xlim(x_lims)
             plt.ylim(0.0, 1.0)
@@ -147,7 +139,7 @@ def plot_synthetic(
             plt.show()
             plt.close()
             np.savez(
-                "EP_tertile.npz",
+                "Laplace_tertile.npz",
                 x=X_new, y=posterior_predictive_m, s=posterior_std)
             plt.plot(X_new, posterior_predictive_m, 'r')
             plt.fill_between(
@@ -173,9 +165,9 @@ def plot_synthetic(
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                classifier.gamma, Sigma, mean_EP, precision_EP,
-                classifier.kernel.varphi, classifier.noise_variance,
-                X_new, Lambda, vectorised=True)
+                classifier.gamma, invcov, posterior_mean,
+                classifier.kernel.varphi,
+                classifier.noise_variance, X_new, vectorised=True)
             print(np.sum(Z, axis=1), 'sum')
             plt.xlim(x_lims)
             plt.ylim(0.0, 1.0)
@@ -201,10 +193,10 @@ def plot_synthetic(
             val = 0.5  # where the data lies on the y-axis.
             for j in range(classifier.J):
                 plt.scatter(
-                    classifier.X_train[np.where(classifier.t_train == j)],
+                    classifier.X[np.where(classifier.t == j)],
                     np.zeros_like(
-                        classifier.X_train[np.where(
-                            classifier.t_train == j)]) + val,
+                        classifier.X[np.where(
+                            classifier.t == j)]) + val,
                             s=15, facecolors=colors[j],
                         edgecolors='white')
             plt.savefig(
@@ -226,8 +218,8 @@ def plot_synthetic(
             plt.xlim(-0.5, 1.5)
             for j in range(classifier.J):
                 plt.scatter(
-                    classifier.X_train[np.where(classifier.t_train == j)],
-                    np.zeros_like(classifier.X_train[np.where(classifier.t_train == j)]),
+                    classifier.X[np.where(classifier.t == j)],
+                    np.zeros_like(classifier.X[np.where(classifier.t == j)]),
                     s=15,
                     facecolors=colors[j],
                     edgecolors='white')
@@ -243,35 +235,25 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
     error = np.inf
     iteration = 0
     posterior_mean = None
-    Sigma = None
-    mean_EP = None
-    precision_EP = None
-    amplitude_EP = None
     while error / steps > classifier.EPS**2:  # TODO: use EPS_2?
         iteration += 1
-        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
-            precision_EP, amplitude_EP, *_) = classifier.approximate(
-            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
-            mean_EP_0=mean_EP, precision_EP_0=precision_EP,
-            amplitude_EP_0=amplitude_EP, write=False)
+        (error, weight, posterior_mean, containers) = classifier.approximate(
+            steps, posterior_mean_0=posterior_mean, write=False)
         print("iteration {}, error={}".format(iteration, error / steps))
-    (weights,
-    precision_EP,
-    L,
-    Lambda) = classifier.compute_weights(
-        precision_EP, mean_EP, grad_Z_wrt_cavity_mean,
-        L, Lambda)
-    t1, *_ = classifier.compute_integrals_vector(
-        np.diag(Sigma), posterior_mean, classifier.noise_variance)
-    fx = classifier.objective(
-        precision_EP, posterior_mean, t1, L, Lambda, weights)
+    (weight, epinvvar, L_cov, invcov) = classifier.compute_weights(
+        np.empty(classifier.N), np.empty(classifier.N), classifier.K, classifier.gamma,
+        classifier.t_train, posterior_mean, classifier.noise_std, classifier.J, classifier.N,
+        classifier.EPS)
+    fx, w1, w2, g1, g2, v1, v2, q1, q2 = classifier.objective(
+        weight, epinvvar, classifier.K, classifier.gamma, classifier.t_train, posterior_mean, classifier.noise_std,
+        classifier.J, classifier.N, classifier.EPS)
     # Test
     (Z,
     posterior_predictive_m,
     posterior_std) = classifier.predict(
-        classifier.gamma, Sigma, mean_EP, precision_EP,
-        classifier.kernel.varphi, classifier.noise_variance, X_test,
-        Lambda, vectorised=True)  # (N_test, J)
+        classifier.gamma, invcov, posterior_mean,
+        classifier.kernel.varphi,
+        classifier.noise_variance, X_test, vectorised=True)
     # # TODO: Placeholder
     # fx = 0.0 
     # Z = np.zeros((len(y_test), J))
@@ -284,15 +266,15 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
         xx, yy = np.meshgrid(x1, x2)
         X_new = np.dstack((xx, yy))
         X_new = X_new.reshape((N * N, 2))
-        X_new_ = np.zeros((N * N, D))
+        X_new_ = np.zeros((N * N, classifier.D))
         X_new_[:, :2] = X_new
         (Z,
         posterior_predictive_m,
         posterior_std) = classifier.predict(
-            classifier.gamma, Sigma, mean_EP, precision_EP,
-            classifier.kernel.varphi, classifier.noise_variance,
-            X_new_, Lambda, vectorised=True)
-        Z_new = Z.reshape((N, N, J))
+            classifier.gamma, invcov, posterior_mean,
+            classifier.kernel.varphi,
+            classifier.noise_variance, X_new_, vectorised=True)
+        Z_new = Z.reshape((N, N, classifier.J))
         print(np.sum(Z, axis=1), 'sum')
         for j in range(classifier.J):
             fig, axs = plt.subplots(1, figsize=(6, 6))

@@ -1,5 +1,5 @@
 """
-Ordinal regression concrete examples. Approximate inference: EP approximation.
+Ordinal regression concrete examples. Approximate inference: Laplace MAP approximation.
 """
 # Make sure to limit CPU usage
 import os
@@ -18,13 +18,12 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 import pathlib
-from probit.approximators import EPOrdinalGP
+from probit.approximators import LaplaceOrdinalGP
 from probit.plot import outer_loops, grid_synthetic, train, grid
-from probit.EP import test, plot_synthetic, plot
+from probit.Laplace import test, plot_synthetic, plot
 from probit.data.utilities import datasets, load_data, load_data_synthetic
 import sys
 import time
-
 
 
 now = time.ctime()
@@ -32,7 +31,7 @@ write_path = pathlib.Path()
 
 
 def main():
-    """Conduct an EP approximation to the posterior, and optimise hyperparameters."""
+    """Conduct an Laplace MAP approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
@@ -60,7 +59,7 @@ def main():
             dataset, bins)
         steps = 1000
         outer_loops(
-            EPOrdinalGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
+            LaplaceOrdinalGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
             gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
         # # Initiate kernel
         # kernel = Kernel(varphi=varphi_0, scale=scale_0)
@@ -90,7 +89,7 @@ def main():
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate classifier
-        classifier = EPOrdinalGP(
+        classifier = LaplaceOrdinalGP(
             gamma_0, noise_variance_0, kernel, X, t, J)
         indices = np.ones(J + 2)
         # Fix noise_variance
@@ -102,7 +101,7 @@ def main():
         # Fix gamma
         indices[1:J] = 0
         # Just varphi
-        domain = ((-4, 4), None)
+        domain = ((-2, 2), None)
         res = (100, None)
         # #  just scale
         # domain = ((0., 1.8), None)
