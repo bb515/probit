@@ -170,7 +170,7 @@ def main():
         # plt.plot(varphis, p_theta_giv_ms)
         # plt.show()
 
-        # Pseudo Marginal approach
+        # Pseudo Marginal approach - EP
         approximator = EPOrdinalGP(
             gamma_0, noise_variance_0,
             kernel, X, t, J)

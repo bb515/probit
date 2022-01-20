@@ -1502,11 +1502,11 @@ class PseudoMarginal(object):
 
     def _weight(
         self, f_samp, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
-        print(self.approximator.get_log_likelihood(f_samp))
-        print(self.approximator._log_multivariate_normal_pdf(
-                f_samp, prior_cov_inv, half_log_det_prior_cov))
-        print(- self.approximator._log_multivariate_normal_pdf(
-                f_samp, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+        # print(self.approximator.get_log_likelihood(f_samp))
+        # print(self.approximator._log_multivariate_normal_pdf(
+        #         f_samp, prior_cov_inv, half_log_det_prior_cov))
+        # print(- self.approximator._log_multivariate_normal_pdf(
+        #         f_samp, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
         return (
             self.approximator.get_log_likelihood(f_samp)
             + self.approximator._log_multivariate_normal_pdf(
@@ -1516,19 +1516,21 @@ class PseudoMarginal(object):
         )
 
     def _weight_vectorised(
-        self, f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov, posterior_L_cov, posterior_cov_inv,
-        half_log_det_posterior_cov, posterior_mean):
-        # print(self.approximator.get_log_likelihood_vectorised(f_samps))
-        # print(self._log_multivariate_normal_pdf_vectorised(
-        #         f_samps, prior_L_cov, half_log_det_prior_cov))
-        # print(self.approximator._log_multivariate_normal_pdf_vectorised(
-        #         f_samps, posterior_L_cov, half_log_det_posterior_cov, mean=posterior_mean))
-
-        # print(self.approximator.get_log_likelihood_vectorised(f_samps))
-        # print(self.approximator._log_multivariate_normal_pdf_vectorised(
-        #         f_samps, prior_cov_inv, half_log_det_prior_cov))
-        # print(- self.approximator._log_multivariate_normal_pdf_vectorised(
-        #         f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+            self, f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov, posterior_L_cov, posterior_cov_inv,
+            half_log_det_posterior_cov, posterior_mean):
+        print("1", self.approximator.get_log_likelihood_vectorised(f_samps))
+        print("2", self.approximator._log_multivariate_normal_pdf_vectorised(
+                f_samps, prior_L_cov, half_log_det_prior_cov))
+        print("3", self.approximator._log_multivariate_normal_pdf_vectorised(
+                f_samps, posterior_L_cov, half_log_det_posterior_cov, mean=posterior_mean))
+        print("4", self.approximator.get_log_likelihood_vectorised(f_samps))
+        print("5", self.approximator._log_multivariate_normal_pdf_vectorised(
+                f_samps, prior_cov_inv, half_log_det_prior_cov))
+        print("6", - self.approximator._log_multivariate_normal_pdf_vectorised(
+                f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+        plt.scatter(self.approximator.X_train, f_samps[0])
+        plt.show()
+        assert 0
         log_ws = (self.approximator.get_log_likelihood_vectorised(f_samps)
             + self.approximator._log_multivariate_normal_pdf_vectorised(
                 f_samps, prior_cov_inv, half_log_det_prior_cov)
@@ -1556,8 +1558,6 @@ class PseudoMarginal(object):
         log_ws = self._weight_vectorised(
             f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
             posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov, posterior_mean)
-
-        #print(log_ws)
 
         max_log_ws = np.max(log_ws)
         log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
@@ -1616,6 +1616,7 @@ class PseudoMarginal(object):
             log_p_pseudo_marginals.append(self._importance_sampler_vectorised(
                 num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
                 posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov))
+        assert 0
         return np.array(log_p_pseudo_marginals) + log_p_theta[0]
 
     def _transition_operator(

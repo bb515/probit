@@ -650,98 +650,6 @@ def truncated_norm_normalising_constant(
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
-def truncated_norm_normalising_constant_vector(
-        gamma_ts, gamma_tplus1s, noise_std, ms, EPS,
-        upper_bound=None, upper_bound2=None, numerically_stable=False):
-    """
-    Return the normalising constants for the truncated normal distribution
-    in a numerically stable manner.
-
-    Vectorised version.
-
-    :arg gamma_ts: gamma[t_train] (N, ) array of cutpoints
-    :type gamma_ts: :class:`numpy.ndarray`
-    :arg gamma_tplus1s: gamma[t_train + 1] (N, ) array of cutpoints
-    :type gamma_ts: :class:`numpy.ndarray`
-    :arg float noise_std: The noise standard deviation.
-    :arg ms: The mean vectors, (num, N) where num could be e.g. a
-        number of importance samples.
-    :type ms: :class:`numpy.ndarray`
-    :arg float EPS: The tolerated absolute error.
-    :arg float upper_bound: The threshold of the normal z value for which
-        the pdf is close enough to zero.
-    :arg float upper_bound2: The threshold of the normal z value for which
-        the pdf is close enough to zero. 
-    :arg bool numerical_stability: If set to true, will calculate in a
-        numerically stable way. If set to false,
-        will calculate in a faster, but less numerically stable way.
-    :returns: (
-        Z,
-        norm_pdf_z1s, norm_pdf_z2s,
-        norm_cdf_z1s, norm_cdf_z2s,
-        gamma_1s, gamma_2s,
-        z1s, z2s)
-    :rtype: tuple (
-        :class:`numpy.ndarray`,
-        :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-        :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-        :class:`numpy.ndarray`, :class:`numpy.ndarray`,
-        :class:`numpy.ndarray`, :class:`numpy.ndarray`)
-    """
-    # Otherwise
-    z1s = (gamma_ts - ms) / noise_std
-    z2s = (gamma_tplus1s - ms) / noise_std
-
-    # norm_pdf_z1s = norm_pdf(z1s)
-    # norm_pdf_z2s = norm_pdf(z2s)
-    # norm_cdf_z1s = norm_cdf(z1s)
-    # norm_cdf_z2s = norm_cdf(z2s)
-
-    ## SS: test timings
-    norm_pdf_z1s = norm.pdf(z1s)
-    norm_pdf_z2s = norm.pdf(z2s)
-    norm_cdf_z1s = norm.cdf(z1s)
-    norm_cdf_z2s = norm.cdf(z2s)
-    Z = norm_cdf_z2s - norm_cdf_z1s
-    if upper_bound is not None:
-        # Using series expansion approximations
-        # TODO: these should be 2D indices, do they index such that z1_indices is correct
-        indices1 = np.where(z1s > upper_bound)
-        indices2 = np.where(z2s < -upper_bound)
-        indices = np.union1d(indices1, indices2)
-        z1_indices = z1s[indices]
-        print(z1_indices)
-        z2_indices = z2s[indices]
-        Z[indices] = _Z_tails(
-            z1_indices, z2_indices)
-        if upper_bound2 is not None:
-            indices = np.where(z1s > upper_bound2)
-            z1_indices = z1s[indices]
-            Z[indices] = _Z_far_tails(
-                z1_indices)
-            indices = np.where(z2s < -upper_bound2)
-            z2_indices = z2s[indices]
-            Z[indices] = _Z_far_tails(
-                -z2_indices)
-    if numerically_stable is True:
-        small_densities = np.where(Z < EPS)
-        if np.size(small_densities) != 0:
-            warnings.warn(
-                "Z (normalising constants for truncated norma"
-                "l random variables) must be greater than"
-                " tolerance={} (got {}): SETTING to"
-                " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
-                    EPS, Z, z1s, z2s))
-            for i, value in enumerate(Z[small_densities]):
-                # Z[small_densities[i]] = EPS
-                if value < 0.01:
-                    print("call_Z={}, z1 = {}, z2 = {}".format(
-                        value, z1s[small_densities[i]], z2s[small_densities[i]]))
-    return (
-        Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-        norm_cdf_z1s, norm_cdf_z2s)
-
-
 def p(m, gamma_ts, gamma_tplus1s, noise_std,
         EPS, upper_bound, upper_bound2):
     """
@@ -858,3 +766,297 @@ def sample_y(y, m, t_train, gamma, noise_std, N):
         # Add sample to the Y vector
         y[i] = y_i
     return y
+
+
+# These functions are for the Laplace approximation, and probably need to go somewhere else
+def update_MAP(
+        weight, epinvvar, EPS, gamma_ts, gamma_tplus1s, noise_std, t_train, postmean, J, N):
+    """
+    As a quick and dirty implementation, this is lifted directly from `ordinalmap.c`.
+    """
+
+    (Z,
+    norm_pdf_z1s, norm_pdf_z2s,
+    z1s, z2s,
+    norm_cdf_z1s, norm_cdf_z2s) = truncated_norm_normalising_constant(
+        gamma_ts, gamma_tplus1s, noise_std, m, EPS, upper_bound=None, upper_bound2=None, numerically_stable=False)
+
+    weight = (norm_pdf_z2s - norm_pdf_z1s) / Z / noise_std
+    epinvvar  = weight**2 + (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / Z / self.noise_variance
+    step = 1.0
+    return weight, epinvvar, step
+
+
+    for i in prange(N):
+        # update alpha_old
+        # alpha[i] = epamp[i] not sure what this is for
+        # epmean[i] = postmean[i] not sure what this is for. Perhaps keeping old values.
+
+        # func = 0.0  # functional... probably not needed unless in debug
+        step = 1.0 
+        n1 = 0.0
+        n2 = 0.0
+        z1 = 0.0
+        z2 = 0.0
+        phi1 = 1.0
+        phi2 = 0.0
+        target = t_train[i]
+
+        # TODO: alternatively, call truncated_norm_normalising()
+        if target == 0:
+            z1 = gamma[target + 1]
+            n1 = norm_pdf(z1)
+            phi1 = norm_cdf(z1)  # DOesnt TODO look correct
+            dphi = phi1 - phi2
+        elif target == J - 1:
+            z2 = (gamma[target] - postmean[i]) / sigma
+            n2 = norm_pdf(z2)
+            phi2 = norm_cdf(z2)
+            dphi = phi1 - phi2
+        else:
+            z1 = (gamma[target + 1] - postmean[i]) / sigma
+            z2 = (gamma[target] - postmean[i]) / sigma
+            n1 = norm_pdf(z1)
+            n2 = norm_pdf(z2)
+            dphi = norm_cdf(z1) - norm_cdf(z2)
+
+        if 0:
+        # if dphi < EPS:
+            # TODO: numerically stable
+            if n1 - n2 < EPS:
+                #func -= np.log(EPS)
+                step = 0.01  # Makes step size lower
+            else:
+                #func -= np.log(EPS)
+                step = 0.1  # Makes step size lower
+
+            if 0 == target:
+                w = -z1 / sigma
+                e = 1 / sigma**2
+            elif J - 1 == target:
+                w = z2 / sigma
+                e = 1 / sigma**2
+            else:
+                if n1 - n2 > 0:
+                    w = -(z1 * np.exp(-0.5 * z1 * z1 + 0.5 * z2 * z2) - z2) / (
+                        np.exp(-0.5 * z1 * z1 + 0.5 * z2 * z2) - 1.0) / sigma
+                    e = 1 / sigma**2
+                    # e = 1 / sigma**2+ w**2 - (z1**2 * np.exp(-0.5*z1**2 + 0.5*z2*2) - z2**2) / (np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0)/sigma**2
+                else:
+                    w = 0
+                    postmean[i] = 0
+                    e = 1 / sigma**2
+        else:
+            w = (n1 - n2) / dphi / sigma
+            e = w**2 + (z1 * n1 - z2 * n2) / dphi / sigma**2
+            #func -= np.log(dphi)
+
+        # if e > 1.0 / sigma**2:
+        #     e = 1.0 - EPS**2
+
+        # if e < 0:
+        #     e = EPS**2
+
+        weight[i] = -w,
+        epinvvar[i] = e
+    return epinvvar, weight, step
+
+
+# These functions are for the Laplace approximation
+def compute_MAP_weights(
+        weight, epinvvar, EPS, gamma, t_train, postmean, sigma, J, N):
+    """
+    As a quick and dirty implementation, this is lifted directly from `ordinalmap.c`.
+    """
+    for i in prange(N):
+
+        # if np.abs(postmean[i]) > UPPERFUNC:
+        #     postmean[i] = UPPERFUNC
+ 
+        # update alpha_old
+        # alpha[i] = epamp[i] not sure what this is for
+        # epmean[i] = postmean[i] not sure what this is for. Perhaps keeping old values.
+
+        # func = 0.0  # functional... probably not needed unless in debug
+        n1 = 0.0
+        n2 = 0.0
+        z1 = 0.0
+        z2 = 0.0
+        phi1 = 1.0
+        phi2 = 0.0
+        target = t_train[i]
+
+        # TODO: alternatively, call truncated_norm_normalising()
+        if target == 0:
+            z1 = gamma[target + 1]
+            n1 = norm_pdf(z1)
+            phi1 = norm_cdf(z1)
+            dphi = phi1 - phi2
+        elif target == J - 1:
+            z2 = (gamma[target] - postmean[i]) / sigma
+            n2 = norm_pdf(z2)
+            phi2 = norm_cdf(z2)
+            dphi = phi1 - phi2
+        else:
+            z1 = (gamma[target + 1] - postmean[i]) / sigma
+            z2 = (gamma[target] - postmean[i]) / sigma
+            n1 = norm_pdf(z1)
+            n2 = norm_pdf(z2)
+            dphi = norm_cdf(z1) - norm_cdf(z2)
+
+        if 0:  #  dphi < EPS:
+            if 0 == target:
+                w = -z1 / sigma
+                e = 1 / sigma**2
+            elif J - 1 == target:
+                w = z2 / sigma
+                e = 1 / sigma**2
+            else:
+                if n1 - n2 > 0:
+                    w = -(z1 * np.exp(-0.5 * z1 * z1 + 0.5 * z2 * z2) - z2) / (
+                        np.exp(-0.5 * z1 * z1 + 0.5 * z2 * z2) - 1.0) / sigma
+                    e = 1 / sigma**2
+                    # e = 1 / sigma**2 + w**2 - (z1**2 * np.exp(-0.5*z1**2 + 0.5*z2*2) - z2**2) / (np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0)/sigma**2
+                else:
+                    w = 0
+                    postmean[i] = 0
+                    e = 1 / sigma**2
+        else:
+            w = (n1 - n2) / dphi / sigma
+            e = w**2 + (z1 * n1 - z2 * n2) / dphi / sigma**2
+
+        # if e > 1.0 / sigma**2:
+        #     e = 1.0 - EPS**2
+
+        # if e < 0:
+        #     e = EPS**2
+
+        weight[i] = -w
+        epinvvar[i] = e
+
+    return weight, epinvvar
+
+
+# These functions are for the Laplace approximation
+def compute_objective(
+        weight, epinvvar, EPS, gamma, t_train, postmean, sigma,
+        w1s, w2s, g1s, g2s, v1s, v2s, q1s, q2s,
+        J, N):
+    """
+    As a quick and dirty implementation, this is lifted directly from `ordinalmap.c`.
+    """
+    for i in prange(N):
+
+        # TODO: need to add this in?
+        # if np.abs(postmean[i]) > UPPERFUNC:
+        #     postmean[i] = UPPERFUNC
+ 
+        # update alpha_old
+        # alpha[i] = epamp[i] not sure what this is for
+        # epmean[i] = postmean[i] not sure what this is for. Perhaps keeping old values.
+
+        fx = 0.0
+        n1 = 0.0
+        n2 = 0.0
+        z1 = 0.0
+        z2 = 0.0
+        phi1 = 1.0
+        phi2 = 0.0
+        target = t_train[i]
+
+        # TODO: alternatively, call truncated_norm_normalising()
+        if target == 0:
+            z1 = gamma[target + 1]
+            n1 = norm_pdf(z1)
+            phi1 = norm_cdf(z1)
+            dphi = phi1 - phi2
+        elif target == J - 1:
+            z2 = (gamma[target] - postmean[i]) / sigma
+            n2 = norm_pdf(z2)
+            phi2 = norm_cdf(z2)
+            dphi = phi1 - phi2
+        else:
+            z1 = (gamma[target + 1] - postmean[i]) / sigma
+            z2 = (gamma[target] - postmean[i]) / sigma
+            n1 = norm_pdf(z1)
+            n2 = norm_pdf(z2)
+            dphi = norm_cdf(z1) - norm_cdf(z2)
+
+        #if dphi < EPS:
+        if 0:
+            if n1 - n2 < np.log(EPS):
+                fx -= np.log(EPS)
+            else:
+                fx -=np.log(EPS)
+            w1 = 0
+            w2 = 0
+            g1 = 0
+            g2 = 0
+            v1 = 0
+            v2 = 0
+            q1 = 0
+            q2 = 0
+            if 0 == target:
+                w = -z1 / sigma
+                e = 1 / sigma**2
+                w1 = -z1 / sigma
+                g1 = - z1**2 / sigma
+                v1 = -z1**3 / sigma
+                q1 = -z1**4 / sigma
+            elif J - 1 == target:
+                w = z2 / sigma
+                e = 1 / sigma**2
+                w2 = - z2 / sigma
+                g2 = - z2**2 / sigma
+                v2 = - z2**3 / sigma
+                q2 = - z2**4 / sigma
+            else:
+                if n1 - n2 >= 0:
+                    w = -(z1 * np.exp(-0.5 * z1**2 + 0.5 * z2**2) - z2) / (
+                        np.exp(-0.5 * z1**2 + 0.5 * z2**2) - 1.0) / sigma
+                    e = 1 / sigma**2 + w**2 - (z1**2 * np.exp(-0.5*z1**2 + 0.5*z2*2) - z2**2) / (np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0) / sigma**2
+                    w1 = -z1 * n1 / (n1 - n2)
+                    g1 = -z1**2 * n1 / (n1 - n2)
+                    v1 = -z1**3 * n1 / (n1 - n2)
+                    q1 = -z1**4 * n1 / (n1 - n2)
+                    w2 = -z2 * n2 / (n1 - n2)
+                    g2 = - z2**2 * n2 / (n1 - n2)
+                    v2 = - z2**3 * n2 / (n1 - n2)
+                    q2 = - z2**4 * n2 / (n1 - n2)
+                else:
+                    w = 0
+                    postmean[i] = 0
+                    e = 1 / sigma**2
+        else:
+            fx -= np.log(dphi)
+            # compute the moments
+            w1 = n1 / dphi
+            w2 = n2 / dphi
+            g1 = z1 * n1 / dphi
+            g2 = z2 * n2 / dphi
+            v1 = z1**2 * n1 / dphi
+            v2 = z2**2 * n2 / dphi
+            q1 = z1**3 * n1 / dphi
+            q2 = z2**3 * n2 / dphi
+            w = (n1 - n2) / dphi / sigma
+            e = w**2 + (g1 - g2) / sigma**2
+            # e = w**2 + (z1 * n1 - z2 * n2) / dphi / sigma**2
+
+        # if e > 1.0 / sigma**2:
+        #     e = 1.0 - EPS**2
+
+        # if e < 0:
+        #     e = EPS**2
+
+        weight[i] = -w
+        epinvvar[i] = e
+        w1s[i] = w1
+        w2s[i] = w2
+        g1s[i] = g1
+        g2s[i] = g2
+        v1s[i] = v1
+        v2s[i] = v2
+        q1s[i] = q1
+        q2s[i] = q2
+
+    return weight, epinvvar, w1s, w2s, g1s, g2s, v1s, v2s, q1s, q2s

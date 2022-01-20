@@ -13,7 +13,7 @@ from .utilities import (
     norm_z_pdf, norm_cdf,
     norm_logpdf, norm_logcdf,
     truncated_norm_normalising_constant,
-    truncated_norm_normalising_constant_vector, p, dp)
+    p, dp)
 # Usually the numba implementation is not faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
@@ -126,6 +126,40 @@ class Approximator(ABC):
 
         This method should be implemented in every concrete Approximator.
         """
+
+    # TODO: these probably need to go somewhere else. Somewhere in a likelihoods folder. 
+    def get_log_likelihood_vectorised(self, m):
+        """
+        TODO: needed?
+        Likelihood of ordinal regression. This is product of scalar normal cdf.
+        """
+        Z, *_ = truncated_norm_normalising_constant(
+            self.gamma_ts, self.gamma_tplus1s,
+            self.noise_std, m, self.EPS,
+            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
+        return np.sum(np.log(Z), axis=1)  # (num_samples,)
+
+    def get_log_likelihood(self, m):
+        """
+        Likelihood of ordinal regression. This is product of scalar normal cdf.
+        """
+        Z, *_ = truncated_norm_normalising_constant(
+            self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
+            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
+        return np.sum(np.log(Z))  # (1,)
+
+    def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
+        """Get the pdf of the multivariate normal distribution."""
+        if mean is not None:
+            x = x - mean
+        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
+
+    def _log_multivariate_normal_pdf_vectorised(self, xs, cov_inv, half_log_det_cov, mean=None):
+        """Get the pdf of the multivariate normal distribution."""
+        if mean is not None:
+            xs = xs - mean
+        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.einsum(
+            'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
 
     def _psi_tilde(self, varphi_tilde):
         """
@@ -1263,39 +1297,6 @@ class EPOrdinalGP(Approximator):
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
 
-    # TODO: these probably need to go somewhere else. 
-    def get_log_likelihood_vectorised(self, m):
-        """
-        Likelihood of ordinal regression. This is product of scalar normal cdf.
-        """
-        Z, *_ = truncated_norm_normalising_constant_vector(
-            self.gamma_ts, self.gamma_tplus1s,
-            self.noise_std, m, self.EPS,
-            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
-        return np.sum(np.log(Z), axis=1)  # (num_samples,)
-
-    def get_log_likelihood(self, m):
-        """
-        Likelihood of ordinal regression. This is product of scalar normal cdf.
-        """
-        Z, *_ = truncated_norm_normalising_constant(
-            self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
-            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
-        return np.sum(np.log(Z))  # (1,)
-
-    def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
-        """Get the pdf of the multivariate normal distribution."""
-        if mean is not None:
-            x = x - mean
-        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
-
-    def _log_multivariate_normal_pdf_vectorised(self, xs, cov_inv, half_log_det_cov, mean=None):
-        """Get the pdf of the multivariate normal distribution."""
-        if mean is not None:
-            xs = xs - mean
-        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.einsum(
-            'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
-
     def hyperparameters_update(
         self, gamma=None, varphi=None, scale=None, noise_variance=None):
         """
@@ -2265,7 +2266,7 @@ class EPOrdinalGP(Approximator):
                 "\ngamma={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
                     self.gamma, self.noise_variance, self.kernel.varphi, fx))
-        return fx, gx, posterior_mean, Sigma
+        return fx, gx, posterior_mean, Sigma  # !! TODO: Is this the correct posterior covariance to use?
 
     def hyperparameter_training_step(
             self, theta, indices,
@@ -2947,7 +2948,7 @@ class LaplaceOrdinalGP(Approximator):
                 if verbose:
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
-            (weight, epinvvar, L_cov, invcov) = self.compute_weights(
+            (weight, epinvvar, L_cov, invcov, cov) = self.compute_weights(
                 np.empty(self.N), np.empty(self.N), self.K, self.gamma, self.t_train, posterior_mean,
                 self.noise_std, self.J, self.N, self.EPS)
             fx, w1, w2, g1, g2, v1, v2, q1, q2 = self.objective(
@@ -3003,7 +3004,75 @@ class LaplaceOrdinalGP(Approximator):
             write, verbose)
         return fx, gx
 
-    def objective(
+    def compute_objective(
+        self, posterior_mean):
+        """
+        """
+        (Z,
+        norm_pdf_z1s, norm_pdf_z2s,
+        z1s, z2s, *_) = truncated_norm_normalising_constant(
+            self.gamma_ts, self.gamma_tplus1s, self.noise_std, posterior_mean, self.EPS)
+        w1 = norm_pdf_z1s / Z
+        w2 = norm_pdf_z2s / Z
+        g1 = z1s * w1
+        g2 = z2s * w2
+        v1 = z1s * g1
+        v2 = z2s * g2
+        q1 = z1s * v1
+        q2 = z2s * v2
+        weight = (w1 - w2) / self.noise_std
+        precision = weight**2 + (g1 - g2) / self.noise_variance
+        cov = self.K + np.diag(1. / precision)
+        L_cov = np.linalg.cholesky(cov)
+        L_cov_inv = np.linalg.inv(L_cov)
+        inv_cov = L_cov_inv.T @ L_cov_inv
+        return weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, inv_cov, cov
+
+    def objective(self, weight, precision, L_cov):
+        """
+        Calculate fx, the variational lower bound of the log marginal
+        likelihood at the EP equilibrium.
+
+        .. math::
+                \mathcal{F(\Phi)} =,
+
+            where :math:`F(\Phi)` is the variational lower bound of the log
+            marginal likelihood at the EP equilibrium,
+            :math:`h`, :math:`\Pi`, :math:`K`. #TODO
+
+        :arg precision_EP:
+        :type precision_EP:
+        :arg posterior_mean:
+        :type posterior_mean:
+        :arg t1:
+        :type t1:
+        :arg Lambda_cholesky:
+        :type Lambda_cholesky:
+        :arg Lambda:
+        :type Lambda:
+        :arg weights:
+        :type weights:
+        :returns: fx
+        :rtype: float
+        """
+        fx = 0.5 * weight.T @ self.K @ weight
+        # L_cov = K + np.diag(1. / epinvvar)
+        # f = - K @ weight + posterior_mean  # TODO ? what for?
+
+        # L_cov = np.linalg.cholesky(L_cov)
+        # L_cov_inv = np.linalg.inv(L_cov)
+        # invcov = L_cov_inv.T @ L_cov_inv
+
+        # TODO: Why do I need this?
+        # L_cov, _ = cho_factor(L_cov)
+        # fx += np.sum(np.log(np.diag(L_cov)))
+        # L_covT_inv = solve_triangular(
+        #     L_cov.T, np.eye(N), lower=True)
+        fx += np.sum(np.log(precision))
+        fx = -fx
+        return fx
+
+    def objectiveSS(
         self, weight, epinvvar, K, gamma, t_train, posterior_mean, noise_std, J, N, EPS):
         """
         Calculate fx, the variational lower bound of the log marginal
@@ -3034,6 +3103,8 @@ class LaplaceOrdinalGP(Approximator):
         # Initialise get weights?
         empty = np.empty(N)
         # Get weights... TODO they may already be calculated.
+        weight, precision, w1, w2, g1, g2, v1, v2, q1, q2 = self.compute_objective(
+            posterior_mean, gamma_ts, gamma_tplus1s, noise_std, noise_variance, EPS)
         weight, epinvvar, w1, w2, g1, g2, v1, v2, q1, q2 = compute_objective(
             weight, epinvvar, EPS, gamma, t_train,
             posterior_mean, noise_std,
@@ -3188,7 +3259,30 @@ class LaplaceOrdinalGP(Approximator):
                 # gx[self.J] -= 0.1 * varphi
         return -gx
 
-    def compute_weights(
+    # def compute_weights(self, posterior_mean):
+    #     """
+    #     Compute regression weights, and check that they are in equilibrium with
+    #     the gradients of Z wrt cavity means.
+
+    #     A matrix inverse is always required to evaluate fx.
+
+    #     """
+    #     (weight, epinvvar) = compute_MAP_weights(
+    #         weight_0, epinvvar_0, EPS,
+    #         gamma, t_train, posterior_mean, noise_std, J, N)
+    #     cov = K + np.diag(1. / epinvvar)
+    #     L_cov = np.linalg.cholesky(cov)
+    #     L_cov_inv = np.linalg.inv(L_cov)
+    #     invcov = L_cov_inv.T @ L_cov_inv
+
+    #     # probably don't need this.
+
+    #     #L_cov, _ = cho_factor(invcov)
+    #     #L_covinvT = solve_triangular(L_cov, np.eye(N), lower=False)
+    #     #invcov = solve_triangular(L_cov.T, L_covinvT, lower=True)
+    #     return weight, epinvvar, L_cov, invcov, cov
+
+    def compute_weightsSS(
             self, weight_0, epinvvar_0, K, gamma, t_train,
             posterior_mean, noise_std, J, N, EPS):
         """
@@ -3201,44 +3295,15 @@ class LaplaceOrdinalGP(Approximator):
         (weight, epinvvar) = compute_MAP_weights(
             weight_0, epinvvar_0, EPS,
             gamma, t_train, posterior_mean, noise_std, J, N)
-        # invcov = K + np.diag(epinvvar)
-
-        L_cov = K + np.diag(1. / epinvvar)
-        L_cov = np.linalg.cholesky(L_cov)
+        cov = K + np.diag(1. / epinvvar)
+        L_cov = np.linalg.cholesky(cov)
         L_cov_inv = np.linalg.inv(L_cov)
         invcov = L_cov_inv.T @ L_cov_inv
 
         #L_cov, _ = cho_factor(invcov)
         #L_covinvT = solve_triangular(L_cov, np.eye(N), lower=False)
         #invcov = solve_triangular(L_cov.T, L_covinvT, lower=True)
-        return weight, epinvvar, L_cov, invcov
-
-    # def compute_MAP_weightsSS(
-    #     self, epmean):
-    #     """
-    #     Compute regression weights, and check that they are in equilibrium with
-    #     the gradients of Z wrt cavity means.
-
-    #     A matrix inverse is always required to evaluate fx.
-
-    #     :arg precision_EP:
-    #     :arg mean_EP:
-    #     :arg grad_Z_wrt_cavity_mean:
-    #     :arg L:
-    #     :arg Lambda:
-    #     """
-    #     (Z,
-    #     norm_pdf_z1s, norm_pdf_z2s,
-    #     z1s, z2s,
-    #     norm_cdf_z1s, norm_cdf_z2s) = truncated_norm_normalising_constant(
-    #         self.gamma_ts, self.gamma_tplus1s, self.noise_std, epmean, self.EPS,
-    #         upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
-    #     # small_densities = np.where(Z < self.EPS)
-    #     # if np.size(small_densities) != 0:
-    #     #     # TODO: numerical stability
-    #     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
-    #     epinvvar = weight**2 + (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / Z / self.noise_variance
-    #     return weight, epinvvar
+        return weight, epinvvar, L_cov, invcov, cov
 
     def _approximate_initiate(
             self, posterior_mean_0=None):
@@ -3273,9 +3338,6 @@ class LaplaceOrdinalGP(Approximator):
     def approximate(
             self, steps, posterior_mean_0=None, first_step=1, write=False):
         """
-        Questions: would this be better done in a jit compiled or vectorised
-        fashion.
-
         Estimating the posterior means and posterior covariance (and marginal
         likelihood) via Laplace approximation via Newton-Raphson iteration as
         written in
@@ -3319,7 +3381,93 @@ class LaplaceOrdinalGP(Approximator):
         for step in trange(first_step, first_step + steps,
                         desc="Laplace GP priors Approximator Progress",
                         unit="iterations", disable=True):
-            epinvvar, weight, step = update_MAP(
+            (Z,
+            norm_pdf_z1s, norm_pdf_z2s,
+            z1s, z2s,
+            norm_cdf_z1s, norm_cdf_z2s) = truncated_norm_normalising_constant(
+                self.gamma_ts, self.gamma_tplus1s, self.noise_std, posterior_mean, self.EPS)
+            weight = (norm_pdf_z2s - norm_pdf_z1s) / Z / self.noise_std
+            precision  = weight**2 + (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / Z / self.noise_variance
+            L_cov = self.K + np.diag(1. / precision)
+            m = - self.K @ weight + posterior_mean  # TODO should have a factor of 1 / sigma?
+            L_cov = np.linalg.cholesky(L_cov)
+            L_cov_inv = np.linalg.inv(L_cov)
+            invcov = L_cov_inv.T @ L_cov_inv
+            # L_cov, _ = cho_factor(L_cov)
+            # L_covT_inv = solve_triangular(
+            #     L_cov.T, np.eye(self.N), lower=True)
+            # invcov = solve_triangular(L_cov, L_covT_inv, lower=False)
+            t1 = - (invcov @ m) / precision
+            posterior_mean += t1
+            # plt.scatter(self.X_train, step * t1)
+            # plt.title("error")
+            # plt.show()
+            # posterior_mean[posterior_mean > 10.0] = 10.0  # TODO?
+            # posterior_mean[posterior_mean < -10.0] = -10.0  # TODO?
+            # if np.any(posterior_mean > 10.0):
+            #     raise ValueError("Posterior mean was above UPPERFUNC. TODO: implement stability")
+                # # TODO Necessary?
+                # for i in prange(N):
+                #     if np.abs(postmean[i]) > UPPERFUNC:
+                #         postmean[i] = UPPERFUNC
+            error = np.abs(max(t1.min(), t1.max(), key=abs))
+            if write is True:
+                posterior_means.append(posterior_mean)
+                posterior_precisions.append(posterior_precisions)
+        #plt.scatter(self.X_train, posterior_mean)
+        #plt.show()
+        # plt.scatter(self.X_train, m)
+        # plt.show()
+        containers = (posterior_means, posterior_precisions)
+        return error, weight, posterior_mean, containers
+
+    def approximateSS(
+            self, steps, posterior_mean_0=None, first_step=1, write=False):
+        """
+        Estimating the posterior means and posterior covariance (and marginal
+        likelihood) via Laplace approximation via Newton-Raphson iteration as
+        written in
+        Appendix A Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes
+        for Ordinal Regression.. Journal of Machine Learning
+        Research. 6. 1019-1041.
+
+        Laplace imposes an inverse covariance for the approximating Gaussian
+        equal to the negative Hessian of the log of the target density.
+
+        :arg int steps: The number of iterations the Approximator takes.
+        :arg gamma: (J + 1, ) array of the cutpoints.
+        :type gamma: :class:`np.ndarray`.
+        :arg varphi: Initialisation of hyperparameter approximate posterior means.
+            If `None` then initialised to ones, default `None`.
+        :type varphi: :class:`numpy.ndarray` or float
+        :arg float noise_variance: Initialisation of noise variance. If `None`
+            then initialised to one, default `None`.
+        :arg posterior_mean_0: The initial state of the approximate posterior
+            mean (N,). If `None` then initialised to zeros, default `None`.
+        :type posterior_mean_0: :class:`numpy.ndarray`
+        :arg int first_step: The first step. Useful for burn in algorithms.
+        :arg bool fix_hyperparameters: Must be `True`, since the hyperparameter
+            approximate posteriors are of the hyperparameters are not
+            calculated in this EP approximation.
+        :arg bool write: Boolean variable to store and write arrays of
+            interest. If set to "True", the method will output non-empty
+            containers of evolution of the statistics over the steps.
+            If set to "False", statistics will not be written and those
+            containers will remain empty.
+        :return: approximate posterior mean and covariances.
+        :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
+            posterior means, other statistics and tuple of lists of per-step
+            evolution of those statistics.
+        """
+        (weight_0,
+        inverse_variance_0,
+        posterior_mean, containers, error) = self._approximate_initiate(
+            posterior_mean_0)
+        (posterior_means, posterior_precisions) = containers
+        for step in trange(first_step, first_step + steps,
+                        desc="Laplace GP priors Approximator Progress",
+                        unit="iterations", disable=True):
+            epinvvar, weight, step_size = update_MAP(
                 weight_0.copy(),
                 inverse_variance_0.copy(),
                 self.EPS,
@@ -3340,7 +3488,7 @@ class LaplaceOrdinalGP(Approximator):
             #     L_cov.T, np.eye(self.N), lower=True)
             # invcov = solve_triangular(L_cov, L_covT_inv, lower=False)
             t1 = - (invcov @ m) / epinvvar
-            posterior_mean += step * t1
+            posterior_mean += step_size * t1
 
             # plt.scatter(self.X_train, step * t1)
             # plt.title("error")
@@ -3366,7 +3514,7 @@ class LaplaceOrdinalGP(Approximator):
 
     def approximate_posterior(
             self, theta, indices,
-            posterior_mean_0=None, first_step=1, write=False, verbose=True):
+            posterior_mean_0=None, first_step=1, write=False, verbose=False):
         """
         Newton-Raphson.
 
@@ -3395,34 +3543,21 @@ class LaplaceOrdinalGP(Approximator):
                 first_step=first_step, write=write)
             if verbose:
                 print("({}), error={}".format(iteration, error))
-
-        (weight, epinvvar, L_cov, invcov) = self.compute_weights(
-            np.empty(self.N), np.empty(self.N), self.K, self.gamma,
-            self.t_train, posterior_mean, self.noise_std, self.J, self.N, self.EPS)
+        
+        (weight, precision,
+        w1, w2, g1, g2, v1, v2, q1, q2,
+        L_cov, invcov, cov) = self.compute_weights(
+            posterior_mean)
         if write:
             (posterior_means, approximate_marginal_likelihoods) = containers
-
-        L_cov = self.K + np.diag(1. / epinvvar)
-        L_cov = np.linalg.cholesky(L_cov)
-        L_cov_inv = np.linalg.inv(L_cov)
-        invcov = L_cov_inv.T @ L_cov_inv
-
-        # Evaluate functional and gradient
-        # L_cov = self.K + np.diag(1. / epinvvar)
-        # L_cov, lower = cho_factor(L_cov)
-        # L_covT_inv = solve_triangular(
-        #     L_cov.T, np.eye(self.N), lower=True)
-        # invcov = solve_triangular(L_cov, L_covT_inv, lower=False)
-        # Try optimisation routine
-        fx, w1, w2, g1, g2, v1, v2, q1, q2 = self.objective(
-            weight, epinvvar, self.gamma, self.t_train, posterior_mean, self.noise_std, self.J, self.N)
+        fx = self.objective(weight, precision, L_cov)
         if self.kernel._general and self.kernel._ARD:
             gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
         else:
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
             gx, intervals, self.kernel.varphi, self.noise_variance, self.noise_std,
-            w1, w2, g1, g2, v1, v2, q1, q2, invcov, self.N, self.K, epinvvar, indices)
+            w1, w2, g1, g2, v1, v2, q1, q2, invcov, weight, self.N, self.K, precision, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
             print("gamma=", repr(self.gamma), ", ")
@@ -3437,7 +3572,69 @@ class LaplaceOrdinalGP(Approximator):
                 "\ngamma={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
                     self.gamma, self.noise_variance, self.kernel.varphi, fx))
-        return fx, gx, posterior_mean, invcov
+        return fx, gx, posterior_mean, cov
+
+    def approximate_posteriorSS(
+            self, theta, indices,
+            posterior_mean_0=None, first_step=1, write=False, verbose=False):
+        """
+        Newton-Raphson.
+
+        :arg theta: (log-)hyperparameters to be optimised.
+        :type theta:
+        :arg indices:
+        :type indices:
+        :arg steps:
+        :type steps:
+        :arg posterior_mean_0:
+        :type posterior_mean_0:
+        :arg int first_step:
+        :arg bool write:
+        :arg bool verbose:
+        :return:
+        """
+        # Update prior covariance and get hyperparameters from theta
+        (intervals, steps, error, iteration, indices_where,
+        gx) = self._hyperparameter_training_step_initialise(
+            theta, indices)
+        posterior_mean = posterior_mean_0
+        while error / steps > self.EPS**2 and iteration < 10:
+            iteration += 1
+            (error, weight, posterior_mean, containers) = self.approximate(
+                steps, posterior_mean_0=posterior_mean,
+                first_step=first_step, write=write)
+            if verbose:
+                print("({}), error={}".format(iteration, error))
+        (weight, epinvvar, L_cov, invcov, cov) = self.compute_weights(
+            np.empty(self.N), np.empty(self.N), self.K, self.gamma,
+            self.t_train, posterior_mean, self.noise_std, self.J, self.N, self.EPS)
+        if write:
+            (posterior_means, approximate_marginal_likelihoods) = containers
+        fx, w1, w2, g1, g2, v1, v2, q1, q2 = self.objective(
+            weight, epinvvar, self.K, self.gamma, self.t_train,
+            posterior_mean, self.noise_std, self.J, self.N, self.EPS)
+        if self.kernel._general and self.kernel._ARD:
+            gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
+        else:
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        gx = self.objective_gradient(
+            gx, intervals, self.kernel.varphi, self.noise_variance, self.noise_std,
+            w1, w2, g1, g2, v1, v2, q1, q2, invcov, weight, self.N, self.K, epinvvar, indices)
+        gx = gx[np.where(indices != 0)]
+        if verbose:
+            print("gamma=", repr(self.gamma), ", ")
+            print("varphi=", self.kernel.varphi, ", ")
+            # print("varphi=", self.kernel.constant_variance, ", ")
+            print("noise_variance=", self.noise_variance, ", ")
+            print("scale=", self.kernel.scale, ", ")
+            print("\nfunction_eval={}\n jacobian_eval={}".format(
+                fx, gx))
+        else:
+            print(
+                "\ngamma={}, noise_variance={}, "
+                "varphi={}\nfunction_eval={}".format(
+                    self.gamma, self.noise_variance, self.kernel.varphi, fx))
+        return fx, gx, posterior_mean, cov
 
   
 class CutpointValueError(Exception):

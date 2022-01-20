@@ -636,7 +636,7 @@ def update_MAP(
         # alpha[i] = epamp[i] not sure what this is for
         # epmean[i] = postmean[i] not sure what this is for. Perhaps keeping old values.
 
-        # func = 0.0  # functional... probably not needed unless in debug
+        # func = 0.0  # probably not needed unless in debug
         step = 1.0 
         n1 = 0.0
         n2 = 0.0
@@ -646,11 +646,10 @@ def update_MAP(
         phi2 = 0.0
         target = t_train[i]
 
-        # TODO: alternatively, call truncated_norm_normalising()
         if target == 0:
-            z1 = gamma[target + 1]
+            z1 = (gamma[target + 1] - postmean[i]) / sigma
             n1 = norm_pdf(z1)
-            phi1 = norm_cdf(z1)  # DOesnt TODO look correct
+            phi1 = norm_cdf(z1)
             dphi = phi1 - phi2
         elif target == J - 1:
             z2 = (gamma[target] - postmean[i]) / sigma
@@ -664,36 +663,38 @@ def update_MAP(
             n2 = norm_pdf(z2)
             dphi = norm_cdf(z1) - norm_cdf(z2)
 
-        if 0:
         # if dphi < EPS:
-            # TODO: numerically stable
-            if n1 - n2 < EPS:
-                #func -= np.log(EPS)
-                step = 0.01  # Makes step size lower
-            else:
-                #func -= np.log(EPS)
-                step = 0.1  # Makes step size lower
+        #     # TODO: numerically stable
+        #     if n1 - n2 < EPS:
+        #         #func -= np.log(EPS)
+        #         step = 0.01  # Makes step size lower
+        #     else:
+        #         #func -= np.log(EPS)
+        #         step = 0.1  # Makes step size lower
 
-            if 0 == target:
-                w = -z1 / sigma
-                e = 1 / sigma**2
-            elif J - 1 == target:
-                w = z2 / sigma
-                e = 1 / sigma**2
-            else:
-                if n1 - n2 > 0:
-                    w = -(z1 * np.exp(-0.5 * z1 * z1 + 0.5 * z2 * z2) - z2) / (
-                        np.exp(-0.5 * z1 * z1 + 0.5 * z2 * z2) - 1.0) / sigma
-                    e = 1 / sigma**2
-                    # e = 1 / sigma**2+ w**2 - (z1**2 * np.exp(-0.5*z1**2 + 0.5*z2*2) - z2**2) / (np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0)/sigma**2
-                else:
-                    w = 0
-                    postmean[i] = 0
-                    e = 1 / sigma**2
-        else:
-            w = (n1 - n2) / dphi / sigma
-            e = w**2 + (z1 * n1 - z2 * n2) / dphi / sigma**2
-            #func -= np.log(dphi)
+        #     if 0 == target:
+        #         w = -z1 / sigma
+        #         e = 1 / sigma**2
+        #     elif J - 1 == target:
+        #         w = z2 / sigma
+        #         e = 1 / sigma**2
+        #     else:
+        #         if n1 - n2 > 0:
+        #             w = -(z1 * np.exp(-0.5 * z1 * z1 + 0.5 * z2 * z2) - z2) / (
+        #                 np.exp(-0.5 * z1 * z1 + 0.5 * z2 * z2) - 1.0) / sigma
+        #             e = 1 / sigma**2
+        #             # e = 1 / sigma**2+ w**2 - (z1**2 * np.exp(-0.5*z1**2 + 0.5*z2*2) - z2**2) / (np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0)/sigma**2
+        #         else:
+        #             w = 0
+        #             postmean[i] = 0
+        #             e = 1 / sigma**2
+        # else:
+        #     w = (n1 - n2) / dphi / sigma
+        #     e = w**2 + (z1 * n1 - z2 * n2) / dphi / sigma**2
+        #     #func -= np.log(dphi)
+
+        w = (n1 - n2) / dphi / sigma
+        e = w**2 + (z1 * n1 - z2 * n2) / dphi / sigma**2
 
         # if e > 1.0 / sigma**2:
         #     e = 1.0 - EPS**2
@@ -730,10 +731,8 @@ def compute_MAP_weights(
         phi1 = 1.0
         phi2 = 0.0
         target = t_train[i]
-
-        # TODO: alternatively, call truncated_norm_normalising()
         if target == 0:
-            z1 = gamma[target + 1]
+            z1 = (gamma[target + 1] - postmean[i]) / sigma
             n1 = norm_pdf(z1)
             phi1 = norm_cdf(z1)
             dphi = phi1 - phi2
@@ -801,7 +800,7 @@ def compute_objective(
         # alpha[i] = epamp[i] not sure what this is for
         # epmean[i] = postmean[i] not sure what this is for. Perhaps keeping old values.
 
-        fx = 0.0
+        #fx = 0.0
         n1 = 0.0
         n2 = 0.0
         z1 = 0.0
@@ -810,9 +809,8 @@ def compute_objective(
         phi2 = 0.0
         target = t_train[i]
 
-        # TODO: alternatively, call truncated_norm_normalising()
         if target == 0:
-            z1 = gamma[target + 1]
+            z1 = (gamma[target + 1] - postmean[i]) / sigma
             n1 = norm_pdf(z1)
             phi1 = norm_cdf(z1)
             dphi = phi1 - phi2
@@ -831,9 +829,11 @@ def compute_objective(
         #if dphi < EPS:
         if 0:
             if n1 - n2 < np.log(EPS):
-                fx -= np.log(EPS)
+                #fx -= np.log(EPS)
+                pass
             else:
-                fx -=np.log(EPS)
+                #fx -=np.log(EPS)
+                pass
             w1 = 0
             w2 = 0
             g1 = 0
@@ -874,7 +874,7 @@ def compute_objective(
                     postmean[i] = 0
                     e = 1 / sigma**2
         else:
-            fx -= np.log(dphi)
+            #fx -= np.log(dphi)
             # compute the moments
             w1 = n1 / dphi
             w2 = n2 / dphi
