@@ -1406,8 +1406,9 @@ def load_data_synthetic(dataset, bins, plot=False):
             }
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters[
                 "true"]
-    plt.scatter(X, Y_true)
-    plt.show()
+    if plot:
+        plt.scatter(X, Y_true)
+        plt.show()
     gamma_0 = np.array(gamma_0)
     if plot:
         plot_ordinal(X, t, X_j, Y_true_j, J, D)

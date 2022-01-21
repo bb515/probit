@@ -119,8 +119,8 @@ def main():
         # plot(classifier, domain=None)
         # classifier = train(classifier, method, indices)
         # test(classifier, X, t, Y_true, steps)
-        # grid_synthetic(classifier, domain, res, indices, show=False)
-        plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
+        grid_synthetic(classifier, domain, res, indices, show=False)
+        # plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
     if args.profile:

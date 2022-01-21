@@ -18,7 +18,6 @@ from .utilities import (
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
 #     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
-from .numba.utilities import compute_MAP_weights, compute_objective, update_MAP
 from scipy.stats import norm
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from .utilities import (
@@ -2948,17 +2947,17 @@ class LaplaceOrdinalGP(Approximator):
                 if verbose:
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
-            (weight, epinvvar, L_cov, invcov, cov) = self.compute_weights(
-                np.empty(self.N), np.empty(self.N), self.K, self.gamma, self.t_train, posterior_mean,
-                self.noise_std, self.J, self.N, self.EPS)
-            fx, w1, w2, g1, g2, v1, v2, q1, q2 = self.objective(
-                weight, epinvvar, self.K, self.gamma, self.t_train,
-                posterior_mean, self.noise_std,
-                self.J, self.N, self.EPS)
+            (weight, precision,
+            w1, w2, g1, g2, v1, v2, q1, q2,
+            L_cov, invcov, cov) = self.compute_weights(
+                posterior_mean)
+            if write:
+                (posterior_means, approximate_marginal_likelihoods) = containers
+            fx = self.objective(weight, precision, L_cov)
             fxs[i] = fx
             gx = self.objective_gradient(
                 gx_0.copy(), intervals, self.kernel.varphi, self.noise_variance, self.noise_std,
-                w1, w2, g1, g2, v1, v2, q1, q2, invcov, weight, self.N, self.K, epinvvar, indices)
+                w1, w2, g1, g2, v1, v2, q1, q2, invcov, weight, self.N, self.K, precision, indices)
             gxs[i] = gx[indices_where]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
@@ -3004,7 +3003,7 @@ class LaplaceOrdinalGP(Approximator):
             write, verbose)
         return fx, gx
 
-    def compute_objective(
+    def compute_weights(
         self, posterior_mean):
         """
         """
@@ -3014,6 +3013,8 @@ class LaplaceOrdinalGP(Approximator):
             self.gamma_ts, self.gamma_tplus1s, self.noise_std, posterior_mean, self.EPS)
         w1 = norm_pdf_z1s / Z
         w2 = norm_pdf_z2s / Z
+        z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
+        z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
         g1 = z1s * w1
         g2 = z2s * w2
         v1 = z1s * g1
@@ -3021,7 +3022,7 @@ class LaplaceOrdinalGP(Approximator):
         q1 = z1s * v1
         q2 = z2s * v2
         weight = (w1 - w2) / self.noise_std
-        precision = weight**2 + (g1 - g2) / self.noise_variance
+        precision = weight**2 + (g2 - g1) / self.noise_variance
         cov = self.K + np.diag(1. / precision)
         L_cov = np.linalg.cholesky(cov)
         L_cov_inv = np.linalg.inv(L_cov)
@@ -3072,61 +3073,6 @@ class LaplaceOrdinalGP(Approximator):
         fx = -fx
         return fx
 
-    def objectiveSS(
-        self, weight, epinvvar, K, gamma, t_train, posterior_mean, noise_std, J, N, EPS):
-        """
-        Calculate fx, the variational lower bound of the log marginal
-        likelihood at the EP equilibrium.
-
-        .. math::
-                \mathcal{F(\Phi)} =,
-
-            where :math:`F(\Phi)` is the variational lower bound of the log
-            marginal likelihood at the EP equilibrium,
-            :math:`h`, :math:`\Pi`, :math:`K`. #TODO
-
-        :arg precision_EP:
-        :type precision_EP:
-        :arg posterior_mean:
-        :type posterior_mean:
-        :arg t1:
-        :type t1:
-        :arg Lambda_cholesky:
-        :type Lambda_cholesky:
-        :arg Lambda:
-        :type Lambda:
-        :arg weights:
-        :type weights:
-        :returns: fx
-        :rtype: float
-        """
-        # Initialise get weights?
-        empty = np.empty(N)
-        # Get weights... TODO they may already be calculated.
-        weight, precision, w1, w2, g1, g2, v1, v2, q1, q2 = self.compute_objective(
-            posterior_mean, gamma_ts, gamma_tplus1s, noise_std, noise_variance, EPS)
-        weight, epinvvar, w1, w2, g1, g2, v1, v2, q1, q2 = compute_objective(
-            weight, epinvvar, EPS, gamma, t_train,
-            posterior_mean, noise_std,
-            empty.copy(), empty.copy(), empty.copy(), empty.copy(), empty.copy(), empty.copy(),
-            empty.copy(), empty.copy(), J, N)
-        fx = 0.5 * weight.T @ K @ weight
-        # L_cov = K + np.diag(1. / epinvvar)
-        # f = - K @ weight + posterior_mean  # TODO ? what for?
-
-        # L_cov = np.linalg.cholesky(L_cov)
-        # L_cov_inv = np.linalg.inv(L_cov)
-        # invcov = L_cov_inv.T @ L_cov_inv
-
-        # TODO: Why do I need this?
-        # L_cov, _ = cho_factor(L_cov)
-        # fx += np.sum(np.log(np.diag(L_cov)))
-        # L_covT_inv = solve_triangular(
-        #     L_cov.T, np.eye(N), lower=True)
-        fx += np.sum(np.log(epinvvar))
-        fx = -fx
-        return fx, w1, w2, g1, g2, v1, v2, q1, q2
-
     def objective_gradient(
             self, gx, intervals, varphi, noise_variance, noise_std,
             w1, w2, g1, g2, v1, v2, q1, q2, invcov, weight, N, K, epinvvar, indices):
@@ -3168,65 +3114,58 @@ class LaplaceOrdinalGP(Approximator):
         diag = np.diag(dsigma) / epinvvar
 
         # partial lambda / partial theta_b = - partial lambda / partial f (* SIGMA)
-        t2 = ((w1 - w2) - 3.0 * (w1 - w2) * (g1 - g2) - 2.0 * (w1 - w2)**3 - (v1 - v2)) / noise_variance
+        t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1) - 2.0 * (w2 - w1)**3 - (v2 - v1)) / noise_variance
 
         # Update gx
         if indices[0]:
             # For gx[0] -- ln\sigma
-            cache = (w1 - w2) * ((g1 - g2) - (w1 - w2) + (v1 - v2)) / noise_variance
+            cache = (w2 - w1) * ((g2 - g1) - (w2 - w1) + (v2 - v1)) / noise_variance
             # prepare D f / D delta_l
-            t1 = - dsigma @ cache / epinvvar
+            t2 = - dsigma @ cache / epinvvar
             tmp = (
                 - 2.0 * epinvvar
-                + 2.0 * (w1 - w2) * (v1 - v2)
-                + 2.0 * (w1 - w2)**2 * (g1 - g2)
-                - (g1 - g2)
-                + (g1 - g2)**2
-                + (q1 - q2) / noise_variance)
-            gx[0] = np.sum(g1 - g2 + 0.5 * (tmp - t1 * t2) * diag)
+                + 2.0 * (w2 - w1) * (v2 - v1)
+                + 2.0 * (w2 - w1)**2 * (g2 - g1)
+                - (g2 - g1)
+                + (g2 - g1)**2
+                + (q2 - q1) / noise_variance)
+            gx[0] = np.sum(g2 - g1 + 0.5 * (tmp - t2 * t1) * diag)
             gx[0] = - gx[0] / 2.0 * noise_variance
         # For gx[1] -- \b_1
         if indices[1]:
             # For gx[1], \theta_b^1
-            t1 = dsigma @ epinvvar
-            t1 = t1 / epinvvar
-
-            gx[1] -= np.sum(w1 - w2)
-            gx[1] += 0.5 * np.sum(t2 * (1 - t1) * diag)
+            t2 = dsigma @ epinvvar
+            t2 = t2 / epinvvar
+            gx[1] -= np.sum(w2 - w1)
+            gx[1] += 0.5 * np.sum(t1 * (1 - t2) * diag)
             gx[1] = gx[1] / noise_std
-
         # For gx[2] -- ln\Delta^r
         for j in range(2, self.J):
             targets = self.t_train[self.grid]
             # Prepare D f / D delta_l
-            cache0 = -(g1 + (w1 - w2) * w1) / noise_variance
-            cache1 = - (g1 - g2 + (w1 - w2)**2) / noise_variance
-
+            cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
+            cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
             if indices[j]:
                 idxj = np.where(targets == j - 1)
                 idxg = np.where(targets > j - 1)
                 idxl = np.where(targets < j - 1)
-
                 cache = np.zeros(N)
                 cache[idxj] = cache0[idxj]
                 cache[idxg] = cache1[idxg]
-
-                t1 = dsigma @ cache
-                t1 = t1 / epinvvar
-
-                gx[j] -= np.sum(w1[idxj])
+                t2 = dsigma @ cache
+                t2 = t2 / epinvvar
+                gx[j] -= np.sum(w2[idxj])
                 temp = (
-                    w1[idxj]
-                    - 2.0 * (w1[idxj] - w2[idxj]) * g1[idxj]
-                    - 2.0 * (w1[idxj] - w2[idxj])**2 * w1[idxj]
-                    - v1[idxj]
-                    - (g1[idxj] - g2[idxj]) * w1[idxj]) / noise_variance
-                gx[j] += 0.5 * np.sum((temp[idxj] - t1[idxj] * t2[idxj]) * diag[idxj])
+                    w2[idxj]
+                    - 2.0 * (w2[idxj] - w1[idxj]) * g2[idxj]
+                    - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
+                    - v2[idxj]
+                    - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
+                gx[j] += 0.5 * np.sum((temp[idxj] - t2[idxj] * t1[idxj]) * diag[idxj])
+                gx[j] -= np.sum(w2[idxg] - w1[idxg])
+                gx[j] += 0.5 * np.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
 
-                gx[j] -= np.sum(w1[idxg] - w2[idxg])
-                gx[j] += 0.5 * np.sum(t2[idxg] * (1.0 - t1[idxg]) * diag[idxg])
-
-                gx[j] += 0.5 * np.sum(-t1[idxl] * t2[idxl] * diag[idxl])
+                gx[j] += 0.5 * np.sum(-t2[idxl] * t1[idxl] * diag[idxl])
 
                 gx[j] = gx[j] * intervals[j - 1] / noise_std
 
@@ -3247,8 +3186,8 @@ class LaplaceOrdinalGP(Approximator):
             else:
                 # TODO: This exhibits numerical instabilities.
                 dmat = partial_K_varphi @ invcov
-                t1 = dmat @ weight
-                t1 = t1 / epinvvar
+                t2 = dmat @ weight
+                t2 = t2 / epinvvar
                 # VC * VC * a' * partial_K_varphi * a / 2
                 gx[self.J + 1] = varphi * 0.5 * weight.T @ partial_K_varphi @ weight  # That's wrong. not the same calculation.
                 # TODO: This exhibits numerical instabilities for large varphi. Suggests that invcov or weight is instable?
@@ -3258,52 +3197,6 @@ class LaplaceOrdinalGP(Approximator):
                 # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
                 # gx[self.J] -= 0.1 * varphi
         return -gx
-
-    # def compute_weights(self, posterior_mean):
-    #     """
-    #     Compute regression weights, and check that they are in equilibrium with
-    #     the gradients of Z wrt cavity means.
-
-    #     A matrix inverse is always required to evaluate fx.
-
-    #     """
-    #     (weight, epinvvar) = compute_MAP_weights(
-    #         weight_0, epinvvar_0, EPS,
-    #         gamma, t_train, posterior_mean, noise_std, J, N)
-    #     cov = K + np.diag(1. / epinvvar)
-    #     L_cov = np.linalg.cholesky(cov)
-    #     L_cov_inv = np.linalg.inv(L_cov)
-    #     invcov = L_cov_inv.T @ L_cov_inv
-
-    #     # probably don't need this.
-
-    #     #L_cov, _ = cho_factor(invcov)
-    #     #L_covinvT = solve_triangular(L_cov, np.eye(N), lower=False)
-    #     #invcov = solve_triangular(L_cov.T, L_covinvT, lower=True)
-    #     return weight, epinvvar, L_cov, invcov, cov
-
-    def compute_weightsSS(
-            self, weight_0, epinvvar_0, K, gamma, t_train,
-            posterior_mean, noise_std, J, N, EPS):
-        """
-        Compute regression weights, and check that they are in equilibrium with
-        the gradients of Z wrt cavity means.
-
-        A matrix inverse is always required to evaluate fx.
-
-        """
-        (weight, epinvvar) = compute_MAP_weights(
-            weight_0, epinvvar_0, EPS,
-            gamma, t_train, posterior_mean, noise_std, J, N)
-        cov = K + np.diag(1. / epinvvar)
-        L_cov = np.linalg.cholesky(cov)
-        L_cov_inv = np.linalg.inv(L_cov)
-        invcov = L_cov_inv.T @ L_cov_inv
-
-        #L_cov, _ = cho_factor(invcov)
-        #L_covinvT = solve_triangular(L_cov, np.eye(N), lower=False)
-        #invcov = solve_triangular(L_cov.T, L_covinvT, lower=True)
-        return weight, epinvvar, L_cov, invcov, cov
 
     def _approximate_initiate(
             self, posterior_mean_0=None):
@@ -3386,8 +3279,10 @@ class LaplaceOrdinalGP(Approximator):
             z1s, z2s,
             norm_cdf_z1s, norm_cdf_z2s) = truncated_norm_normalising_constant(
                 self.gamma_ts, self.gamma_tplus1s, self.noise_std, posterior_mean, self.EPS)
-            weight = (norm_pdf_z2s - norm_pdf_z1s) / Z / self.noise_std
-            precision  = weight**2 + (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / Z / self.noise_variance
+            weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
+            z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
+            z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
+            precision  = weight**2 + (z2s * norm_pdf_z2s - z1s * norm_pdf_z1s) / Z / self.noise_variance
             L_cov = self.K + np.diag(1. / precision)
             m = - self.K @ weight + posterior_mean  # TODO should have a factor of 1 / sigma?
             L_cov = np.linalg.cholesky(L_cov)
@@ -3399,116 +3294,10 @@ class LaplaceOrdinalGP(Approximator):
             # invcov = solve_triangular(L_cov, L_covT_inv, lower=False)
             t1 = - (invcov @ m) / precision
             posterior_mean += t1
-            # plt.scatter(self.X_train, step * t1)
-            # plt.title("error")
-            # plt.show()
-            # posterior_mean[posterior_mean > 10.0] = 10.0  # TODO?
-            # posterior_mean[posterior_mean < -10.0] = -10.0  # TODO?
-            # if np.any(posterior_mean > 10.0):
-            #     raise ValueError("Posterior mean was above UPPERFUNC. TODO: implement stability")
-                # # TODO Necessary?
-                # for i in prange(N):
-                #     if np.abs(postmean[i]) > UPPERFUNC:
-                #         postmean[i] = UPPERFUNC
             error = np.abs(max(t1.min(), t1.max(), key=abs))
             if write is True:
                 posterior_means.append(posterior_mean)
                 posterior_precisions.append(posterior_precisions)
-        #plt.scatter(self.X_train, posterior_mean)
-        #plt.show()
-        # plt.scatter(self.X_train, m)
-        # plt.show()
-        containers = (posterior_means, posterior_precisions)
-        return error, weight, posterior_mean, containers
-
-    def approximateSS(
-            self, steps, posterior_mean_0=None, first_step=1, write=False):
-        """
-        Estimating the posterior means and posterior covariance (and marginal
-        likelihood) via Laplace approximation via Newton-Raphson iteration as
-        written in
-        Appendix A Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes
-        for Ordinal Regression.. Journal of Machine Learning
-        Research. 6. 1019-1041.
-
-        Laplace imposes an inverse covariance for the approximating Gaussian
-        equal to the negative Hessian of the log of the target density.
-
-        :arg int steps: The number of iterations the Approximator takes.
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
-        :arg varphi: Initialisation of hyperparameter approximate posterior means.
-            If `None` then initialised to ones, default `None`.
-        :type varphi: :class:`numpy.ndarray` or float
-        :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to one, default `None`.
-        :arg posterior_mean_0: The initial state of the approximate posterior
-            mean (N,). If `None` then initialised to zeros, default `None`.
-        :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg int first_step: The first step. Useful for burn in algorithms.
-        :arg bool fix_hyperparameters: Must be `True`, since the hyperparameter
-            approximate posteriors are of the hyperparameters are not
-            calculated in this EP approximation.
-        :arg bool write: Boolean variable to store and write arrays of
-            interest. If set to "True", the method will output non-empty
-            containers of evolution of the statistics over the steps.
-            If set to "False", statistics will not be written and those
-            containers will remain empty.
-        :return: approximate posterior mean and covariances.
-        :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
-            posterior means, other statistics and tuple of lists of per-step
-            evolution of those statistics.
-        """
-        (weight_0,
-        inverse_variance_0,
-        posterior_mean, containers, error) = self._approximate_initiate(
-            posterior_mean_0)
-        (posterior_means, posterior_precisions) = containers
-        for step in trange(first_step, first_step + steps,
-                        desc="Laplace GP priors Approximator Progress",
-                        unit="iterations", disable=True):
-            epinvvar, weight, step_size = update_MAP(
-                weight_0.copy(),
-                inverse_variance_0.copy(),
-                self.EPS,
-                self.gamma, self.t_train,
-                posterior_mean, self.noise_std, self.J, self.N)
-            L_cov = self.K + np.diag(1. / epinvvar)
-            # print("min = {}, max = {}".format(np.min(epinvvar), np.max(epinvvar)))
-            # plt.scatter(self.X_train, posterior_mean)
-            # plt.title("posterior mean")
-            # plt.show()
-            m = - self.K @ weight + posterior_mean  # TODO should have a factor of 1 / sigma?
-            
-            L_cov = np.linalg.cholesky(L_cov)
-            L_cov_inv = np.linalg.inv(L_cov)
-            invcov = L_cov_inv.T @ L_cov_inv
-            # L_cov, _ = cho_factor(L_cov)
-            # L_covT_inv = solve_triangular(
-            #     L_cov.T, np.eye(self.N), lower=True)
-            # invcov = solve_triangular(L_cov, L_covT_inv, lower=False)
-            t1 = - (invcov @ m) / epinvvar
-            posterior_mean += step_size * t1
-
-            # plt.scatter(self.X_train, step * t1)
-            # plt.title("error")
-            # plt.show()
-            # posterior_mean[posterior_mean > 10.0] = 10.0  # TODO?
-            # posterior_mean[posterior_mean < -10.0] = -10.0  # TODO?
-            # if np.any(posterior_mean > 10.0):
-            #     raise ValueError("Posterior mean was above UPPERFUNC. TODO: implement stability")
-                # # TODO Necessary?
-                # for i in prange(N):
-                #     if np.abs(postmean[i]) > UPPERFUNC:
-                #         postmean[i] = UPPERFUNC
-            error = np.abs(max(t1.min(), t1.max(), key=abs))
-            if write is True:
-                posterior_means.append(posterior_mean)
-                posterior_precisions.append(posterior_precisions)
-        #plt.scatter(self.X_train, posterior_mean)
-        #plt.show()
-        # plt.scatter(self.X_train, m)
-        # plt.show()
         containers = (posterior_means, posterior_precisions)
         return error, weight, posterior_mean, containers
 
@@ -3543,7 +3332,6 @@ class LaplaceOrdinalGP(Approximator):
                 first_step=first_step, write=write)
             if verbose:
                 print("({}), error={}".format(iteration, error))
-        
         (weight, precision,
         w1, w2, g1, g2, v1, v2, q1, q2,
         L_cov, invcov, cov) = self.compute_weights(
@@ -3558,68 +3346,6 @@ class LaplaceOrdinalGP(Approximator):
         gx = self.objective_gradient(
             gx, intervals, self.kernel.varphi, self.noise_variance, self.noise_std,
             w1, w2, g1, g2, v1, v2, q1, q2, invcov, weight, self.N, self.K, precision, indices)
-        gx = gx[np.where(indices != 0)]
-        if verbose:
-            print("gamma=", repr(self.gamma), ", ")
-            print("varphi=", self.kernel.varphi, ", ")
-            # print("varphi=", self.kernel.constant_variance, ", ")
-            print("noise_variance=", self.noise_variance, ", ")
-            print("scale=", self.kernel.scale, ", ")
-            print("\nfunction_eval={}\n jacobian_eval={}".format(
-                fx, gx))
-        else:
-            print(
-                "\ngamma={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
-                    self.gamma, self.noise_variance, self.kernel.varphi, fx))
-        return fx, gx, posterior_mean, cov
-
-    def approximate_posteriorSS(
-            self, theta, indices,
-            posterior_mean_0=None, first_step=1, write=False, verbose=False):
-        """
-        Newton-Raphson.
-
-        :arg theta: (log-)hyperparameters to be optimised.
-        :type theta:
-        :arg indices:
-        :type indices:
-        :arg steps:
-        :type steps:
-        :arg posterior_mean_0:
-        :type posterior_mean_0:
-        :arg int first_step:
-        :arg bool write:
-        :arg bool verbose:
-        :return:
-        """
-        # Update prior covariance and get hyperparameters from theta
-        (intervals, steps, error, iteration, indices_where,
-        gx) = self._hyperparameter_training_step_initialise(
-            theta, indices)
-        posterior_mean = posterior_mean_0
-        while error / steps > self.EPS**2 and iteration < 10:
-            iteration += 1
-            (error, weight, posterior_mean, containers) = self.approximate(
-                steps, posterior_mean_0=posterior_mean,
-                first_step=first_step, write=write)
-            if verbose:
-                print("({}), error={}".format(iteration, error))
-        (weight, epinvvar, L_cov, invcov, cov) = self.compute_weights(
-            np.empty(self.N), np.empty(self.N), self.K, self.gamma,
-            self.t_train, posterior_mean, self.noise_std, self.J, self.N, self.EPS)
-        if write:
-            (posterior_means, approximate_marginal_likelihoods) = containers
-        fx, w1, w2, g1, g2, v1, v2, q1, q2 = self.objective(
-            weight, epinvvar, self.K, self.gamma, self.t_train,
-            posterior_mean, self.noise_std, self.J, self.N, self.EPS)
-        if self.kernel._general and self.kernel._ARD:
-            gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
-        else:
-            gx = np.zeros(1 + self.J - 1 + 1 + 1)
-        gx = self.objective_gradient(
-            gx, intervals, self.kernel.varphi, self.noise_variance, self.noise_std,
-            w1, w2, g1, g2, v1, v2, q1, q2, invcov, weight, self.N, self.K, epinvvar, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
             print("gamma=", repr(self.gamma), ", ")
