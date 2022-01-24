@@ -113,23 +113,28 @@ class Sampler(ABC):
         This method should be implemented in every concrete sampler.
         """
 
-    # def get_log_likelihood_vectorised(self, m):
-    #     """
-    #     Likelihood of ordinal regression. This is product of scalar normal cdf.
-    #     """
-    #     Z, *_ = truncated_norm_normalising_constant_vector(
-    #         self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
-    #         upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
-    #     return np.sum(np.log(Z), axis=1)  # (num_samples,)
 
     def get_log_likelihood(self, m):
         """
+        TODO: once self.gamma is factored out,
+            this needs to go somewhere else. Like a KL divergence/likelihoods folder.
+
         Likelihood of ordinal regression. This is product of scalar normal cdf.
+
+        If np.ndim(m) == 2, vectorised so that it returns (num_samples,)
+        vector from (num_samples, N) samples of the posterior mean.
+
+        Note that numerical stability has been turned off in favour of exactness - but experiments should=
+        be run twice with numerical stability turned on to see if it makes a difference.
         """
         Z, *_ = truncated_norm_normalising_constant(
-            self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
-            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
-        return np.sum(np.log(Z))  # (1,)
+            self.gamma_ts, self.gamma_tplus1s,
+            self.noise_std, m, self.EPS)
+            #  upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)  #  , numerically_stable=True)
+        if np.ndim(m) == 2:
+            return np.sum(np.log(Z), axis=1)  # (num_samples,)
+        elif np.ndim(m) == 1:
+            return np.sum(np.log(Z))  # (1,)
 
     def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
         """Get the pdf of the multivariate normal distribution."""
@@ -338,17 +343,15 @@ class Sampler(ABC):
                     " stability issues may arise "
                 "(noise_variance={}).".format(noise_variance))
             index += 1
-        if indices[1]:
-            if gamma is None:
+        for j in range(1, self.J):
+            if gamma is None and indices[j]:
                 # Get gamma from classifier
                 gamma = self.gamma
+        if indices[1]:
             gamma[1] = theta[1]
             index += 1
         for j in range(2, self.J):
             if indices[j]:
-                if gamma is None:
-                    # Get gamma from classifier
-                    gamma = self.gamma
                 gamma[j] = gamma[j - 1] + np.exp(theta[j])
                 index += 1
         if indices[self.J]:
@@ -668,7 +671,6 @@ class Sampler(ABC):
                 else:
                     gamma[j] = gamma[j-1] + phi[index]
                 index += 1
-        gamma_update = None  # TODO TODO <<< hack
         if indices[self.J]:
             scale_std = phi[index]
             scale = scale_std**2
@@ -685,8 +687,6 @@ class Sampler(ABC):
             index += 1
         else:
             varphi_update = None
-        # assert index == 2
-        assert index == 1  # TODO: TEMPORARY
         # Update kernel parameters, update prior and posterior covariance
         self.hyperparameters_update(
                 gamma=gamma, 
@@ -1513,7 +1513,7 @@ class PseudoMarginal(object):
     def _weight_vectorised(
             self, f_samps, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv,
             half_log_det_posterior_cov, posterior_mean):
-        log_ws = (self.approximator.get_log_likelihood_vectorised(f_samps)
+        log_ws = (self.approximator.get_log_likelihood(f_samps)
             + self.approximator._log_multivariate_normal_pdf_vectorised(
                 f_samps, prior_cov_inv, half_log_det_prior_cov)
             - self.approximator._log_multivariate_normal_pdf_vectorised(

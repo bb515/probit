@@ -3,11 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from probit.data.utilities import datasets, colors
 from probit.data.utilities import calculate_metrics
-from .utilities import (
-    truncated_norm_normalising_constant,
-    truncated_norm_normalising_constant_vector)
+from .utilities import truncated_norm_normalising_constant
 
-def plot(classifier, m_0, steps, J, D, domain=None):
+def plot(classifier, posterior_mean_0, steps, J, D, domain=None):
     """
     TODO: needs generalizing to other datasets other than Chu.
     Contour plot of the predictive probabilities over a chosen domain.
@@ -16,17 +14,17 @@ def plot(classifier, m_0, steps, J, D, domain=None):
     error = np.inf
     while error / steps > classifier.EPS:
         iteration += 1
-        (m_0, dm_0, nu, y, p, *_) = classifier.approximate(
-            steps, m_tilde_0=m_0, first_step=1,
+        (posterior_mean_0, nu, y, p, *_) = classifier.approximate(
+            steps, posterior_mean_0=posterior_mean_0, first_step=1,
             fix_hyperparameters=True, write=False)
         (calligraphic_Z,
         norm_pdf_z1s, norm_pdf_z2s,
         z1s, z2s, *_) = classifier._calligraphic_Z(
             classifier.gamma_ts, classifier.gamma_tplus1s,
-            classifier.noise_std, m_0)
+            classifier.noise_std, posterior_mean_0)
         fx = classifier.objective(
-            classifier.N, m_0, nu, classifier.trace_cov,
-            classifier.trace_Sigma_div_var,
+            classifier.N, posterior_mean_0, nu, classifier.trace_cov,
+            classifier.trace_posterior_cov_div_var,
             calligraphic_Z,
             classifier.noise_variance,
             classifier.log_det_K, classifier.log_det_cov)
@@ -72,15 +70,15 @@ def plot(classifier, m_0, steps, J, D, domain=None):
 
 def plot_synthetic(
         classifier,
-        dataset, X_true, Y_true, m_tilde_0, steps, colors=colors):
+        dataset, X_true, Y_true, posterior_mean_0, steps, colors=colors):
     """
     Plots for synthetic data.
 
     TODO: needs generalizing to other datasets other than Chu.
     """
-    (m_tilde, dm_tilde, nu, y_tilde, p, containers) = classifier.approximate(
-        steps, m_tilde_0=m_tilde_0, write=True)
-    plt.scatter(classifier.X_train, m_tilde, color='r')
+    (posterior_mean, nu, y_tilde, p, containers) = classifier.approximate(
+        steps, posterior_mean_0=posterior_mean_0, write=True)
+    plt.scatter(classifier.X_train, posterior_mean, color='r')
     plt.scatter(X_true, Y_true, color='b')
     plt.show()
     (ms, ys, varphis, psis, fxs) = containers
@@ -89,19 +87,14 @@ def plot_synthetic(
     plt.show()
     Z, *_ = truncated_norm_normalising_constant(
         classifier.gamma_ts, classifier.gamma_tplus1s,
-        classifier.noise_std, m_tilde, classifier.EPS,
+        classifier.noise_std, posterior_mean, classifier.EPS,
         upper_bound=classifier.upper_bound,
         upper_bound2=classifier.upper_bound2)
-    # (calligraphic_Z, *_) = classifier._calligraphic_Z(
-    #                 classifier.gamma_ts, classifier.gamma_tplus1s,
-    #                 classifier.noise_std, m_tilde,
-    #                 upper_bound=classifier.upper_bound,
-    #                 upper_bound2=classifier.upper_bound2)
     J = classifier.J
     N = classifier.N
     fx = classifier.objective(
-            classifier.N, m_tilde, nu, classifier.trace_cov,
-            classifier.trace_Sigma_div_var,
+            classifier.N, posterior_mean, nu, classifier.trace_cov,
+            classifier.trace_posterior_cov_div_var,
             Z,
             classifier.noise_variance,
             classifier.log_det_K, classifier.log_det_cov)
@@ -169,7 +162,7 @@ def plot_synthetic(
             # (Z,
             # posterior_predictive_m,
             # posterior_std) = classifier.predict(
-            #     classifier.gamma, Sigma, mean_EP, precision_EP,
+            #     classifier.gamma, posterior_cov, mean_EP, precision_EP,
             #     classifier.kernel.varphi, classifier.noise_variance,
             #     X_new, Lambda, vectorised=True)
             # print(np.sum(Z, axis=1), 'sum')
@@ -331,11 +324,11 @@ def test(
     iteration = 0
     error = np.inf
     fx_old = np.inf
-    m_0 = None
+    posterior_mean_0 = None
     while error / steps > classifier.EPS:
         iteration += 1
-        (m_0, dm_0, nu, y, p, *_) = classifier.approximate(
-            steps, m_tilde_0=m_0, first_step=1, write=False)
+        (posterior_mean_0, nu, y, p, *_) = classifier.approximate(
+            steps, posterior_mean_0=posterior_mean_0, first_step=1, write=False)
         (calligraphic_Z,
         norm_pdf_z1s,
         norm_pdf_z2s,
@@ -343,11 +336,11 @@ def test(
         z2s,
         *_)= classifier._calligraphic_Z(
             classifier.gamma_ts, classifier.gamma_tplus1s,
-            classifier.noise_std, m_0)
+            classifier.noise_std, posterior_mean_0)
         fx = classifier.objective(
-            classifier.N, m_0, nu,
+            classifier.N, posterior_mean_0, nu,
             classifier.trace_cov,
-            classifier.trace_Sigma_div_var,
+            classifier.trace_posterior_cov_div_var,
             calligraphic_Z, classifier.noise_variance,
             classifier.log_det_K,
             classifier.log_det_cov)

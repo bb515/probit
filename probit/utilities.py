@@ -614,7 +614,12 @@ def truncated_norm_normalising_constant(
         # Using series expansion approximations
         indices1 = np.where(z1s > upper_bound)
         indices2 = np.where(z2s < -upper_bound)
-        indices = np.union1d(indices1, indices2)
+        print(indices1)
+        print(indices2)
+        if np.ndim(z1s) == 1:
+            indices = np.union1d(indices1, indices2)
+        elif np.ndim(z1s) == 2:  # m is (num_samples, N). This is a quick (but not dirty) hack.
+            indices = (np.append(indices1[0], indices2[0]), np.append(indices1[1], indices2[1]))
         z1_indices = z1s[indices]
         z2_indices = z2s[indices]
         Z[indices] = _Z_tails(
