@@ -7,8 +7,7 @@ import pathlib
 import numpy as np
 from .utilities import (
     norm_z_pdf, norm_cdf, sample_y,
-    truncated_norm_normalising_constant,
-    truncated_norm_normalising_constant_vector)
+    truncated_norm_normalising_constant)
 # from .numba.utilities import sample_y
 from scipy.stats import norm, uniform, expon
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
@@ -114,14 +113,14 @@ class Sampler(ABC):
         This method should be implemented in every concrete sampler.
         """
 
-    def get_log_likelihood_vectorised(self, m):
-        """
-        Likelihood of ordinal regression. This is product of scalar normal cdf.
-        """
-        Z, *_ = truncated_norm_normalising_constant_vector(
-            self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
-            upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
-        return np.sum(np.log(Z), axis=1)  # (num_samples,)
+    # def get_log_likelihood_vectorised(self, m):
+    #     """
+    #     Likelihood of ordinal regression. This is product of scalar normal cdf.
+    #     """
+    #     Z, *_ = truncated_norm_normalising_constant_vector(
+    #         self.gamma_ts, self.gamma_tplus1s, self.noise_std, m, self.EPS,
+    #         upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
+    #     return np.sum(np.log(Z), axis=1)  # (num_samples,)
 
     def get_log_likelihood(self, m):
         """
@@ -1501,12 +1500,8 @@ class PseudoMarginal(object):
     #     )
 
     def _weight(
-        self, f_samp, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
-        # print(self.approximator.get_log_likelihood(f_samp))
-        # print(self.approximator._log_multivariate_normal_pdf(
-        #         f_samp, prior_cov_inv, half_log_det_prior_cov))
-        # print(- self.approximator._log_multivariate_normal_pdf(
-        #         f_samp, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+            self, f_samp, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv,
+            half_log_det_posterior_cov, posterior_mean):
         return (
             self.approximator.get_log_likelihood(f_samp)
             + self.approximator._log_multivariate_normal_pdf(
@@ -1516,21 +1511,8 @@ class PseudoMarginal(object):
         )
 
     def _weight_vectorised(
-            self, f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov, posterior_L_cov, posterior_cov_inv,
+            self, f_samps, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv,
             half_log_det_posterior_cov, posterior_mean):
-        print("1", self.approximator.get_log_likelihood_vectorised(f_samps))
-        print("2", self.approximator._log_multivariate_normal_pdf_vectorised(
-                f_samps, prior_L_cov, half_log_det_prior_cov))
-        print("3", self.approximator._log_multivariate_normal_pdf_vectorised(
-                f_samps, posterior_L_cov, half_log_det_posterior_cov, mean=posterior_mean))
-        print("4", self.approximator.get_log_likelihood_vectorised(f_samps))
-        print("5", self.approximator._log_multivariate_normal_pdf_vectorised(
-                f_samps, prior_cov_inv, half_log_det_prior_cov))
-        print("6", - self.approximator._log_multivariate_normal_pdf_vectorised(
-                f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
-        plt.scatter(self.approximator.X_train, f_samps[0])
-        plt.show()
-        assert 0
         log_ws = (self.approximator.get_log_likelihood_vectorised(f_samps)
             + self.approximator._log_multivariate_normal_pdf_vectorised(
                 f_samps, prior_cov_inv, half_log_det_prior_cov)
@@ -1539,34 +1521,35 @@ class PseudoMarginal(object):
         return log_ws
 
     def _importance_sampler_vectorised(
-        self, num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
-        posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov):
+        self, num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
+        posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky):
         """
         Sampling from an unbiased estimate of the marginal likelihood p(y|\theta) given the likelihood of the parameters
         p(y | f) and samples
         from an (unbiased) approximating distribution q(f|y, \theta).
         """
-        # TODO
         zs = np.random.normal(0, 1, (num_importance_samples, self.approximator.N))
-        #zs = np.random.normal(0, 1, (self.approximator.N, num_importance_samples))
-        # f_samps = posterior_L_cov @ zs + posterior_mean
-        f_samps = np.einsum('ij, kj -> ki', posterior_L_cov, zs) + posterior_mean
-        # for i in range(num_importance_samples):
+        posterior_L, is_inv  = posterior_cholesky
+        if is_inv:
+            zs = solve_triangular(posterior_L, zs.T, lower=False)
+            zs = zs.T
+        else:
+            zs = zs @ np.triu(posterior_L)
+        f_samps = zs + posterior_mean
+        # plt.scatter(self.approximator.X_train, posterior_mean, color='k')
+        # for i in range(3):
         #     plt.scatter(self.approximator.X_train, f_samps[i])
         # plt.show()
-
         log_ws = self._weight_vectorised(
-            f_samps, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
-            posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov, posterior_mean)
-
+            f_samps, prior_cov_inv, half_log_det_prior_cov,
+            posterior_cov_inv, half_log_det_posterior_cov, posterior_mean)
         max_log_ws = np.max(log_ws)
         log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
-
         return log_sum_exp - np.log(num_importance_samples)
 
     def _importance_sampler(
-            self, num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
-            posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov):
+            self, num_importance_samples, prior_L_cov, half_log_det_prior_cov,
+            posterior_mean, posterior_L_cov, half_log_det_posterior_cov):
         """
         Sampling from an unbiased estimate of the marginal likelihood p(y|\theta) given the likelihood of the parameters
         p(y | f) and samples
@@ -1590,7 +1573,8 @@ class PseudoMarginal(object):
         log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
         return log_sum_exp - np.log(num_importance_samples)
 
-    def tmp_compute_marginal(self, m, theta, indices, proposal_L_cov, num_importance_samples=1000, reparameterised=True):
+    def tmp_compute_marginal(
+        self, theta, indices, num_importance_samples=64, reparameterised=True):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
@@ -1602,21 +1586,33 @@ class PseudoMarginal(object):
                 theta, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
                 None, None,
                 self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
-        fx, gx, posterior_mean, posterior_cov = self.approximator.approximate_posterior(
+        fx, gx, posterior_mean, (posterior_matrix, is_inv) = self.approximator.approximate_posterior(
             theta, indices, first_step=1, write=False, verbose=False)
         prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
         half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
         prior_cov_inv = np.linalg.inv(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
         # perform cholesky decomposition since this was never performed in the EP posterior approximation
-        posterior_L_cov = np.linalg.cholesky(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
-        half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
-        posterior_cov_inv = np.linalg.inv(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
+        if is_inv:
+            # Laplace
+            posterior_cov_inv = posterior_matrix
+            posterior_L_inv_cov, lower = cho_factor(posterior_cov_inv)
+            half_log_det_posterior_cov = - np.sum(np.log(np.diag(posterior_L_inv_cov)))
+            posterior_cholesky = (posterior_L_inv_cov, True)
+        else:
+            # EP - perhaps a simpler way to do this via the precisions
+            posterior_cov = posterior_matrix
+            (posterior_L_cov, lower) = cho_factor(
+                posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))  # Is this necessary?
+            half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
+            posterior_L_covT_inv = solve_triangular(
+                posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
+            posterior_cov_inv = solve_triangular(posterior_L_cov, posterior_L_covT_inv, lower=False)
+            posterior_cholesky = (posterior_L_cov, False)
         log_p_pseudo_marginals = []
-        for i in range(10):
+        for _ in range(50):
             log_p_pseudo_marginals.append(self._importance_sampler_vectorised(
-                num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
-                posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov))
-        assert 0
+                num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
+                posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky))
         return np.array(log_p_pseudo_marginals) + log_p_theta[0]
 
     def _transition_operator(

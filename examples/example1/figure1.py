@@ -181,7 +181,7 @@ def main():
             approximator.hyperparameters_update(varphi=varphi)
             theta=sampler.get_theta(indices)
             log_p_pseudo_marginals = hyper_sampler.tmp_compute_marginal(
-                    m_true, theta, indices, proposal_L_cov, reparameterised=True)
+                    theta, indices, reparameterised=True)
             log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
         log_p_pseudo_marginalss = np.array(log_p_pseudo_marginalss)
         print(np.shape(log_p_pseudo_marginalss))

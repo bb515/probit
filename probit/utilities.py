@@ -600,18 +600,15 @@ def truncated_norm_normalising_constant(
     # Otherwise
     z1s = (gamma_ts - m) / noise_std
     z2s = (gamma_tplus1s - m) / noise_std
-
-    # norm_pdf_z1s = norm_pdf(z1s)
-    # norm_pdf_z2s = norm_pdf(z2s)
-    # norm_cdf_z1s = norm_cdf(z1s)
-    # norm_cdf_z2s = norm_cdf(z2s)
-
+    norm_pdf_z1s = norm_pdf(z1s)
+    norm_pdf_z2s = norm_pdf(z2s)
+    norm_cdf_z1s = norm_cdf(z1s)
+    norm_cdf_z2s = norm_cdf(z2s)
     ## SS: test timings
-    norm_pdf_z1s = norm.pdf(z1s)
-    norm_pdf_z2s = norm.pdf(z2s)
-    norm_cdf_z1s = norm.cdf(z1s)
-    norm_cdf_z2s = norm.cdf(z2s)
-
+    # norm_pdf_z1s = norm.pdf(z1s)
+    # norm_pdf_z2s = norm.pdf(z2s)
+    # norm_cdf_z1s = norm.cdf(z1s)
+    # norm_cdf_z2s = norm.cdf(z2s)
     Z = norm_cdf_z2s - norm_cdf_z1s
     if upper_bound is not None:
         # Using series expansion approximations
@@ -640,11 +637,7 @@ def truncated_norm_normalising_constant(
                 " tolerance={} (got {}): SETTING to"
                 " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
                     EPS, Z, z1s, z2s))
-            for i, value in enumerate(Z[small_densities]):
-                # Z[small_densities[i]] = EPS
-                if value < 0.01:
-                    print("call_Z={}, z1 = {}, z2 = {}".format(
-                        value, z1s[small_densities[i]], z2s[small_densities[i]]))
+            Z[small_densities] = EPS
     return (
         Z,
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
@@ -753,6 +746,7 @@ def dp(m, gamma_ts, gamma_tplus1s, noise_std, EPS,
         z2_indices = z2s[indices]
         sigma_dp[indices] = dp_far_tails(z2_indices)
     return sigma_dp
+
 
 def sample_y(y, m, t_train, gamma, noise_std, N):
     for i in range(N):

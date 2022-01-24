@@ -117,9 +117,8 @@ def main():
         m_true = sampler.K @ nu_true
         # plt.scatter(sampler.X_train, m_true)
         # plt.show()
-        M = 10
+        M = 100
         varphis = np.logspace(-2.0, 2.0, M+1)
-        print(varphis)
         varphis_step = varphis[1:] - varphis[:-1]
         varphis = varphis[:-1]
         p_theta_giv_f = np.empty(M)
@@ -150,7 +149,7 @@ def main():
             approximator.hyperparameters_update(varphi=varphi)
             theta=sampler.get_theta(indices)
             log_p_pseudo_marginals = hyper_sampler.tmp_compute_marginal(
-                    m_true, theta, indices, proposal_L_cov, reparameterised=True)
+                    theta, indices, reparameterised=True)
             log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
         log_p_pseudo_marginalss = np.array(log_p_pseudo_marginalss)
         print("here", log_p_pseudo_marginalss)

@@ -326,7 +326,7 @@ def plot_synthetic(
 
 def test(
         classifier, X_test, t_test, y_test,
-        steps, domain=None):
+        steps, domain=None, verbose=True):
     """Test the trained model."""
     iteration = 0
     error = np.inf
@@ -351,9 +351,9 @@ def test(
             calligraphic_Z, classifier.noise_variance,
             classifier.log_det_K,
             classifier.log_det_cov)
-        error = np.abs(fx_old - fx)  # TODO: redundant?
+        error = np.abs(fx_old - fx)
         fx_old = fx
-        if 1:
+        if verbose:
             print("({}), error={}".format(iteration, error))
     # Test
     (Z, posterior_predictive_m,

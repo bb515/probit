@@ -89,21 +89,9 @@ def plot_synthetic(
         # plt.savefig("scatter_versus_posterior_mean.png")
         # plt.close()
         print("iteration {}, error={}".format(iteration, error / steps))
-    (weight, precision,
-    w1, w2, g1, g2, v1, v2, q1, q2,
-    L_cov, invcov, cov) = classifier.compute_weights(
+    (weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, inv_cov, cov, Z) = classifier.compute_weights(
         posterior_mean)
-    fx = classifier.objective(weight, precision, L_cov)
-
-
-    # SS
-    # (weight, epinvvar, L_cov, invcov) = classifier.compute_weights(
-    #         np.empty(classifier.N), np.empty(classifier.N), classifier.K, classifier.gamma,
-    #         classifier.t_train, posterior_mean, classifier.noise_std, classifier.J, classifier.N,
-    #         classifier.EPS)
-    # fx, w1, w2, g1, g2, v1, v2, q1, q2 = classifier.objective(
-    #     weight, epinvvar, classifier.K, classifier.gamma, classifier.t_train, posterior_mean, classifier.noise_std,
-    #     classifier.J, classifier.N, classifier.EPS)
+    fx = classifier.objective(weight, precision, L_cov, Z)
     if dataset in datasets["synthetic"]:
         if classifier.J == 3:
             x_lims = (-0.5, 1.5)
@@ -113,7 +101,7 @@ def plot_synthetic(
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                classifier.gamma, invcov, posterior_mean,
+                classifier.gamma, inv_cov, posterior_mean,
                 classifier.kernel.varphi,
                 classifier.noise_variance, X_new, vectorised=True)
             plt.scatter(classifier.X_train, posterior_mean)
@@ -173,7 +161,7 @@ def plot_synthetic(
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                classifier.gamma, invcov, posterior_mean,
+                classifier.gamma, inv_cov, posterior_mean,
                 classifier.kernel.varphi,
                 classifier.noise_variance, X_new, vectorised=True)
             print(np.sum(Z, axis=1), 'sum')

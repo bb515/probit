@@ -80,6 +80,7 @@ def main():
         #     classifier, method, indices)
         # fx, metrics = test(
         #     classifier, X_tests[2], t_tests[2], y_tests[2], steps)
+
     elif dataset in datasets["synthetic"]:
         (X, t,
         X_true, Y_true,
@@ -101,7 +102,7 @@ def main():
         # Fix gamma
         indices[1:J] = 0
         # Just varphi
-        domain = ((-2, 2), None)
+        domain = ((-4, 4), None)
         res = (100, None)
         # #  just scale
         # domain = ((0., 1.8), None)
@@ -119,8 +120,8 @@ def main():
         # plot(classifier, domain=None)
         # classifier = train(classifier, method, indices)
         # test(classifier, X, t, Y_true, steps)
-        grid_synthetic(classifier, domain, res, indices, show=False)
-        # plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
+        # grid_synthetic(classifier, domain, res, indices, show=False)
+        plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
     if args.profile:
