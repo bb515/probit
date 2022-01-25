@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
+from scipy.stats import gamma as gamma_
 from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ
 import warnings
 import time
@@ -187,7 +188,7 @@ def indices_initiate(
 def get_Y_trues(X_trains, X_true, Y_true):
     """Get Y_trues (N/J, J) from full array of true y values."""
     Y_trues = []
-    for k in range(19):
+    for j in range(19):
         y = []
         for i in range(len(X_trains[-1, :, :])):
             for j, two in enumerate(X_true):
@@ -234,6 +235,161 @@ def generate_prior_samples(kernel, noise_variance, N_samples=9, N_show=2000, plo
         plt.plot(X_show, Z_show)
         plt.savefig("Samples from prior GP.png")
         plt.close()
+
+
+def generate_prior_data_table1(
+        N_per_class, splits, J, D, kernel, noise_variance,
+        N_show=2000, plot=True, jitter=1e-6, seed=222):
+    """
+    Generate data from the GP prior, and choose some cutpoints that
+    approximately divides data into equal bins.
+
+    :arg int N_per_class: The number of data points per class.
+    :arg splits:
+    :arg int J: The number of bins/classes/quantiles.
+    :arg int D: The number of data dimensions.
+    :arg kernel: The GP prior.
+    :arg noise_variance: The noise variance.
+    """
+    if D==1:
+        # Generate input data from a linear grid
+        X_show = np.linspace(-0.5, 1.5, N_show)
+        # reshape X to make it (n, D)
+        X_show = X_show[:, None]
+    elif D==2:
+        # Generate input data from a linear meshgrid
+        x = np.linspace(-0.5, 1.5, N_show)
+        y = np.linsapce(-0.5, 1.5, N_show)
+        xx, yy = np.meshgrid(x, y)
+        # Pairs
+        X_show = np.dstack([xx, yy]).reshape(-1, 2)
+
+    N_total = int(J * N_per_class)
+    N_test = N_total
+    # Sample from the real line, uniformly
+    X_data = np.random.uniform(low=0.0, high=1.0, size=(N_total, D))
+
+    # Concatenate X_data and X_show
+    X = np.append(X_data, X_show, axis=0)
+
+    # Sample from a multivariate normal
+    K0 = kernel.kernel_matrix(X, X)
+    K = K0 + jitter * np.identity(N_total)
+    L_K = np.linalg.cholesky(K)
+
+    # Generate normal samples for both sets of input data
+    z = np.random.normal(loc=0.0, scale=1.0, size=N_total)
+    Z = L_K @ z
+
+    # Store Z_show
+    Z_data = X[:N_total, D]
+    Z_show = X[N_total:, D]
+
+    assert np.shape(Z_show) == (N_show**D, D)
+
+    # Also precalculate the cholesky for X_show for storage
+    K0_show = kernel.kernel_matrix(X_show, X_show)
+    K_show = K0_show + jitter * np.identity(N_show)
+    L_K_show = np.linalg.cholesky(K_show)
+ 
+    # Shuffle data
+    Xt = np.c_[Z_data, X_data]
+    np.random.shuffle(Xt)
+    Z_data = Xt[:N_total, :1]
+    X_data = Xt[:N_total, 1:D + 1]
+    # Generate the latent variables
+    epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
+    epsilons = epsilons[:, None]
+    Y_data = epsilons + Z_data
+    Y_data = Y.flatten()
+    idx_sorted = np.argsort(Y_data)
+    if plot:
+        plt.scatter(X_data, Y_data, c='b', s=4)
+        plt.plot(X_show, Z_show)
+        plt.savefig("Sample from prior GP.png")
+        plt.close()
+    # Sort the responses
+    Y_data = Y_data[idx_sorted]
+    X_data = X_data[idx_sorted]
+    X_data_j = []
+    Y_data_j = []
+    t_j = []
+    gamma = np.empty(J + 1)
+    for j in range(J):
+        X_data_j.append(X_data[N_per_class * k:N_per_class * (k + 1), :D])
+        Y_data_j.append(Y_data[N_per_class * k:N_per_class * (k + 1)])
+        t_j.append(k * np.ones(N_per_class, dtype=int))
+    for j in range(1, J):
+        # Find the first cutpoint and set it equal to 0.0
+        cutpoint_j_min = Y_data_j[j - 1][-1]
+        cutpoint_j_max = Y_data_j[j][0]
+        gamma[j] = np.average([cutpoint_j_max, cutpoint_j_min])
+    gamma[0] = -np.inf
+    gamma[-1] = np.inf
+    print("gamma={}".format(gamma))
+    if plot:
+        cmap = plt.cm.get_cmap('PiYG', J)    # J discrete colors
+        colors = []
+        for j in range(J):
+            colors.append(cmap((k+0.5)/J))
+            plt.scatter(X_data_j[j], Y_data_j[j], color=cmap((k+0.5)/J))
+        plt.close()
+    Xs_j = np.array(X_data_j)
+    Ys_j = np.array(Y_data_j)
+    t_j = np.array(t_j, dtype=int)
+    X = Xs_j.flatten()
+    Y = Ys_j.flatten()
+    t = t_j.flatten()
+
+    N_train = N_total - N_test
+    # Prepare data
+    Y_tests = []
+    X_tests = []
+    t_tests = []
+    Y_trains = []
+    X_trains = []
+    t_trains = []
+    for _ in range(splits):
+        Xt = np.c_[Y, X, t]
+        np.random.shuffle(Xt)
+        Y = Xt[:, :1]
+        X = Xt[:, 1:D + 1]
+        t = Xt[:, -1]
+        Y_test = Y[:N_test]
+        X_test = X[:N_test, :]
+        t_test = t[:N_test]
+        Y_train = Y[N_test:]
+        X_train = X[N_test:, :]
+        t_train = t[N_test:]
+        Y_tests.append(Y_test)
+        X_tests.append(X_test)
+        t_tests.append(t_test)
+        Y_trains.append(Y_train)
+        X_trains.append(X_train)
+        t_trains.append(t_train)
+    t = np.array(t, dtype=int)
+    t_tests = np.array(t_tests, dtype=int)
+    t_trains = np.array(t_trains, dtype=int)
+    X_tests = np.array(X_tests)
+    X_trains = np.array(X_trains)
+    Y_tests = np.array(Y_tests)
+    Y_trains = np.array(Y_trains)
+    assert np.shape(X_tests) == (N_test, D)
+    assert np.shape(X_trains) == (N_train, D)
+    assert np.shape(Y_tests) == (N_test, D)
+    assert np.shape(Y_trains) == (N_train, D)
+    assert np.shape(t_tests) == (N_test,)
+    assert np.shape(t_trains) == (N_train,)
+    assert np.shape(X_data_j) == ()
+    assert np.shape(Y_data_j) == ()
+    assert np.shape(t_j) == ()
+    if plot:
+        colors_ = [colors[i] for i in t_trains[0, :]]
+        plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
+        plt.savefig("scatter.png")
+        plot_ordinal(X, t, X_j, Y_true_j, J, D, colors=colors)
+    return (X_j, Y_true_j, X, Y, t, gamma, X_tests, Y_tests, t_tests,
+        X_trains, Y_trains, t_trains, K0_show, X_show, Z_show, colors)
 
 
 def generate_prior_data_new(
@@ -294,11 +450,11 @@ def generate_prior_data_new(
     Y_true_j = []
     t_j = []
     gamma = np.empty(J + 1)
-    for k in range(J):
+    for j in range(J):
         X_j.append(X[N_per_class * k:N_per_class * (k + 1), :D])
         Y_true_j.append(Y_true[N_per_class * k:N_per_class * (k + 1)])
         t_j.append(k * np.ones(N_per_class, dtype=int))
-    for k in range(1, J):
+    for j in range(1, J):
         # Find the first cutpoint and set it equal to 0.0
         cutpoint_j_min = Y_true_j[j - 1][-1]
         cutpoint_j_max = Y_true_j[j][0]
@@ -1240,7 +1396,16 @@ def generate_synthetic_data(N_per_class, J, D, varphi=30.0, noise_variance=1.0, 
 
 
 def generate_synthetic_data_new(N_per_class, N_test, splits, J, D, varphi=30.0, noise_variance=1.0, scale=1.0):
-    """Generate synthetic dataset."""
+    """
+    Generate synthetic dataset from the unit hypercube for Table 1.
+    """
+    # Sample from Gamma priors for the hyper-parameters
+    # lengthscale
+    lengthscales = gamma_.rvs(a=1.0, scale=np.sqrt(D))
+    noise_variance = gamma_.rvs(a=1.2, scale=1./0.2)
+    kernel = SEIso(lengthscales, scale=1.0)
+
+    
     kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
     (X_j, Y_true_j, X, Y, t, gamma,
     X_tests, Y_tests, t_tests,
@@ -1260,6 +1425,9 @@ def generate_synthetic_data_new(N_per_class, N_test, splits, J, D, varphi=30.0, 
         colors=colors)
     return (X_j, Y_true_j, X, Y, t, gamma, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, K0_show,
         X_show, Z_show, colors)
+
+
+def  generate_synthetic_data_table1():
 
 
 def load_data_synthetic(dataset, bins, plot=False):
@@ -1443,7 +1611,7 @@ def plot_ordinal(X, t, X_j, Y_j, J, D, colors=colors):
     plt.savefig("N_total={}, J={}, D={} Ordinal response data.png".format(N_total, J, D))
     plt.close()
     # Plot from the binned arrays
-    for k in range(J):
+    for j in range(J):
         plt.scatter(X_j[j][:, 0], Y_j[j], color=colors[j], label=r"$t={}$".format(k))
     plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
     plt.legend()

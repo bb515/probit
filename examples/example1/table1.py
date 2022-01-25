@@ -1,9 +1,5 @@
 """
-Figure 2
-
-Ordinal regression concrete examples. Pseudomarginal inference: comparing the posterior approximation used:
-
-EP vs VB vs MAP Laplace
+Ordinal regression concrete examples. Comparing different samplers.
 """
 # Make sure to limit CPU usage
 import os

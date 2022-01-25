@@ -30,6 +30,8 @@ from .utilities import (
 
 class Approximator(ABC):
     """
+    TODO: separate the approximation from the likelihood, e.g. probit.models.EP(likelihood = ordinal),
+        probit.models.Laplace(likelihood = ordinal), probit.models.VGP(likelihood = probit).
     Base class for variational Bayes approximators.
 
     This class allows users to define a classification problem,

@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+
+from numpy import False_
 from probit.approximators import Approximator, InvalidApproximator, EPOrdinalGP
 from probit.priors import prior, prior_reparameterised
 from probit.proposals import proposal, proposal_reparameterised, proposal_initiate
@@ -1574,7 +1576,7 @@ class PseudoMarginal(object):
         return log_sum_exp - np.log(num_importance_samples)
 
     def tmp_compute_marginal(
-        self, theta, indices, num_importance_samples=64, reparameterised=True):
+            self, theta, indices, num_importance_samples=64, reparameterised=False):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
@@ -1613,7 +1615,7 @@ class PseudoMarginal(object):
             log_p_pseudo_marginals.append(self._importance_sampler_vectorised(
                 num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
                 posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky))
-        return np.array(log_p_pseudo_marginals) + log_p_theta[0]
+        return np.array(log_p_pseudo_marginals) + log_p_theta[0], log_p_theta[0]
 
     def _transition_operator(
             self, u, log_prior_u, log_jacobian_u, log_marginal_likelihood_u,

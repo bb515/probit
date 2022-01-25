@@ -1,12 +1,9 @@
 """
-Ordinal regression concrete examples. Exact inference: Gibbs sampling.
+Figure 2
 
-Multiclass oredered probit regression
-3 bin example from Cowles 1996 empirical study
-showing convergence of the orginal probit with the Gibbs sampler.
-Gibbs vs Metropolis within Gibbs convergence for a 3 bin example.
-Except we take the mean (intercept) to be fixed, and don't fix the first
-cutpoint.
+Ordinal regression concrete examples. Pseudomarginal inference: comparing the posterior approximation used:
+
+EP vs VB vs MAP Laplace
 """
 # Make sure to limit CPU usage
 import os
