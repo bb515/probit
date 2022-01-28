@@ -4,6 +4,7 @@ VB approximation.
 """
 import numpy as np
 import matplotlib.pyplot as plt
+from pytest import approx
 from scipy.optimize import minimize
 from probit.data.utilities import MinimizeStopper, colors
 from probit.data.utilities import calculate_metrics
@@ -551,6 +552,7 @@ def outer_loops_Rogers(
     plt.savefig("Contour plot - Variational lower bound.png")
     plt.close()
 
+
 def grid_synthetic(
     classifier, domain, res, indices, show=False):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
@@ -656,3 +658,167 @@ def grid_synthetic(
         # plt.savefig("Contour plot - log VB lower bound on the log likelihood.png")
         # if show: plt.show()
         # plt.close()
+
+
+def figure2(
+        hyper_sampler, approximator, domain, res, indices, num_importance_samples, steps=None,
+        reparameterised=False, verbose=False, show=False, write=True):
+    """
+    TODO: Can this be moved to a plot.py
+    Return meshgrid values of fx and directions of gx over hyperparameter
+    space.
+
+    The particular hyperparameter space is inferred from the user inputs
+    - the rule is that if any of the
+    variables are None, then those are the variables to grid over. We can
+    only visualise these surfaces for
+    maximum of 2 variables, so the number of combinations is Mc2 + Mc1
+    where M is the total no. of hyperparameters.
+
+    Special cases are frequent: log and non log variables. 2 axis vs 1
+    axis objective function, calculate
+    new Gram matrix or not. So the simplest way is to combinate manually.
+    """
+    (
+    x1s, x2s,
+    xlabel, ylabel,
+    xscale, yscale,
+    xx, yy,
+    Phi_new,
+    *_) = approximator._grid_over_hyperparameters_initiate(
+        res, domain, indices, approximator.gamma)
+    log_p_pseudo_marginalss = []
+    log_p_priors = []
+    if x2s is not None:
+        raise ValueError("Multivariate plots are TODO")
+    else:
+        # if one dimension... find a better way of doing this
+        Phi_step = Phi_new[1:] - Phi_new[:-1]
+        Phi_new = Phi_new[:-1]
+        M = len(Phi_new)
+
+    for i, phi in enumerate(Phi_new):
+        # Need to update sampler hyperparameters
+        approximator._grid_over_hyperparameters_update(phi, indices, approximator.gamma)
+        theta = approximator.get_theta(indices)
+        log_p_pseudo_marginals, log_p_prior = hyper_sampler.tmp_compute_marginal(
+                theta, indices, steps=steps, reparameterised=reparameterised,
+                num_importance_samples=num_importance_samples)
+        log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
+        log_p_priors.append(log_p_prior)
+        if verbose:
+            print("log_p_pseudo_marginal {}, log_p_prior {}".format(np.mean(log_p_pseudo_marginals), log_p_prior))
+            print(
+                "gamma={}, varphi={}, noise_variance={}, scale={}, ".format(
+                approximator.gamma, approximator.kernel.varphi, approximator.noise_variance,
+                approximator.kernel.scale))
+    if x2s is not None:
+        raise ValueError("Multivariate plots are TODO")
+    else:
+        log_p_pseudo_marginalss = np.array(log_p_pseudo_marginalss)
+        log_priors = np.array(log_p_priors)
+        log_p_pseudo_marginals_ms = np.mean(log_p_pseudo_marginalss, axis=1)
+        log_p_pseudo_marginals_std = np.std(log_p_pseudo_marginalss, axis=1)
+        # plt.plot(Phi_new, log_p_pseudo_marginals_ms, 'k')
+        # plt.plot(Phi_new, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
+        # plt.plot(Phi_new, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b')
+        # plt.plot(Phi_new, log_priors, '--g')
+        # if write: plt.savefig("tmp0.png")
+        # if show: plt.show()
+        # plt.close()
+
+        # Normalize prior distribution - but need to make sure domain is such that approx all posterior mass is covered
+        log_prob = log_p_priors + np.log(Phi_step)
+        max_log_prob = np.max(log_prob)
+        log_sum_exp = max_log_prob + np.log(np.sum(np.exp(log_prob - max_log_prob)))
+        p_priors = np.exp(log_p_priors - log_sum_exp)
+
+        # Normalize posterior distribution - but need to make sure domain is such that approx all posterior mass is covered
+        log_prob = log_p_pseudo_marginals_ms + np.log(Phi_step)
+        max_log_prob = np.max(log_prob)
+        log_sum_exp = max_log_prob + np.log(
+            np.sum(np.exp(log_prob - max_log_prob)))
+        p_pseudo_marginals = np.exp(log_p_pseudo_marginals_ms - log_sum_exp)
+
+        # plt.plot(Phi_new, p_pseudo_marginals)
+        # # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
+        # # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
+        # plt.plot(Phi_new, p_priors, '--g')
+        # if write: plt.savefig("tmp1.png") 
+        # if show: plt.show()
+        # plt.close()
+
+        # remember that there is a jacobian involved in the coordinate transformation
+        # This numerical integration isn't quite right... need to divide by the correct amount in the sum
+        # Also, doesn't it need to be devided by N?
+
+        # log_p_pseudo_marginalss = log_p_pseudo_marginalss + np.log(Phi_step).reshape(-1, 1)
+        # max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginalss, axis=0)
+        # log_sum_exp = np.tile(max_log_p_pseudo_marginals, (M, 1)) + np.tile(
+        #     np.log(np.sum(np.exp(log_p_pseudo_marginalss - max_log_p_pseudo_marginals), axis=0)), (M, 1))
+        p_pseudo_marginals = np.exp(log_p_pseudo_marginalss - log_sum_exp.reshape(-1, 1))
+
+        p_pseudo_marginals_mean = np.mean(p_pseudo_marginals, axis=1)
+
+        p_pseudo_marginals_lo = np.quantile(p_pseudo_marginals, 0.025, axis=1)
+        p_pseudo_marginals_hi = np.quantile(p_pseudo_marginals, 0.975, axis=1)
+
+        # p_pseudo_marginals_std = np.std(p_pseudo_marginals, axis=1)
+
+        # plt.plot(Phi_new, p_pseudo_marginals_mean)
+        # plt.plot(Phi_new, p_pseudo_marginals_lo, '--b')
+        # plt.plot(Phi_new, p_pseudo_marginals_hi, '--r')
+
+        # plt.plot(Phi_new, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
+        # plt.plot(Phi_new, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
+        # plt.plot(Phi_new, p_priors, '--g')
+        # plt.xlabel("length-scale")
+        # plt.ylabel("pseudo marginal")
+        # plt.title("N = 50, EP")
+        #if write: plt.savefig("tmp2.png")
+        #if show: plt.show()
+        #plt.close()
+        return Phi_new, p_pseudo_marginals_mean, p_pseudo_marginals_lo, p_pseudo_marginals_hi, p_priors
+        #return log_p_pseudo_marginalss, log_p_priors, x1s, None, xlabel, ylabel, xscale, yscale
+
+
+
+# DATA PLOTS
+
+# def plot_kernel(kernel, N_total=500, n_samples=10):
+#     for _ in range(n_samples):
+#         X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
+#         X = X[:, None]  # reshape X to make it n*D
+#         mu = np.zeros((N_total))  # vector of the means
+#         K = kernel.kernel_matrix(X, X)
+#         Z = np.random.multivariate_normal(mu, K)
+#         plt.plot(X[:], Z[:])
+#     plt.show()
+
+
+# def plot_ordinal(X, t, X_j, Y_j, J, D, colors=colors):
+#     """TODO: generalise to 3D, move to plot.py"""
+#     if D==1:
+#         N_total = len(t)
+#         colors_ = [colors[i] for i in t]
+#         fig, ax = plt.subplots()
+#         plt.scatter(X[:, 0], t, color=colors_)
+#         plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
+#         plt.xlabel(r"$x$", fontsize=16)
+#         ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
+#         plt.ylabel(r"$t$", fontsize=16)
+#         plt.show()
+#         plt.savefig("N_total={}, J={}, D={} Ordinal response data.png".format(N_total, J, D))
+#         plt.close()
+#         # Plot from the binned arrays
+#         for j in range(J):
+#             plt.scatter(X_j[j][:, 0], Y_j[j], color=colors[j], label=r"$t={}$".format(j))
+#         plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
+#         plt.legend()
+#         plt.xlabel(r"$x$", fontsize=16)
+#         plt.ylabel(r"$y$", fontsize=16)
+#         plt.show()
+#         plt.savefig("N_total={}, J={}, D={} Ordinal response data_.png".format(N_total, J, D))
+#         plt.close()
+#     elif D==2:
+#         print("TODO")

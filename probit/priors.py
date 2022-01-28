@@ -170,11 +170,11 @@ def prior(theta, indices, J, psi, noise_std_hyperparameters,
         #     varphi,
         #     loc=psi[0],
         #     scale=psi[1])
-        # log_prior_pdf = gamma_.logpdf(
-        #     varphi,
-        #     a=psi[0],
-        #     scale=1./psi[1])
-        log_prior_pdf = - theta[index]  # Jeffreys? But this hasn't been reparametrised
+        log_prior_pdf = gamma_.logpdf(
+            varphi,
+            a=1.0,
+            scale=220.0)
+        # log_prior_pdf = - theta[index]  # Jeffreys? But this hasn't been reparametrised
         log_prior_theta[index] = log_prior_pdf  # This is the log prior for theta, but not varphi. So correct
         index += 1
     return gamma, varphi, scale, noise_variance, log_prior_theta

@@ -14,16 +14,16 @@ def plot(classifier, domain=None):
     error = np.inf
     iteration = 0
     posterior_mean = None
-    Sigma = None
+    posterior_cov = None
     mean_EP = None
     precision_EP = None
     amplitude_EP = None
     while error / steps > classifier.EPS ** 2:
         iteration += 1
-        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
+        (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov,
         mean_EP, precision_EP, amplitude_EP, containers
         ) = classifier.approximate(
-            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
+            steps, posterior_mean_0=posterior_mean, posterior_cov_0=posterior_cov,
             mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
             write=False)
@@ -32,7 +32,7 @@ def plot(classifier, domain=None):
     ) = classifier.compute_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
     t1, *_ = classifier.compute_integrals_vector(
-        np.diag(Sigma), posterior_mean, classifier.noise_variance)
+        np.diag(posterior_cov), posterior_mean, classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     if domain is not None:
@@ -46,7 +46,7 @@ def plot(classifier, domain=None):
         X_new_ = np.zeros((N * N, classifier.D))
         X_new_[:, :2] = X_new
         Z, posterior_predictive_m, posterior_std = classifier.predict(
-            classifier.gamma, Sigma, mean_EP, precision_EP,
+            classifier.gamma, posterior_cov, mean_EP, precision_EP,
             classifier.kernel.varphi,
             classifier.noise_variance, X_new_, Lambda, vectorised=True)
         Z_new = Z.reshape((N, N, classifier.J))
@@ -81,16 +81,16 @@ def plot_synthetic(
     error = np.inf
     iteration = 0
     posterior_mean = None
-    Sigma = None
+    posterior_cov = None
     mean_EP = None
     precision_EP = None
     amplitude_EP = None
     while error / steps > classifier.EPS**2:
         iteration += 1
-        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma,
+        (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov,
             mean_EP, precision_EP, amplitude_EP,
             containers) = classifier.approximate(
-            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
+            steps, posterior_mean_0=posterior_mean, posterior_cov_0=posterior_cov,
             mean_EP_0=mean_EP,
             precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP,
             write=False)
@@ -105,7 +105,7 @@ def plot_synthetic(
     Lambda_cholesky, Lambda) = classifier.compute_weights(
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
     t1, *_ = classifier.compute_integrals_vector(
-        np.diag(Sigma), posterior_mean, classifier.noise_variance)
+        np.diag(posterior_cov), posterior_mean, classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda, weights)
     if dataset in datasets["synthetic"]:
@@ -117,7 +117,7 @@ def plot_synthetic(
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                classifier.gamma, Sigma, mean_EP, precision_EP,
+                classifier.gamma, posterior_cov, mean_EP, precision_EP,
                 classifier.kernel.varphi, classifier.noise_variance,
                 X_new, Lambda, vectorised=True)
             print(np.sum(Z, axis=1), 'sum')
@@ -173,7 +173,7 @@ def plot_synthetic(
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                classifier.gamma, Sigma, mean_EP, precision_EP,
+                classifier.gamma, posterior_cov, mean_EP, precision_EP,
                 classifier.kernel.varphi, classifier.noise_variance,
                 X_new, Lambda, vectorised=True)
             print(np.sum(Z, axis=1), 'sum')
@@ -243,15 +243,15 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
     error = np.inf
     iteration = 0
     posterior_mean = None
-    Sigma = None
+    posterior_cov = None
     mean_EP = None
     precision_EP = None
     amplitude_EP = None
     while error / steps > classifier.EPS**2:  # TODO: use EPS_2?
         iteration += 1
-        (error, grad_Z_wrt_cavity_mean, posterior_mean, Sigma, mean_EP,
+        (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov, mean_EP,
             precision_EP, amplitude_EP, *_) = classifier.approximate(
-            steps, posterior_mean_0=posterior_mean, Sigma_0=Sigma,
+            steps, posterior_mean_0=posterior_mean, posterior_cov_0=posterior_cov,
             mean_EP_0=mean_EP, precision_EP_0=precision_EP,
             amplitude_EP_0=amplitude_EP, write=False)
         print("iteration {}, error={}".format(iteration, error / steps))
@@ -262,14 +262,14 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
         precision_EP, mean_EP, grad_Z_wrt_cavity_mean,
         L, Lambda)
     t1, *_ = classifier.compute_integrals_vector(
-        np.diag(Sigma), posterior_mean, classifier.noise_variance)
+        np.diag(posterior_cov), posterior_mean, classifier.noise_variance)
     fx = classifier.objective(
         precision_EP, posterior_mean, t1, L, Lambda, weights)
     # Test
     (Z,
     posterior_predictive_m,
     posterior_std) = classifier.predict(
-        classifier.gamma, Sigma, mean_EP, precision_EP,
+        classifier.gamma, posterior_cov, mean_EP, precision_EP,
         classifier.kernel.varphi, classifier.noise_variance, X_test,
         Lambda, vectorised=True)  # (N_test, J)
     # # TODO: Placeholder
@@ -289,7 +289,7 @@ def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
         (Z,
         posterior_predictive_m,
         posterior_std) = classifier.predict(
-            classifier.gamma, Sigma, mean_EP, precision_EP,
+            classifier.gamma, posterior_cov, mean_EP, precision_EP,
             classifier.kernel.varphi, classifier.noise_variance,
             X_new_, Lambda, vectorised=True)
         Z_new = Z.reshape((N, N, J))

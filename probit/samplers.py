@@ -1576,7 +1576,7 @@ class PseudoMarginal(object):
         return log_sum_exp - np.log(num_importance_samples)
 
     def tmp_compute_marginal(
-            self, theta, indices, num_importance_samples=64, reparameterised=False):
+            self, theta, indices, steps=None, num_importance_samples=64, reparameterised=False):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
@@ -1589,7 +1589,7 @@ class PseudoMarginal(object):
                 None, None,
                 self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
         fx, gx, posterior_mean, (posterior_matrix, is_inv) = self.approximator.approximate_posterior(
-            theta, indices, first_step=1, write=False, verbose=False)
+            theta, indices, steps=steps, first_step=1, write=False, verbose=False)
         prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
         half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
         prior_cov_inv = np.linalg.inv(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))

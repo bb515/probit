@@ -144,7 +144,7 @@ class Approximator(ABC):
         """
         Z, *_ = truncated_norm_normalising_constant(
             self.gamma_ts, self.gamma_tplus1s,
-            self.noise_std, m, self.EPS)
+            self.noise_std, m, self.EPS)  # upper_bound=self.upper_bound)
             #  upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)  #  , numerically_stable=True)
         if np.ndim(m) == 2:
             return np.sum(np.log(Z), axis=1)  # (num_samples,)
@@ -208,7 +208,7 @@ class Approximator(ABC):
         return np.array(theta)
 
     def _hyperparameter_training_step_initialise(
-            self, theta, indices):
+            self, theta, indices, steps):
         """
         TODO: this doesn't look correct, for example if only training a subset
         Initialise the hyperparameter training step.
@@ -287,8 +287,8 @@ class Approximator(ABC):
         else:
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         intervals = self.gamma[2:self.J] - self.gamma[1:self.J - 1]
-        # Reset error and posterior mean
-        steps = np.min([50, self.N // 10 ])  # TODO: justify, should it be different for each Laplace, EP, VB
+        if steps is None:
+            steps = np.max([200, self.N // 10 ])  # TODO: justify, should it be different for each Laplace, EP, VB
         error = np.inf
         iteration = 0
         indices_where = np.where(indices!=0)
@@ -1055,6 +1055,7 @@ class VBOrdinalGP(Approximator):
             self, domain, res, indices=None, posterior_mean_0=None, write=False,
             verbose=False, steps=100):
         """
+        TODO: Can this be moved to a plot.py
         Return meshgrid values of fx and directions of gx over hyperparameter
         space.
 
@@ -1134,7 +1135,7 @@ class VBOrdinalGP(Approximator):
             return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
 
     def approximate_posterior(
-            self, theta, indices, first_step=1, calculate_posterior_cov=True, write=False, verbose=True):
+            self, theta, indices, steps=None, first_step=1, calculate_posterior_cov=True, write=False, verbose=True):
         """
         Optimisation routine for hyperparameters.
 
@@ -1149,7 +1150,7 @@ class VBOrdinalGP(Approximator):
         # Update prior covariance and get hyperparameters from theta
         (intervals, steps, error, iteration, indices_where,
         gx) = self._hyperparameter_training_step_initialise(
-            theta, indices)
+            theta, indices, steps)
         fx_old = np.inf
         posterior_mean_0 = None
         # Convergence is sometimes very fast so this may not be necessary
@@ -2058,7 +2059,7 @@ class EPOrdinalGP(Approximator):
             return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
     def approximate_posterior(
-            self, theta, indices,
+            self, theta, indices, steps=None,
             posterior_mean_0=None, posterior_cov_0=None, mean_EP_0=None,
             precision_EP_0=None,
             amplitude_EP_0=None, first_step=1, write=False, verbose=True):
@@ -2089,7 +2090,7 @@ class EPOrdinalGP(Approximator):
         # Update prior covariance and get hyperparameters from theta
         (intervals, steps, error, iteration, indices_where,
         gx) = self._hyperparameter_training_step_initialise(
-            theta, indices)
+            theta, indices, steps)
         posterior_mean = posterior_mean_0
         posterior_cov = posterior_cov_0
         mean_EP = mean_EP_0
@@ -3080,7 +3081,7 @@ class LaplaceOrdinalGP(Approximator):
         return error, weight, posterior_mean, containers
 
     def approximate_posterior(
-            self, theta, indices,
+            self, theta, indices, steps=None,
             posterior_mean_0=None, first_step=1, write=False, verbose=False):
         """
         Newton-Raphson.
@@ -3101,7 +3102,7 @@ class LaplaceOrdinalGP(Approximator):
         # Update prior covariance and get hyperparameters from theta
         (intervals, steps, error, iteration, indices_where,
         gx) = self._hyperparameter_training_step_initialise(
-            theta, indices)
+            theta, indices, steps)
         posterior_mean = posterior_mean_0
         while error / steps > self.EPS**2 and iteration < 10:
             iteration += 1
