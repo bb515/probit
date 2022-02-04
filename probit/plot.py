@@ -868,8 +868,9 @@ def _potential_scale_reduction(
     # m = int(np.prod(np.shape(state)[chain_axis]))
 
     # TODO: temp
-    n = int(np.shape(state)[0])
-    m = int(np.prod(np.shape(state)[1]))
+    print(np.shape(state))
+    n = int(np.shape(state)[1])
+    m = int(np.prod(np.shape(state)[0]))
 
     # In the language of Brooks and Gelman (1998),
     # b_div_n is the between chain variance, the variance of the chain means.
@@ -877,10 +878,8 @@ def _potential_scale_reduction(
 
     # b_div_n = np.var(np.mean(state, axis=sample_axis, keepdims=True), axis=sample_and_chain_axis, ddof=1)
     # w = np.mean(np.var(state, axis=sample_axis, keepdims=True, ddof=1), axis=sample_and_chain_axis)
-    b_div_n = np.var(np.mean(state, axis=0, keepdims=True), axis=1, ddof=1)
-    w = np.mean(np.var(state, axis=0, keepdims=True, ddof=1), axis=1)
-    print(b_div_n)
-    print(w)
+    b_div_n = np.var(np.mean(state, axis=1, keepdims=True), axis=0, ddof=1)
+    w = np.mean(np.var(state, axis=1, keepdims=True, ddof=1), axis=0)
 
     # sigma_2_plus is an estimate of the true variance, which would be unbiased if
     # each chain was drawn from the target.  c.f. "law of total variance."
@@ -1054,7 +1053,7 @@ def _weighted_auto_cov(x, max_lags):
     return auto_cov
 
 
-def draw_mixing(states, state_0, reparameterised, write_path):
+def draw_mixing(states, state_0, reparameterised, write_path, file_name):
     """Plot mixing"""
     (Nsamp, Nparam) = np.shape(states)
     if reparameterised: states = np.exp(states)
@@ -1068,7 +1067,7 @@ def draw_mixing(states, state_0, reparameterised, write_path):
     plt.plot(xs, trues, color='k', label="true")
     plt.xlim(0, Nsamp)
     plt.legend()
-    plt.savefig(write_path / 'mixing.png')
+    plt.savefig(write_path / file_name)
     plt.show()
 
 
@@ -1090,12 +1089,13 @@ def table1(
     new Gram matrix or not. So the simplest way is to combinate manually.
     """
     approach = "PM"
+    Nsamp = 10000
     Nhyperparameters = 1
-    Nchain = 1
-    for N in [50, 200]:
-        for D in [2, 10]:
-            for J in [3, 11]:
-                for approximation in ["LA", "EP"]:
+    Nchain = 3
+    for N in [50]:
+        for D in [2]:
+            for J in [3]:
+                for approximation in ["EP"]:
                     for Nimp in [64]:
                         for ARD in [False, True]:
                             # initiate containers
@@ -1118,7 +1118,7 @@ def table1(
                                 effective_sample_size[chain, :] = _effective_sample_size(
                                     states_chain[:, :], filter_beyond_lag=None, filter_beyond_positive_pairs=True)
                             # Find
-                            for i, Nsamp in enumerate([1, 10, 100, 700, 1000]):
+                            for i, Nsamp in enumerate([1000, 2000, 5000, 10000]):
                                 Rhat[i] = _potential_scale_reduction(
                                     states[:, :Nsamp, :], independent_chain_ndims=1, split_chains=False)
                             pr1 = np.mean(effective_sample_size, axis=0)
@@ -1128,10 +1128,8 @@ def table1(
                             pr32 = Rhat[2]
                             pr33 = Rhat[3]
                             pr34 = Rhat[4]
-                            pr4 = acceptance_rate[0]
-                            pr5 = 0.0
-                            # pr4 = np.mean(acceptance_rate * 100, axis=0)
-                            # pr5 = np.std(acceptance_rate * 100, axis=0)
+                            pr4 = np.mean(acceptance_rate * 100, axis=0)
+                            pr5 = np.std(acceptance_rate * 100, axis=0)
                             print("N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}:".format(
                                 N, D, J, Nimp, ARD, approach, approximation, chain))
                             print("ESS={}+/-{},  R0={}, R1={}, R2={}, R3={}, R4={}, Acc={}+/-{}".format(

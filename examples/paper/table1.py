@@ -44,12 +44,16 @@ def main():
         "approach", help="SA, AA or PM")
     parser.add_argument(
         "approximation", help="LA, EP or VB")
+    parser.add_argument(
+        "chain", help="int, e.g. 0, 1, 2..."
+    )
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
     approach = args.approach
     approximation = args.approximation
+    chain = args.chain
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
         profile = cProfile.Profile()
@@ -60,8 +64,8 @@ def main():
         (X, Y, t,
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_paper(dataset, plot=False)
-        X = X[:50, :]  # X, t have already been shuffled
-        t = t[:50]
+        X = X[:200, :]  # X, t have already been shuffled
+        t = t[:200]
         # Set varphi hyperparameters
         varphi_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, scale] of a gamma on varphi
         # Initiate kernel
@@ -103,8 +107,8 @@ def main():
             thetas, acceptance_rate = hyper_sampler.sample(
                 m_0, indices, proposal_cov, steps, theta_0=theta_0, verbose=False)
             np.savez(
-                write_path/'theta_N={}_D={}_J={}_{}_Nimp={}_ARD={}_{}_chain={}.npz'.format(
-                sampler.N, sampler.D, approach, 0, False, 0),
+                write_path/'theta_N={}_D={}_J={}_ARD={}_{}_chain={}.npz'.format(
+                sampler.N, sampler.D, sampler.J, False, approach, 0),
                 X=thetas,
                 acceptance_rate=acceptance_rate)
         elif approach == "PM":  # Pseudo Marginal approach
@@ -132,10 +136,15 @@ def main():
                 indices, proposal_cov, steps, num_importance_samples=num_importance_samples,
                 theta_0=theta_0)
             print("ACC=", acceptance_rate)
-            draw_mixing(thetas, varphi_0, reparameterised=True, write_path=write_path)
+            draw_mixing(thetas, varphi_0, reparameterised=True,
+                write_path=write_path,
+                file_name='theta_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
+                approximator.N, approximator.D, approximator.J,
+                num_importance_samples, False, approach, approximation, chain))
             np.savez(
                 write_path/'theta_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.npz'.format(
-                approximator.N, approximator.D, approximator.J, num_importance_samples, False, approach, approximation, 0),
+                approximator.N, approximator.D, approximator.J,
+                num_importance_samples, False, approach, approximation, chain),
                 X=thetas,
                 acceptance_rate=acceptance_rate)
             print("finished")
