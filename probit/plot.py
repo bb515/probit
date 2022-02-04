@@ -2,12 +2,16 @@
 Ordered probit regression concrete examples. Approximate inference:
 VB approximation.
 """
+from nbformat import write
 import numpy as np
 import matplotlib.pyplot as plt
 from pytest import approx
 from scipy.optimize import minimize
 from probit.data.utilities import MinimizeStopper, colors
 from probit.data.utilities import calculate_metrics
+import matplotlib.colors as mcolors
+from matplotlib import rc
+import matplotlib
 
 
 def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
@@ -664,7 +668,6 @@ def figure2(
         hyper_sampler, approximator, domain, res, indices, num_importance_samples, steps=None,
         reparameterised=False, verbose=False, show=False, write=True):
     """
-    TODO: Can this be moved to a plot.py
     Return meshgrid values of fx and directions of gx over hyperparameter
     space.
 
@@ -782,43 +785,345 @@ def figure2(
         #return log_p_pseudo_marginalss, log_p_priors, x1s, None, xlabel, ylabel, xscale, yscale
 
 
+def _potential_scale_reduction(
+        state, independent_chain_ndims=1, split_chains=False):
+    """Gelman and Rubin (1992)'s potential scale reduction for chain convergence.
+    Given `N > 1` states from each of `C > 1` independent chains, the potential
+    scale reduction factor, commonly referred to as R-hat, measures convergence of
+    the chains (to the same target) by testing for equality of means.
+    Specifically, R-hat measures the degree to which variance (of the means)
+    between chains exceeds what one would expect if the chains were identically
+    distributed. See [Gelman and Rubin (1992)][1]; [Brooks and Gelman (1998)][2].
+    Some guidelines:
+    * The initial state of the chains should be drawn from a distribution
+    overdispersed with respect to the target. (TODO: what about burn-in?)
+    * If all chains converge to the target, then as `N --> infinity`, R-hat --> 1.
+    Before that, R-hat > 1 (except in pathological cases, e.g. if the chain
+    paths were identical).
+    * The above holds for any number of chains `C > 1`.  Increasing `C` does
+    improve effectiveness of the diagnostic.
+    * Sometimes, R-hat < 1.2 is used to indicate approximate convergence, but of
+    course this is problem-dependent. See [Brooks and Gelman (1998)][2].
+    * R-hat only measures non-convergence of the mean. If higher moments, or
+    other statistics are desired, a different diagnostic should be used. See
+    [Brooks and Gelman (1998)][2].
 
-# DATA PLOTS
+    :arg state: (n_samples, n_chains, n_parameters)
 
-# def plot_kernel(kernel, N_total=500, n_samples=10):
-#     for _ in range(n_samples):
-#         X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
-#         X = X[:, None]  # reshape X to make it n*D
-#         mu = np.zeros((N_total))  # vector of the means
-#         K = kernel.kernel_matrix(X, X)
-#         Z = np.random.multivariate_normal(mu, K)
-#         plt.plot(X[:], Z[:])
-#     plt.show()
+    :arg split_chains: Python `bool`. If `True`, divide samples from each chain into
+    first and second halves, treating these as separate chains.  This makes
+    R-hat more robust to non-stationary chains, and is recommended in [3].
+ 
+    :returns: `numpy.ndarray` structure parallel to `chains_states` representing the
+    R-hat statistic for the state(s). Shape equal to `chains_state.shape[2:]`.
+
+    To see why R-hat is reasonable, let `X` be a random variable drawn uniformly
+    from the combined states (combined over all chains).  Then, in the limit
+    `N, C --> infinity`, with `E`, `Var` denoting expectation and variance,
+    ```R-hat = ( E[Var[X | chain]] + Var[E[X | chain]] ) / E[Var[X | chain]].```
+    Using the law of total variance, the numerator is the variance of the combined
+    states, and the denominator is the total variance minus the variance of the
+    the individual chain means.  If the chains are all drawing from the same
+    distribution, they will have the same mean, and thus the ratio should be one.
+
+    #### References
+    [1]: Stephen P. Brooks and Andrew Gelman. General Methods for Monitoring
+        Convergence of Iterative Simulations. _Journal of Computational and
+        Graphical Statistics_, 7(4), 1998.
+    [2]: Andrew Gelman and Donald B. Rubin. Inference from Iterative Simulation
+        Using Multiple Sequences. _Statistical Science_, 7(4):457-472, 1992.
+    [3]: Aki Vehtari, Andrew Gelman, Daniel Simpson, Bob Carpenter, Paul-Christian
+        Burkner. Rank-normalization, folding, and localization: An improved R-hat
+        for assessing convergence of MCMC, 2019. Retrieved from
+        http://arxiv.org/abs/1903.08008
+    """
+    if split_chains:
+        # Split the sample dimension in half, doubling the number of
+        # independent chains.
+
+        # For odd number of samples, keep all but the last sample.
+        state_shape = np.shape(state)
+        n_samples = state_shape[0]
+        state = state[:n_samples - n_samples % 2]  # (n_samples, n_chains, n_params)
+
+        # Suppose state = [0, 1, 2, 3, 4, 5]
+        # Step 1: reshape into [[0, 1, 2], [3, 4, 5]]
+        # E.g. reshape states of shape [a, b] into [2, a//2, b].
+        state = np.reshape(
+            state,
+            np.concatenate([[2, n_samples // 2], state_shape[1:]], axis=0)  # (2, n_samples_new, n_chains, n_params)
+        )
+        # Step 2: Put the size `2` dimension in the right place to be treated as a
+        # chain, changing [[0, 1, 2], [3, 4, 5]] into [[0, 3], [1, 4], [2, 5]],
+        state = state.transpose(1, 0, np.range(2, np.size(np.shape(state))))  # (n_after_burn, n_params, n_chains)  #  (n_chains, n_samples, n_params)
+
+        # We're treating the new dim as indexing 2 chains, so increment.
+        independent_chain_ndims += 1
+
+    sample_axis = 0
+    chain_axis = np.range(1, 1 + independent_chain_ndims)
+    sample_and_chain_axis = np.range(0, 1 + independent_chain_ndims)
+
+    n = int(np.shape(state)[sample_axis])
+    m = int(np.prod(np.shape(state)[chain_axis]))
+
+    # In the language of Brooks and Gelman (1998),
+    # b_div_n is the between chain variance, the variance of the chain means.
+    # w is the within sequence variance, the mean of the chain variances.
+
+    b_div_n = np.var(np.mean(state, axis=sample_axis, keepdims=True), axis=sample_and_chain_axis, ddof=1)
+    w = np.mean(np.var(state, axis=sample_axis, keepdims=True, ddof=1), axis=sample_and_chain_axis)
+
+    # sigma_2_plus is an estimate of the true variance, which would be unbiased if
+    # each chain was drawn from the target.  c.f. "law of total variance."
+    sigma_2_plus = ((n - 1) / n) * w + b_div_n
+    return ((m + 1.) / m) * sigma_2_plus / w - (n - 1.) / (m * n)
 
 
-# def plot_ordinal(X, t, X_j, Y_j, J, D, colors=colors):
-#     """TODO: generalise to 3D, move to plot.py"""
-#     if D==1:
-#         N_total = len(t)
-#         colors_ = [colors[i] for i in t]
-#         fig, ax = plt.subplots()
-#         plt.scatter(X[:, 0], t, color=colors_)
-#         plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
-#         plt.xlabel(r"$x$", fontsize=16)
-#         ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
-#         plt.ylabel(r"$t$", fontsize=16)
-#         plt.show()
-#         plt.savefig("N_total={}, J={}, D={} Ordinal response data.png".format(N_total, J, D))
-#         plt.close()
-#         # Plot from the binned arrays
-#         for j in range(J):
-#             plt.scatter(X_j[j][:, 0], Y_j[j], color=colors[j], label=r"$t={}$".format(j))
-#         plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
-#         plt.legend()
-#         plt.xlabel(r"$x$", fontsize=16)
-#         plt.ylabel(r"$y$", fontsize=16)
-#         plt.show()
-#         plt.savefig("N_total={}, J={}, D={} Ordinal response data_.png".format(N_total, J, D))
-#         plt.close()
-#     elif D==2:
-#         print("TODO")
+def _effective_sample_size(
+        states, filter_beyond_lag=None, filter_threshold=0.0,
+        filter_beyond_positive_pairs=False):
+    """
+    Estimate the effective sample size (ESS) as described in Kass et al (1998) and Robert and Casella (2004; pg 500)
+    Roughly speaking, ESS is the size of an iid sample with the same variance as the current sample.
+    ESS = T / kappa, where kappa is the ``autocorrelation time" for the sample = 1 + 2 \sum lag_auto-correlations
+    Here we use a version analogous to IMSE where we cut off correlations beyond a certain lag (to reduce noise).
+    
+    Estimate a lower bound on effective sample size for each independent chain.
+    Roughly speaking, "effective sample size" (ESS) is the size of an iid sample
+    with the same variance as `state`.
+    More precisely, given a stationary sequence of possibly correlated random
+    variables `X_1, X_2, ..., X_N`, identically distributed, ESS is the
+    number such that
+    ```
+    Variance{ N**-1 * Sum{X_i} } = ESS**-1 * Variance{ X_1 }.
+    ```
+    If the sequence is uncorrelated, `ESS = N`.  If the sequence is positively
+    auto-correlated, `ESS` will be less than `N`. If there are negative
+    correlations, then `ESS` can exceed `N`.
+    Some math shows that, with `R_k` the auto-correlation sequence,
+    `R_k := Covariance{X_1, X_{1+k}} / Variance{X_1}`, we have
+    ```
+    ESS(N) =  N / [ 1 + 2 * ( (N - 1) / N * R_1 + ... + 1 / N * R_{N-1}  ) ]
+    ```
+    This function estimates the above by first estimating the auto-correlation.
+    Since `R_k` must be estimated using only `N - k` samples, it becomes
+    progressively noisier for larger `k`.  For this reason, the summation over
+    `R_k` should be truncated at some number `filter_beyond_lag < N`. This
+    function provides two methods to perform this truncation.
+    * `filter_threshold` -- since many MCMC methods generate chains where `R_k >
+        0`, a reasonable criterion is to truncate at the first index where the
+        estimated auto-correlation becomes negative. This method does not estimate
+        the `ESS` of super-efficient chains (where `ESS > N`) correctly.
+    * `filter_beyond_positive_pairs` -- reversible MCMC chains produce
+        an auto-correlation sequence with the property that pairwise sums of the
+        elements of that sequence are positive [Geyer][1], i.e.
+        `R_{2k} + R_{2k + 1} > 0` for `k in {0, ..., N/2}`. Deviations are only
+        possible due to noise. This method truncates the auto-correlation sequence
+        where the pairwise sums become non-positive.
+    The arguments `filter_beyond_lag`, `filter_threshold` and
+    `filter_beyond_positive_pairs` are filters intended to remove noisy tail terms
+    from `R_k`.  You can combine `filter_beyond_lag` with `filter_threshold` or
+    `filter_beyond_positive_pairs. E.g., combining `filter_beyond_lag` and
+    `filter_beyond_positive_pairs` means that terms are removed if they were to be
+    filtered under the `filter_beyond_lag` OR `filter_beyond_positive_pairs`
+    criteria.
+
+    :arg states: `Tensor` or Python structure of `Tensor` objects.  Dimension zero
+        should index identically distributed states.
+        filter_threshold: `Tensor` or Python structure of `Tensor` objects.  Must
+        broadcast with `state`.  The sequence of auto-correlations is truncated
+        after the first appearance of a term less than `filter_threshold`.
+        Setting to `None` means we use no threshold filter.  Since `|R_k| <= 1`,
+        setting to any number less than `-1` has the same effect. Ignored if
+        `filter_beyond_positive_pairs` is `True`.
+        filter_beyond_lag: `Tensor` or Python structure of `Tensor` objects.  Must
+        be `int`-like and scalar valued.  The sequence of auto-correlations is
+        truncated to this length.  Setting to `None` means we do not filter based
+        on the size of lags.
+    :arg filter_beyond_positive_pairs: Python boolean. If `True`, only consider the
+        initial auto-correlation sequence where the pairwise sums are positive.
+    Returns:
+        ess: `numpy.ndarray` structure parallel to `states`.  The effective sample size of
+        each component of `states`.  The shape is `np.shape(states)[1:]`.
+    #### References
+    [1]: Charles J. Geyer, Practical Markov chain Monte Carlo (with discussion).
+        Statistical Science, 7:473-511, 1992.
+    [2]: Aki Vehtari, Andrew Gelman, Daniel Simpson, Bob Carpenter, Paul-Christian
+        Burkner. Rank-normalization, folding, and localization: An improved R-hat
+        for assessing convergence of MCMC, 2019. Retrieved from
+        http://arxiv.org/abs/1903.08008
+    """
+    # Assume np.size(states) = (n_samples, n_hyperparameters)
+    # filter_beyond_lag == None ==> auto_corr is the full sequence.
+    # With R[k] := auto_corr[k, ...],
+    # ESS = N / {1 + 2 * Sum_{k=1}^N R[k] * (N - k) / N}
+    #     = N / {-1 + 2 * Sum_{k=0}^N R[k] * (N - k) / N} (since R[0] = 1)
+    #     approx N / {-1 + 2 * Sum_{k=0}^M R[k] * (N - k) / N}
+    # where M is the filter_beyond_lag truncation point chosen above.
+    auto_corr = _auto_correlation(states, filter_beyond_lag)
+    weighted_auto_cov = _weighted_auto_cov(states, filter_beyond_lag)
+    # Autocorrelation
+    n = np.shape(states)[0]
+    weighted_auto_corr = weighted_auto_cov / weighted_auto_cov[:1]
+    num_chains = 1
+    if filter_beyond_positive_pairs:
+        def _sum_pairs(x):
+            x_len = np.shape(x)[0]
+            # For odd sequences, we drop the final value.
+            x = x[:x_len - x_len % 2]
+
+            new_shape = np.concatenate([[x_len // 2, 2], np.shape(x)[1:]], axis=0)
+            # new_shape = ps.concat([[x_len // 2, 2], ps.shape(x)[1:]], axis=0)
+            return np.sum(x.reshape(new_shape), axis=1)
+            # return tf.reduce_sum(tf.reshape(x, new_shape), 1)
+        # Pairwise sums are all positive for auto-correlation spectra derived from
+        # reversible MCMC chains.
+        # E.g. imagine the pairwise sums are [0.2, 0.1, -0.1, -0.2]
+        # Step 1: mask = [False, False, True, True]
+        mask = _sum_pairs(weighted_auto_corr) < 0
+        # Step 2: mask = [0, 0, 1, 1]
+        mask =  mask.astype(int)
+        # Step 3: mask = [0, 0, 1, 2]
+        mask = np.cumsum(mask, axis=0)
+        # Step 4: mask = [1, 1, 0, 0]
+        mask = np.max(1. - mask, 0.)
+        # N.B. this reduces the length of weighted_auto_corr by a factor of 2.
+        # It still works fine in the formula below.
+        weighted_auto_corr = _sum_pairs(weighted_auto_corr) * mask
+    elif filter_threshold is not None:
+        # Get a binary mask to zero out values of auto_corr below the threshold.
+        #   mask[i, ...] = 1 if auto_corr[j, ...] > threshold for all j <= i,
+        #   mask[i, ...] = 0, otherwise.
+        # So, along dimension zero, the mask will look like [1, 1, ..., 0, 0,...]
+        # Building step by step,
+        #   Assume auto_corr = [1, 0.5, 0.0, 0.3], and filter_threshold = 0.2.
+        # Step 1:  mask = [False, False, True, False]
+        mask = auto_corr < filter_threshold
+        # Step 2:  mask = [0, 0, 1, 0]
+        mask = mask.astype(int)
+        # Step 3:  mask = [0, 0, 1, 1]
+        mask = np.cumsum(mask, axis=0)
+        # Step 4:  mask = [1, 1, 0, 0]
+        mask = np.maximum(1. - mask, 0.)
+        weighted_auto_corr *= mask
+    return num_chains * n / (-1 + 2 * np.sum(weighted_auto_corr, axis=0))
+
+
+def _auto_correlation(state, max_lags):
+    """
+    auto correlation across one axis. Same result as
+        tensorflow_probability.stats.auto_correlation(
+            samples, axis=0, max_lags=filter_beyond_lag, normalize=False)
+    np.shape(state) = (n_samples, n_hyperparameters)
+    """
+    n_samples, n_hyperparameters = np.shape(state)
+    if max_lags is None:
+        max_lags = n_samples - 1
+    w = (state - np.mean(state, axis=0))    
+    auto_cov = np.empty((max_lags + 1, n_hyperparameters))
+    k = np.tile(np.arange(max_lags + 1), (n_hyperparameters, 1)).T
+    for i in range(n_hyperparameters):
+        auto_cov[:, i] = np.correlate(w[:, i], w[:, i], mode='full')[n_samples - 1:n_samples + max_lags]
+    auto_cov = auto_cov / (n_samples - k)
+    return auto_cov
+
+
+def _weighted_auto_cov(x, max_lags):
+    """
+    Weighted, centred auto correlation across one axis: r[k] * (n + k) / n, k = 0, ..., max_lags
+ 
+    np.shape(state) = (n_samples, n_hyperparameters)
+    """
+    n_samples, n_hyperparameters = np.shape(x)
+    if max_lags is None:
+        max_lags = n_samples - 1
+    w = (x - np.mean(x, axis=0))    
+    auto_cov = np.empty((max_lags + 1, n_hyperparameters))
+    for i in range(n_hyperparameters):
+        auto_cov[:, i] = np.correlate(w[:, i], w[:, i], mode='full')[n_samples - 1:n_samples + max_lags]
+    auto_cov = auto_cov
+    return auto_cov
+
+
+def draw_mixing(states, state_0, reparameterised, write_path):
+    """Plot mixing"""
+    (Nsamp, Nparam) = np.shape(states)
+    if reparameterised: states = np.exp(states)
+    plt.plot(states)
+    mean = np.mean(states, axis=0)
+    xs = np.linspace(0, Nsamp, 2)
+    xs = np.tile(xs, (Nparam, 1)).T
+    ys = mean * np.ones(np.shape(xs))
+    trues = state_0 * np.ones(np.shape(xs))
+    plt.plot(xs, ys, label="sample mean")
+    plt.plot(xs, trues, color='k', label="true")
+    plt.xlim(0, Nsamp)
+    plt.legend()
+    plt.savefig(write_path / 'mixing.png')
+    plt.show()
+
+
+def table1(
+        read_path, show=False, write=True):
+    """
+    Sample from the pseudo-marginal. Evaluate Acceptance rate, convergence
+    diagnostics.
+
+    The particular hyperparameter space is inferred from the user inputs
+    - the rule is that if any of the
+    variables are None, then those are the variables to grid over. We can
+    only visualise these surfaces for
+    maximum of 2 variables, so the number of combinations is Mc2 + Mc1
+    where M is the total no. of hyperparameters.
+
+    Special cases are frequent: log and non log variables. 2 axis vs 1
+    axis objective function, calculate
+    new Gram matrix or not. So the simplest way is to combinate manually.
+    """
+    Nhyperparameters = 2
+    Nchain = 10
+    for N in [50, 200]:
+        for D in [2, 10]:
+            for J in [3, 11]:
+                for approximation in ["LA", "EP", "VB"]:
+                    for Nimp in [1, 16, 64]:
+                        for ARD in [False, True]:
+                            # initiate containers
+                            acceptance_rate = np.empty(Nchain)
+                            effective_sample_size = np.empty(Nchain)
+                            Rhat = np.empty(Nchain)
+                            if ARD is True:
+                                Nhyperparameters = D + 1  # needed?
+                            elif ARD is False: 
+                                Nhyperparameters = 2  # needed?
+                            for chain in range(Nchain):
+                                # Get the data
+                                data_chain_theta = np.load(
+                                    read_path/'theta_N={}_D={}_J={}_{}_Nimp={}_ARD={}_chain={}.npz'.format(
+                                        N, D, approximation, Nimp, ARD, chain))
+                                states = data_chain_theta["X"]
+                                states = np.random.rand((N, Nhyperparameters))
+                                acceptance_rate[chain, :] = data_chain_theta["acceptance_rate"]
+                                effective_sample_size[chain, :] = _effective_sample_size(
+                                    states[:, :], filter_beyond_lag=None, filter_beyond_positive_pairs=True)
+                            # Find
+                            for i, Nsamp in enumerate([1000, 2000, 5000, 10000]):
+                                Rhat[i] = _potential_scale_reduction(
+                                    states[:Nsamp, :], independent_chain_ndims=1, split_chains=False)
+                            pr1 = np.mean(effective_sample_size, axis=0)
+                            pr2 = np.std(effective_sample_size, axis=0)
+                            pr30 = Rhat[0]
+                            pr31 = Rhat[1]
+                            pr32 = Rhat[2]
+                            pr33 = Rhat[3]
+                            pr34 = Rhat[4]
+                            pr4 = np.mean(acceptance_rate * 100, axis=0)
+                            pr5 = np.std(acceptance_rate * 100, axis=0)
+                            print("N={}_D={}_J={}_{}_Nimp={}_ARD={}_{}_chain={}:".format(
+                                N, D, approximation, Nimp, ARD, hyper_sampler_name, chain))
+                            print("ESS={}+/-{},  R0={}, R1={}, R2={}, R3={}, Acc={}".format(
+                                pr1, pr2, pr30, pr31, pr32, pr33, pr34, pr4, pr5))
+                            assert 0
+    # rc('font', **{'family': 'serif', 'serif': ['Computer Modern Roman'], 'size' : 12})
+    # rc('text', usetex=True)

@@ -82,17 +82,21 @@ def prior_reparameterised(
         #     # and a single, shared lengthscale parameter
         varphi = np.exp(theta[index])
         ## Normal distribution in the log domain
-        log_prior_pdf = norm.logpdf(
-            theta[index],
-            loc=varphi_hyperparameters[0],
+        # log_prior_pdf = norm.logpdf(
+        #     theta[index],
+        #     loc=varphi_hyperparameters[0],
+        #     scale=varphi_hyperparameters[1])
+        log_prior_pdf = gamma_.logpdf(
+            varphi,
+            a=varphi_hyperparameters[0],
             scale=varphi_hyperparameters[1])
-        ## Jeffreys uniform prior
-        # log_prior_pdf = - theta[index]
+        # Jacobian
+        log_prior_pdf += theta[index]
         log_prior_theta[index] = log_prior_pdf
         index += 1
     return gamma, varphi, scale, noise_variance, log_prior_theta
 
-def prior(theta, indices, J, psi, noise_std_hyperparameters,
+def prior(theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
         gamma_hyperparameters, scale_hyperparameters, gamma_0):
     """
     A priors defined over their usual domains, and so a transformation of random variables is used
@@ -168,12 +172,12 @@ def prior(theta, indices, J, psi, noise_std_hyperparameters,
         varphi = np.exp(theta[index])
         # log_prior_pdf = expon.logpdf(
         #     varphi,
-        #     loc=psi[0],
-        #     scale=psi[1])
+        #     loc=varphi_hyperparameters[0],
+        #     scale=varphi_hyperparameters[1])
         log_prior_pdf = gamma_.logpdf(
             varphi,
-            a=1.0,
-            scale=220.0)
+            a=varphi_hyperparameters[0],
+            scale=varphi_hyperparameters[1])
         # log_prior_pdf = - theta[index]  # Jeffreys? But this hasn't been reparametrised
         log_prior_theta[index] = log_prior_pdf  # This is the log prior for theta, but not varphi. So correct
         index += 1

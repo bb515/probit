@@ -21,7 +21,7 @@ import pathlib
 from probit.approximators import EPOrdinalGP
 from probit.plot import outer_loops, grid_synthetic, train, grid
 from probit.EP import test, plot_synthetic, plot
-from probit.data.utilities import datasets, load_data, load_data_synthetic
+from probit.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 import sys
 import time
 
@@ -82,10 +82,13 @@ def main():
         # fx, metrics = test(
         #     classifier, X_tests[2], t_tests[2], y_tests[2], steps)
     elif dataset in datasets["synthetic"]:
-        (X, t,
-        X_true, Y_true,
+        (X, Y, t,
         gamma_0, varphi_0, noise_variance_0, scale_0,
-        J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+        J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
+        # (X, t,
+        # X_true, Y_true,
+        # gamma_0, varphi_0, noise_variance_0, scale_0,
+        # J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
         steps = 50
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
@@ -120,8 +123,9 @@ def main():
         # plot(classifier, domain=None)
         # classifier = train(classifier, method, indices)
         # test(classifier, X, t, Y_true, steps)
-        grid_synthetic(classifier, domain, res, indices, show=False)
-        # plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
+        #grid_synthetic(classifier, domain, res, indices, show=False)
+        #plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
+        plot_synthetic(classifier, dataset, X, Y, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
     if args.profile:

@@ -10,7 +10,7 @@ import numpy as np
 from .utilities import (
     norm_z_pdf, norm_cdf, sample_y,
     truncated_norm_normalising_constant)
-# from .numba.utilities import sample_y
+import numba_scipy  # Numba overloads for scipy and scipy.special
 from scipy.stats import norm, uniform, expon
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from tqdm import trange
@@ -1162,7 +1162,7 @@ class SufficientAugmentation(object):
             #joint_log_likelihood = log p(theta,f,y) = log p(y|f) + log p (f|theta) + log p(theta)
             joint_log_likelihood = log_p_y_given_m + log_p_m_given_v + log_prior_v
             # Prior and posterior covariances have already been updated
-            return (v, log_prior_v, log_jacobian_v, 1)
+            return (v, log_prior_v, log_jacobian_v, joing_log_likelihood, 1)
         else:
             print(log_A, "<", np.log(threshold), " REJECT")
             # Revert the hyperparameters and
@@ -1172,7 +1172,7 @@ class SufficientAugmentation(object):
                 noise_variance=noise_variance,
                 K=K, L_K=L_K, log_det_K=log_det_K, cov=cov, L_Sigma=L_Sigma)
             joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
-            return (u, log_prior_u, log_jacobian_u, 0)
+            return (u, log_prior_u, log_jacobian_u, joint_log_likelihood, 0)
 
     def _sample_initiate(self, theta_0, indices, proposal_cov, reparameterised):
         """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
@@ -1233,6 +1233,7 @@ class SufficientAugmentation(object):
             nu = self.sampler._nu(m, self.sampler.K)
             (theta, log_prior_theta,
             log_jacobian_theta,
+            joint_log_likelihood,
             bool) = self.transition_operator(
                 theta, log_prior_theta, log_jacobian_theta,
                 indices, proposal_L_cov, nu, reparameterised)
@@ -1610,143 +1611,142 @@ class PseudoMarginal(object):
                 posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
             posterior_cov_inv = solve_triangular(posterior_L_cov, posterior_L_covT_inv, lower=False)
             posterior_cholesky = (posterior_L_cov, False)
-        log_p_pseudo_marginals = []
-        for _ in range(50):
-            log_p_pseudo_marginals.append(self._importance_sampler_vectorised(
+        log_p_pseudo_marginals = np.empty(50)
+        # TODO This could be parallelized using MPI
+        for i in range(50):
+            # log_p_pseudo_marginal = self._importance_sampler_vectorised(
+            #     num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
+            #     posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky)
+            # print(log_p_pseudo_marginal)
+            log_p_pseudo_marginals[i] = self._importance_sampler_vectorised(
                 num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
-                posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky))
+                posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky)
         return np.array(log_p_pseudo_marginals) + log_p_theta[0], log_p_theta[0]
 
     def _transition_operator(
-            self, u, log_prior_u, log_jacobian_u, log_marginal_likelihood_u,
-            indices, proposal_L_cov, num_importance_samples, reparameterised):
+            self, u, log_p_u, log_jacobian_u, log_p_pseudo_marginal_u,
+            indices, proposal_L_cov, num_importance_samples, reparameterised, verbose=False):
         "Transition operator for the metropolis step."
         # Evaluate priors and proposal conditionals
         if reparameterised:
             v, log_jacobian_v = proposal_reparameterised(u, indices, proposal_L_cov)
-            log_prior_v = prior_reparameterised(v, indices)
+            gamma, varphi, scale, noise_variance, log_p_v = prior_reparameterised(
+                v, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
+                None, None,
+                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
         else:
-            v, log_jacobian_v = proposal(u, indices, proposal_L_cov)
-            log_prior_v = prior(v, indices)
-        fx, gx, posterior_mean, posterior_cov = self.approximator.approximate_posterior(
+            u, log_jacobian_u = proposal(u, indices, proposal_L_cov, self.approximator.J)
+            gamma, varphi, scale, noise_variance, log_p_u = prior(
+                u, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
+                None, None,
+                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
+
+        fx, gx, posterior_mean, (posterior_matrix, is_inv) = self.approximator.approximate_posterior(
             v, indices, first_step=1, write=False, verbose=False)
-        # perform cholesky decomposition since this was never performed in the EP posterior approximation
-        # (posterior_L_cov, lower) = cho_factor(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))  # Doesn't seem to work for samples
-        # half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
-
-        # perform cholesky decomposition since this was never performed in the EP posterior approximation
-        posterior_L_cov = np.linalg.cholesky(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
-        half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
-        posterior_cov_inv = np.linalg.inv(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
- 
-        # Since this was never performed in the EP posterior approximation
-        # (prior_L_cov, lower) = cho_factor(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
-        # prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
-        # half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
-
         prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
         half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
         prior_cov_inv = np.linalg.inv(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
-
-        log_marginal_likelihood_v = self._importance_sampler_vectorised(
-            num_importance_samples, prior_L_cov, half_log_det_prior_cov,
-            posterior_mean, posterior_L_cov, half_log_det_posterior_cov)
-
-        print("HELLO")
-        print(log_marginal_likelihood_v)
-
-        log_marginal_likelihood_v = self._importance_sampler(
-            num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
-            posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov)
-
-        print(log_marginal_likelihood_v)
-        assert 0
+        # perform cholesky decomposition since this was never performed in the EP posterior approximation
+        if is_inv:
+            posterior_cov_inv = posterior_matrix
+            posterior_L_inv_cov, lower = cho_factor(posterior_cov_inv)
+            half_log_det_posterior_cov = - np.sum(np.log(np.diag(posterior_L_inv_cov)))
+            posterior_cholesky = (posterior_L_inv_cov, True)
+        else:
+            posterior_cov = posterior_matrix
+            (posterior_L_cov, lower) = cho_factor(
+                posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))  # Is this necessary?
+            half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
+            posterior_L_covT_inv = solve_triangular(
+                posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
+            posterior_cov_inv = solve_triangular(posterior_L_cov, posterior_L_covT_inv, lower=False)
+            posterior_cholesky = (posterior_L_cov, False)
+        log_p_pseudo_marginal_v = self._importance_sampler_vectorised(
+                num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
+                posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky)
         # Log ratio
         log_a = (
-            log_marginal_likelihood_v + np.sum(log_prior_v) + np.sum(log_jacobian_v)
-            - log_marginal_likelihood_u - np.sum(log_prior_u) - np.sum(log_jacobian_u))
+            log_p_pseudo_marginal_v + np.sum(log_p_v) + np.sum(log_jacobian_v)
+            - log_p_pseudo_marginal_u - np.sum(log_p_u) - np.sum(log_jacobian_u))
         log_A = np.minimum(0, log_a)
         threshold = np.random.uniform(low=0.0, high=1.0)
         if log_A > np.log(threshold):
-            print(log_A, ">", np.log(threshold), " ACCEPT")
-            return (v, log_prior_v, log_jacobian_v, log_marginal_likelihood_v)
+            if verbose:
+                print(log_A, ">", np.log(threshold), " ACCEPT, log_p_marginal={}".format(log_p_pseudo_marginal_u))
+            return (v, log_p_v, log_jacobian_v, log_p_pseudo_marginal_v, 1.0)
         else:
-            print(log_A, "<", np.log(threshold), " REJECT")
-            return (u, log_prior_u, log_jacobian_u, log_marginal_likelihood_u)
+            if verbose:
+                print(log_A, "<", np.log(threshold), " REJECT, log_p_marginal={}".format(log_p_pseudo_marginal_v))
+            return (u, log_p_u, log_jacobian_u, log_p_pseudo_marginal_u, 0.0)
 
     def _sample_initiate(
             self, theta_0, indices, proposal_cov, num_importance_samples, reparameterised):
         # Get starting point for the Markov Chain
         if theta_0 is None:
             theta_0 = self.approximator.get_theta(indices)
-        # Get type of proposal density
-        proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
-        _, _, posterior_mean, posterior_cov = self.approximator.approximate_posterior(
-            theta_0, indices, first_step=1, write=False, verbose=True)
-
-        fx, gx, posterior_mean, posterior_cov = self.approximator.approximate_posterior(
+        fx, gx, posterior_mean, (posterior_matrix, is_inv) = self.approximator.approximate_posterior(
             theta_0, indices, first_step=1, write=False, verbose=False)
-
-        # perform cholesky decomposition since this was never performed in the EP posterior approximation
-        posterior_L_cov = np.linalg.cholesky(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
-        half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
-        posterior_cov_inv = np.linalg.inv(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
-
-        # (posterior_L_cov, lower) = cho_factor(posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))
-        # half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
-        # posterior_L_covT_inv = solve_triangular(
-        #     posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
-        # posterior_cov_inv = solve_triangular(posterior_L_cov, posterior_L_covT_inv, lower=False)
-
         prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
         half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
         prior_cov_inv = np.linalg.inv(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
+        # perform cholesky decomposition since this was never performed in the EP posterior approximation
+        if is_inv:
+            posterior_cov_inv = posterior_matrix
+            posterior_L_inv_cov, lower = cho_factor(posterior_cov_inv)
+            half_log_det_posterior_cov = - np.sum(np.log(np.diag(posterior_L_inv_cov)))
+            posterior_cholesky = (posterior_L_inv_cov, True)
+        else:
+            posterior_cov = posterior_matrix
+            (posterior_L_cov, lower) = cho_factor(
+                posterior_cov + self.approximator.jitter * np.eye(self.approximator.N))  # Is this necessary?
+            half_log_det_posterior_cov = np.sum(np.log(np.diag(posterior_L_cov)))
+            posterior_L_covT_inv = solve_triangular(
+                posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
+            posterior_cov_inv = solve_triangular(posterior_L_cov, posterior_L_covT_inv, lower=False)
+            posterior_cholesky = (posterior_L_cov, False)
 
-        # Since this was never performed in the EP posterior approximation
-        # (prior_L_cov, lower) = cho_factor(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
-        # prior_L_covT_inv = solve_triangular(
-        #     prior_L_cov.T, np.eye(self.approximator.N), lower=True)
-        # prior_cov_inv = solve_triangular(prior_L_cov, prior_L_covT_inv, lower=False)
-        # half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+        log_p_pseudo_marginal = self._importance_sampler_vectorised(
+                num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
+                posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky)
 
-        log_marginal_likelihood_theta = self._importance_sampler_vectorised(
-            num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
-            posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov
-        )
-
-        print(log_marginal_likelihood_theta)
-
-        log_marginal_likelihood_theta = self._importance_sampler(
-            num_importance_samples, prior_L_cov, prior_cov_inv, half_log_det_prior_cov,
-            posterior_mean, posterior_L_cov, posterior_cov_inv, half_log_det_posterior_cov)
-
-        print(log_marginal_likelihood_theta)
-        assert 0
         # Evaluate priors and proposal conditionals
+        proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
         if reparameterised:
             theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, indices, proposal_L_cov)
-            log_prior_theta = prior_reparameterised(theta_0, indices)
+            gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
+                theta_0, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
+                None, None,
+                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
         else:
-            theta_0, log_jacobian_theta = proposal(theta_0, indices, proposal_L_cov)
-            log_prior_theta = prior(theta_0, indices)
+            theta_0, log_jacobian_theta = proposal(theta_0, indices, proposal_L_cov, self.approximator.J)
+            gamma, varphi, scale, noise_variance, log_p_theta = prior(
+                theta_0, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
+                None, None,
+                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
         theta_samples = []
+        acceptance_rate = 0.0
         return (
-            theta_0, theta_samples, log_prior_theta,
-            log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov)
+            theta_0, theta_samples, log_p_theta,
+            log_jacobian_theta, log_p_pseudo_marginal, proposal_L_cov, acceptance_rate)
 
     def sample(
             self, indices, proposal_cov, steps, first_step=1, num_importance_samples=80, theta_0=None,
-            reparameterised=True):
+            reparameterised=True, verbose=False):
         (theta, theta_samples, log_prior_theta,
-        log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov) = self.approximator._sample_initiate(
+        log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov,
+        acceptance_rate) = self._sample_initiate(
             theta_0, indices, proposal_cov, num_importance_samples, reparameterised)
         for _ in trange(
             first_step, first_step + steps, desc="Pseudo-marginal Sampler Progress", unit="samples"):
-            theta, log_prior_theta, log_jacobian_theta, log_marginal_likelihood_theta = self.approximator._transition_operator(
-                theta, log_prior_theta, log_jacobian_theta, log_marginal_likelihood_theta, indices, proposal_L_cov,
-                num_importance_samples, reparameterised)
+            (theta, log_prior_theta, log_jacobian_theta,
+            log_marginal_likelihood_theta, accept) = self._transition_operator(
+                theta, log_prior_theta, log_jacobian_theta, log_marginal_likelihood_theta,
+                indices, proposal_L_cov,
+                num_importance_samples, reparameterised, verbose=verbose)
+            acceptance_rate += accept
             theta_samples.append(theta)
-        return np.array(theta_samples)
+        acceptance_rate /= steps
+        return np.array(theta_samples), acceptance_rate
 
 
 class CutpointValueError(Exception):

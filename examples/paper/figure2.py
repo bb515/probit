@@ -46,8 +46,9 @@ def main():
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
-    dataset = "SEIso"
-    bins = "tertile" 
+    dataset = "figure2"
+    #dataset = "SEIso"
+    #bins = "tertile" 
     approximation = args.approximation
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
@@ -56,16 +57,17 @@ def main():
         sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets["synthetic"]:
         # Load data from file
-        # (X, t,
-        # gamma_0, varphi_0, noise_variance_0, scale_0,
-        # J, D, colors, Kernel) = load_data_paper(dataset)
-        (X, t,
-        X_true, y_true,
+        (X, Y, t,
         gamma_0, varphi_0, noise_variance_0, scale_0,
-        J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+        J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
+
+        # (X, t,
+        # X_true, y_true,
+        # gamma_0, varphi_0, noise_variance_0, scale_0,
+        # J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
 
         # Set varphi hyperparameters
-        varphi_hyperparameters = np.array([1.0, 1./np.sqrt(D)])  # [shape, rate] of an gamma on varphi
+        varphi_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate] of an gamma on varphi
 
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0, varphi_hyperparameters=varphi_hyperparameters)
@@ -81,12 +83,13 @@ def main():
         indices[1:J] = 0
 
         # (log) domain of grid
-        domain = ((-2, 2.55), None)
+        domain = ((-1.5, 1.0), None)
         # resolution of grid
-        res = (100, None)
+        res = (50, None)
 
-        num_importance_samples = [64, 1]
-        num_data = [135, 50]
+        num_importance_samples = [64]
+        num_data = [200]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
+        # To self.EPS or self.jitter. Possible is overflow error in a log sum exp?
         for N in num_data:
             X = X[:N, :]  # X, t have already been shuffled
             t = t[:N]
@@ -127,10 +130,10 @@ def main():
                     y_min, y_max = axes.get_ylim()
                     y_min = np.min([y_min, y_min_0])
                     y_max = np.max([y_max, y_max_0])
+                    plt.ylim(y_min, y_max)
             plt.vlines(varphi_0, 0.0, 0.010, colors='k')
             plt.legend()
-            plt.ylim(y_min, y_max)
-            plt.savefig(write_path / "fig2_{}_Nimp={}_N={}.png".format(approximation, Nimp, N))
+            plt.savefig(write_path / "fig2_{}_N={}.png".format(approximation, N))
             plt.show()
             plt.close()
 

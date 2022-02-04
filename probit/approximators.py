@@ -99,7 +99,8 @@ class Approximator(ABC):
             self.sigma = self.kernel.sigma
             self.tau = self.kernel.tau
         # See GPML by Williams et al. for a good explanation of jitter
-        self.jitter = 1e-8 
+        # self.jitter = 1e-8 
+        self.jitter = 1e-10
         self.upper_bound = 6.0
         self.upper_bound2 = 18.0
         warnings.warn("Updating prior covariance.")
@@ -144,7 +145,7 @@ class Approximator(ABC):
         """
         Z, *_ = truncated_norm_normalising_constant(
             self.gamma_ts, self.gamma_tplus1s,
-            self.noise_std, m, self.EPS)  # upper_bound=self.upper_bound)
+            self.noise_std, m, self.EPS, upper_bound=self.upper_bound)
             #  upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)  #  , numerically_stable=True)
         if np.ndim(m) == 2:
             return np.sum(np.log(Z), axis=1)  # (num_samples,)
@@ -513,7 +514,8 @@ class VBOrdinalGP(Approximator):
                     self.kernel._general, 0))
         #self.EPS = 0.000001  # Acts as a machine tolerance, controls error
         #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
-        self.EPS = 0.0001
+        # self.EPS = 0.0001  # perhaps not low enough.
+        self.EPS = 1e-8
         self.EPS_2 = self.EPS**2 
         #self.EPS = 0.001  # probably too large, will affect convergence 
         # Threshold of single sided standard deviations that
@@ -532,7 +534,8 @@ class VBOrdinalGP(Approximator):
         self.upper_bound2 = 30
         # Tends to work well in practice - should it be made smaller?
         # Just keep it consistent
-        self.jitter = 1e-6
+        # self.jitter = 1e-6
+        self.jitter = 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
 
@@ -1262,12 +1265,13 @@ class EPOrdinalGP(Approximator):
                 "The kernel must not be general type (kernel._general=1),"
                 " but simple type (kernel._general=0). "
                 "(got {}, expected)".format(self.kernel._general, 0))
-        self.EPS = 0.001  # Acts as a machine tolerance
+        self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
+        #self.EPS = 0.001
         self.EPS_2 = self.EPS**2
         # Threshold of single sided standard deviations
         # that normal cdf can be approximated to 0 or 1
         self.upper_bound = 4
-        self.jitter = 1e-6
+        self.jitter = 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
 
@@ -2129,14 +2133,13 @@ class EPOrdinalGP(Approximator):
             t2, t3, t4, t5, Lambda, weights, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
-            print("gamma=", repr(self.gamma), ", ")
-            print("varphi=", self.kernel.varphi, ", ")
-            # print("varphi=", self.kernel.constant_variance, ", ")
-            print("noise_variance=", self.noise_variance, ", ")
-            print("scale=", self.kernel.scale, ", ")
-            print("\nfunction_eval={}\n jacobian_eval={}".format(
-                fx, gx))
-        else:
+            # print("gamma=", repr(self.gamma), ", ")
+            # print("varphi=", self.kernel.varphi, ", ")
+            # # print("varphi=", self.kernel.constant_variance, ", ")
+            # print("noise_variance=", self.noise_variance, ", ")
+            # print("scale=", self.kernel.scale, ", ")
+            # print("\nfunction_eval={}\n jacobian_eval={}".format(
+            #     fx, gx))
             print(
                 "\ngamma={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
@@ -2494,12 +2497,14 @@ class LaplaceOrdinalGP(Approximator):
                 "The kernel must not be general type (kernel._general=1),"
                 " but simple type (kernel._general=0). "
                 "(got {}, expected)".format(self.kernel._general, 0))
-        self.EPS = 0.001  # Acts as a machine tolerance
+        # self.EPS = 0.001  # Acts as a machine tolerance
+        self.EPS = 1e-6
         self.EPS_2 = self.EPS**2
         # Threshold of single sided standard deviations
         # that normal cdf can be approximated to 0 or 1
         self.upper_bound = 4
-        self.jitter = 1e-6
+        # self.jitter = 1e-6
+        self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
 
@@ -2726,7 +2731,7 @@ class LaplaceOrdinalGP(Approximator):
             iteration = 0
             error = np.inf
             posterior_mean = posterior_mean_0
-            while error / steps > self.EPS**2:
+            while error / steps > self.EPS_2:
                 iteration += 1
                 (error, weight, posterior_mean, containers) = self.approximate(
                     steps, posterior_mean_0=posterior_mean,
@@ -3064,13 +3069,13 @@ class LaplaceOrdinalGP(Approximator):
             precision  = weight**2 + (z2s * norm_pdf_z2s - z1s * norm_pdf_z1s) / Z / self.noise_variance
             L_cov = self.K + np.diag(1. / precision)
             m = - self.K @ weight + posterior_mean
-            L_cov = np.linalg.cholesky(L_cov)
-            L_cov_inv = np.linalg.inv(L_cov)
-            invcov = L_cov_inv.T @ L_cov_inv
-            # L_cov, _ = cho_factor(L_cov)
-            # L_covT_inv = solve_triangular(
-            #     L_cov.T, np.eye(self.N), lower=True)
-            # invcov = solve_triangular(L_cov, L_covT_inv, lower=False)
+            # L_cov = np.linalg.cholesky(L_cov)  # TODO
+            # L_cov_inv = np.linalg.inv(L_cov)
+            # invcov = L_cov_inv.T @ L_cov_inv
+            L_cov, _ = cho_factor(L_cov)
+            L_covT_inv = solve_triangular(
+                L_cov.T, np.eye(self.N), lower=True)
+            invcov = solve_triangular(L_cov, L_covT_inv, lower=False)
             t1 = - (invcov @ m) / precision
             posterior_mean += t1
             error = np.abs(max(t1.min(), t1.max(), key=abs))
@@ -3104,7 +3109,7 @@ class LaplaceOrdinalGP(Approximator):
         gx) = self._hyperparameter_training_step_initialise(
             theta, indices, steps)
         posterior_mean = posterior_mean_0
-        while error / steps > self.EPS**2 and iteration < 10:
+        while error / steps > self.EPS_2 and iteration < 10:  # TODO is this overkill?
             iteration += 1
             (error, weight, posterior_mean, containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
@@ -3115,12 +3120,6 @@ class LaplaceOrdinalGP(Approximator):
         w1, w2, g1, g2, v1, v2, q1, q2,
         L_cov, cov, Z) = self.compute_weights(
             posterior_mean)
-        # Inverse of K
-        L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
-        L_KT_inv = solve_triangular(
-            L_K.T, np.eye(self.N), lower=True)
-        K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
-        posterior_inv_cov = K_inv + np.diag(precision)
         if write:
             (posterior_means, approximate_marginal_likelihoods) = containers
         fx = self.objective(weight, precision, L_cov, Z)
@@ -3133,18 +3132,24 @@ class LaplaceOrdinalGP(Approximator):
             w1, w2, g1, g2, v1, v2, q1, q2, cov, weight, self.N, self.K, precision, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
-            print("gamma=", repr(self.gamma), ", ")
-            print("varphi=", self.kernel.varphi, ", ")
-            # print("varphi=", self.kernel.constant_variance, ", ")
-            print("noise_variance=", self.noise_variance, ", ")
-            print("scale=", self.kernel.scale, ", ")
-            print("\nfunction_eval={}\n jacobian_eval={}".format(
-                fx, gx))
-        else:
+            # print("gamma=", repr(self.gamma), ", ")
+            # print("varphi=", self.kernel.varphi, ", ")
+            # # print("varphi=", self.kernel.constant_variance, ", ")
+            # print("noise_variance=", self.noise_variance, ", ")
+            # print("scale=", self.kernel.scale, ", ")
+            # print("\nfunction_eval={}\n jacobian_eval={}".format(
+            #     fx, gx))
             print(
                 "\ngamma={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
                     self.gamma, self.noise_variance, self.kernel.varphi, fx))
+        #return fx, gx, posterior_mean, (self.noise_variance * self.K @ cov, False)
+        # Inverse of K
+        L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
+        L_KT_inv = solve_triangular(
+            L_K.T, np.eye(self.N), lower=True)
+        K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
+        posterior_inv_cov = K_inv + np.diag(precision)
         return fx, gx, posterior_mean, (posterior_inv_cov, True)
 
   

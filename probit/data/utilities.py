@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
 from scipy.stats import gamma as gamma_
 from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ
-# from probit.plot import plot_ordinal
 import warnings
 import time
+import matplotlib as mpl
 
 # For plotting
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
@@ -27,6 +27,7 @@ datasets = {
     "synthetic" : [
         "SEIso",
         "Linear",
+        "figure2",
     ]
 }
 
@@ -238,9 +239,9 @@ def generate_prior_samples(kernel, noise_variance, N_samples=9, N_show=2000, plo
         plt.close()
 
 
-def generate_prior_data_table1(
+def generate_prior_data_paper(
         N_train_per_class, N_test_per_class, N_validate_per_class, splits, J, D, kernel, noise_variance,
-        N_show=2000, plot=True, jitter=1e-6, seed=None):
+        N_show, colors=None, cmap=None, plot=True, jitter=1e-6, seed=None):
     """
     Generate data from the GP prior, and choose some cutpoints that
     approximately divides data into equal bins.
@@ -260,7 +261,7 @@ def generate_prior_data_table1(
     elif D==2:
         # Generate input data from a linear meshgrid
         x = np.linspace(-0.5, 1.5, N_show)
-        y = np.linsapce(-0.5, 1.5, N_show)
+        y = np.linspace(-0.5, 1.5, N_show)
         xx, yy = np.meshgrid(x, y)
         # Pairs
         X_show = np.dstack([xx, yy]).reshape(-1, 2)
@@ -280,12 +281,12 @@ def generate_prior_data_table1(
 
     # Sample from a multivariate normal
     K0 = kernel.kernel_matrix(X, X)
-    K = K0 + jitter * np.identity(N_total + N_show)
+    K = K0 + jitter * np.identity(N_total + N_show**D)
     L_K = np.linalg.cholesky(K)
 
     # Generate normal samples for both sets of input data
     if seed: np.random.seed(seed)  # set seed
-    z = np.random.normal(loc=0.0, scale=1.0, size=N_total + N_show)
+    z = np.random.normal(loc=0.0, scale=1.0, size=N_total + N_show**D)
     Z = L_K @ z
 
     # Store Z_show
@@ -294,9 +295,10 @@ def generate_prior_data_table1(
 
     assert np.shape(Z_show) == (N_show**D,)
 
+    K0_show = None
     # Also precalculate the cholesky for X_show for storage
-    K0_show = kernel.kernel_matrix(X_show, X_show)
-    K_show = K0_show + jitter * np.identity(N_show)
+    # K0_show = kernel.kernel_matrix(X_show, X_show)
+    # K_show = K0_show + jitter * np.identity(N_show)
     # L_K_show = np.linalg.cholesky(K_show)
  
     # Shuffle data
@@ -312,10 +314,11 @@ def generate_prior_data_table1(
     Y = Y.flatten()
 
     if plot:
-        plt.scatter(X, Y, c='b', s=4)
-        plt.plot(X_show, Z_show)
-        plt.savefig("Sample from prior GP.png")
-        plt.close()
+        if D==1:
+            plt.scatter(X, Y, c='b', s=4)
+            plt.plot(X_show, Z_show)
+            plt.savefig("Sample from prior GP.png")
+            plt.close()
 
     idx_sorted = np.argsort(Y)
     # Sort the responses
@@ -339,12 +342,10 @@ def generate_prior_data_table1(
     gamma[-1] = np.inf
     print("gamma={}".format(gamma))
     if plot:
-        cmap = plt.cm.get_cmap('viridis', J)    # J discrete colors
-        colors = []
-        for j in range(J):
-            colors.append(cmap((j + 0.5)/J))
-            plt.scatter(X_js[j], Y_js[j], color=cmap((j + 0.5)/J))
-            plt.close()
+        if D==1:
+            for j in range(J):
+                plt.scatter(X_js[j], Y_js[j], color=colors[j])
+                plt.close()
     X_js = np.array(X_js)
     Y_js = np.array(Y_js)
     t_js = np.array(t_js, dtype=int)
@@ -398,7 +399,7 @@ def generate_prior_data_table1(
 
         data = np.c_[Y_train, X_train, t_train]
         np.random.shuffle(data)
-        Y_train = data[:, :1]
+        Y_train = data[:, :1].flatten()
         X_train = data[:, 1:D + 1]
         t_train = data[:, -1]
 
@@ -428,7 +429,7 @@ def generate_prior_data_table1(
     assert np.shape(X_tests) == (splits, N_test, D)
     assert np.shape(X_trains) == (splits, N_train, D)
     assert np.shape(X_validates) == (splits, N_validate, D)
-    assert np.shape(Y_trains) == (splits, N_train, D)
+    assert np.shape(Y_trains) == (splits, N_train)
     assert np.shape(t_tests) == (splits, N_test)
     assert np.shape(t_trains) == (splits, N_train)
     assert np.shape(t_validates) == (splits, N_validate)
@@ -438,30 +439,9 @@ def generate_prior_data_table1(
     assert np.shape(Y) == (N_total,)
     assert np.shape(t) == (N_total,)
     if plot:
-        if D==1:
-            # colors_ = [colors[i] for i in t[:]]
-            # plt.scatter(X[:, 0], Y, color=colors_)
-            colors_ = [colors[i] for i in t_trains[0, :]]
-            plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
-            plt.plot(X_show, Z_show, color='k', alpha=0.4)
-            plt.show()
-            plt.savefig("scatter.png")
-            # plot_ordinal(X, t, X_js, Y_js, J, D, colors=colors)
-        elif D==3:
-            # colors_ = [colors[i] for i in t[:]]
-            # plt.scatter(X[:, 0], Y, color=colors_)
-            colors_ = [colors[i] for i in t_trains[0, :]]
-            ax = plt.axes(projection = "3d")
-            ax.scatter3D(X_trains[0, :, 0], X_trains[0, :, 1], Y_trains[0, :], color=colors_)
-            plt.show()
-            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-            surf = ax.plot_surface(x, y, z.reshape(N_show, N_show), alpha=0.4)
-            fig.colorbar(surf, shrink=0.5, aspect=5)
-            plt.show()
-            plt.savefig("surface.png")
-            # plot_ordinal(X, t, X_js, Y_js, J, D, colors=colors)
+        plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, N_show=N_show) 
     return (
-        X_js, Y_js, X, Y, t, gamma,
+        N_show, N_total, X_js, Y_js, X, Y, t, gamma,
         X_trains, Y_trains, t_trains,
         X_tests, t_tests,
         X_validates, t_validates,
@@ -539,11 +519,8 @@ def generate_prior_data_new(
     gamma[-1] = np.inf
     print("gamma={}".format(gamma))
     if plot:
-        cmap = plt.cm.get_cmap('PiYG', J)    # J discrete colors
-        colors = []
         for j in range(J):
-            colors.append(cmap((j + 0.5)/J))
-            plt.scatter(X_j[j], Y_true_j[j], color=cmap((j + 0.5)/J))
+            plt.scatter(X_j[j], Y_true_j[j], color=colors[j])
         plt.close()
     Xs_j = np.array(X_j)
     Ys_j = np.array(Y_true_j)
@@ -597,7 +574,7 @@ def generate_prior_data_new(
         colors_ = [colors[i] for i in t_trains[0, :]]
         plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
         plt.savefig("scatter.png")
-        # plot_ordinal(X, t, X_j, Y_true_j, J, D, colors=colors)
+        plot_ordinal(X, t, X_j, Y_true_j, J, D, colors=colors)
     return (X_j, Y_true_j, X, Y, t, gamma, X_tests, t_tests,
         X_trains, Y_trains, t_trains, K0_show, X_show, Z_show, colors)
 
@@ -676,7 +653,7 @@ def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
     print(colors_)
     plt.scatter(X[:, 0], Y_true, color=colors_)
     plt.show()
-    # plot_ordinal(X, t, X_j, Y_true_j, J, D)
+    plot_ordinal(X, t, X_j, Y_true_j, J, D)
     return X_j, Y_true_j, X, Y_true, t, gamma
 
 
@@ -1471,39 +1448,33 @@ def generate_synthetic_data(N_per_class, J, D, varphi=30.0, noise_variance=1.0, 
     return X_j, Y_true_j, X, Y_true, t, gamma_0
 
 
-def generate_synthetic_data_table1(
-        N_train_per_class=10, N_test_per_class=3, N_validate_per_class=4,
-        splits=1, J=3, D=2, scale=1.0, N_show=100, plot=True, seed=517):
+def generate_synthetic_data_paper(
+        varphi, noise_variance, scale=1.0, N_train_per_class=100, N_test_per_class=0, N_validate_per_class=0, N_show=100,
+        splits=1, J=3, D=2, colors=None, cmap=None, plot=True, seed=517):
     """
     Generate synthetic dataset from the unit hypercube for Table 1.
     """
-    # Sample from Gamma priors for the hyper-parameters
-    # varphi = gamma_.rvs(a=1.0, scale=np.sqrt(D))
-    # noise_variance = gamma_.rvs(a=1.2, scale=1./0.2)
-    varphi = 0.35
-    noise_variance = 2.08**2
     # Initiate kernel
     kernel = SEIso(varphi=varphi, scale=scale)
     # Generate data
-    (X_js, Y_js, X, Y, t, gamma,
+    (N_show, N, X_js, Y_js, X, Y, t, gamma,
         X_trains, Y_trains, t_trains,
         X_tests, t_tests,
         X_validates, t_validates,
-        K0_show, X_show, Z_show, colors) = generate_prior_data_table1(
-            N_train_per_class=N_train_per_class, N_test_per_class=N_test_per_class,
-            N_validate_per_class=N_validate_per_class,
-            splits=splits, J=3, D=1, kernel=kernel,
-            noise_variance=0.1, N_show=100, plot=True, seed=517)
-    assert 0
+        K0_show, X_show, Z_show, colors) = generate_prior_data_paper(
+        N_train_per_class=N_train_per_class, N_test_per_class=N_test_per_class,
+        N_validate_per_class=N_validate_per_class, splits=splits, J=J, D=D, kernel=kernel,
+        noise_variance=noise_variance, colors=colors, cmap=cmap, N_show=100, plot=True, seed=517)
     # Save data
     np.savez('tertile_SEIso_scale=1.0_noisevar={}_lengthscale={}.npz'.format(scale, noise_variance, varphi),
+        N_show=N_show, N=N, J=J, D=D,
         X_js=X_js, Y_js=Y_js,
         X=X, Y=Y, t=t,
         # no need for validation and test data.
         #X_validates=X_validates, t_validates=t_validates,
         #X_tests=X_tests, t_tests=t_tests,
         #X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
-        K0_show=K0_show,
+        #K0_show=K0_show,
         X_show=X_show,
         Z_show=Z_show,
         noise_variance=noise_variance,
@@ -1511,7 +1482,6 @@ def generate_synthetic_data_table1(
         varphi=varphi,
         gamma=gamma,
         colors=colors)
-
     # # Sample from Gamma priors for the hyper-parameters
     # lengthscales = gamma_.rvs(a=1.0, scale=np.sqrt(D), size=(D,))
     # noise_variance = gamma_.rvs(a=1.2, scale=1./0.2)
@@ -1522,7 +1492,7 @@ def generate_synthetic_data_table1(
     #     X_trains, Y_trains, t_trains,
     #     X_tests, t_tests,
     #     X_validates, t_validates,
-    #     K0_show, X_show, Z_show, colors) = generate_prior_data_table1(
+    #     K0_show, X_show, Z_show, colors) = generate_prior_data_paper(
     #         N_train_per_class=10, N_test_per_class=3, N_validate_per_class=4,
     #         splits=4, J=3, D=1, kernel=kernel,
     #         noise_variance=0.1, N_show=100, plot=True, seed=517)
@@ -1722,8 +1692,7 @@ def load_data_synthetic(dataset, bins, plot=False):
         plt.show()
     gamma_0 = np.array(gamma_0)
     if plot:
-        pass
-        # plot_ordinal(X, t, X_j, Y_true_j, J, D)
+        plot_ordinal(X, t, X_j, Y_true_j, J, D)
     return (
         X, t,
         X_true, Y_true,
@@ -1736,23 +1705,25 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
     if dataset == "figure2":
         Kernel = LabEQ
         from probit.data.paper import figure2
-        with pkg_resources.path(figure2, 'figure2.npz') as path:
+        with pkg_resources.path(figure2, 'tertile_SEIso_scale=1.0_noisevar=0.1_lengthscale=1.4.npz') as path:
             data = np.load(path)
-        X_js = data["X_js"]
-        Y_js = data["Y_js"]
+        if plot:
+            N_show = data["N_show"]
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            X_js = data["X_js"]
+            Y_js = data["Y_js"]
         X = data["X"]
         Y = data["Y"]
         t = data["t"]
-        # K0_show = data["K0_show"]
-        # X_show = data["X_show"]
-        # Z_show = data["Z_show"]
+        # N = data["N"]
         colors = data["colors"]
         J = data["J"]
         D = data["D"]
         hyperparameters = {
             "true" : (
-                data["bins"],
-                data["lengthscales"],
+                data["gamma"],
+                data["varphi"],
                 data["noise_variance"],
                 data["scale"]
             )
@@ -1856,12 +1827,10 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
                     assert 0
     gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
     if plot:
-        plt.scatter(X, Y)
-        plt.show()
-        # plot_ordinal(X, t, X_js, Y_js, J, D)
+        plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, plt.cm.get_cmap('viridis', J), N_show=N_show)
     gamma_0 = np.array(gamma_0)
     return (
-        X, t,
+        X, Y, t,
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel)
 
@@ -1900,6 +1869,61 @@ def calculate_metrics(y_test, t_test, Z, gamma):
         predictive_likelihood)
 
 
+def plot_kernel(kernel, N_total=500, n_samples=10):
+    for _ in range(n_samples):
+        X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
+        X = X[:, None]  # reshape X to make it n*D
+        mu = np.zeros((N_total))  # vector of the means
+        K = kernel.kernel_matrix(X, X)
+        Z = np.random.multivariate_normal(mu, K)
+        plt.plot(X[:], Z[:])
+    plt.show()
+
+
+def plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=None):
+    """TODO: generalise to 3D, move to plot.py"""
+    colors_ = [colors[i] for i in t]
+    if D==1:
+            plt.scatter(X, Y, color=colors_)
+            plt.plot(X_show, Z_show, color='k', alpha=0.4)
+            plt.show()
+            plt.savefig("scatter.png")
+            # plot_ordinal(X, t, X_js, Y_js, J, D, colors=colors)
+            # SS
+            # N_total = len(t)
+            # colors_ = [colors[i] for i in t]
+            # fig, ax = plt.subplots()
+            # plt.scatter(X[:, 0], t, color=colors_)
+            # plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
+            # plt.xlabel(r"$x$", fontsize=16)
+            # ax.set_yticks([0, 1, 2, 3, 4, 5, 6])
+            # plt.ylabel(r"$t$", fontsize=16)
+            # plt.show()
+            # plt.savefig("N_total={}, J={}, D={} Ordinal response data.png".format(N_total, J, D))
+            # plt.close()
+            # # Plot from the binned arrays
+            # for j in range(J):
+            #     plt.scatter(X_j[j][:, 0], Y_j[j], color=colors[j], label=r"$t={}$".format(j))
+            # plt.title("N_total={}, J={}, D={} Ordinal response data".format(N_total, J, D))
+            # plt.legend()
+            # plt.xlabel(r"$x$", fontsize=16)
+            # plt.ylabel(r"$y$", fontsize=16)
+            # plt.show()
+            # plt.savefig("N_total={}, J={}, D={} Ordinal response data_.png".format(N_total, J, D))
+            # plt.close()
+    elif D==2:
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+        ax.scatter3D(X[:, 0], X[:, 1], Y[:], color=colors_)
+        surf = ax.plot_surface(
+            X_show[:, 0].reshape(N_show, N_show),
+            X_show[:, 1].reshape(N_show, N_show),
+            Z_show.reshape(N_show, N_show), alpha=0.4)
+        fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
+        plt.savefig("surface.png")
+        plt.show()
+
+
+
 class TookTooLong(Warning):
     pass
 
@@ -1921,10 +1945,19 @@ class MinimizeStopper(object):
 
 
 if __name__ == "__main__":
-    kernel = SEIso(varphi=30.0, scale=1.0)
-    generate_prior_data_table1(
-        N_train_per_class=10, N_test_per_class=3, N_validate_per_class=4, splits=4, J=3, D=1, kernel=kernel,
-        noise_variance=0.1, N_show=100, plot=True, seed=222)
+    J = 3
+    cmap = plt.cm.get_cmap('viridis', J)    # J discrete colors
+    colors = []
+    for j in range(J):
+        colors.append(cmap((j + 0.5)/J))
+    # Sample from Gamma priors for the hyper-parameters
+    # varphi = gamma_.rvs(a=1.0, scale=np.sqrt(D))
+    # noise_variance = gamma_.rvs(a=1.2, scale=1./0.2)
+    generate_synthetic_data_paper(
+        varphi=1.4, noise_variance=0.1, scale=1.0, N_train_per_class=100, N_test_per_class=0,
+        N_validate_per_class=0, N_show=100,
+        splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)
+    # SS TODO: delete
     # generate_synthetic_data_new(
     #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
     # generate_synthetic_data_linear(
@@ -1937,5 +1970,5 @@ if __name__ == "__main__":
     # generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
     # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
     # kernel = Linear(varphi=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
-    # plot_s(kernel)
+    # plot_kernel(kernel)
     # generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
