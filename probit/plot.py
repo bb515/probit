@@ -861,18 +861,26 @@ def _potential_scale_reduction(
         independent_chain_ndims += 1
 
     sample_axis = 0
-    chain_axis = np.range(1, 1 + independent_chain_ndims)
-    sample_and_chain_axis = np.range(0, 1 + independent_chain_ndims)
+    chain_axis = np.arange(1, 1 + independent_chain_ndims, dtype=int)
+    sample_and_chain_axis = np.arange(0, 1 + independent_chain_ndims, dtype=int)
 
-    n = int(np.shape(state)[sample_axis])
-    m = int(np.prod(np.shape(state)[chain_axis]))
+    # n = int(np.shape(state)[sample_axis])
+    # m = int(np.prod(np.shape(state)[chain_axis]))
+
+    # TODO: temp
+    n = int(np.shape(state)[0])
+    m = int(np.prod(np.shape(state)[1]))
 
     # In the language of Brooks and Gelman (1998),
     # b_div_n is the between chain variance, the variance of the chain means.
     # w is the within sequence variance, the mean of the chain variances.
 
-    b_div_n = np.var(np.mean(state, axis=sample_axis, keepdims=True), axis=sample_and_chain_axis, ddof=1)
-    w = np.mean(np.var(state, axis=sample_axis, keepdims=True, ddof=1), axis=sample_and_chain_axis)
+    # b_div_n = np.var(np.mean(state, axis=sample_axis, keepdims=True), axis=sample_and_chain_axis, ddof=1)
+    # w = np.mean(np.var(state, axis=sample_axis, keepdims=True, ddof=1), axis=sample_and_chain_axis)
+    b_div_n = np.var(np.mean(state, axis=0, keepdims=True), axis=1, ddof=1)
+    w = np.mean(np.var(state, axis=0, keepdims=True, ddof=1), axis=1)
+    print(b_div_n)
+    print(w)
 
     # sigma_2_plus is an estimate of the true variance, which would be unbiased if
     # each chain was drawn from the target.  c.f. "law of total variance."
@@ -987,7 +995,7 @@ def _effective_sample_size(
         # Step 3: mask = [0, 0, 1, 2]
         mask = np.cumsum(mask, axis=0)
         # Step 4: mask = [1, 1, 0, 0]
-        mask = np.max(1. - mask, 0.)
+        mask = np.maximum(1. - mask, 0.)
         # N.B. this reduces the length of weighted_auto_corr by a factor of 2.
         # It still works fine in the formula below.
         weighted_auto_corr = _sum_pairs(weighted_auto_corr) * mask
@@ -1081,18 +1089,20 @@ def table1(
     axis objective function, calculate
     new Gram matrix or not. So the simplest way is to combinate manually.
     """
-    Nhyperparameters = 2
-    Nchain = 10
+    approach = "PM"
+    Nhyperparameters = 1
+    Nchain = 1
     for N in [50, 200]:
         for D in [2, 10]:
             for J in [3, 11]:
-                for approximation in ["LA", "EP", "VB"]:
-                    for Nimp in [1, 16, 64]:
+                for approximation in ["LA", "EP"]:
+                    for Nimp in [64]:
                         for ARD in [False, True]:
                             # initiate containers
                             acceptance_rate = np.empty(Nchain)
-                            effective_sample_size = np.empty(Nchain)
-                            Rhat = np.empty(Nchain)
+                            effective_sample_size = np.empty((Nchain, Nhyperparameters))
+                            states = np.empty((Nchain, Nsamp, Nhyperparameters))
+                            Rhat = np.empty(5)
                             if ARD is True:
                                 Nhyperparameters = D + 1  # needed?
                             elif ARD is False: 
@@ -1100,17 +1110,17 @@ def table1(
                             for chain in range(Nchain):
                                 # Get the data
                                 data_chain_theta = np.load(
-                                    read_path/'theta_N={}_D={}_J={}_{}_Nimp={}_ARD={}_chain={}.npz'.format(
-                                        N, D, approximation, Nimp, ARD, chain))
-                                states = data_chain_theta["X"]
-                                states = np.random.rand((N, Nhyperparameters))
-                                acceptance_rate[chain, :] = data_chain_theta["acceptance_rate"]
+                                    read_path/'theta_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.npz'.format(
+                                        N, D, J, Nimp, ARD, approach, approximation, chain))
+                                states_chain = data_chain_theta["X"]
+                                states[chain, :, :] = states_chain
+                                acceptance_rate[chain] = data_chain_theta["acceptance_rate"]
                                 effective_sample_size[chain, :] = _effective_sample_size(
-                                    states[:, :], filter_beyond_lag=None, filter_beyond_positive_pairs=True)
+                                    states_chain[:, :], filter_beyond_lag=None, filter_beyond_positive_pairs=True)
                             # Find
-                            for i, Nsamp in enumerate([1000, 2000, 5000, 10000]):
+                            for i, Nsamp in enumerate([1, 10, 100, 700, 1000]):
                                 Rhat[i] = _potential_scale_reduction(
-                                    states[:Nsamp, :], independent_chain_ndims=1, split_chains=False)
+                                    states[:, :Nsamp, :], independent_chain_ndims=1, split_chains=False)
                             pr1 = np.mean(effective_sample_size, axis=0)
                             pr2 = np.std(effective_sample_size, axis=0)
                             pr30 = Rhat[0]
@@ -1118,11 +1128,13 @@ def table1(
                             pr32 = Rhat[2]
                             pr33 = Rhat[3]
                             pr34 = Rhat[4]
-                            pr4 = np.mean(acceptance_rate * 100, axis=0)
-                            pr5 = np.std(acceptance_rate * 100, axis=0)
-                            print("N={}_D={}_J={}_{}_Nimp={}_ARD={}_{}_chain={}:".format(
-                                N, D, approximation, Nimp, ARD, hyper_sampler_name, chain))
-                            print("ESS={}+/-{},  R0={}, R1={}, R2={}, R3={}, Acc={}".format(
+                            pr4 = acceptance_rate[0]
+                            pr5 = 0.0
+                            # pr4 = np.mean(acceptance_rate * 100, axis=0)
+                            # pr5 = np.std(acceptance_rate * 100, axis=0)
+                            print("N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}:".format(
+                                N, D, J, Nimp, ARD, approach, approximation, chain))
+                            print("ESS={}+/-{},  R0={}, R1={}, R2={}, R3={}, R4={}, Acc={}+/-{}".format(
                                 pr1, pr2, pr30, pr31, pr32, pr33, pr34, pr4, pr5))
                             assert 0
     # rc('font', **{'family': 'serif', 'serif': ['Computer Modern Roman'], 'size' : 12})

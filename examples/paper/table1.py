@@ -3,15 +3,13 @@ Ordinal regression concrete examples. Comparing different samplers.
 """
 # Make sure to limit CPU usage
 import os
-from re import A
-os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
-os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
-os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
-os.environ["VECLIB_MAXIMUM_THREADS"] = "6" # export VECLIB_MAXIMUM_THREADS=4
-os.environ["NUMEXPR_NUM_THREADS"] = "6" # export NUMEXPR_NUM_THREADS=6
-os.environ["NUMBA_NUM_THREADS"] = "6"
-#from numba import set_num_threads
-#set_num_threads(6)
+nthreads = "1"
+os.environ["OMP_NUM_THREADS"] = nthreads # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = nthreads # export OPENBLAS_NUM_THREADS=4 
+os.environ["MKL_NUM_THREADS"] = nthreads # export MKL_NUM_THREADS=6
+os.environ["VECLIB_MAXIMUM_THREADS"] = nthreads # export VECLIB_MAXIMUM_THREADS=4
+os.environ["NUMEXPR_NUM_THREADS"] = nthreads # export NUMEXPR_NUM_THREADS=6
+os.environ["NUMBA_NUM_THREADS"] = nthreads
 import argparse
 import cProfile
 from io import StringIO
@@ -25,7 +23,6 @@ from probit.plot import table1, draw_mixing
 import pathlib
 from probit.data.utilities import datasets, load_data_paper
 import time
-import matplotlib.pyplot as plt
 
 
 now = time.ctime()
@@ -74,16 +71,13 @@ def main():
         indices[0] = 0
         # Fix scale
         indices[J] = 0
-        # Fix varphi
+        # Don't fix varphi
         #indices[-1] = 0
         # Fix gamma
         indices[1:J] = 0
-        # Just varphi
-        domain = ((-2, 2), None)
-        res = (100, None)
         # Sampler
-        burn_steps = 1  # 5000
-        steps = 1000  # 10000
+        burn_steps = 5000  # 5000
+        steps = 10000  # 10000
         m_0 = Y.flatten()
         # sampler = GibbsOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
         noise_std_hyperparameters = None
@@ -147,7 +141,7 @@ def main():
             print("finished")
 
         # plot figures
-        table1(write_path, show=True, write=True)
+        #table1(write_path, show=True, write=True)
 
     if args.profile:
         profile.disable()
