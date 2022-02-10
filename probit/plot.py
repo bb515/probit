@@ -11,7 +11,6 @@ from probit.data.utilities import MinimizeStopper, colors
 from probit.data.utilities import calculate_metrics
 import matplotlib.colors as mcolors
 from matplotlib import rc
-import matplotlib
 
 
 def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
