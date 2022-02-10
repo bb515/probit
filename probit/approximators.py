@@ -101,8 +101,20 @@ class Approximator(ABC):
         # See GPML by Williams et al. for a good explanation of jitter
         # self.jitter = 1e-8 
         self.jitter = 1e-10
-        self.upper_bound = 6.0
-        self.upper_bound2 = 18.0
+        # Threshold of single sided standard deviations that
+        # normal cdf can be approximated to 0 or 1
+        # More than this + redundancy leads to numerical instability
+        # due to catestrophic cancellation
+        # Less than this leads to a poor approximation due to series
+        # expansion at infinity truncation
+        # Good values found between 4 and 6
+        self.upper_bound = 6
+        # More than this + redundancy leads to numerical
+        # instability due to overflow
+        # Less than this results in poor approximation due to
+        # neglected probability mass in the tails
+        # Good values found between 18 and 30
+        self.upper_bound2 = 30  # May need decreasing if experience infs or NaNs
         warnings.warn("Updating prior covariance.")
         self._update_prior()
 
@@ -224,6 +236,7 @@ class Approximator(ABC):
             :math:`l`th cutpoint interval, :math:`\varphi` is the single
             shared lengthscale parameter or vector of parameters in which
             there are in the most general case J * D parameters.
+            If `None` then no hyperperameter update is performed.
         :type theta: :class:`numpy.ndarray`
         :return: (intervals, steps, error, iteration, indices_where, gx)
         :rtype: (6,) tuple
@@ -234,51 +247,52 @@ class Approximator(ABC):
         scale = None
         varphi = None
         index = 0
-        if indices[0]:
-            noise_std = np.exp(theta[index])
-            noise_variance = noise_std**2
-            if noise_variance < 1.0e-04:
-                warnings.warn(
-                    "WARNING: noise variance is very low - numerical"
-                    " stability issues may arise "
+        if indices is not None:
+            if indices[0]:
+                noise_std = np.exp(theta[index])
+                noise_variance = noise_std**2
+                if noise_variance < 1.0e-04:
+                    warnings.warn(
+                        "WARNING: noise variance is very low - numerical"
+                        " stability issues may arise "
+                        "(noise_variance={}).".format(noise_variance))
+                elif noise_variance > 1.0e3:
+                    warnings.warn(
+                        "WARNING: noise variance is very large - numerical"
+                        " stability issues may arise "
                     "(noise_variance={}).".format(noise_variance))
-            elif noise_variance > 1.0e3:
-                warnings.warn(
-                    "WARNING: noise variance is very large - numerical"
-                    " stability issues may arise "
-                "(noise_variance={}).".format(noise_variance))
-            index += 1
-        for j in range(1, self.J):
-            if gamma is None and indices[j]:
-                # Get gamma from classifier
-                gamma = self.gamma
-        if indices[1]:
-            gamma[1] = theta[index]
-            index += 1
-        for j in range(2, self.J):
-            if indices[j]:
-                gamma[j] = gamma[j - 1] + np.exp(theta[index])
                 index += 1
-        if indices[self.J]:
-            scale_std = np.exp(theta[index])
-            scale = scale_std**2
-            index += 1
-        if indices[self.J + 1]:
-            if self.kernel._general and self.kernel._ARD:
-                # In this case, then there is a scale parameter, the first
-                # cutpoint, the interval parameters,
-                # and lengthscales parameter for each dimension and class
-                varphi = np.exp(
-                    np.reshape(
-                        theta[self.J:self.J + self.J * self.D],
-                        (self.J, self.D)))
-                index += self.J * self.D
-            else:
-                # In this case, then there is a scale parameter, the first
-                # cutpoint, the interval parameters,
-                # and a single, shared lengthscale parameter
-                varphi = np.exp(theta[index])
+            for j in range(1, self.J):
+                if gamma is None and indices[j]:
+                    # Get gamma from classifier
+                    gamma = self.gamma
+            if indices[1]:
+                gamma[1] = theta[index]
                 index += 1
+            for j in range(2, self.J):
+                if indices[j]:
+                    gamma[j] = gamma[j - 1] + np.exp(theta[index])
+                    index += 1
+            if indices[self.J]:
+                scale_std = np.exp(theta[index])
+                scale = scale_std**2
+                index += 1
+            if indices[self.J + 1]:
+                if self.kernel._general and self.kernel._ARD:
+                    # In this case, then there is a scale parameter, the first
+                    # cutpoint, the interval parameters,
+                    # and lengthscales parameter for each dimension and class
+                    varphi = np.exp(
+                        np.reshape(
+                            theta[self.J:self.J + self.J * self.D],
+                            (self.J, self.D)))
+                    index += self.J * self.D
+                else:
+                    # In this case, then there is a scale parameter, the first
+                    # cutpoint, the interval parameters,
+                    # and a single, shared lengthscale parameter
+                    varphi = np.exp(theta[index])
+                    index += 1
         # Update prior and posterior covariance
         self.hyperparameters_update(
             gamma=gamma, varphi=varphi, scale=scale,
@@ -514,24 +528,10 @@ class VBOrdinalGP(Approximator):
                     self.kernel._general, 0))
         #self.EPS = 0.000001  # Acts as a machine tolerance, controls error
         #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
-        # self.EPS = 0.0001  # perhaps not low enough.
-        self.EPS = 1e-8
+        self.EPS = 1e-4  # perhaps not low enough.
+        # self.EPS = 1e-8
         self.EPS_2 = self.EPS**2 
         #self.EPS = 0.001  # probably too large, will affect convergence 
-        # Threshold of single sided standard deviations that
-        # normal cdf can be approximated to 0 or 1
-        # More than this + redundancy leads to numerical instability
-        # due to catestrophic cancellation
-        # Less than this leads to a poor approximation due to series
-        # expansion at infinity truncation
-        # Good values found between 4 and 6
-        self.upper_bound = 6
-        # More than this + redundancy leads to numerical
-        # instability due to overflow
-        # Less than this results in poor approximation due to
-        # neglected probability mass in the tails
-        # Good values found between 18 and 30
-        self.upper_bound2 = 30
         # Tends to work well in practice - should it be made smaller?
         # Just keep it consistent
         # self.jitter = 1e-6
@@ -748,6 +748,7 @@ class VBOrdinalGP(Approximator):
     def _predict_vector(
             self, gamma, cov, y, noise_variance, X_test):
         """
+        TODO: probably a way to do this with just the posterior mean?
         Make variational Bayes prediction over classes of X_test given the
         posterior samples.
 
@@ -1000,58 +1001,59 @@ class VBOrdinalGP(Approximator):
         :return: fx
         :rtype: float
         """
-        # For gx[0] -- ln\sigma  # TODO: currently seems analytically incorrect
-        if indices[0]:
-            one = N - noise_variance * trace_cov
-            sigma_dp = dp(m, gamma_ts, gamma_tplus1s, noise_std,
-                self.upper_bound, self.upper_bound2)
-            two = - (1. / noise_std) * np.sum(sigma_dp)
-            if verbose:
-                print("one ", one)
-                print("two ", two)
-                print("gx_sigma = ", one + two)
-            gx[0] = one + two
-        # For gx[1] -- \b_1
-        if indices[1]:
-            # TODO: treat these with numerical stability, or fix them
-            intermediate_vector_1s = np.divide(norm_pdf_z1s, Z)
-            intermediate_vector_2s = np.divide(norm_pdf_z2s, Z)
-            indices = np.where(self.t_train == 0)
-            gx[1] += np.sum(intermediate_vector_1s[indices])
-            for j in range(2, self.J):
-                indices = np.where(self.t_train == j - 1)
-                gx[j - 1] -= np.sum(intermediate_vector_2s[indices])
-                gx[j] += np.sum(intermediate_vector_1s[indices])
-            # gx[self.J] -= 0  # Since J is number of classes
-            gx[1:self.J] /= noise_std
-            # For gx[2:self.J] -- ln\Delta^r
-            gx[2:self.J] *= intervals
-            if verbose:
-                print(gx[2:self.J])
-        # For gx[self.J] -- s
-        if indices[self.J]:
-            raise ValueError("TODO")
-        # For kernel parameters
-        if indices[self.J + 1]:
-            if self.kernel._general and self.kernel._ARD:
+        if indices is not None:
+            # For gx[0] -- ln\sigma  # TODO: currently seems analytically incorrect
+            if indices[0]:
+                one = N - noise_variance * trace_cov
+                sigma_dp = dp(m, gamma_ts, gamma_tplus1s, noise_std,
+                    self.upper_bound, self.upper_bound2)
+                two = - (1. / noise_std) * np.sum(sigma_dp)
+                if verbose:
+                    print("one ", one)
+                    print("two ", two)
+                    print("gx_sigma = ", one + two)
+                gx[0] = one + two
+            # For gx[1] -- \b_1
+            if indices[1]:
+                # TODO: treat these with numerical stability, or fix them
+                intermediate_vector_1s = np.divide(norm_pdf_z1s, Z)
+                intermediate_vector_2s = np.divide(norm_pdf_z2s, Z)
+                indices = np.where(self.t_train == 0)
+                gx[1] += np.sum(intermediate_vector_1s[indices])
+                for j in range(2, self.J):
+                    indices = np.where(self.t_train == j - 1)
+                    gx[j - 1] -= np.sum(intermediate_vector_2s[indices])
+                    gx[j] += np.sum(intermediate_vector_1s[indices])
+                # gx[self.J] -= 0  # Since J is number of classes
+                gx[1:self.J] /= noise_std
+                # For gx[2:self.J] -- ln\Delta^r
+                gx[2:self.J] *= intervals
+                if verbose:
+                    print(gx[2:self.J])
+            # For gx[self.J] -- s
+            if indices[self.J]:
                 raise ValueError("TODO")
-            else:
-                if numerical_stability is True:
-                    # Update gx[-1], the partial derivative of the lower bound
-                    # wrt the lengthscale. Using matrix inversion Lemma
-                    one = (varphi / 2) * nu.T @ partial_K_varphi @ nu
-                    # TODO: slower but what about @jit compile CPU or GPU?
-                    # D = solve_triangular(
-                    #     L_cov.T, partial_K_varphi, lower=True)
-                    # D_inv = solve_triangular(L_cov, D, lower=False)
-                    # two = - (varphi / 2) * np.trace(D_inv)
-                    two = - (varphi / 2) * np.einsum(
-                        'ij, ji ->', partial_K_varphi, cov)
-                    gx[self.J + 1] = one + two
-                    if verbose:
-                        print("one", one)
-                        print("two", two)
-                        print("gx = {}".format(gx[self.J + 1]))
+            # For kernel parameters
+            if indices[self.J + 1]:
+                if self.kernel._general and self.kernel._ARD:
+                    raise ValueError("TODO")
+                else:
+                    if numerical_stability is True:
+                        # Update gx[-1], the partial derivative of the lower bound
+                        # wrt the lengthscale. Using matrix inversion Lemma
+                        one = (varphi / 2) * nu.T @ partial_K_varphi @ nu
+                        # TODO: slower but what about @jit compile CPU or GPU?
+                        # D = solve_triangular(
+                        #     L_cov.T, partial_K_varphi, lower=True)
+                        # D_inv = solve_triangular(L_cov, D, lower=False)
+                        # two = - (varphi / 2) * np.trace(D_inv)
+                        two = - (varphi / 2) * np.einsum(
+                            'ij, ji ->', partial_K_varphi, cov)
+                        gx[self.J + 1] = one + two
+                        if verbose:
+                            print("one", one)
+                            print("two", two)
+                            print("gx = {}".format(gx[self.J + 1]))
         return -gx
 
     def grid_over_hyperparameters(
@@ -1138,7 +1140,8 @@ class VBOrdinalGP(Approximator):
             return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
 
     def approximate_posterior(
-            self, theta, indices, steps=None, first_step=1, calculate_posterior_cov=True, write=False, verbose=True):
+            self, theta, indices, steps=None, first_step=1,
+            calculate_posterior_cov=True, write=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -1174,23 +1177,23 @@ class VBOrdinalGP(Approximator):
                 self.noise_variance, self.log_det_K, self.log_det_cov)
             error = np.abs(fx_old - fx)
             fx_old = fx
-            print("({}), error={}".format(iteration, error))
+            if verbose:
+                print("({}), error={}".format(iteration, error))
         gx = self.objective_gradient(
             gx.copy(), intervals, self.gamma_ts, self.gamma_tplus1s,
             self.kernel.varphi, self.noise_variance, self.noise_std,
             posterior_mean_0, nu, self.cov, self.trace_cov,
             self.partial_K_varphi, self.N, Z,
             norm_pdf_z1s, norm_pdf_z2s, indices,
-            numerical_stability=True, verbose=True)
+            numerical_stability=True, verbose=False)
         gx = gx[indices_where]
         if verbose:
-            print("gamma=", repr(self.gamma), ", ")
-            print("varphi=", self.kernel.varphi)
-            print("noise_variance=", self.noise_variance, ", ")
-            print("scale=", self.kernel.scale, ", ")
-            print("\nfunction_eval={}\n jacobian_eval={}".format(
-                fx, gx))
-        else:
+            # print("gamma=", repr(self.gamma), ", ")
+            # print("varphi=", self.kernel.varphi)
+            # print("noise_variance=", self.noise_variance, ", ")
+            # print("scale=", self.kernel.scale, ", ")
+            # print("\nfunction_eval={}\n jacobian_eval={}".format(
+            #     fx, gx))
             print(
                 "gamma={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
@@ -1265,12 +1268,9 @@ class EPOrdinalGP(Approximator):
                 "The kernel must not be general type (kernel._general=1),"
                 " but simple type (kernel._general=0). "
                 "(got {}, expected)".format(self.kernel._general, 0))
-        self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
-        #self.EPS = 0.001
+        self.EPS = 1e-4  # perhaps too large
+        # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
-        # Threshold of single sided standard deviations
-        # that normal cdf can be approximated to 0 or 1
-        self.upper_bound = 4
         self.jitter = 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
@@ -2326,61 +2326,62 @@ class EPOrdinalGP(Approximator):
         :return: gx
         :rtype: float
         """
-        # Update gx
-        if indices[0]:
-            # For gx[0] -- ln\sigma
-            gx[0] = np.sum(t5 - t4)
-            # gx[0] *= -0.5 * noise_variance  # This is a typo in the Chu code
-            gx[0] *= np.sqrt(noise_variance)
-        # For gx[1] -- \b_1
-        if indices[1]:
-            gx[1] = np.sum(t3 - t2)
-        # For gx[2] -- ln\Delta^r
-        for j in range(2, self.J):
-            if indices[j]:
-                targets = self.t_train[self.grid]
-                gx[j] = np.sum(t3[targets == j - 1])
-                gx[j] -= np.sum(t2[targets == self.J - 1])
-                # TODO: check this, since it may be an `else` condition!!!!
-                gx[j] += np.sum(t3[targets > j - 1] - t2[targets > j - 1])
-                gx[j] *= intervals[j - 2]
-        # For gx[self.J] -- scale
-        if indices[self.J]:
-            # For gx[self.J] -- s
-            # TODO: Need to check this is correct: is it directly analogous to
-            # gradient wrt log varphi?
-            partial_K_s = self.kernel.kernel_partial_derivative_s(
-                self.X_train, self.X_train)
-            # VC * VC * a' * partial_K_varphi * a / 2
-            gx[self.J] = varphi * 0.5 * weights.T @ partial_K_s @ weights  # That's wrong. not the same calculation.
-            # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_K_varphi)
-            gx[self.J] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_K_s))
-            # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
-            # gx[self.J] -= 0.1 * varphi
-            gx[self.J] *= 2.0  # since varphi = kappa / 2
-        # For gx[self.J + 1] -- varphi
-        if indices[self.J + 1]:
-            partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
-                self.X_train, self.X_train)
-            if self.kernel._general and self.kernel._ARD:
-                raise ValueError("TODO")
-            # elif 1:
-            #     gx[self.J + 1] = varphi * 0.5 * weights.T @ partial_K_varphi @ weights
-            # TODO: This needs fixing/ checking vs original code
-            elif 0:
-                for l in range(self.kernel.L):
-                    K = self.kernel.num_hyperparameters[l]
-                    KK = 0
-                    for k in range(K):
-                        gx[self.J + KK + k] = varphi[l] * 0.5 * weights.T @ partial_K_varphi[l][k] @ weights
-                    KK += K
-            else:
+        if indices is not None:
+            # Update gx
+            if indices[0]:
+                # For gx[0] -- ln\sigma
+                gx[0] = np.sum(t5 - t4)
+                # gx[0] *= -0.5 * noise_variance  # This is a typo in the Chu code
+                gx[0] *= np.sqrt(noise_variance)
+            # For gx[1] -- \b_1
+            if indices[1]:
+                gx[1] = np.sum(t3 - t2)
+            # For gx[2] -- ln\Delta^r
+            for j in range(2, self.J):
+                if indices[j]:
+                    targets = self.t_train[self.grid]
+                    gx[j] = np.sum(t3[targets == j - 1])
+                    gx[j] -= np.sum(t2[targets == self.J - 1])
+                    # TODO: check this, since it may be an `else` condition!!!!
+                    gx[j] += np.sum(t3[targets > j - 1] - t2[targets > j - 1])
+                    gx[j] *= intervals[j - 2]
+            # For gx[self.J] -- scale
+            if indices[self.J]:
+                # For gx[self.J] -- s
+                # TODO: Need to check this is correct: is it directly analogous to
+                # gradient wrt log varphi?
+                partial_K_s = self.kernel.kernel_partial_derivative_s(
+                    self.X_train, self.X_train)
                 # VC * VC * a' * partial_K_varphi * a / 2
-                gx[self.J + 1] = varphi * 0.5 * weights.T @ partial_K_varphi @ weights  # That's wrong. not the same calculation.
+                gx[self.J] = varphi * 0.5 * weights.T @ partial_K_s @ weights  # That's wrong. not the same calculation.
                 # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_K_varphi)
-                gx[self.J + 1] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_K_varphi))
+                gx[self.J] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_K_s))
                 # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
                 # gx[self.J] -= 0.1 * varphi
+                gx[self.J] *= 2.0  # since varphi = kappa / 2
+            # For gx[self.J + 1] -- varphi
+            if indices[self.J + 1]:
+                partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
+                    self.X_train, self.X_train)
+                if self.kernel._general and self.kernel._ARD:
+                    raise ValueError("TODO")
+                # elif 1:
+                #     gx[self.J + 1] = varphi * 0.5 * weights.T @ partial_K_varphi @ weights
+                # TODO: This needs fixing/ checking vs original code
+                elif 0:
+                    for l in range(self.kernel.L):
+                        K = self.kernel.num_hyperparameters[l]
+                        KK = 0
+                        for k in range(K):
+                            gx[self.J + KK + k] = varphi[l] * 0.5 * weights.T @ partial_K_varphi[l][k] @ weights
+                        KK += K
+                else:
+                    # VC * VC * a' * partial_K_varphi * a / 2
+                    gx[self.J + 1] = varphi * 0.5 * weights.T @ partial_K_varphi @ weights  # That's wrong. not the same calculation.
+                    # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_K_varphi)
+                    gx[self.J + 1] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_K_varphi))
+                    # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
+                    # gx[self.J] -= 0.1 * varphi
         return -gx
 
     def approximate_evidence(self, mean_EP, precision_EP, amplitude_EP, posterior_cov):
@@ -2498,11 +2499,9 @@ class LaplaceOrdinalGP(Approximator):
                 " but simple type (kernel._general=0). "
                 "(got {}, expected)".format(self.kernel._general, 0))
         # self.EPS = 0.001  # Acts as a machine tolerance
-        self.EPS = 1e-6
+        self.EPS = 1e-4
+        # self.EPS = 1e-6
         self.EPS_2 = self.EPS**2
-        # Threshold of single sided standard deviations
-        # that normal cdf can be approximated to 0 or 1
-        self.upper_bound = 4
         # self.jitter = 1e-6
         self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
         # Initiate hyperparameters
@@ -2596,7 +2595,8 @@ class LaplaceOrdinalGP(Approximator):
         # so no update here.
 
     def _approximate_log_marginal_likelihood(
-        self, posterior_cov, precision_EP, amplitude_EP, mean_EP, numerical_stability):
+            self, posterior_cov, precision_EP,
+            amplitude_EP, mean_EP, numerical_stability):
         """
         Calculate the approximate log marginal likelihood. TODO: need to finish this.
 
@@ -2630,7 +2630,8 @@ class LaplaceOrdinalGP(Approximator):
             return np.sum(approximate_marginal_likelihood)
 
     def _predict_vector(
-            self, gamma, invcov, posterior_mean, varphi, noise_variance, X_test):
+            self, gamma, invcov,
+            posterior_mean, varphi, noise_variance, X_test):
         """
         Make EP prediction over classes of X_test given the posterior samples.
         :arg gamma: (J + 1, ) array of the cutpoints.
@@ -2824,8 +2825,8 @@ class LaplaceOrdinalGP(Approximator):
             np.diag(1./ precision) + self.K)
         L_covT_inv = solve_triangular(
             L_cov.T, np.eye(self.N), lower=True)
-        cov = solve_triangular(L_cov, L_covT_inv, lower=False)
-        return weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, cov, Z
+        inv_cov = solve_triangular(L_cov, L_covT_inv, lower=False)
+        return weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, inv_cov, Z
 
     def objective(self, weight, precision, L_cov, Z):
         """
@@ -2908,78 +2909,79 @@ class LaplaceOrdinalGP(Approximator):
         :return: gx
         :rtype: float
         """
-        # compute a diagonal
-        dsigma = cov @ K
-        diag = np.diag(dsigma) / precision
-        # partial lambda / partial theta_b = - partial lambda / partial f (* SIGMA)
-        t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1) - 2.0 * (w2 - w1)**3 - (v2 - v1)) / noise_variance
-        # Update gx
-        if indices[0]:
-            # For gx[0] -- ln\sigma
-            cache = (w2 - w1) * ((g2 - g1) - (w2 - w1) + (v2 - v1)) / noise_variance
-            # prepare D f / D delta_l
-            t2 = - dsigma @ cache / precision
-            tmp = (
-                - 2.0 * precision
-                + 2.0 * (w2 - w1) * (v2 - v1)
-                + 2.0 * (w2 - w1)**2 * (g2 - g1)
-                - (g2 - g1)
-                + (g2 - g1)**2
-                + (q2 - q1) / noise_variance)
-            gx[0] = np.sum(g2 - g1 + 0.5 * (tmp - t2 * t1) * diag)
-            gx[0] = - gx[0] / 2.0 * noise_variance
-        # For gx[1] -- \b_1
-        if indices[1]:
-            # For gx[1], \theta_b^1
-            t2 = dsigma @ precision
-            t2 = t2 / precision
-            gx[1] -= np.sum(w2 - w1)
-            gx[1] += 0.5 * np.sum(t1 * (1 - t2) * diag)
-            gx[1] = gx[1] / noise_std
-        # For gx[2] -- ln\Delta^r
-        for j in range(2, self.J):
-            targets = self.t_train[self.grid]
-            # Prepare D f / D delta_l
-            cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
-            cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
-            if indices[j]:
-                idxj = np.where(targets == j - 1)
-                idxg = np.where(targets > j - 1)
-                idxl = np.where(targets < j - 1)
-                cache = np.zeros(N)
-                cache[idxj] = cache0[idxj]
-                cache[idxg] = cache1[idxg]
-                t2 = dsigma @ cache
+        if indices is not None:
+            # compute a diagonal
+            dsigma = cov @ K
+            diag = np.diag(dsigma) / precision
+            # partial lambda / partial theta_b = - partial lambda / partial f (* SIGMA)
+            t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1) - 2.0 * (w2 - w1)**3 - (v2 - v1)) / noise_variance
+            # Update gx
+            if indices[0]:
+                # For gx[0] -- ln\sigma
+                cache = (w2 - w1) * ((g2 - g1) - (w2 - w1) + (v2 - v1)) / noise_variance
+                # prepare D f / D delta_l
+                t2 = - dsigma @ cache / precision
+                tmp = (
+                    - 2.0 * precision
+                    + 2.0 * (w2 - w1) * (v2 - v1)
+                    + 2.0 * (w2 - w1)**2 * (g2 - g1)
+                    - (g2 - g1)
+                    + (g2 - g1)**2
+                    + (q2 - q1) / noise_variance)
+                gx[0] = np.sum(g2 - g1 + 0.5 * (tmp - t2 * t1) * diag)
+                gx[0] = - gx[0] / 2.0 * noise_variance
+            # For gx[1] -- \b_1
+            if indices[1]:
+                # For gx[1], \theta_b^1
+                t2 = dsigma @ precision
                 t2 = t2 / precision
-                gx[j] -= np.sum(w2[idxj])
-                temp = (
-                    w2[idxj]
-                    - 2.0 * (w2[idxj] - w1[idxj]) * g2[idxj]
-                    - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
-                    - v2[idxj]
-                    - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
-                gx[j] += 0.5 * np.sum((temp[idxj] - t2[idxj] * t1[idxj]) * diag[idxj])
-                gx[j] -= np.sum(w2[idxg] - w1[idxg])
-                gx[j] += 0.5 * np.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
-                gx[j] += 0.5 * np.sum(-t2[idxl] * t1[idxl] * diag[idxl])
-                gx[j] = gx[j] * intervals[j - 1] / noise_std
-        # For gx[self.J] -- scale
-        if indices[self.J]:
-            raise ValueError("TODO")
-        # For gx[self.J + 1] -- varphi
-        if indices[self.J + 1]:
-            partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
-                self.X_train, self.X_train)
-            if self.kernel._general and self.kernel._ARD:
+                gx[1] -= np.sum(w2 - w1)
+                gx[1] += 0.5 * np.sum(t1 * (1 - t2) * diag)
+                gx[1] = gx[1] / noise_std
+            # For gx[2] -- ln\Delta^r
+            for j in range(2, self.J):
+                targets = self.t_train[self.grid]
+                # Prepare D f / D delta_l
+                cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
+                cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
+                if indices[j]:
+                    idxj = np.where(targets == j - 1)
+                    idxg = np.where(targets > j - 1)
+                    idxl = np.where(targets < j - 1)
+                    cache = np.zeros(N)
+                    cache[idxj] = cache0[idxj]
+                    cache[idxg] = cache1[idxg]
+                    t2 = dsigma @ cache
+                    t2 = t2 / precision
+                    gx[j] -= np.sum(w2[idxj])
+                    temp = (
+                        w2[idxj]
+                        - 2.0 * (w2[idxj] - w1[idxj]) * g2[idxj]
+                        - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
+                        - v2[idxj]
+                        - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
+                    gx[j] += 0.5 * np.sum((temp[idxj] - t2[idxj] * t1[idxj]) * diag[idxj])
+                    gx[j] -= np.sum(w2[idxg] - w1[idxg])
+                    gx[j] += 0.5 * np.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
+                    gx[j] += 0.5 * np.sum(-t2[idxl] * t1[idxl] * diag[idxl])
+                    gx[j] = gx[j] * intervals[j - 1] / noise_std
+            # For gx[self.J] -- scale
+            if indices[self.J]:
                 raise ValueError("TODO")
-            else:
-                dmat = partial_K_varphi @ cov
-                t2 = (dmat @ weight) / precision
-                gx[self.J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
-                gx[self.J + 1] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
-                gx[self.J + 1] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
-                # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
-                # gx[self.J] -= 0.1 * varphi
+            # For gx[self.J + 1] -- varphi
+            if indices[self.J + 1]:
+                partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
+                    self.X_train, self.X_train)
+                if self.kernel._general and self.kernel._ARD:
+                    raise ValueError("TODO")
+                else:
+                    dmat = partial_K_varphi @ cov
+                    t2 = (dmat @ weight) / precision
+                    gx[self.J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
+                    gx[self.J + 1] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
+                    gx[self.J + 1] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
+                    # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
+                    # gx[self.J] -= 0.1 * varphi
         return gx
 
     def _approximate_initiate(
@@ -3058,20 +3060,18 @@ class LaplaceOrdinalGP(Approximator):
         for step in trange(first_step, first_step + steps,
                         desc="Laplace GP priors Approximator Progress",
                         unit="iterations", disable=True):
-            (Z,
-            norm_pdf_z1s, norm_pdf_z2s,
-            z1s, z2s,
-            norm_cdf_z1s, norm_cdf_z2s) = truncated_norm_normalising_constant(
-                self.gamma_ts, self.gamma_tplus1s, self.noise_std, posterior_mean, self.EPS)
+            (Z, norm_pdf_z1s, norm_pdf_z2s,
+                z1s, z2s,
+                norm_cdf_z1s, norm_cdf_z2s
+                ) = truncated_norm_normalising_constant(
+                self.gamma_ts, self.gamma_tplus1s, self.noise_std,
+                posterior_mean, self.EPS, upper_bound=self.upper_bound)
             weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
             z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
             z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
             precision  = weight**2 + (z2s * norm_pdf_z2s - z1s * norm_pdf_z1s) / Z / self.noise_variance
             L_cov = self.K + np.diag(1. / precision)
             m = - self.K @ weight + posterior_mean
-            # L_cov = np.linalg.cholesky(L_cov)  # TODO
-            # L_cov_inv = np.linalg.inv(L_cov)
-            # invcov = L_cov_inv.T @ L_cov_inv
             L_cov, _ = cho_factor(L_cov)
             L_covT_inv = solve_triangular(
                 L_cov.T, np.eye(self.N), lower=True)
@@ -3087,7 +3087,9 @@ class LaplaceOrdinalGP(Approximator):
 
     def approximate_posterior(
             self, theta, indices, steps=None,
-            posterior_mean_0=None, first_step=1, write=False, verbose=False):
+            posterior_mean_0=None,
+            calculate_posterior_cov=True, first_step=1,
+            write=False, verbose=False):
         """
         Newton-Raphson.
 
@@ -3143,14 +3145,22 @@ class LaplaceOrdinalGP(Approximator):
                 "\ngamma={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
                     self.gamma, self.noise_variance, self.kernel.varphi, fx))
-        #return fx, gx, posterior_mean, (self.noise_variance * self.K @ cov, False)
-        # Inverse of K
-        L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
-        L_KT_inv = solve_triangular(
-            L_K.T, np.eye(self.N), lower=True)
-        K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
-        posterior_inv_cov = K_inv + np.diag(precision)
-        return fx, gx, posterior_mean, (posterior_inv_cov, True)
+
+        if calculate_posterior_cov:
+            # Inverse of K
+            L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
+            L_KT_inv = solve_triangular(
+                L_K.T, np.eye(self.N), lower=True)
+            K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
+            posterior_inv_cov = K_inv + np.diag(precision)
+            return fx, gx, posterior_mean, (posterior_inv_cov, True)
+        elif calculate_posterior_cov:
+            return fx, gx, posterior_mean, (self.noise_variance * self.K @ cov, False)
+        elif calculate_posterior_cov is None:
+            return fx, gx, posterior_mean, (cov, True)
+
+
+        
 
   
 class CutpointValueError(Exception):

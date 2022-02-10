@@ -14,18 +14,17 @@ def plot(classifier, posterior_mean_0, steps, J, D, domain=None):
     error = np.inf
     while error / steps > classifier.EPS:
         iteration += 1
-        (posterior_mean_0, nu, y, p, *_) = classifier.approximate(
+        posterior_mean_0, nu, y, *_ = classifier.approximate(
             steps, posterior_mean_0=posterior_mean_0, first_step=1,
             fix_hyperparameters=True, write=False)
-        (calligraphic_Z,
-        norm_pdf_z1s, norm_pdf_z2s,
-        z1s, z2s, *_) = classifier._calligraphic_Z(
+        Z, *_ = truncated_norm_normalising_constant(
             classifier.gamma_ts, classifier.gamma_tplus1s,
-            classifier.noise_std, posterior_mean_0)
+            classifier.noise_std, posterior_mean_0,
+            classifier.EPS)
         fx = classifier.objective(
             classifier.N, posterior_mean_0, nu, classifier.trace_cov,
             classifier.trace_posterior_cov_div_var,
-            calligraphic_Z,
+            Z,
             classifier.noise_variance,
             classifier.log_det_K, classifier.log_det_cov)
         error = np.abs(fx_old - fx)  # TODO: redundant?
@@ -325,23 +324,20 @@ def test(
     error = np.inf
     fx_old = np.inf
     posterior_mean_0 = None
+    # TODO: replace with approximate_posterior
     while error / steps > classifier.EPS:
         iteration += 1
-        (posterior_mean_0, nu, y, p, *_) = classifier.approximate(
+        (posterior_mean_0, nu, y, *_) = classifier.approximate(
             steps, posterior_mean_0=posterior_mean_0, first_step=1, write=False)
-        (calligraphic_Z,
-        norm_pdf_z1s,
-        norm_pdf_z2s,
-        z1s,
-        z2s,
-        *_)= classifier._calligraphic_Z(
+        Z, *_ = truncated_norm_normalising_constant(
             classifier.gamma_ts, classifier.gamma_tplus1s,
-            classifier.noise_std, posterior_mean_0)
+            classifier.noise_std, posterior_mean_0,
+            classifier.EPS)
         fx = classifier.objective(
             classifier.N, posterior_mean_0, nu,
             classifier.trace_cov,
             classifier.trace_posterior_cov_div_var,
-            calligraphic_Z, classifier.noise_variance,
+            Z, classifier.noise_variance,
             classifier.log_det_K,
             classifier.log_det_cov)
         error = np.abs(fx_old - fx)

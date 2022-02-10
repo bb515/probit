@@ -1,4 +1,13 @@
 """Utility functions for data."""
+# Make sure to limit CPU usage
+import os
+nthreads = "1"
+os.environ["OMP_NUM_THREADS"] = nthreads # export OMP_NUM_THREADS=4
+os.environ["OPENBLAS_NUM_THREADS"] = nthreads # export OPENBLAS_NUM_THREADS=4 
+os.environ["MKL_NUM_THREADS"] = nthreads # export MKL_NUM_THREADS=6
+os.environ["VECLIB_MAXIMUM_THREADS"] = nthreads # export VECLIB_MAXIMUM_THREADS=4
+os.environ["NUMEXPR_NUM_THREADS"] = nthreads # export NUMEXPR_NUM_THREADS=6
+os.environ["NUMBA_NUM_THREADS"] = nthreads
 import numpy as np
 import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
@@ -28,6 +37,9 @@ datasets = {
         "SEIso",
         "Linear",
         "figure2",
+        "figure2alt",
+        "figure2alt2",
+        "13"
     ]
 }
 
@@ -439,7 +451,7 @@ def generate_prior_data_paper(
     assert np.shape(Y) == (N_total,)
     assert np.shape(t) == (N_total,)
     if plot:
-        plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, N_show=N_show) 
+        plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=N_show) 
     return (
         N_show, N_total, X_js, Y_js, X, Y, t, gamma,
         X_trains, Y_trains, t_trains,
@@ -1466,7 +1478,7 @@ def generate_synthetic_data_paper(
         N_validate_per_class=N_validate_per_class, splits=splits, J=J, D=D, kernel=kernel,
         noise_variance=noise_variance, colors=colors, cmap=cmap, N_show=100, plot=True, seed=517)
     # Save data
-    np.savez('tertile_SEIso_scale=1.0_noisevar={}_lengthscale={}.npz'.format(scale, noise_variance, varphi),
+    np.savez('tertile_SEIso_scale={}_noisevar={}_lengthscale={}.npz'.format(scale, noise_variance, varphi),
         N_show=N_show, N=N, J=J, D=D,
         X_js=X_js, Y_js=Y_js,
         X=X, Y=Y, t=t,
@@ -1728,6 +1740,84 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
                 data["scale"]
             )
         }
+    elif dataset == "figure2alt":
+        Kernel = LabEQ
+        from probit.data.paper import figure2
+        with pkg_resources.path(figure2, 'tertile_SEIso_scale=1.0_noisevar=0.1_lengthscale=10.0.npz') as path:
+            data = np.load(path)
+        if plot:
+            N_show = data["N_show"]
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            X_js = data["X_js"]
+            Y_js = data["Y_js"]
+        X = data["X"]
+        Y = data["Y"]
+        t = data["t"]
+        # N = data["N"]
+        colors = data["colors"]
+        J = data["J"]
+        D = data["D"]
+        hyperparameters = {
+            "true" : (
+                data["gamma"],
+                data["varphi"],
+                data["noise_variance"],
+                data["scale"]
+            )
+        }
+    elif dataset == "figure2alt2":
+        Kernel = LabEQ
+        from probit.data.paper import figure2
+        with pkg_resources.path(figure2, 'tertile_SEIso_scale=1.0_noisevar=0.1_lengthscale=30.0.npz') as path:
+            data = np.load(path)
+        if plot:
+            N_show = data["N_show"]
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            X_js = data["X_js"]
+            Y_js = data["Y_js"]
+        X = data["X"]
+        Y = data["Y"]
+        t = data["t"]
+        # N = data["N"]
+        colors = data["colors"]
+        J = data["J"]
+        D = data["D"]
+        hyperparameters = {
+            "true" : (
+                data["gamma"],
+                data["varphi"],
+                data["noise_variance"],
+                data["scale"]
+            )
+        }
+    elif dataset == "13":
+        Kernel = LabEQ
+        from probit.data.paper import figure2
+        with pkg_resources.path(figure2, '13_SEIso_scale=1.0_noisevar=0.1_lengthscale=30.0.npz') as path:
+            data = np.load(path)
+        if plot:
+            N_show = data["N_show"]
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            X_js = data["X_js"]
+            Y_js = data["Y_js"]
+        X = data["X"]
+        Y = data["Y"]
+        t = data["t"]
+        # N = data["N"]
+        colors = data["colors"]
+        J = data["J"]
+        D = data["D"]
+        hyperparameters = {
+            "true" : (
+                data["gamma"],
+                data["varphi"],
+                data["noise_variance"],
+                data["scale"]
+            )
+        }
     elif dataset == "table1":
         if D is None:
             raise ValueError(
@@ -1945,7 +2035,7 @@ class MinimizeStopper(object):
 
 
 if __name__ == "__main__":
-    J = 3
+    J = 13
     cmap = plt.cm.get_cmap('viridis', J)    # J discrete colors
     colors = []
     for j in range(J):
@@ -1954,8 +2044,8 @@ if __name__ == "__main__":
     # varphi = gamma_.rvs(a=1.0, scale=np.sqrt(D))
     # noise_variance = gamma_.rvs(a=1.2, scale=1./0.2)
     generate_synthetic_data_paper(
-        varphi=1.4, noise_variance=0.1, scale=1.0, N_train_per_class=100, N_test_per_class=0,
-        N_validate_per_class=0, N_show=100,
+        varphi=30.0, noise_variance=0.1, scale=1.0, N_train_per_class=100,
+        N_test_per_class=0, N_validate_per_class=0, N_show=100,
         splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)
     # SS TODO: delete
     # generate_synthetic_data_new(

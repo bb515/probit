@@ -164,7 +164,7 @@ def train(classifier, method, indices, max_sec=5000):
     negative log marginal likelihood (or bound thereof).
 
     :arg classifier:
-    :type classifier: :class:`probit.estimators.Estimator`
+    :type classifier: :class:`probit.estimators.Approximator`
         or :class:`probit.samplers.Sampler`
     :arg str method: "CG" or "L-BFGS-B" seem to be widely used and work well.
     :arg indices: Binary array or list of indices indicating which
@@ -184,6 +184,68 @@ def train(classifier, method, indices, max_sec=5000):
         args, method=method, jac=True,
         callback = minimize_stopper.__call__)
     return classifier
+
+
+def test(classifier, X_test, t_test, y_test, steps, domain=None):
+    """
+    Test the trained model.
+
+    :arg classifier:
+    :type classifier: :class:`probit.approximator.Approximator`
+        or :class:`probit.samplers.Sampler`
+    """
+    (fx, gx,
+    posterior_mean, (posterior_inv_cov, is_inv)
+    ) = classifier.approximate_posterior(
+            None, None, steps=steps, first_step=1,
+            calculate_posterior_cov=None,
+            write=False, verbose=True)
+    # Test
+    (Z,
+    posterior_predictive_m,
+    posterior_std) = classifier.predict(
+        classifier.gamma, posterior_inv_cov, posterior_mean,
+        classifier.kernel.varphi,
+        classifier.noise_variance, X_test, vectorised=True)
+    if domain is not None:
+        (x_lims, y_lims) = domain
+        N = 75
+        x1 = np.linspace(x_lims[0], x_lims[1], N)
+        x2 = np.linspace(y_lims[0], y_lims[1], N)
+        xx, yy = np.meshgrid(x1, x2)
+        X_new = np.dstack((xx, yy))
+        X_new = X_new.reshape((N * N, 2))
+        X_new_ = np.zeros((N * N, classifier.D))
+        X_new_[:, :2] = X_new
+        (Z,
+        posterior_predictive_m,
+        posterior_std) = classifier.predict(
+            classifier.gamma, posterior_inv_cov, posterior_mean,
+            classifier.kernel.varphi,
+            classifier.noise_variance, X_new_, vectorised=True)
+        Z_new = Z.reshape((N, N, classifier.J))
+        print(np.sum(Z, axis=1), 'sum')
+        for j in range(classifier.J):
+            fig, axs = plt.subplots(1, figsize=(6, 6))
+            plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
+            plt.scatter(
+                classifier.X_train[np.where(classifier.t_train == j)][:, 0],
+                classifier.X_train[np.where(classifier.t_train == j)][:, 1],
+                color='red')
+            plt.scatter(
+                X_test[np.where(t_test == j)][:, 0],
+                X_test[np.where(t_test == j)][:, 1], color='blue')
+            # plt.scatter(
+            #   X_train[np.where(t == j + 1)][:, 0],
+            #   X_train[np.where(t == j + 1)][:, 1],
+            #   color='blue')
+            # plt.xlim(0, 2)
+            # plt.ylim(0, 2)
+            plt.xlabel(r"$x_1$", fontsize=16)
+            plt.ylabel(r"$x_2$", fontsize=16)
+            plt.savefig("contour_EP_{}.png".format(j))
+            plt.close()
+    return fx, calculate_metrics(y_test, t_test, Z, classifier.gamma)
  
 
 def outer_loop_problem_size(
@@ -868,7 +930,6 @@ def _potential_scale_reduction(
     # m = int(np.prod(np.shape(state)[chain_axis]))
 
     # TODO: temp
-    print(np.shape(state))
     n = int(np.shape(state)[1])
     m = int(np.prod(np.shape(state)[0]))
 
@@ -1089,24 +1150,24 @@ def table1(
     new Gram matrix or not. So the simplest way is to combinate manually.
     """
     approach = "PM"
-    Nsamp = 10000
+    Nsamp = 1000
     Nhyperparameters = 1
     Nchain = 3
-    for N in [50]:
+    for N in [300]:
         for D in [2]:
-            for J in [3]:
-                for approximation in ["EP"]:
-                    for Nimp in [64]:
-                        for ARD in [False, True]:
+            for J in [13]:
+                for approximation in ["VB", "EP", "LA"]:
+                    for Nimp in [128]:
+                        for ARD in [False]:
                             # initiate containers
                             acceptance_rate = np.empty(Nchain)
                             effective_sample_size = np.empty((Nchain, Nhyperparameters))
                             states = np.empty((Nchain, Nsamp, Nhyperparameters))
-                            Rhat = np.empty(5)
+                            Rhat = np.empty(4)
                             if ARD is True:
                                 Nhyperparameters = D + 1  # needed?
                             elif ARD is False: 
-                                Nhyperparameters = 2  # needed?
+                                Nhyperparameters = 1  # needed?
                             for chain in range(Nchain):
                                 # Get the data
                                 data_chain_theta = np.load(
@@ -1118,22 +1179,22 @@ def table1(
                                 effective_sample_size[chain, :] = _effective_sample_size(
                                     states_chain[:, :], filter_beyond_lag=None, filter_beyond_positive_pairs=True)
                             # Find
-                            for i, Nsamp in enumerate([1000, 2000, 5000, 10000]):
+                            for i, N_samp in enumerate([100, 200, 500, 10000]):
+                                # print(_potential_scale_reduction(
+                                #     states[:, :Nsamp, :], independent_chain_ndims=1, split_chains=False))
                                 Rhat[i] = _potential_scale_reduction(
-                                    states[:, :Nsamp, :], independent_chain_ndims=1, split_chains=False)
+                                    states[:, :N_samp, :], independent_chain_ndims=1, split_chains=False)
                             pr1 = np.mean(effective_sample_size, axis=0)
                             pr2 = np.std(effective_sample_size, axis=0)
                             pr30 = Rhat[0]
                             pr31 = Rhat[1]
                             pr32 = Rhat[2]
                             pr33 = Rhat[3]
-                            pr34 = Rhat[4]
                             pr4 = np.mean(acceptance_rate * 100, axis=0)
                             pr5 = np.std(acceptance_rate * 100, axis=0)
-                            print("N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}:".format(
-                                N, D, J, Nimp, ARD, approach, approximation, chain))
-                            print("ESS={}+/-{},  R0={}, R1={}, R2={}, R3={}, R4={}, Acc={}+/-{}".format(
-                                pr1, pr2, pr30, pr31, pr32, pr33, pr34, pr4, pr5))
-                            assert 0
+                            print("N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chains={}:".format(
+                                N, D, J, Nimp, ARD, approach, approximation, chain + 1))
+                            print("ESS={}+/-{},  R0={}, R1={}, R2={}, R3={}, Acc={}+/-{}".format(
+                                pr1, pr2, pr30, pr31, pr32, pr33, pr4, pr5))
     # rc('font', **{'family': 'serif', 'serif': ['Computer Modern Roman'], 'size' : 12})
     # rc('text', usetex=True)

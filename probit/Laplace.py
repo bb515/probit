@@ -89,8 +89,9 @@ def plot_synthetic(
         # plt.savefig("scatter_versus_posterior_mean.png")
         # plt.close()
         print("iteration {}, error={}".format(iteration, error / steps))
-    (weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, inv_cov, cov, Z) = classifier.compute_weights(
-        posterior_mean)
+    (weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, inv_cov, Z
+        ) = classifier.compute_weights(
+            posterior_mean)
     fx = classifier.objective(weight, precision, L_cov, Z)
     if dataset in datasets["synthetic"]:
         if classifier.J == 3:
@@ -223,73 +224,3 @@ def plot_synthetic(
             plt.show()
             plt.close()
     return fx
-
-
-def test(classifier, X_test, t_test, y_test, L=None, Lambda=None, domain=None):
-    """Test the trained model."""
-    steps = classifier.N
-    error = np.inf
-    iteration = 0
-    posterior_mean = None
-    while error / steps > classifier.EPS**2:  # TODO: use EPS_2?
-        iteration += 1
-        (error, weight, posterior_mean, containers) = classifier.approximate(
-            steps, posterior_mean_0=posterior_mean, write=False)
-        print("iteration {}, error={}".format(iteration, error / steps))
-    (weight, epinvvar, L_cov, invcov) = classifier.compute_weights(
-        np.empty(classifier.N), np.empty(classifier.N), classifier.K, classifier.gamma,
-        classifier.t_train, posterior_mean, classifier.noise_std, classifier.J, classifier.N,
-        classifier.EPS)
-    fx, w1, w2, g1, g2, v1, v2, q1, q2 = classifier.objective(
-        weight, epinvvar, classifier.K, classifier.gamma, classifier.t_train, posterior_mean, classifier.noise_std,
-        classifier.J, classifier.N, classifier.EPS)
-    # Test
-    (Z,
-    posterior_predictive_m,
-    posterior_std) = classifier.predict(
-        classifier.gamma, invcov, posterior_mean,
-        classifier.kernel.varphi,
-        classifier.noise_variance, X_test, vectorised=True)
-    # # TODO: Placeholder
-    # fx = 0.0 
-    # Z = np.zeros((len(y_test), J))
-    # Z[:, 4] = 1.0
-    if domain is not None:
-        (x_lims, y_lims) = domain
-        N = 75
-        x1 = np.linspace(x_lims[0], x_lims[1], N)
-        x2 = np.linspace(y_lims[0], y_lims[1], N)
-        xx, yy = np.meshgrid(x1, x2)
-        X_new = np.dstack((xx, yy))
-        X_new = X_new.reshape((N * N, 2))
-        X_new_ = np.zeros((N * N, classifier.D))
-        X_new_[:, :2] = X_new
-        (Z,
-        posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            classifier.gamma, invcov, posterior_mean,
-            classifier.kernel.varphi,
-            classifier.noise_variance, X_new_, vectorised=True)
-        Z_new = Z.reshape((N, N, classifier.J))
-        print(np.sum(Z, axis=1), 'sum')
-        for j in range(classifier.J):
-            fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
-            plt.scatter(
-                classifier.X_train[np.where(classifier.t_train == j)][:, 0],
-                classifier.X_train[np.where(classifier.t_train == j)][:, 1],
-                color='red')
-            plt.scatter(
-                X_test[np.where(t_test == j)][:, 0],
-                X_test[np.where(t_test == j)][:, 1], color='blue')
-            # plt.scatter(
-            #   X_train[np.where(t == j + 1)][:, 0],
-            #   X_train[np.where(t == j + 1)][:, 1],
-            #   color='blue')
-            # plt.xlim(0, 2)
-            # plt.ylim(0, 2)
-            plt.xlabel(r"$x_1$", fontsize=16)
-            plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("contour_EP_{}.png".format(j))
-            plt.close()
-    return fx, calculate_metrics(y_test, t_test, Z, classifier.gamma)

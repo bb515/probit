@@ -931,7 +931,7 @@ class LabEQ(Kernel):
         return B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
 
-class LabCosine(Kernel):
+class LabSharpenedCosine(Kernel):
     r"""
     Uses BLab by WesselB, which is an generic interface for linear algebra
     backends.
@@ -990,8 +990,9 @@ class LabCosine(Kernel):
         :rtype: float
         """
         # TODO: may need to reshape
-        return 1.0 + self.scale * np.dot(X_i, X_j) / (
-            np.linalg.norm(X_i) * np.linalg.norm(X_j))
+        return self.scale * (np.dot(X_i, X_j) / (
+            (np.linalg.norm(X_i) + self.varphi[0])
+            * (np.linalg.norm(X_j) + self.varphi[0])))**self.varphi[1]
         # return (self.scale * B.matmul(B.transpose(X_i), X_j))
         # return (self.scale * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
 
