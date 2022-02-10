@@ -946,7 +946,7 @@ class LabSharpenedCosine(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the scale.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self,  varphi=None, varphi_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`SEIso` kernel object.
 
@@ -958,8 +958,33 @@ class LabSharpenedCosine(Kernel):
         :returns: An :class:`SEIso` object
         """
         super().__init__(*args, **kwargs)
-        self.varphi_hyperparameters = None
-        # This is a kernel for which no hyperparameters are required.
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._initialise_varphi(
+                varphi)
+        else:
+            raise ValueError(
+                "Lengthscale hyperparameter `varphi` must be provided for the "
+                "SEIso kernel class (got {})".format(None))
+        if varphi_hyperparameters is not None:
+            self.varphi_hyperparameters = self._initialise_hyperparameter(self.varphi, varphi_hyperparameters)
+        else:
+            self.varphi_hyperparameters = None
+        # For this kernel, the shared and single kernel for each class
+        # (i.e. non general) and single lengthscale across
+        # all data dims (i.e. non ARD) is assumed.
+        if self.L != 1:
+            raise ValueError(
+                "L wrong for sharpened cosine kernel (expected {}, got {})".format(
+                    1, self.L))
+        if self.M != 2:
+            raise ValueError(
+                "M wrong for sharpened cosine kernel (expected {}, got {})".format(
+                    2, self.M))
+        if self.scale is None:
+            raise ValueError(
+                "You must supply a scale for the sharpened cosine kernel "
+                "(expected {} type, got {})".format(float, self.scale))
+        self.num_hyperparameters = np.size(self.varphi)
 
     @property
     def _ARD(self):
@@ -1007,10 +1032,11 @@ class LabSharpenedCosine(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return 1.0 + self.scale * np.einsum('k, ik -> i', x_new, X) / (np.linalg.norm(x_new) * np.linalg.norm(X, axis=1))
+        return self.scale * (np.einsum('k, ik -> i', x_new, X) / (
+            (np.linalg.norm(x_new) + self.varphi[0]) * (np.linalg.norm(X, axis=1) + self.varphi[0])))**self.varphi[1]
 
     def kernel_prior_diagonal(self, X):
-        return 1.0 + self.scale * np.ones(np.shape(X)[0])
+        return self.scale * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
         """
@@ -1023,8 +1049,9 @@ class LabSharpenedCosine(Kernel):
         :return: (N,) Gram diagonal.
         :rtype: class:`numpy.ndarray`
         """
-        return 1.0 + self.scale * np.einsum('ik, jk -> ij', X1, X2) / (
-            np.outer(np.linalg.norm(X1, axis=1), np.linalg.norm(X2, axis=1)))
+        return self.scale * (np.einsum('ik, ik -> i', X1, X2) / (
+            (np.linalg.norm(X1, axis=1) + self.varphi[0])
+            * (np.linalg.norm(X2, axis=1) + self.varphi[0])))**self.varphi[1]
         # return self.scale * B.exp(-self.varphi * B.ew_dists2(X1, X2))
 
     def kernel_matrix(self, X1, X2):
@@ -1038,8 +1065,11 @@ class LabSharpenedCosine(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return 1.0 + self.scale * np.einsum('ik, jk -> ij', X1, X2) / (
-            np.outer(np.linalg.norm(X1, axis=1), np.linalg.norm(X2, axis=1)))
+        return self.scale * (np.einsum('ik, jk -> ij', X1, X2) / (
+            np.outer(
+                (np.linalg.norm(X1, axis=1) + self.varphi[0]),
+                (np.linalg.norm(X2, axis=1) + self.varphi[1])
+                )))**self.varphi[1]
         #return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
     def kernel_matrices(self, X1, X2, varphis):
@@ -1092,8 +1122,11 @@ class LabSharpenedCosine(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return np.einsum('ik, jk -> ij', X1, X2) / (
-            np.outer(np.linalg.norm(X1, axis=1), np.linalg.norm(X2, axis=1)))
+        return (np.einsum('ik, jk -> ij', X1, X2) / (
+            np.outer(
+                (np.linalg.norm(X1, axis=1) + self.varphi[0]),
+                (np.linalg.norm(X2, axis=1) + self.varphi[1])
+                )))**self.varphi[1]
 
 
 class SEIso(Kernel):

@@ -19,8 +19,8 @@ from pstats import Stats, SortKey
 import numpy as np
 import pathlib
 from probit.approximators import LaplaceOrdinalGP
-from probit.plot import outer_loops, grid_synthetic, train, grid
-from probit.Laplace import test, plot_synthetic, plot
+from probit.plot import outer_loops, grid_synthetic, train, test, grid
+from probit.Laplace import plot_synthetic, plot
 from probit.data.utilities import datasets, load_data, load_data_synthetic
 import sys
 import time

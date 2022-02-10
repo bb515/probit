@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import importlib.resources as pkg_resources
 from scipy.stats import gamma as gamma_
-from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ
+from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ, LabSharpenedCosine
 import warnings
 import time
 import matplotlib as mpl
@@ -1560,6 +1560,7 @@ def load_data_synthetic(dataset, bins, plot=False):
     print(dataset)
     if dataset == "SEIso":
         D = 1
+        #Kernel = LabSharpenedCosine
         Kernel = LabEQ
         #Kernel = SEIso
         if bins == "tertile":
@@ -1596,6 +1597,12 @@ def load_data_synthetic(dataset, bins, plot=False):
                     100.0,
                     10.0,
                     1.0
+                ),
+                "cosine": (
+                    data["gamma"],
+                    [0.0, 5.0],
+                    1.0,  # data["noise_variance"],  #  correct value is 1.0, not this: data["noise_variance"],  # np.sqrt(0.1) = 0.316 
+                    1.0,
                 ),
             }
             gamma_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
