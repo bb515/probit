@@ -90,14 +90,29 @@ class Kernel(ABC):
         This method should be implemented in every concrete kernel.
         """
 
-    @abstractmethod
-    def kernel_matrices(self):
+    def kernel_matrices(self, X1, X2, varphis):
         """
-        Return samples of the Gram matrix given two input matrices, and random
-        samples of the hyperparameters.
+        Get Gaussian kernel matrices for varphi samples, varphis, as an array
+        of numpy arrays.
 
-        This method should be implemented in every concrete kernel.
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :arg varphis: (n_samples,) array of hyperparameter samples.
+        :type varphis: class:`numpy.ndarray`
+        :return: Cs_samples (n_samples, N1, N2) array of n_samples * (N1, N2)
+            Gram matrices.
+        :rtype: class:`numpy.ndarray`
         """
+        n_samples = np.shape(varphis)[0]
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        Cs_samples = np.empty((n_samples, N1, N2))
+        for i, varphi in enumerate(varphis):
+            self.varphi = varphi  # TODO: does this need explicitly updating?
+            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
+        return Cs_samples
 
     def _initialise_varphi(self, varphi=None):
         """
@@ -391,30 +406,6 @@ class Linear(Kernel):
         return self.scale * np.einsum(
             'ik, jk -> ij', X1 - self.c, X2 - self.c) + self.constant_variance
 
-    def kernel_matrices(self, X1, X2, varphis):
-        """
-        Get Gaussian kernel matrices for varphi samples, varphis, as an array
-        of numpy arrays.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :arg varphis: (n_samples, K, D) array of hyperparameter samples.
-        :type varphis: class:`numpy.ndarray`
-        :return: Cs_samples (n_samples, K, N1, N2) array of n_samples * K
-            (N1, N2) Gram matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        n_samples = np.shape(varphis)[0]
-        N1 = np.shape(X1)[0]
-        N2 = np.shape(X2)[0]
-        Cs_samples = np.empty((n_samples, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.varphi = varphi
-            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
-        return Cs_samples
-
     def kernel_partial_derivative_constant_variance(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as
@@ -673,30 +664,6 @@ class Polynomial(Kernel):
             np.einsum('ik, jk -> ij', X1 - self.c, X2 - self.c)
             + self.constant_variance) ** self.order
 
-    def kernel_matrices(self, X1, X2, varphis):
-        """
-        Get Gaussian kernel matrices for varphi samples, varphis, as an array
-        of numpy arrays.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :arg varphis: (n_samples, K, D) array of hyperparameter samples.
-        :type varphis: class:`numpy.ndarray`
-        :return: Cs_samples (n_samples, K, N1, N2) array of n_samples * K
-            (N1, N2) Gram matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        n_samples = np.shape(varphis)[0]
-        N1 = np.shape(X1)[0]
-        N2 = np.shape(X2)[0]
-        Cs_samples = np.empty((n_samples, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.varphi = varphi
-            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
-        return Cs_samples
-
     def kernel_partial_derivative_c(self, X1, X2):
         """
         Get partial derivative with respect to offset hyperparameters as a
@@ -830,7 +797,10 @@ class LabEQ(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return (self.scale * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
+        return (
+            self.scale * B.exp(
+                -self.varphi * B.ew_dists2(
+                    X_i.reshape(1, -1), X_j.reshape(1, -1)))[0, 0])
 
     def kernel_vector(self, x_new, X):
         """
@@ -875,30 +845,6 @@ class LabEQ(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
-
-    def kernel_matrices(self, X1, X2, varphis):
-        """
-        Get Gaussian kernel matrices for varphi samples, varphis, as an array
-        of numpy arrays.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :arg varphis: (n_samples,) array of hyperparameter samples.
-        :type varphis: class:`numpy.ndarray`
-        :return: Cs_samples (n_samples, N1, N2) array of n_samples * (N1, N2)
-            Gram matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        n_samples = np.shape(varphis)[0]
-        N1 = np.shape(X1)[0]
-        N2 = np.shape(X2)[0]
-        Cs_samples = np.empty((n_samples, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.varphi = varphi
-            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
-        return Cs_samples
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1079,30 +1025,6 @@ class LabSharpenedCosine(Kernel):
         #         )))**self.varphi[1]
         #return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
-    def kernel_matrices(self, X1, X2, varphis):
-        """
-        Get Gaussian kernel matrices for varphi samples, varphis, as an array
-        of numpy arrays.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :arg varphis: (n_samples,) array of hyperparameter samples.
-        :type varphis: class:`numpy.ndarray`
-        :return: Cs_samples (n_samples, N1, N2) array of n_samples * (N1, N2)
-            Gram matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        n_samples = np.shape(varphis)[0]
-        N1 = np.shape(X1)[0]
-        N2 = np.shape(X2)[0]
-        Cs_samples = np.empty((n_samples, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.varphi = varphi
-            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
-        return Cs_samples
-
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as
@@ -1270,30 +1192,6 @@ class SEIso(Kernel):
         distance_mat = self.distance_mat(X1, X2)
         return self.scale * np.exp(-1. * self.varphi * distance_mat**2)
 
-    def kernel_matrices(self, X1, X2, varphis):
-        """
-        Get Gaussian kernel matrices for varphi samples, varphis, as an array
-        of numpy arrays.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :arg varphis: (n_samples,) array of hyperparameter samples.
-        :type varphis: class:`numpy.ndarray`
-        :return: Cs_samples (n_samples, N1, N2) array of n_samples * (N1, N2)
-            Gram matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        n_samples = np.shape(varphis)[0]
-        N1 = np.shape(X1)[0]
-        N2 = np.shape(X2)[0]
-        Cs_samples = np.empty((n_samples, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.varphi = varphi
-            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
-        return Cs_samples
-
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as
@@ -1330,6 +1228,173 @@ class SEIso(Kernel):
         """
         # On a GPU, want to avoid storing the distance matrix, so recalculate
         return np.exp(-1. * self.varphi * self.distance_mat(X1, X2)**2)
+
+
+class SumPolynomialSEIso(Kernel):
+    r"""
+    Uses BLab by WesselB, which is an generic interface for linear algebra
+    backends.
+
+    An isometric radial basis function (a.k.a. exponentiated quadratic,
+    a.k.a squared exponential) kernel class.
+
+    .. math::
+        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+
+    where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
+    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the single, shared lengthscale and hyperparameter, :math:`s` is the scale.
+    """
+    def __init__(self,  varphi=None, varphi_hyperparameters=None, *args, **kwargs):
+        """
+        Create an :class:`SEIso` kernel object.
+
+        :arg varphi: The kernel lengthscale hyperparameter.
+        :type varphi: float or NoneType
+        :arg varphi_hyperparameters:
+        :type varphi_hyperparameters: :class:`numpy.ndarray` or float
+
+        :returns: An :class:`SEIso` object
+        """
+        super().__init__(*args, **kwargs)
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._initialise_varphi(
+                varphi)
+        else:
+            raise ValueError(
+                "Lengthscale hyperparameter `varphi` must be provided for the "
+                "SEIso kernel class (got {})".format(None))
+        if varphi_hyperparameters is not None:
+            self.varphi_hyperparameters = self._initialise_hyperparameter(self.varphi, varphi_hyperparameters)
+        else:
+            self.varphi_hyperparameters = None
+        # For this kernel, the shared and single kernel for each class
+        # (i.e. non general) and single lengthscale across
+        # all data dims (i.e. non ARD) is assumed.
+        if self.L != 1:
+            raise ValueError(
+                "L wrong for sharpened cosine kernel (expected {}, got {})".format(
+                    1, self.L))
+        if self.M != 2:
+            raise ValueError(
+                "M wrong for sharpened cosine kernel (expected {}, got {})".format(
+                    2, self.M))
+        if self.scale is None:
+            raise ValueError(
+                "You must supply a scale for the sharpened cosine kernel "
+                "(expected {} type, got {})".format(float, self.scale))
+        self.num_hyperparameters = np.size(self.varphi)
+
+    @property
+    def _ARD(self):
+        return False
+
+    @property
+    def _stationary(self):
+        return True
+
+    @property
+    def _Matern(self):
+        return False
+
+    @property
+    def _general(self):
+        return False
+
+    def kernel(self, X_i, X_j):
+        """
+        Get the ij'th element of the Gram matrix, given the data (X_i and X_j),
+        and hyper-parameters.
+
+        :arg X_i: (D, ) data point.
+        :type X_i: :class:`numpy.ndarray`
+        :arg X_j: (D, ) data point.
+        :type X_j: :class:`numpy.ndarray`
+        :returns: ij'th element of the Gram matrix.
+        :rtype: float
+        """
+        # TODO: may need to reshape
+        return (
+            self.scale[0] * B.matmul(X_i, X_j, tr_a=True)**self.varphi[0]
+            + self.scale[1] * B.exp(
+                -self.varphi[1] * B.ew_dists2(
+                    X_i.reshape(1, -1), X_j.reshape(1, -1)))[0, 0])
+
+    def kernel_vector(self, x_new, X):
+        """
+        Get the kernel vector given an input vector (x_new) input matrix (X).
+
+        :arg x_new: The new (1, D) point drawn from the data space.
+        :type x_new: :class:`numpy.ndarray`
+        :arg X: (N, D) data matrix.
+        :type X: class:`numpy.ndarray`
+        :return: the (N,) covariance vector.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.scale[0] * B.einsum('k, ik -> i', x_new, X)**self.varphi[0] + self.scale[0] * B.exp(-self.varphi[1] * B.ew_dists2(
+            X, x_new.reshape(1, -1)))
+
+    def kernel_prior_diagonal(self, X):
+        return self.scale[0] * np.ones(np.shape(X)[0]) + self.scale[1] * np.ones(np.shape(X)[0])
+
+    def kernel_diagonal(self, X1, X2):
+        """
+        Get Gram diagonal efficiently using scipy's distance matrix function.
+
+        :arg X1: (N, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N,) Gram diagonal.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.scale[0] * B.einsum('ik, ik -> i', X1, X2)**self.varphi[0] + self.scale[1] * B.exp(-self.varphi[1] * B.ew_dists2(X1, X2))
+
+    def kernel_matrix(self, X1, X2):
+        """
+        Get Gram matrix efficiently using MLKernels.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return self.scale[0] * B.matmul(X1, X2, tr_b=True)**self.varphi[0] + self.scale[1] * B.exp(-self.varphi * B.pw_dists2(X1, X2))[1]
+
+    def kernel_partial_derivative_varphi(self, X1, X2):
+        """
+        Get partial derivative with respect to lengthscale hyperparameters as
+        a numpy array.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :returns partial_C: A (N1, N2) array of the partial derivative of the
+            covariance matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return np.zeros((len(X1), len(X1)))
+
+    def kernel_partial_derivative_scale(self, X1, X2):
+        """
+        Get Gram matrix efficiently using scipy's distance matrix function.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return B.einsum('ik, jk -> ij', X1, X2)**self.varphi[1]
+        # return (np.einsum('ik, jk -> ij', X1, X2) / (
+        #     np.outer(
+        #         (np.linalg.norm(X1, axis=1) + self.varphi[0]),
+        #         (np.linalg.norm(X2, axis=1) + self.varphi[1])
+        #         )))**self.varphi[1]
 
 
 class SSSEARDMultinomial(Kernel):
@@ -1456,26 +1521,6 @@ class SSSEARDMultinomial(Kernel):
                 for j in range(N2):
                     Cs[k, i, j] = self.kernel(k, X1[i], X2[j])
         return Cs
-
-    def kernel_matrices(self, X1, X2, varphis):
-        """
-        Get Gaussian kernel matrix samples for corresponding varphi samples, `varphis`.
-
-        :arg X1: (N1, D) dimensional numpy.ndarray which holds the feature vectors.
-        :arg X2: (N2, D) dimensional numpy.ndarray which holds the feature vectors.
-        :arg varphis: (n_samples, K, D) dimensional numpy.ndarray which holds the
-            covariance hyperparameters.
-        :return Cs_samples: (n_samples, K, N1, N2) array of n_samples * K (N1, N2) covariance matrices.
-        :rtype: :class:`numpy.ndarray`
-        """
-        n_samples = np.shape(varphis)[0]
-        N1 = np.shape(X1)[0]
-        N2 = np.shape(X2)[0]
-        Cs_samples = np.empty((n_samples, self.K, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.varphi = varphi
-            Cs_samples[i, :, :, :] = self.kernel_matrix(X1, X2)
-        return Cs_samples
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1652,30 +1697,6 @@ class SEARDMultinomial(Kernel):
                     distance.cdist(X1, X2,
                     'minkowski', p=2, w=self.varphi[k, :]), 2))
         return self.scale * Cs
-
-    def kernel_matrices(self, X1, X2, varphis):
-        """
-        Get Gaussian kernel matrices for varphi samples, varphis, as an array
-        of numpy arrays.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :arg varphis: (n_samples, K, D) array of hyperparameter samples.
-        :type varphis: class:`numpy.ndarray`
-        :return: Cs_samples (n_samples, K, N1, N2) array of n_samples * K
-            (N1, N2) Gram matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        n_samples = np.shape(varphis)[0]
-        N1 = np.shape(X1)[0]
-        N2 = np.shape(X2)[0]
-        Cs_samples = np.empty((n_samples, self.K, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.varphi = varphi  # TODO maybe should explicitly update this
-            Cs_samples[i, :, :, :] = self.kernel_matrix(X1, X2)
-        return Cs_samples
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1879,28 +1900,6 @@ class SEARD(Kernel):
         """
         # TODO: this has been tested (scratch 4), but best to make sure it works
         return self.scale * np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi), 2))
-
-    def kernel_matrices(self, X1, X2, varphis):
-        """
-        Get Gaussian kernel matrices for varphi samples, varphis, as an array of numpy arrays.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :arg varphis: (n_samples, K, D) array of hyperparameter samples.
-        :type varphis: class:`numpy.ndarray`
-        :return: Cs_samples (n_samples, K, N1, N2) array of n_samples * K (N1, N2) Gram matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        n_samples = np.shape(varphis)[0]
-        N1 = np.shape(X1)[0]
-        N2 = np.shape(X2)[0]
-        Cs_samples = np.empty((n_samples, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.varphi = varphi
-            Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
-        return Cs_samples
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
