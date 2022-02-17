@@ -4,7 +4,6 @@ os.environ["OPENBLAS_NUM_THREADS"] = "8" # export OPENBLAS_NUM_THREADS=4
 os.environ["MKL_NUM_THREADS"] = "8" # export MKL_NUM_THREADS=6
 os.environ["VECLIB_MAXIMUM_THREADS"] = "8" # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = "8" # export NUMEXPR_NUM_THREADS=6
-
 import lab as B
 import numpy as np
 from scipy.spatial import distance_matrix, distance
@@ -1295,7 +1294,7 @@ class SumPolynomialSEIso(Kernel):
 
     @property
     def _Matern(self):
-        return False
+        return True
 
     @property
     def _general(self):
@@ -1361,7 +1360,7 @@ class SumPolynomialSEIso(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale[0] * B.matmul(X1, X2, tr_b=True)**self.varphi[0] + self.scale[1] * B.exp(-self.varphi * B.pw_dists2(X1, X2))[1]
+        return self.scale[0] * B.matmul(X1, X2, tr_b=True)**self.varphi[0] + self.scale[1] * B.exp(-self.varphi[1] * B.pw_dists2(X1, X2))
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1380,7 +1379,7 @@ class SumPolynomialSEIso(Kernel):
 
     def kernel_partial_derivative_scale(self, X1, X2):
         """
-        Get Gram matrix efficiently using scipy's distance matrix function.
+        # TODO: needs checking/implementing
 
         :arg X1: (N1, D) data matrix.
         :type X1: class:`numpy.ndarray`
@@ -1389,12 +1388,7 @@ class SumPolynomialSEIso(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return B.einsum('ik, jk -> ij', X1, X2)**self.varphi[1]
-        # return (np.einsum('ik, jk -> ij', X1, X2) / (
-        #     np.outer(
-        #         (np.linalg.norm(X1, axis=1) + self.varphi[0]),
-        #         (np.linalg.norm(X2, axis=1) + self.varphi[1])
-        #         )))**self.varphi[1]
+        return np.array([B.einsum('ik, jk -> ij', X1, X2)**self.varphi[0],  B.exp(-self.varphi[1] * B.pw_dists2(X1, X2))])
 
 
 class SSSEARDMultinomial(Kernel):

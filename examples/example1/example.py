@@ -1,5 +1,5 @@
 """
-Ordinal regression concrete examples. Approximate inference: Laplace MAP approximation.
+Ordinal regression concrete examples. Approximate inference.
 """
 # Make sure to limit CPU usage
 import os
@@ -18,12 +18,12 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 import pathlib
-from probit.approximators import LaplaceOrdinalGP
-from probit.plot import outer_loops, grid_synthetic, train, test, grid
-from probit.Laplace import plot_synthetic, plot
-from probit.data.utilities import datasets, load_data, load_data_synthetic
+from probit.approximators import EPOrdinalGP, VBOrdinalGP, LaplaceOrdinalGP
+from probit.plot import outer_loops, grid_synthetic, train, test, grid, plot_synthetic, plot
+from probit.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 import sys
 import time
+
 
 
 now = time.ctime()
@@ -31,7 +31,7 @@ write_path = pathlib.Path()
 
 
 def main():
-    """Conduct an Laplace MAP approximation to the posterior, and optimise hyperparameters."""
+    """Conduct an EP approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
@@ -39,12 +39,15 @@ def main():
         "bins", help="quantile or decile")
     parser.add_argument(
         "method", help="L-BFGS-B or CG or Newton-CG or BFGS")
+    parser.add_argument(
+        "approximation", help="EP or VB or LA")
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
     bins = args.bins
     method = args.method
+    approximation = args.approximation
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
         profile = cProfile.Profile()
@@ -58,30 +61,42 @@ def main():
         J, D, Kernel) = load_data(
             dataset, bins)
         steps = 1000
+        N_train = np.shape(t_trains[0])
+        if approximation == "EP":
+            steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
+            Approximator = EPOrdinalGP
+        elif approximation == "VB":
+            steps = np.max([100, N_train//10])
+            Approximator = VBOrdinalGP
+        elif approximation == "LA":
+            steps = np.max([2, N_train//1000])
+            Approximator = LaplaceOrdinalGP
         outer_loops(
-            LaplaceOrdinalGP, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
+            Approximator, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
             gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
-        # # Initiate kernel
-        # kernel = Kernel(varphi=varphi_0, scale=scale_0)
-        # # Initiate the classifier with the training data
-        # classifier = EPOrdinalGP(
-        #     gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
-        # indices = np.ones(5)  # three
-        # # indices = np.ones(15)  # thirteen
-        # # Fix noise_variance
-        # indices[0] = 0
-        # # Fix gamma
-        # indices[1:J] = 0
-        # # Fix scale
-        # indices[J] = 0
-        # # Fix varphi
-        # indices[-1] = 0
-        # classifier = train(
-        #     classifier, method, indices)
-        # fx, metrics = test(
-        #     classifier, X_tests[2], t_tests[2], y_tests[2], steps)
-
+        # Initiate kernel
+        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        # Initiate the classifier with the training data
+        classifier = Approximator(
+            gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
+        indices = np.ones(5)  # three
+        # indices = np.ones(15)  # thirteen
+        # Fix noise_variance
+        indices[0] = 0
+        # Fix gamma
+        indices[1:J] = 0
+        # Fix scale
+        indices[J] = 0
+        # Fix varphi
+        indices[-1] = 0
+        classifier = train(
+            classifier, method, indices)
+        fx, metrics = test(
+            classifier, X_tests[2], t_tests[2], y_tests[2], steps)
     elif dataset in datasets["synthetic"]:
+        # (X, Y, t,
+        # gamma_0, varphi_0, noise_variance_0, scale_0,
+        # J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
         (X, t,
         X_true, Y_true,
         gamma_0, varphi_0, noise_variance_0, scale_0,
@@ -89,8 +104,18 @@ def main():
         steps = 50
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        N_train = np.shape(t)[0]
+        if approximation == "EP":
+            steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
+            Approximator = EPOrdinalGP
+        elif approximation == "VB":
+            steps = np.max([100, N_train//10])
+            Approximator = VBOrdinalGP
+        elif approximation == "LA":
+            steps = np.max([2, N_train//1000])
+            Approximator = LaplaceOrdinalGP
         # Initiate classifier
-        classifier = LaplaceOrdinalGP(
+        classifier = Approximator(
             gamma_0, noise_variance_0, kernel, X, t, J)
         indices = np.ones(J + 2)
         # Fix noise_variance
@@ -120,8 +145,10 @@ def main():
         # plot(classifier, domain=None)
         # classifier = train(classifier, method, indices)
         # test(classifier, X, t, Y_true, steps)
-        # grid_synthetic(classifier, domain, res, indices, show=False)
-        plot_synthetic(classifier, dataset, X_true, Y_true, colors=colors)
+        #grid_synthetic(classifier, domain, res, indices, show=False)
+        plot_synthetic(
+            classifier, dataset, X_true, Y_true, classifier.N, colors=colors)
+        #plot_synthetic(classifier, dataset, X, Y, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
     if args.profile:

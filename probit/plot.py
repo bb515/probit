@@ -1,13 +1,10 @@
-"""
-Ordered probit regression concrete examples. Approximate inference:
-VB approximation.
-"""
+"""Useful plot functions for classifiers."""
 from nbformat import write
 import numpy as np
 import matplotlib.pyplot as plt
 from pytest import approx
 from scipy.optimize import minimize
-from probit.data.utilities import MinimizeStopper, colors
+from probit.data.utilities import MinimizeStopper, colors, datasets
 from probit.data.utilities_nplan import calculate_metrics
 import matplotlib.colors as mcolors
 from matplotlib import rc
@@ -103,7 +100,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
             plt.ylim(0.1, 10.0)
             plt.xlabel(xlabel, fontsize=16)
             plt.ylabel(ylabel, fontsize=16)
-            plt.savefig("Contour plot - EP lower bound on the log "
+            plt.savefig("Contour plot - lower bound on the log "
                 "likelihood_{}_{}.png".format(split, now))
             plt.close()
     Z_av = np.mean(np.array(Z_av), axis=0)
@@ -152,7 +149,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
         plt.yscale(yscale)
         plt.xlabel(xlabel, fontsize=16)
         plt.ylabel(ylabel, fontsize=16)
-        plt.savefig("Contour plot - EP lower bound on the log "
+        plt.savefig("Contour plot - lower bound on the log "
             "likelihood_av_{}.png".format(now))
         plt.close()
 
@@ -206,6 +203,7 @@ def test(classifier, X_test, t_test, y_test, steps, domain=None):
         classifier.gamma, posterior_inv_cov, posterior_mean,
         classifier.kernel.varphi,
         classifier.noise_variance, X_test, vectorised=True)
+
     if domain is not None:
         (x_lims, y_lims) = domain
         N = 75
@@ -242,9 +240,9 @@ def test(classifier, X_test, t_test, y_test, steps, domain=None):
             # plt.ylim(0, 2)
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("contour_EP_{}.png".format(j))
+            plt.savefig("contour_{}.png".format(j))
             plt.close()
-    return fx, calculate_metrics(y_test, t_test, Z, classifier.gamma)
+    return posterior_inv_cov, posterior_mean, fx, calculate_metrics(y_test, t_test, Z, classifier.gamma)
  
 
 def outer_loop_problem_size(
@@ -723,6 +721,269 @@ def grid_synthetic(
         # plt.savefig("Contour plot - log VB lower bound on the log likelihood.png")
         # if show: plt.show()
         # plt.close()
+
+
+def plot(classifier, steps, domain=None):
+    """
+    TODO: needs generalizing to other datasets other than Chu.
+    Contour plot of the predictive probabilities over a chosen domain.
+    """
+    (fx, gx,
+    posterior_mean, (posterior_inv_cov, is_inv)
+    ) = classifier.approximate_posterior(
+            None, None, steps=steps, first_step=1,
+            calculate_posterior_cov=None,
+            write=False, verbose=True)
+    if domain is not None:
+        (xlims, ylims) = domain
+        N = 75
+        x1 = np.linspace(xlims[0], xlims[1], N)
+        x2 = np.linspace(ylims[0], ylims[1], N)
+        xx, yy = np.meshgrid(x1, x2)
+        X_new = np.dstack((xx, yy))
+        X_new = X_new.reshape((N * N, 2))
+        X_new_ = np.zeros((N * N, classifier.D))
+        X_new_[:, :2] = X_new
+        # Test
+        (Z,
+        posterior_predictive_m,
+        posterior_std) = classifier.predict(
+            classifier.gamma, posterior_inv_cov, posterior_mean,
+            classifier.kernel.varphi,
+            classifier.noise_variance, X_new_, vectorised=True)
+        Z_new = Z.reshape((N, N, classifier.J))
+        print(np.sum(Z, axis=1), 'sum')
+        for j in range(classifier.J):
+            fig, axs = plt.subplots(1, figsize=(6, 6))
+            plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
+            plt.scatter(classifier.X_train[np.where(
+                classifier.t_train == j)][:, 0],
+                classifier.X_train[np.where(
+                    classifier.t_train == j)][:, 1], color='red')
+            plt.scatter(
+                classifier.X_train[np.where(
+                    classifier.t_train == j + 1)][:, 0],
+                classifier.X_train[np.where(
+                    classifier.t_train == j + 1)][:, 1], color='blue')
+            plt.xlabel(r"$x_1$", fontsize=16)
+            plt.ylabel(r"$x_2$", fontsize=16)
+            plt.savefig("contour_{}.png".format(j))
+            plt.close()
+    return fx
+
+
+def plot_synthetic(
+    classifier, dataset, X_true, Y_true, steps, colors=colors):
+    """
+    Plots for synthetic data.
+
+    TODO: needs generalizing to other datasets other than Chu.
+    """
+    (fx, gx,
+    posterior_mean, (cov, is_inv)
+    ) = classifier.approximate_posterior(
+            None, None, steps=steps, first_step=1,
+            calculate_posterior_cov=None,
+            write=False, verbose=True)
+
+    if dataset in datasets["synthetic"]:
+        if classifier.J == 3:
+            if classifier.D == 1:
+                x_lims = (-0.5, 1.5)
+                N = 1000
+                x = np.linspace(x_lims[0], x_lims[1], N)
+                X_new = x.reshape((N, classifier.D))
+                # Test
+                (Z,
+                posterior_predictive_m,
+                posterior_std) = classifier.predict(
+                    classifier.gamma, cov, posterior_mean,
+                    classifier.kernel.varphi,
+                    classifier.noise_variance, X_new, vectorised=True)
+                print(np.sum(Z, axis=1), 'sum')
+                plt.xlim(x_lims)
+                plt.ylim(0.0, 1.0)
+                plt.xlabel(r"$x$", fontsize=16)
+                plt.ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
+                plt.stackplot(x, Z.T,
+                            labels=(
+                                r"$p(\omega=0|x, X, t)$",
+                                r"$p(\omega=1|x, X, t)$",
+                                r"$p(\omega=2|x, X, t)$"),
+                            colors=(
+                                colors[0], colors[1], colors[2])
+                            )
+                val = 0.5  # where the data lies on the y-axis.
+                for j in range(classifier.J):
+                    plt.scatter(
+                        classifier.X_train[np.where(classifier.t_train == j)],
+                        np.zeros_like(classifier.X_train[np.where(
+                            classifier.t_train == j)]) + val,
+                        s=15, facecolors=colors[j], edgecolors='white')
+                plt.savefig(
+                    "Ordered Gibbs Cumulative distribution plot of class "
+                    "distributions for x_new=[{}, {}].png".format(
+                        x_lims[0], x_lims[1]))
+                plt.show()
+                plt.close()
+                np.savez(
+                    "tertile.npz",
+                    x=X_new, y=posterior_predictive_m, s=posterior_std)
+                plt.plot(X_new, posterior_predictive_m, 'r')
+                plt.fill_between(
+                    X_new[:, 0], posterior_predictive_m - 2*posterior_std,
+                    posterior_predictive_m + 2*posterior_std,
+                    color='red', alpha=0.2)
+                plt.scatter(X_true, Y_true, color='b', s=4)
+                plt.ylim(-2.2, 2.2)
+                plt.xlim(-0.5, 1.5)
+                for j in range(classifier.J):
+                    plt.scatter(
+                        classifier.X_train[np.where(classifier.t_train == j)],
+                        np.zeros_like(classifier.X_train[np.where(classifier.t_train == j)]),
+                        s=15, facecolors=colors[j], edgecolors='white')
+                plt.savefig("scatter_versus_posterior_mean.png")
+                plt.show()
+                plt.close()
+            elif classifier.D == 2:
+                x_lims = (-4.0, 6.0)
+                y_lims = (-4.0, 6.0)
+                # x_lims = (-0.5, 1.5)
+                # y_lims = (-0.5, 1.5)
+                N = 200
+                x = np.linspace(x_lims[0], x_lims[1], N)
+                y = np.linspace(y_lims[0], y_lims[1], N)
+                xx, yy = np.meshgrid(x, y)
+                X_new = np.dstack([xx, yy]).reshape(-1, 2)
+                # Test
+                (Z,
+                posterior_predictive_m,
+                posterior_std) = classifier.predict(
+                    classifier.gamma, cov, posterior_mean,
+                    classifier.kernel.varphi,
+                    classifier.noise_variance, X_new, vectorised=True)
+                fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+                surf = ax.plot_surface(
+                    X_new[:, 0].reshape(N, N),
+                    X_new[:, 1].reshape(N, N),
+                    Z.T[0, :].reshape(N, N), alpha=0.4, color=colors[0], label=r"$p(\omega=0|x, X, t)$")
+                surf = ax.plot_surface(
+                    X_new[:, 0].reshape(N, N),
+                    X_new[:, 1].reshape(N, N),
+                    Z.T[1, :].reshape(N, N), alpha=0.4, color=colors[1], label=r"$p(\omega=1|x, X, t)$")
+                surf = ax.plot_surface(
+                    X_new[:, 0].reshape(N, N),
+                    X_new[:, 1].reshape(N, N),
+                    Z.T[2, :].reshape(N, N), alpha=0.4, color=colors[2], label=r"$p(\omega=2|x, X, t)$")
+                cmap = plt.cm.get_cmap('viridis', classifier.J)
+                import matplotlib as mpl
+                fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
+                for j in range(classifier.J):
+                    ax.scatter3D(
+                        classifier.X_train[np.where(classifier.t_train == j), 0],
+                        classifier.X_train[np.where(classifier.t_train == j), 1],
+                        Y_true[np.where(
+                            classifier.t_train == j)],
+                        s=15, facecolors=colors[j], edgecolors='white')
+                plt.savefig("surface.png")
+                plt.show()
+
+                # plt.xlim(x_lims)
+                # plt.ylim(y_lims)
+                # plt.ylim(0.0, 1.0)
+                # plt.xlabel(r"$x$", fontsize=16)
+                # plt.ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
+                # plt.stackplot(x, Z.T,
+                #             labels=(
+                #                 r"$p(\omega=0|x, X, t)$",
+                #                 r"$p(\omega=1|x, X, t)$",
+                #                 r"$p(\omega=2|x, X, t)$"),
+                #             colors=(
+                #                 colors[0], colors[1], colors[2])
+                #             )
+                # plt.savefig(
+                #     "Ordered Gibbs Cumulative distribution plot of class "
+                #     "distributions for x_new=[{}, {}].png".format(
+                #         x_lims[0], x_lims[1]))
+                # plt.show()
+                # plt.close()
+                def colorTriangle(r,g,b):
+                    image = np.stack([r,g,b],axis=2)
+                    return image/image.max(axis=2)[:,:,None]
+                plt.imshow(colorTriangle(Z.T[0, :].reshape(N, N), Z.T[1, :].reshape(N, N), Z.T[2, :].reshape(N, N)),origin='lower',extent=(-4.0,6.0,-4.0,6.0)) 
+                plt.show()
+                plt.close()
+        elif classifier.J == 13:
+            x_lims = (-0.5, 1.5)
+            N = 1000
+            x = np.linspace(x_lims[0], x_lims[1], N)
+            X_new = x.reshape((N, classifier.D))
+            # Test
+            (Z,
+            posterior_predictive_m,
+            posterior_std) = classifier.predict(
+                classifier.gamma, cov, posterior_mean,
+                classifier.kernel.varphi,
+                classifier.noise_variance, X_new, vectorised=True)
+            print(np.sum(Z, axis=1), 'sum')
+            plt.xlim(x_lims)
+            plt.ylim(0.0, 1.0)
+            plt.xlabel(r"$x$", fontsize=16)
+            plt.ylabel(r"$p(\omega_{*}={}|x, X, \omega)$", fontsize=16)
+            plt.stackplot(x, Z.T,
+                            labels=(
+                            r"$p(\omega_{*}=0|x, X, \omega)$",
+                            r"$p(\omega_{*}=1|x, X, \omega)$",
+                            r"$p(\omega_{*}=2|x, X, \omega)$",
+                            r"$p(\omega_{*}=3|x, X, \omega)$",
+                            r"$p(\omega_{*}=4|x, X, \omega)$",
+                            r"$p(\omega_{*}=5|x, X, \omega)$",
+                            r"$p(\omega_{*}=6|x, X, \omega)$",
+                            r"$p(\omega_{*}=7|x, X, \omega)$",
+                            r"$p(\omega_{*}=8|x, X, \omega)$",
+                            r"$p(\omega_{*}=9|x, X, \omega)$",
+                            r"$p(\omega_{*}=10|x, X, \omega)$",
+                            r"$p(\omega_{*}=11|x, X, \omega)$",
+                            r"$p(\omega_{*}=12|x, X, \omega)$"),
+                        colors=colors
+                        )
+            val = 0.5  # where the data lies on the y-axis.
+            for j in range(classifier.J):
+                plt.scatter(
+                    classifier.X_train[np.where(classifier.t_train == j)],
+                    np.zeros_like(
+                        classifier.X_train[np.where(
+                            classifier.t_train == j)]) + val,
+                            s=15, facecolors=colors[j],
+                        edgecolors='white')
+            plt.savefig(
+                "Ordered Gibbs Cumulative distribution plot of class "
+                "distributions for x_new=[{}, {}].png"
+                    .format(x_lims[0], x_lims[1]))
+            plt.show()
+            plt.close()
+            np.savez(
+                "thirteen.npz",
+                x=X_new, y=posterior_predictive_m, s=posterior_std)
+            plt.plot(X_new, posterior_predictive_m, 'r')
+            plt.fill_between(
+                X_new[:, 0], posterior_predictive_m - 2*posterior_std,
+                posterior_predictive_m + 2*posterior_std,
+                color='red', alpha=0.2)
+            plt.scatter(X_true, Y_true, color='b', s=4)
+            plt.ylim(-2.2, 2.2)
+            plt.xlim(-0.5, 1.5)
+            for j in range(classifier.J):
+                plt.scatter(
+                    classifier.X_train[np.where(classifier.t_train == j)],
+                    np.zeros_like(classifier.X_train[np.where(classifier.t_train == j)]),
+                    s=15,
+                    facecolors=colors[j],
+                    edgecolors='white')
+            plt.savefig("scatter_versus_posterior_mean.png")
+            plt.show()
+            plt.close()
+    return fx
 
 
 def figure2(

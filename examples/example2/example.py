@@ -17,7 +17,7 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import pathlib
-from probit.plot import train, outer_loops, outer_loop_problem_size, grid
+from probit.plot import train, outer_loops, outer_loop_problem_size, grid, test
 from probit.approximators import VBOrdinalGP, EPOrdinalGP, LaplaceOrdinalGP
 from probit.data.utilities_nplan import datasets, load_data
 import numpy as np
@@ -71,7 +71,7 @@ def main():
         X_tests, t_tests,
         X_true, y_tests,
         gamma_0, varphi_0, noise_variance_0, scale_0,
-        J, D, data, Kernel, *_) = load_data(dataset,
+        J, D, data, Kernel, cutpoints) = load_data(dataset,
             bins, N_train=N_train, N_test=N_test, text_data=text_data,
             real_valued_only=real_valued)
         # (_, _,
@@ -83,15 +83,12 @@ def main():
         if approximation == "EP":
             steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
             Approximator = EPOrdinalGP
-            from probit.EP import test
         elif approximation == "VB":
             steps = np.max([100, N_train//10])
             Approximator = VBOrdinalGP
-            from probit.VB import test
         elif approximation == "LA":
             steps = np.max([2, N_train//1000])
             Approximator = LaplaceOrdinalGP
-            from probit.plot import test
         if 0:
             # test_0 = t_tests[0]
             # on_time = len(test_0[test_0==5]) / len(test_0)
@@ -110,7 +107,57 @@ def main():
             classifier = Approximator(
                 gamma_0, noise_variance_0, kernel,
                 X_trains[0], t_trains[0], J)
-            test(classifier, X_tests[0], t_tests[0], y_tests[0], steps)
+            posterior_inv_cov, posterior_mean, *_ = test(
+                classifier, X_tests[0], t_tests[0], y_tests[0], steps)
+
+            if 0:
+                from probit.data.tf_parse import embedder_initiate_alternate
+                import matplotlib.pyplot as plt
+                embed = embedder_initiate_alternate()  # text embedder
+                text = np.array(
+                    [
+                        [b'Axial Fans - Prepare technical documents'],
+                        [b'MCC1 Bullnose to Roundabout - Complete jointing work and grout all poles'],
+                        [b'Sprinkler & Hydrant Valves - Design Alliance support during technical evaluation'],
+                        [b'Axial Fans - Design Alliance support during technical evaluation'],
+                        [b'Low Point Sump Foam Suppression System - Prepare technical documents - Design Alliance Input'],
+                        [b'4 off hydraulics units and steering mechanisms refurbishment/replacement'],
+                        [b'Assembly of pipes, valv. and isol. ground'],
+                        [b'TMR Road Lighting Poles - Confirm Prices for first batch'],
+                        [b'Carpentry'],
+                        [b'SHAFT 100 (DN 315) of the pK 1 + pK 200 to 1 + 550'],
+                        [b'Cable Support Systems - Contract Conformance'],
+                        [b'lay foundations concrete piles'],
+                        [b'formwork'],
+                        [b'walk to the shops'],
+                        [b'eat rice crispies, a bannana and peanut butter']
+                    ]
+                )
+                text = text.flatten()
+                text_embedding = embed(text).numpy()
+                print(np.shape(text_embedding))
+                (Z,
+                posterior_predictive_m,
+                posterior_std) = classifier.predict(
+                    classifier.gamma, posterior_inv_cov, posterior_mean,
+                    classifier.kernel.varphi,
+                    classifier.noise_variance, text_embedding, vectorised=True)
+                
+                cutpoints = np.concatenate(
+                        [np.array([np.exp(-3.0)]),
+                        np.array(cutpoints),
+                        np.array([np.exp(3.0)])])
+                cutpoints_left = cutpoints[:-1]
+                width = 0.85*(cutpoints[1:] - cutpoints[:-1])
+
+                for i in range(np.shape(Z)[0]):
+                    plt.bar(cutpoints_left, Z[i], align='edge', width=width)
+                    plt.xlim(0.0, 5.0)
+                    plt.title("{}".format(text[i]))
+                    plt.savefig("{}.png".format(i))
+                    plt.close()
+                assert 0
+
         if 0:
             # Initiate kernel
             kernel = Kernel(varphi=varphi_0, scale=scale_0)
@@ -136,6 +183,7 @@ def main():
             grid(classifier, X_trains, t_trains,
                 ((-1.0, 1.0), (-1.0, 1.0)), (20, 20),
                 "acciona_noise_var_varphi", indices=indices)
+
     if args.profile:
         profile.disable()
         s = StringIO()

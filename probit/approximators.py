@@ -793,8 +793,8 @@ class VBOrdinalGP(Approximator):
         return predictive_distributions, posterior_predictive_m, posterior_std
 
     def predict(
-        self, gamma, cov, y, noise_variance,
-        X_test, vectorised=True):
+            self, gamma, cov, y, varphi, noise_variance,
+            X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
 
@@ -1159,22 +1159,22 @@ class VBOrdinalGP(Approximator):
         gx) = self._hyperparameter_training_step_initialise(
             theta, indices, steps)
         fx_old = np.inf
-        posterior_mean_0 = None
+        posterior_mean = None
         # Convergence is sometimes very fast so this may not be necessary
         while error / steps > self.EPS:
             iteration += 1
-            (posterior_mean_0, nu, *_) = self.approximate(
-                steps, posterior_mean_0=posterior_mean_0,
+            (posterior_mean, nu, *_) = self.approximate(
+                steps, posterior_mean_0=posterior_mean,
                 first_step=first_step, write=write)
             (Z,
             norm_pdf_z1s,
             norm_pdf_z2s,
             *_ )= truncated_norm_normalising_constant(
-                self.gamma_ts, self.gamma_tplus1s, self.noise_std, posterior_mean_0,
-                self.EPS)
+                self.gamma_ts, self.gamma_tplus1s, self.noise_std,
+                posterior_mean, self.EPS)
             fx = self.objective(
-                self.N, posterior_mean_0, nu, self.trace_cov, self.trace_posterior_cov_div_var,
-                Z,
+                self.N, posterior_mean, nu, self.trace_cov,
+                self.trace_posterior_cov_div_var, Z,
                 self.noise_variance, self.log_det_K, self.log_det_cov)
             error = np.abs(fx_old - fx)
             fx_old = fx
@@ -1183,7 +1183,7 @@ class VBOrdinalGP(Approximator):
         gx = self.objective_gradient(
             gx.copy(), intervals, self.gamma_ts, self.gamma_tplus1s,
             self.kernel.varphi, self.noise_variance, self.noise_std,
-            posterior_mean_0, nu, self.cov, self.trace_cov,
+            posterior_mean, nu, self.cov, self.trace_cov,
             self.partial_K_varphi, self.N, Z,
             norm_pdf_z1s, norm_pdf_z2s, indices,
             numerical_stability=True, verbose=False)
@@ -1201,11 +1201,12 @@ class VBOrdinalGP(Approximator):
                     self.gamma,
                     self.noise_variance,
                     self.kernel.varphi, fx))
-        if calculate_posterior_cov:
-            #return fx, gx, posterior_mean_0, (self.noise_variance * np.eye(self.N) + self.K_inv, True)
-            return fx, gx, posterior_mean_0, (self.noise_variance * self.K @ self.cov, False)
+        if calculate_posterior_cov == 1:
+            return fx, gx, posterior_mean, (self.noise_variance * np.eye(self.N) + self.K_inv, True)
+        elif calculate_posterior_cov == 0:
+            return fx, gx, posterior_mean, (self.noise_variance * self.K @ self.cov, False)
         else:
-            return fx, gx
+            return fx, gx, posterior_mean, (self.cov, True)
 
     def hyperparameter_training_step(
             self, theta, indices, first_step=1, write=False, verbose=True):
@@ -1909,8 +1910,8 @@ class EPOrdinalGP(Approximator):
             return np.sum(approximate_marginal_likelihood)
 
     def _predict_vector(
-        self, gamma, posterior_cov, mean_EP, precision_EP, varphi, noise_variance,
-        X_test, Lambda):
+        self, gamma, cov, posterior_mean, varphi, noise_variance,
+        X_test):
         """
         Make EP prediction over classes of X_test given the posterior samples.
         :arg gamma: (J + 1, ) array of the cutpoints.
@@ -1923,13 +1924,7 @@ class EPOrdinalGP(Approximator):
         :return: A Monte Carlo estimate of the class probabilities.
         :rtype tuple: ((N_test, J), (N_test,), (N_test,))
         """
-        # error = 0.0
-        # absolute_error = 0.0
-        Pi_inv = np.diag(1. / precision_EP)
-        # Lambda = np.linalg.inv(np.add(Pi_inv, self.K))  # (N, N)
-        Lambda_chol = np.linalg.cholesky(np.add(Pi_inv, self.K))
-        Lambda_chol_inv = np.linalg.inv(Lambda_chol)
-        Lambda = Lambda_chol_inv.T @ Lambda_chol_inv
+        
         N_test = np.shape(X_test)[0]
         # Update the kernel with new varphi
         self.kernel.varphi = varphi
@@ -1937,7 +1932,7 @@ class EPOrdinalGP(Approximator):
         C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
         c_news = self.kernel.kernel_prior_diagonal(X_test)
         # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = Lambda @ C_news  # (N, N_test)
+        intermediate_vectors = cov @ C_news  # (N, N_test)
         intermediate_scalars = np.einsum(
             'ij, ij -> j', C_news, intermediate_vectors)
         posterior_var = c_news - intermediate_scalars
@@ -1945,7 +1940,7 @@ class EPOrdinalGP(Approximator):
         posterior_std = np.sqrt(posterior_var)
         posterior_pred_std = np.sqrt(posterior_pred_var)
         posterior_pred_mean = np.einsum(
-            'ij, i -> j', intermediate_vectors, mean_EP)
+            'ij, i -> j', intermediate_vectors, posterior_mean)
         predictive_distributions = np.empty((N_test, self.J))
         for j in range(self.J):
             Z1 = np.divide(np.subtract(
@@ -1956,9 +1951,8 @@ class EPOrdinalGP(Approximator):
         return predictive_distributions, posterior_pred_mean, posterior_std
 
     def predict(
-        self, gamma, posterior_cov,
-        mean_EP, precision_EP,
-        varphi, noise_variance, X_test, Lambda, vectorised=True):
+            self, gamma, posterior_inv_cov, posterior_mean,
+            varphi, noise_variance, X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
 
@@ -1981,9 +1975,8 @@ class EPOrdinalGP(Approximator):
         else:
             if vectorised:
                 return self._predict_vector(
-                    gamma, posterior_cov,
-                    mean_EP, precision_EP,
-                    varphi, noise_variance, X_test, Lambda)
+                    gamma, posterior_inv_cov, posterior_mean,
+                    varphi, noise_variance, X_test)
             else:
                 return ValueError(
                     "The scalar implementation has been "
@@ -2065,7 +2058,8 @@ class EPOrdinalGP(Approximator):
 
     def approximate_posterior(
             self, theta, indices, steps=None,
-            posterior_mean_0=None, posterior_cov_0=None, mean_EP_0=None,
+            posterior_mean_0=None, calculate_posterior_cov=None,
+            posterior_cov_0=None, mean_EP_0=None,
             precision_EP_0=None,
             amplitude_EP_0=None, first_step=1, write=False, verbose=True):
         """
@@ -2145,14 +2139,23 @@ class EPOrdinalGP(Approximator):
                 "\ngamma={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
                     self.gamma, self.noise_variance, self.kernel.varphi, fx))
-        # # Inverse of K
-        # L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
-        # L_KT_inv = solve_triangular(
-        # L_K.T, np.eye(self.N), lower=True)
-        # K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
-        # posterior_inv_cov = K_inv + np.diag(precision_EP)
-        # #return fx, gx, posterior_mean, (posterior_inv_cov, True)
-        return fx, gx, posterior_mean, (posterior_cov, False)
+
+        if calculate_posterior_cov == 1:
+            # Inverse of K
+            L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
+            L_KT_inv = solve_triangular(
+                L_K.T, np.eye(self.N), lower=True)
+            K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
+            posterior_inv_cov = K_inv + np.diag(precision_EP)
+            return fx, gx, posterior_mean, (posterior_inv_cov, True)
+        elif calculate_posterior_cov == 0:
+            return fx, gx, posterior_mean, (posterior_cov, False)
+        elif calculate_posterior_cov is None:
+            L_cov, lower = cho_factor(self.K + np.diag(1. / precision_EP))
+            L_covT_inv = solve_triangular(
+                L_cov.T, np.eye(self.N), lower=True)
+            cov = solve_triangular(L_cov, L_covT_inv, lower=False)
+            return fx, gx, posterior_mean, (cov, False)
 
     def hyperparameter_training_step(
             self, theta, indices,
@@ -2500,12 +2503,12 @@ class LaplaceOrdinalGP(Approximator):
                 " but simple type (kernel._general=0). "
                 "(got {}, expected)".format(self.kernel._general, 0))
         # self.EPS = 0.001  # Acts as a machine tolerance
-        self.EPS = 1e-4
+        #self.EPS = 1e-4
         self.EPS = 1e-2
         # self.EPS = 1e-6
         self.EPS_2 = self.EPS**2
-        # self.jitter = 1e-6
-        self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
+        self.jitter = 1e-6  # 1e-10 was too small when the noise variance is very low, resulting in infs or nans in chol
+        #self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
 
@@ -2671,8 +2674,8 @@ class LaplaceOrdinalGP(Approximator):
         return predictive_distributions, posterior_pred_mean, posterior_std
 
     def predict(
-        self, gamma, invcov, posterior_mean,
-        varphi, noise_variance, X_test, vectorised=True):
+            self, gamma, invcov, posterior_mean,
+            varphi, noise_variance, X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
 
@@ -3153,7 +3156,7 @@ class LaplaceOrdinalGP(Approximator):
                 "varphi={}\nfunction_eval={}".format(
                     self.gamma, self.noise_variance, self.kernel.varphi, fx))
 
-        if calculate_posterior_cov:
+        if calculate_posterior_cov == 1:
             # Inverse of K
             L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
             L_KT_inv = solve_triangular(
@@ -3161,13 +3164,10 @@ class LaplaceOrdinalGP(Approximator):
             K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
             posterior_inv_cov = K_inv + np.diag(precision)
             return fx, gx, posterior_mean, (posterior_inv_cov, True)
-        elif calculate_posterior_cov:
+        elif calculate_posterior_cov == 0:
             return fx, gx, posterior_mean, (self.noise_variance * self.K @ cov, False)
         elif calculate_posterior_cov is None:
             return fx, gx, posterior_mean, (cov, True)
-
-
-        
 
   
 class CutpointValueError(Exception):
