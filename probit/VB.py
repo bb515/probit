@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from probit.data.utilities import datasets, colors
-from probit.data.utilities import calculate_metrics
+from probit.data.utilities_nplan import calculate_metrics
 from .utilities import truncated_norm_normalising_constant
 
 def plot(classifier, posterior_mean_0, steps, J, D, domain=None):

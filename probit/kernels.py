@@ -1015,9 +1015,10 @@ class LabSharpenedCosine(Kernel):
         :rtype: float
         """
         # TODO: may need to reshape
-        return self.scale * (np.dot(X_i, X_j) / (
-            (np.linalg.norm(X_i) + self.varphi[0])
-            * (np.linalg.norm(X_j) + self.varphi[0])))**self.varphi[1]
+        return self.scale * B.matmul(X_i, X_j, tr_a=True)**self.varphi[1]
+        # return self.scale * (np.dot(X_i, X_j) / (
+        #     (np.linalg.norm(X_i) + self.varphi[0])
+        #     * (np.linalg.norm(X_j) + self.varphi[0])))**self.varphi[1]
         # return (self.scale * B.matmul(B.transpose(X_i), X_j))
         # return (self.scale * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
 
@@ -1032,8 +1033,9 @@ class LabSharpenedCosine(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * (np.einsum('k, ik -> i', x_new, X) / (
-            (np.linalg.norm(x_new) + self.varphi[0]) * (np.linalg.norm(X, axis=1) + self.varphi[0])))**self.varphi[1]
+        return self.scale * B.einsum('k, ik -> i', x_new, X)**self.varphi[1]
+        # return self.scale * (np.einsum('k, ik -> i', x_new, X) / (
+        #     (np.linalg.norm(x_new) + self.varphi[0]) * (np.linalg.norm(X, axis=1) + self.varphi[0])))**self.varphi[1]
 
     def kernel_prior_diagonal(self, X):
         return self.scale * np.ones(np.shape(X)[0])
@@ -1049,9 +1051,11 @@ class LabSharpenedCosine(Kernel):
         :return: (N,) Gram diagonal.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * (np.einsum('ik, ik -> i', X1, X2) / (
-            (np.linalg.norm(X1, axis=1) + self.varphi[0])
-            * (np.linalg.norm(X2, axis=1) + self.varphi[0])))**self.varphi[1]
+        return self.scale * B.einsum('ik, ik -> i', X1, X2)**self.varphi[1]
+        # return self.scale * np.einsum('ik, ik -> i', X1, X2)**self.varphi[1]
+        # return self.scale * (np.einsum('ik, ik -> i', X1, X2) / (
+        #     (np.linalg.norm(X1, axis=1) + self.varphi[0])
+        #     * (np.linalg.norm(X2, axis=1) + self.varphi[0])))**self.varphi[1]
         # return self.scale * B.exp(-self.varphi * B.ew_dists2(X1, X2))
 
     def kernel_matrix(self, X1, X2):
@@ -1065,11 +1069,14 @@ class LabSharpenedCosine(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * (np.einsum('ik, jk -> ij', X1, X2) / (
-            np.outer(
-                (np.linalg.norm(X1, axis=1) + self.varphi[0]),
-                (np.linalg.norm(X2, axis=1) + self.varphi[1])
-                )))**self.varphi[1]
+        return self.scale * B.matmul(X1, X2, tr_b=True)**self.varphi[1]
+        #return self.scale * B.outer(X1, X2)**self.varphi[1]
+        #return self.scale * np.einsum('ik, jk -> ij', X1, X2)**self.varphi[1]
+        # return self.scale * (np.einsum('ik, jk -> ij', X1, X2) / (
+        #     np.outer(
+        #         (np.linalg.norm(X1, axis=1) + self.varphi[0]),
+        #         (np.linalg.norm(X2, axis=1) + self.varphi[1])
+        #         )))**self.varphi[1]
         #return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
     def kernel_matrices(self, X1, X2, varphis):
@@ -1122,11 +1129,12 @@ class LabSharpenedCosine(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return (np.einsum('ik, jk -> ij', X1, X2) / (
-            np.outer(
-                (np.linalg.norm(X1, axis=1) + self.varphi[0]),
-                (np.linalg.norm(X2, axis=1) + self.varphi[1])
-                )))**self.varphi[1]
+        return B.einsum('ik, jk -> ij', X1, X2)**self.varphi[1]
+        # return (np.einsum('ik, jk -> ij', X1, X2) / (
+        #     np.outer(
+        #         (np.linalg.norm(X1, axis=1) + self.varphi[0]),
+        #         (np.linalg.norm(X2, axis=1) + self.varphi[1])
+        #         )))**self.varphi[1]
 
 
 class SEIso(Kernel):

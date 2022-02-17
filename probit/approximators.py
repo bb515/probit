@@ -530,11 +530,12 @@ class VBOrdinalGP(Approximator):
         #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
         self.EPS = 1e-4  # perhaps not low enough.
         # self.EPS = 1e-8
-        self.EPS_2 = self.EPS**2 
+        #self.EPS_2 = 1e-7
+        self.EPS_2 = self.EPS**2
         #self.EPS = 0.001  # probably too large, will affect convergence 
         # Tends to work well in practice - should it be made smaller?
         # Just keep it consistent
-        # self.jitter = 1e-6
+        #self.jitter = 1e-6
         self.jitter = 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
@@ -2500,6 +2501,7 @@ class LaplaceOrdinalGP(Approximator):
                 "(got {}, expected)".format(self.kernel._general, 0))
         # self.EPS = 0.001  # Acts as a machine tolerance
         self.EPS = 1e-4
+        self.EPS = 1e-2
         # self.EPS = 1e-6
         self.EPS_2 = self.EPS**2
         # self.jitter = 1e-6
@@ -2805,10 +2807,14 @@ class LaplaceOrdinalGP(Approximator):
 
         :arg posterior_mean:
         """
+        # Numerically stable calculation of ordinal likelihood!
         (Z,
         norm_pdf_z1s, norm_pdf_z2s,
         z1s, z2s, *_) = truncated_norm_normalising_constant(
-            self.gamma_ts, self.gamma_tplus1s, self.noise_std, posterior_mean, self.EPS)
+            self.gamma_ts, self.gamma_tplus1s, self.noise_std,
+            posterior_mean, self.EPS,
+            upper_bound=self.upper_bound,
+            upper_bound2=self.upper_bound2)
         w1 = norm_pdf_z1s / Z
         w2 = norm_pdf_z2s / Z
         z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
@@ -3066,6 +3072,7 @@ class LaplaceOrdinalGP(Approximator):
                 ) = truncated_norm_normalising_constant(
                 self.gamma_ts, self.gamma_tplus1s, self.noise_std,
                 posterior_mean, self.EPS, upper_bound=self.upper_bound)
+                # upper_bound2=self.upper_bound2)
             weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
             z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
             z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)

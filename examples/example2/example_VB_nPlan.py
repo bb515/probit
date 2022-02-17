@@ -3,7 +3,7 @@ nPlan data, ordinal regression. Approximate inference: VB or EP or LA.
 """
 # Make sure to limit CPU usage
 import os
-num_threads = "8"
+num_threads = "6"
 os.environ["OMP_NUM_THREADS"] = num_threads # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = num_threads # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = num_threads # export MKL_NUM_THREADS=6
@@ -81,7 +81,7 @@ def main():
         #     bins, N_train=N_train, N_test=N_test, text_data=text_data,
         #     real_valued_only=real_valued)
         if approximation == "EP":
-            steps = np.max([10, N_train//100])
+            steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
             Approximator = EPOrdinalGP
             from probit.EP import test
         elif approximation == "VB":
@@ -91,7 +91,7 @@ def main():
         elif approximation == "LA":
             steps = np.max([2, N_train//1000])
             Approximator = LaplaceOrdinalGP
-            from probit.Laplace import test
+            from probit.plot import test
         if 0:
             # test_0 = t_tests[0]
             # on_time = len(test_0[test_0==5]) / len(test_0)

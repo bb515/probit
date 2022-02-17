@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from pytest import approx
 from scipy.optimize import minimize
 from probit.data.utilities import MinimizeStopper, colors
-from probit.data.utilities import calculate_metrics
+from probit.data.utilities_nplan import calculate_metrics
 import matplotlib.colors as mcolors
 from matplotlib import rc
 

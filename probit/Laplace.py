@@ -5,7 +5,7 @@ Approximate inference: Laplace MAP approximation. Methods for inference and test
 import numpy as np
 import matplotlib.pyplot as plt
 from probit.data.utilities import datasets, colors
-from probit.data.utilities import calculate_metrics
+from probit.data.utilities_nplan import calculate_metrics
 
 
 def plot(classifier, domain=None):
