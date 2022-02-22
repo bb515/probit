@@ -5,7 +5,7 @@ from probit.data.utilities import colors
 from probit.data.utilities import calculate_metrics
 
 
-def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
+def plot(sampler, m_0, cutpoints_0, burn_steps, steps, J, D, domain=None):
     """
     TODO: do i really need m_0 AND y_0. Isn't one enough?
     TODO: needs generalizing to other datasets other than Chu.
@@ -14,8 +14,8 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
     # Burn in
     # TODO: sampler needs options to fix the cutpoint parameters.
     # For now, let them vary.
-    # m_samples, y_samples, gamma_samples = sampler.sample_metropolis_within_gibbs(
-    #     m_0, gamma_0, 0.05, burn_steps)
+    # m_samples, y_samples, cutpoints_samples = sampler.sample_metropolis_within_gibbs(
+    #     m_0, cutpoints_0, 0.05, burn_steps)
     m_samples, y_samples, log_likelihood_samples = sampler.sample(
         m_0, burn_steps)
 
@@ -39,38 +39,38 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
     assert 0
 
     # fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-    # ax[0].plot(gamma_samples[:, 1])
-    # ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)
-    # ax[1].plot(gamma_samples[:, 2])
-    # ax[1].set_ylabel(r"$\gamma_2$", fontsize=16)
+    # ax[0].plot(cutpoints_samples[:, 1])
+    # ax[0].set_ylabel(r"$\cutpoints_1$", fontsize=16)
+    # ax[1].plot(cutpoints_samples[:, 2])
+    # ax[1].set_ylabel(r"$\cutpoints_2$", fontsize=16)
     # plt.savefig('Mixing for cutpoint posterior samples.png')
     # plt.show()
     # plt.close()
 
     # fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-    # ax[0].plot(gamma_samples[:, 3])
-    # ax[0].set_ylabel(r"$\gamma_3$", fontsize=16)
+    # ax[0].plot(cutpoints_samples[:, 3])
+    # ax[0].set_ylabel(r"$\cutpoints_3$", fontsize=16)
     # ax[1].scatter(np.tile(sampler.X_train, (burn_steps, 1)), m_samples, alpha=0.01)
     # ax[1].set_ylabel(r"$m$", fontsize=16)
     # plt.savefig('Mixing for cutpoint posterior samples2.png')
     # plt.show()
     # plt.close()
     # Sample
-    m_samples, y_samples, gamma_samples = sampler.sample(
-        m_samples[-1], gamma_samples[-1], 0.5, steps)
+    m_samples, y_samples, cutpoints_samples = sampler.sample(
+        m_samples[-1], cutpoints_samples[-1], 0.5, steps)
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-    ax[0].plot(gamma_samples[:, 1])
-    ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)
-    ax[1].plot(gamma_samples[:, 2])
-    ax[1].set_ylabel(r"$\gamma_2$", fontsize=16)
+    ax[0].plot(cutpoints_samples[:, 1])
+    ax[0].set_ylabel(r"$\cutpoints_1$", fontsize=16)
+    ax[1].plot(cutpoints_samples[:, 2])
+    ax[1].set_ylabel(r"$\cutpoints_2$", fontsize=16)
     plt.savefig('Mixing for cutpoint posterior samples.png')
     plt.show()
     plt.close()
 
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-    ax[0].plot(gamma_samples[:, 3])
-    ax[0].set_ylabel(r"$\gamma_3$", fontsize=16)
+    ax[0].plot(cutpoints_samples[:, 3])
+    ax[0].set_ylabel(r"$\cutpoints_3$", fontsize=16)
     ax[1].scatter(np.tile(sampler.X_train, (burn_steps, 1)), m_samples, alpha=0.01)
     ax[1].set_ylabel(r"$m$", fontsize=16)
     plt.savefig('Mixing for cutpoint posterior samples2.png')
@@ -115,7 +115,7 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 
 # def plot_synthetic(
 #         sampler,
-#         dataset, X_true, Y_true, m_0, y_0, gamma_0,
+#         dataset, X_true, Y_true, m_0, y_0, cutpoints_0,
 #         steps_burn, steps, colors=colors):
 #     """
 #     Plots for synthetic data.
@@ -125,11 +125,11 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #     # Burn in
 #     # TODO: sampler needs options to fix the cutpoint parameters.
 #     # For now, let them vary.
-#     m_samples, y_samples, gamma_samples = sampler.sample(
-#         m_0, y_0, gamma_0, steps_burn)
+#     m_samples, y_samples, cutpoints_samples = sampler.sample(
+#         m_0, y_0, cutpoints_0, steps_burn)
 #     # Sample
-#     m_samples, y_samples, gamma_samples = sampler.sample(
-#         m_samples[-1], y_samples[-1], gamma_samples[-1])
+#     m_samples, y_samples, cutpoints_samples = sampler.sample(
+#         m_samples[-1], y_samples[-1], cutpoints_samples[-1])
     
 #     # TODO: complete.
 
@@ -144,7 +144,7 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #     plt.title("Variational lower bound on the marginal likelihood")
 #     plt.show()
 #     (calligraphic_Z, *_) = classifier._calligraphic_Z(
-#                     classifier.gamma, classifier.noise_std, m_tilde,
+#                     classifier.cutpoints, classifier.noise_std, m_tilde,
 #                     upper_bound=classifier.upper_bound,
 #                     upper_bound2=classifier.upper_bound2)
 #     J = classifier.J
@@ -165,7 +165,7 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #         print("noisevar", classifier.noise_variance)
 #         (Z, posterior_predictive_m,
 #         posterior_std) = classifier.predict(
-#             classifier.gamma, classifier.cov, y_tilde,
+#             classifier.cutpoints, classifier.cov, y_tilde,
 #             classifier.kernel.varphi,
 #             classifier.noise_variance, X_new)
 #         print(np.sum(Z, axis=1), 'sum')
@@ -218,7 +218,7 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #         X_new = x.reshape((N, D))
 #         (Z, posterior_predictive_m,
 #         posterior_std) = classifier.predict(
-#             classifier.gamma, cov, y_tilde, classifier.kernel.varphi,
+#             classifier.cutpoints, cov, y_tilde, classifier.kernel.varphi,
 #             classifier.noise_variance, X_new)
 #         print(np.sum(Z, axis=1), 'sum')
 #         plt.xlim(x_lims)
@@ -257,7 +257,7 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #         (Z,
 #         posterior_predictive_m,
 #         posterior_std) = classifier.predict(
-#             classifier.gamma, cov, y_tilde, classifier.kernel.varphi,
+#             classifier.cutpoints, cov, y_tilde, classifier.kernel.varphi,
 #             classifier.noise_variance, X_new)
 #         print(np.sum(Z, axis=1), 'sum')
 #         plt.xlim(x_lims)
@@ -335,7 +335,7 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #         z1s,
 #         z2s,
 #         *_ )= classifier._calligraphic_Z(
-#             classifier.gamma, classifier.noise_std, m_0)
+#             classifier.cutpoints, classifier.noise_std, m_0)
 #         fx = classifier.objective(
 #             classifier.N, m_0, nu,
 #             classifier.trace_cov,
@@ -350,7 +350,7 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #     # Test
 #     (Z, posterior_predictive_m,
 #     posterior_std) = classifier.predict(
-#         classifier.gamma, classifier.cov,
+#         classifier.cutpoints, classifier.cov,
 #         y, classifier.noise_variance, X_test)  # (N_test, J)
 #     # # TODO: Placeholder
 #     # fx = 0.0 
@@ -367,7 +367,7 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #         X_new_ = np.zeros((N * N, classifier.D))
 #         X_new_[:, :2] = X_new
 #         Z, posterior_predictive_m, posterior_std = classifier.predict(
-#             classifier.gamma, classifier.cov, y,
+#             classifier.cutpoints, classifier.cov, y,
 #             classifier.kernel.varphi, classifier.noise_variance, X_new_)
 #         Z_new = Z.reshape((N, N, classifier.J))
 #         print(np.sum(Z, axis=1), 'sum')
@@ -392,4 +392,4 @@ def plot(sampler, m_0, gamma_0, burn_steps, steps, J, D, domain=None):
 #             plt.ylabel(r"$x_2$", fontsize=16)
 #             plt.savefig("contour_VB_{}.png".format(j))
 #             plt.close()
-#     return fx, calculate_metrics(y_test, t_test, Z, classifier.gamma)
+#     return fx, calculate_metrics(y_test, t_test, Z, classifier.cutpoints)

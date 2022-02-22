@@ -70,7 +70,7 @@ def main():
         (X_trains, t_trains,
         X_tests, t_tests,
         X_true, y_tests,
-        gamma_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, D, data, Kernel, cutpoints) = load_data(dataset,
             bins, N_train=N_train, N_test=N_test, text_data=text_data,
             real_valued_only=real_valued)
@@ -97,7 +97,7 @@ def main():
             mean_fx, std_fx, mean_metrics, std_metrics = outer_loops(
                 test, Approximator, Kernel, method, X_trains, t_trains, X_tests,
                 t_tests, y_tests, steps,
-                gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
+                cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
             print("fx = {} +/- {}".format(mean_fx, std_fx))
             print("metrics = {} +/- {}".format(mean_metrics, std_metrics))
         if 1:
@@ -106,7 +106,7 @@ def main():
                 varphi=varphi_0, scale=scale_0)
             # Initiate the classifier with the training data
             classifier = Approximator(
-                gamma_0, noise_variance_0, kernel,
+                cutpoints_0, noise_variance_0, kernel,
                 X_trains[0], t_trains[0], J)
             posterior_inv_cov, posterior_mean, *_ = test(
                 classifier, X_tests[0], t_tests[0], y_tests[0], steps)
@@ -140,7 +140,7 @@ def main():
                 (Z,
                 posterior_predictive_m,
                 posterior_std) = classifier.predict(
-                    classifier.gamma, posterior_inv_cov, posterior_mean,
+                    classifier.cutpoints, posterior_inv_cov, posterior_mean,
                     classifier.kernel.varphi,
                     classifier.noise_variance, text_embedding, vectorised=True)
                 
@@ -164,12 +164,12 @@ def main():
             kernel = Kernel(varphi=varphi_0, scale=scale_0)
             # Initiate the classifier with the training data
             classifier = Approximator(
-                gamma_0, noise_variance_0, kernel,
+                cutpoints_0, noise_variance_0, kernel,
                 X_trains[0], t_trains[0], J)
             indices = np.ones(15, dtype=int)
             # # fix noise_variance
             # indices[0] = 0
-            # fix gammas
+            # fix cutpoints
             indices[1:J] = 0
             # fix scale
             indices[J] = 0
@@ -178,7 +178,7 @@ def main():
             outer_loop_problem_size(
                 test, Approximator, Kernel, method, X_trains, t_trains, X_tests,
                 t_tests, y_tests, steps,
-                gamma_0, varphi_0, noise_variance_0, scale_0, J, D, size=4.23,
+                cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D, size=4.23,
                 num=4)
             print("indices", indices)
             grid(classifier, X_trains, t_trains,

@@ -1,4 +1,7 @@
-"""Elliptical slice sampler."""
+"""
+TODO: need to refactor this or delete 22/02/22
+
+Elliptical slice sampler."""
 # Make sure to limit CPU usage
 import os
 from lab.linear_algebra import triangular_solve

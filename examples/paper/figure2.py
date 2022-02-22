@@ -58,16 +58,16 @@ def main():
     if dataset in datasets["synthetic"]:
         # Load data from file
         (X, Y, t,
-        gamma_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
 
         # (X, t,
         # X_true, y_true,
-        # gamma_0, varphi_0, noise_variance_0, scale_0,
+        # cutpoints_0, varphi_0, noise_variance_0, scale_0,
         # J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
 
         # Set varphi hyperparameters
-        varphi_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate] of an gamma on varphi
+        varphi_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate] of an cutpoints on varphi
 
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0, varphi_hyperparameters=varphi_hyperparameters)
@@ -79,7 +79,7 @@ def main():
         indices[J] = 0
         # Fix varphi
         #indices[-1] = 0
-        # Fix gamma
+        # Fix cutpoints
         indices[1:J] = 0
 
         # (log) domain of grid
@@ -96,15 +96,15 @@ def main():
             for i, Nimp in enumerate(num_importance_samples):
                 if approximation == "VB":
                     approximator = VBOrdinalGP(  # VB approximation
-                        gamma_0, noise_variance_0,
+                        cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
                 elif approximation == "LA":
                     approximator = LaplaceOrdinalGP(  # Laplace MAP approximation
-                        gamma_0, noise_variance_0,
+                        cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
                 elif approximation == "EP":
                     approximator = EPOrdinalGP(  # EP approximation
-                        gamma_0, noise_variance_0,
+                        cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
 
                 # Initiate hyper-parameter sampler

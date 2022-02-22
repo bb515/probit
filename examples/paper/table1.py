@@ -63,12 +63,12 @@ def main():
         if dataset in datasets["synthetic"]:
             # Load data from file
             (X, Y, t,
-            gamma_0, varphi_0, noise_variance_0, scale_0,
+            cutpoints_0, varphi_0, noise_variance_0, scale_0,
             J, D, colors, Kernel) = load_data_paper(dataset, plot=False)
             X = X[:300, :]  # X, t have already been shuffled
             t = t[:300]
             # Set varphi hyperparameters
-            varphi_hyperparameters = np.array([1.0, 30.0])  # [shape, scale] of a gamma on varphi
+            varphi_hyperparameters = np.array([1.0, 30.0])  # [shape, scale] of a cutpoints on varphi
             # Initiate kernel
             kernel = Kernel(varphi=varphi_0, scale=scale_0, varphi_hyperparameters=varphi_hyperparameters)
             indices = np.ones(J + 2)
@@ -78,22 +78,22 @@ def main():
             indices[J] = 0
             # Don't fix varphi
             #indices[-1] = 0
-            # Fix gamma
+            # Fix cutpoints
             indices[1:J] = 0
             # Sampler
             burn_steps = 500  # 5000
             steps = 1000  # 10000
             m_0 = Y.flatten()
-            # sampler = GibbsOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
+            # sampler = GibbsOrdinalGP(cutpoints_0, noise_variance_0, kernel, X, t, J)
             noise_std_hyperparameters = None
-            gamma_hyperparameters = None
+            cutpoints_hyperparameters = None
             # Define the proposal covariance
             proposal_cov = 1.0
             if approach in ["AA", "SA"]:
                 sampler = EllipticalSliceOrdinalGP(
-                    gamma_0, noise_variance_0,
+                    cutpoints_0, noise_variance_0,
                     noise_std_hyperparameters,
-                    gamma_hyperparameters, kernel, X, t, J)
+                    cutpoints_hyperparameters, kernel, X, t, J)
                 theta = sampler.get_theta(indices)
                 # MPI parallel across chains
                 if approach == "AA":  # Ancilliary Augmentation approach
@@ -115,15 +115,15 @@ def main():
             elif approach == "PM":  # Pseudo Marginal approach
                 if approximation == "VB":
                     approximator = VBOrdinalGP(  # VB approximation
-                        gamma_0, noise_variance_0,
+                        cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
                 elif approximation == "LA":
                     approximator = LaplaceOrdinalGP(  # Laplace MAP approximation
-                        gamma_0, noise_variance_0,
+                        cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
                 elif approximation == "EP":
                     approximator = EPOrdinalGP(  # EP approximation
-                        gamma_0, noise_variance_0,
+                        cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
 
                 # Initiate hyper-parameter sampler

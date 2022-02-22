@@ -27,7 +27,6 @@ from .utilities import (
 
 class Approximator(ABC):
     """
-    TODO: change `gamma` to `cutpoints`.
     TODO: separate the approximation from the likelihood, e.g. probit.models.EP(likelihood = ordinal),
         probit.models.Laplace(likelihood = ordinal), probit.models.VGP(likelihood = probit).
     Base class for variational Bayes approximators.
@@ -138,7 +137,7 @@ class Approximator(ABC):
 
     def get_log_likelihood(self, m):
         """
-        TODO: once self.gamma is factored out,
+        TODO: once self.cutpoints is factored out,
             this needs to go somewhere else. Like a KL divergence/likelihoods folder.
 
         Likelihood of ordinal regression. This is product of scalar normal cdf.
@@ -150,7 +149,7 @@ class Approximator(ABC):
         be run twice with numerical stability turned on to see if it makes a difference.
         """
         Z, *_ = truncated_norm_normalising_constant(
-            self.gamma_ts, self.gamma_tplus1s,
+            self.cutpoints_ts, self.cutpoints_tplus1s,
             self.noise_std, m, self.EPS, upper_bound=self.upper_bound)
             #  upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)  #  , numerically_stable=True)
         if np.ndim(m) == 2:
@@ -171,10 +170,10 @@ class Approximator(ABC):
         if indices[0]:
             theta.append(np.log(np.sqrt(self.noise_variance)))
         if indices[1]:
-            theta.append(self.gamma[1])
+            theta.append(self.cutpoints[1])
         for j in range(2, self.J):
             if indices[j]:
-                theta.append(np.log(self.gamma[j] - self.gamma[j - 1]))
+                theta.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
         if indices[self.J]:
             theta.append(np.log(np.sqrt(self.kernel.scale)))
         # TODO: replace this with kernel number of hyperparameters.
@@ -205,7 +204,7 @@ class Approximator(ABC):
         """
         # Initiate at None since those that are None do not get updated        
         noise_variance = None
-        gamma = None
+        cutpoints = None
         scale = None
         varphi = None
         index = 0
@@ -225,15 +224,15 @@ class Approximator(ABC):
                     "(noise_variance={}).".format(noise_variance))
                 index += 1
             for j in range(1, self.J):
-                if gamma is None and indices[j]:
-                    # Get gamma from classifier
-                    gamma = self.gamma
+                if cutpoints is None and indices[j]:
+                    # Get cutpoints from classifier
+                    cutpoints = self.cutpoints
             if indices[1]:
-                gamma[1] = theta[index]
+                cutpoints[1] = theta[index]
                 index += 1
             for j in range(2, self.J):
                 if indices[j]:
-                    gamma[j] = gamma[j - 1] + np.exp(theta[index])
+                    cutpoints[j] = cutpoints[j - 1] + np.exp(theta[index])
                     index += 1
             if indices[self.J]:
                 scale_std = np.exp(theta[index])
@@ -257,13 +256,13 @@ class Approximator(ABC):
                     index += 1
         # Update prior and posterior covariance
         self.hyperparameters_update(
-            gamma=gamma, varphi=varphi, scale=scale,
+            cutpoints=cutpoints, varphi=varphi, scale=scale,
             noise_variance=noise_variance)
         if self.kernel._general and self.kernel._ARD:
             gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
         else:
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
-        intervals = self.gamma[2:self.J] - self.gamma[1:self.J - 1]
+        intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
         if steps is None:
             steps = np.max([200, self.N // 10 ])  # TODO: justify, should it be different for each Laplace, EP, VB
         error = np.inf
@@ -272,7 +271,7 @@ class Approximator(ABC):
         return (intervals, steps, error, iteration, indices_where, gx)
 
     def _grid_over_hyperparameters_initiate(
-            self, res, domain, indices, gamma):
+            self, res, domain, indices, cutpoints):
         """
         Initiate metadata and hyperparameters for plotting the objective
         function surface over hyperparameters.
@@ -283,8 +282,8 @@ class Approximator(ABC):
         :type domain:
         :arg indices: Indicator array of the hyperparameters to sample over.
         :type indices: :class:`numpy.ndarray`
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         """
         index = 0
         label = []
@@ -298,16 +297,16 @@ class Approximator(ABC):
                 np.logspace(domain[index][0], domain[index][1], res[index]))
             index += 1
         if indices[1]:
-            # Grid over b_1
-            label.append(r"$\gamma_{1}$")
+            # Grid over b_1, the first cutpoint
+            label.append(r"$\b_{1}$")
             axis_scale.append("linear")
             space.append(
                 np.linspace(domain[index][0], domain[index][1], res[index]))
             index += 1
         for j in range(2, self.J):
             if indices[j]:
-                # Grid over b_j
-                label.append(r"$\gamma_{} - \gamma{}$".format(j, j-1))
+                # Grid over b_j - b_{j-1}, the differences between cutpoints
+                label.append(r"$\b_{} - \b{}$".format(j, j-1))
                 axis_scale.append("log")
                 space.append(
                     np.logspace(
@@ -363,7 +362,7 @@ class Approximator(ABC):
         assert len(meshgrid) == 2
         assert len(space) ==  2
         assert len(label) == 2
-        intervals = gamma[2:self.J] - gamma[1:self.J - 1]
+        intervals = cutpoints[2:self.J] - cutpoints[1:self.J - 1]
         indices_where = np.where(indices != 0)
         return (
             space[0], space[1],
@@ -373,7 +372,7 @@ class Approximator(ABC):
             Phi_new, fxs, gxs, gx_0, intervals, indices_where)
 
     def _grid_over_hyperparameters_update(
-        self, phi, indices, gamma):
+        self, phi, indices, cutpoints):
         """
         Update the hyperparameters, phi.
 
@@ -381,8 +380,8 @@ class Approximator(ABC):
         :type phi:
         :arg indices:
         :type indices:
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         """
         index = 0
         if indices[0]:
@@ -397,17 +396,17 @@ class Approximator(ABC):
         else:
             noise_variance_update = None
         if indices[1]:
-            gamma = np.empty((self.J + 1,))
-            gamma[0] = np.NINF
-            gamma[-1] = np.inf
-            gamma[1] = phi[index]
+            cutpoints = np.empty((self.J + 1,))
+            cutpoints[0] = np.NINF
+            cutpoints[-1] = np.inf
+            cutpoints[1] = phi[index]
             index += 1
         for j in range(2, self.J):
             if indices[j]:
                 if np.isscalar(phi):
-                    gamma[j] = gamma[j-1] + phi
+                    cutpoints[j] = cutpoints[j-1] + phi
                 else:
-                    gamma[j] = gamma[j-1] + phi[index]
+                    cutpoints[j] = cutpoints[j-1] + phi[index]
                 index += 1
         if indices[self.J]:
             scale_std = phi[index]
@@ -427,7 +426,7 @@ class Approximator(ABC):
             varphi_update = None
         # Update kernel parameters, update prior and posterior covariance
         self.hyperparameters_update(
-                gamma=gamma, 
+                cutpoints=cutpoints, 
                 noise_variance=noise_variance_update,
                 scale=scale_update,
                 varphi=varphi_update)
@@ -454,24 +453,24 @@ class VBOrdinalGP(Approximator):
     """
 
     def __init__(
-            self, gamma, noise_variance=1.0, *args, **kwargs):
-            #gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
+            self, cutpoints, noise_variance=1.0, *args, **kwargs):
+            #cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`VBOrderedGP` Approximator object.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
             then initialised to one, default `None`.
 
         :returns: A :class:`VBOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
-        # if gamma_hyperparameters is not None:
-        #     warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
-        #     self.gamma_hyperparameters = gamma_hyperparameters
+        # if cutpoints_hyperparameters is not None:
+        #     warnings.warn("cutpoints_hyperparameters set as {}".format(cutpoints_hyperparameters))
+        #     self.cutpoints_hyperparameters = cutpoints_hyperparameters
         # else:
-        #     self.gamma_hyperparameters = None
+        #     self.cutpoints_hyperparameters = None
         # if noise_std_hyperparameters is not None:
         #     warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
@@ -500,7 +499,7 @@ class VBOrdinalGP(Approximator):
         #self.jitter = 1e-6
         self.jitter = 1e-10
         # Initiate hyperparameters
-        self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
+        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _update_posterior(self):
         """Update posterior covariances."""
@@ -537,7 +536,7 @@ class VBOrdinalGP(Approximator):
         self.trace_posterior_cov_div_var = np.einsum('ij, ij -> ', self.K, self.cov)
 
     def hyperparameters_update(
-        self, gamma=None, varphi=None, scale=None, noise_variance=None,
+        self, cutpoints=None, varphi=None, scale=None, noise_variance=None,
         varphi_hyperparameters=None):
         """
         Reset kernel hyperparameters, generating new prior and posterior
@@ -550,8 +549,8 @@ class VBOrdinalGP(Approximator):
         :meth:`approximate`. Problem is, if it changes at approximate time, then a
         hyperparameter update needs to be called.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg varphi:
         :type varphi:
         :arg scale:
@@ -559,55 +558,57 @@ class VBOrdinalGP(Approximator):
         :arg noise_variance:
         :type noise_variance:
         """
-        if gamma is not None:
-            # Convert gamma to numpy array
-            gamma = np.array(gamma)
+        if cutpoints is not None:
+            # Convert cutpoints to numpy array
+            cutpoints = np.array(cutpoints)
             # Not including -\infty or \infty
-            if np.shape(gamma)[0] == self.J - 1:
-                gamma = np.append(gamma, np.inf)  # Append \infty
-                gamma = np.insert(gamma, np.NINF)  # Insert -\infty at index 0
+            if np.shape(cutpoints)[0] == self.J - 1:
+                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
+                cutpoints = np.insert(cutpoints, np.NINF)  # Insert -\infty at index 0
                 pass  # Correct format
             # Not including one cutpoints
-            elif np.shape(gamma)[0] == self.J: 
-                if gamma[-1] != np.inf:
-                    if gamma[0] != np.NINF:
+            elif np.shape(cutpoints)[0] == self.J: 
+                if cutpoints[-1] != np.inf:
+                    if cutpoints[0] != np.NINF:
                         raise ValueError(
-                            "The last cutpoint parameter must be numpy.inf, or"
-                            " the first cutpoint parameter must be numpy.NINF "
+                            "Either the largest cutpoint parameter b_J is not "
+                            "positive infinity, or the smallest cutpoint "
+                            "parameter must b_0 is not negative infinity."
                             "(got {}, expected {})".format(
-                            [gamma[0], gamma[-1]], [np.inf, np.NINF]))
-                    else:  # gamma[0] is -\infty
-                        gamma.append(np.inf)
+                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
+                    else:  # cutpoints[0] is -\infty
+                        cutpoints.append(np.inf)
                         pass  # correct format
                 else:
-                    gamma = np.insert(gamma, np.NINF)
+                    cutpoints = np.insert(cutpoints, np.NINF)
                     pass  # correct format
             # Including all the cutpoints
-            elif np.shape(gamma)[0] == self.J + 1:
-                if gamma[0] != np.NINF:
+            elif np.shape(cutpoints)[0] == self.J + 1:
+                if cutpoints[0] != np.NINF:
                     raise ValueError(
-                        "The cutpoint parameter \gamma must be numpy.NINF "
-                        "(got {}, expected {})".format(gamma[0], np.NINF))
-                if gamma[-1] != np.inf:
+                        "The smallest cutpoint parameter b_0 must be negative "
+                        "infinity (got {}, expected {})".format(
+                            cutpoints[0], np.NINF))
+                if cutpoints[-1] != np.inf:
                     raise ValueError(
-                        "The cutpoint parameter \gamma_J must be "
-                        "numpy.inf (got {}, expected {})".format(
-                            gamma[-1], np.inf))
+                        "The largest cutpoint parameter b_J must be "
+                        "positive infinity (got {}, expected {})".format(
+                            cutpoints[-1], np.inf))
                 pass  # correct format
             else:
                 raise ValueError(
-                    "Could not recognise gamma shape. "
-                    "(np.shape(gamma) was {})".format(np.shape(gamma)))
-            assert gamma[0] == np.NINF
-            assert gamma[-1] == np.inf
-            assert np.shape(gamma)[0] == self.J + 1
+                    "Could not recognise cutpoints shape. "
+                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
+            assert cutpoints[0] == np.NINF
+            assert cutpoints[-1] == np.inf
+            assert np.shape(cutpoints)[0] == self.J + 1
             if not all(
-                    gamma[i] <= gamma[i + 1]
+                    cutpoints[i] <= cutpoints[i + 1]
                     for i in range(self.J)):
-                raise CutpointValueError(gamma)
-            self.gamma = gamma
-            self.gamma_ts = gamma[self.t_train]
-            self.gamma_tplus1s = gamma[self.t_train + 1]
+                raise CutpointValueError(cutpoints)
+            self.cutpoints = cutpoints
+            self.cutpoints_ts = cutpoints[self.t_train]
+            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
         if varphi is not None or scale is not None:
             self.kernel.update_hyperparameter(
                 varphi=varphi, scale=scale)
@@ -675,7 +676,7 @@ class VBOrdinalGP(Approximator):
                         desc="GP priors Sampler Progress", unit="samples",
                         disable=True):
             p_ = p(
-                posterior_mean, self.gamma_ts, self.gamma_tplus1s, self.noise_std,
+                posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 self.EPS, self.upper_bound, self.upper_bound2)
             y = self._y(
                 p_, posterior_mean, self.noise_std)
@@ -697,7 +698,7 @@ class VBOrdinalGP(Approximator):
                 print("varphihyper = ", self.kernel.varphi_hyperparameters)
             if write:
                 Z, *_ = truncated_norm_normalising_constant(
-                    self.gamma_ts, self.gamma_tplus1s,
+                    self.cutpoints_ts, self.cutpoints_tplus1s,
                     self.noise_std, posterior_mean, self.EPS)
                 fx = self.objective(
                     self.N, posterior_mean, nu, self.trace_cov,
@@ -714,7 +715,7 @@ class VBOrdinalGP(Approximator):
         return posterior_mean, nu, y, p, containers
 
     def _predict_vector(
-            self, gamma, cov, y, noise_variance, X_test):
+            self, cutpoints, cov, y, noise_variance, X_test):
         """
         TODO: probably a way to do this with just the posterior mean?
         The predictions are k^T K^-1 f, = k^T nu
@@ -723,8 +724,8 @@ class VBOrdinalGP(Approximator):
         Make variational Bayes prediction over classes of X_test given the
         posterior samples.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg cov:
         :arg y:
         :arg varphi:
@@ -747,7 +748,7 @@ class VBOrdinalGP(Approximator):
             'ij, i -> j', intermediate_vectors, y)  # (N_test,)
         # plt.scatter(self.X_train, y)
         # plt.plot(X_test, posterior_predictive_m)
-        # plt.hlines(gamma[[1, 2]], -0.5, 1.5)
+        # plt.hlines(cutpoints[[1, 2]], -0.5, 1.5)
         # plt.show()
         posterior_var = c_news - intermediate_scalars
         posterior_std = np.sqrt(posterior_var)
@@ -756,20 +757,20 @@ class VBOrdinalGP(Approximator):
         predictive_distributions = np.empty((N_test, self.J))
         for j in range(self.J):
             Z1 = np.divide(np.subtract(
-                gamma[j + 1], posterior_predictive_m), posterior_predictive_std)
+                cutpoints[j + 1], posterior_predictive_m), posterior_predictive_std)
             Z2 = np.divide(np.subtract(
-                gamma[j], posterior_predictive_m), posterior_predictive_std)
+                cutpoints[j], posterior_predictive_m), posterior_predictive_std)
             predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
         return predictive_distributions, posterior_predictive_m, posterior_std
 
     def predict(
-            self, gamma, cov, y, varphi, noise_variance,
+            self, cutpoints, cov, y, varphi, noise_variance,
             X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg cov:
         :arg y: The approximate posterior mean of the latent variables y.
         :arg varphi: The approximate posterior mean of the
@@ -792,7 +793,7 @@ class VBOrdinalGP(Approximator):
         else:
             if vectorised:
                 return self._predict_vector(
-                    gamma, cov, y, noise_variance, X_test)
+                    cutpoints, cov, y, noise_variance, X_test)
             else:
                 return ValueError(
                     "The scalar implementation has been superseded. Please use"
@@ -967,7 +968,7 @@ class VBOrdinalGP(Approximator):
         return -fx
 
     def objective_gradient(
-            self, gx, intervals, gamma_ts, gamma_tplus1s, varphi,
+            self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, varphi,
             noise_variance, noise_std,
             m, nu, cov, trace_cov, partial_K_varphi, N,
             Z, norm_pdf_z1s, norm_pdf_z2s, indices,
@@ -1012,7 +1013,7 @@ class VBOrdinalGP(Approximator):
             # For gx[0] -- ln\sigma  # TODO: currently seems analytically incorrect
             if indices[0]:
                 one = N - noise_variance * trace_cov
-                sigma_dp = dp(m, gamma_ts, gamma_tplus1s, noise_std,
+                sigma_dp = dp(m, cutpoints_ts, cutpoints_tplus1s, noise_std,
                     self.upper_bound, self.upper_bound2)
                 two = - (1. / noise_std) * np.sum(sigma_dp)
                 if verbose:
@@ -1090,12 +1091,12 @@ class VBOrdinalGP(Approximator):
         Phi_new,
         fxs, gxs, gx_0,
         intervals, indices_where) = self._grid_over_hyperparameters_initiate(
-            res, domain, indices, self.gamma)
+            res, domain, indices, self.cutpoints)
         error = np.inf
         fx_old = np.inf
         for i, phi in enumerate(Phi_new):
             self._grid_over_hyperparameters_update(
-                phi, indices, self.gamma)
+                phi, indices, self.cutpoints)
             # Reset error and posterior mean
             iteration = 0
             error = np.inf
@@ -1113,7 +1114,7 @@ class VBOrdinalGP(Approximator):
                 z1s,
                 z2s,
                 *_ )= truncated_norm_normalising_constant(
-                    self.gamma_ts, self.gamma_tplus1s,
+                    self.cutpoints_ts, self.cutpoints_tplus1s,
                     self.noise_std, posterior_mean_0, self.EPS)
                 fx = self.objective(
                     self.N, posterior_mean_0, nu, self.trace_cov, self.trace_posterior_cov_div_var,
@@ -1124,7 +1125,7 @@ class VBOrdinalGP(Approximator):
                 print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
             gx = self.objective_gradient(
-                gx_0.copy(), intervals, self.gamma_ts, self.gamma_tplus1s,
+                gx_0.copy(), intervals, self.cutpoints_ts, self.cutpoints_tplus1s,
                 self.kernel.varphi, self.noise_variance, self.noise_std, posterior_mean_0,
                 nu, self.cov, self.trace_cov,
                 self.partial_K_varphi, self.N, Z,
@@ -1135,9 +1136,9 @@ class VBOrdinalGP(Approximator):
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
                 print(
-                    "gamma={}, varphi={}, noise_variance={}, scale={}, "
+                    "cutpoints={}, varphi={}, noise_variance={}, scale={}, "
                     "fx={}, gx={}".format(
-                    self.gamma, self.kernel.varphi, self.noise_variance,
+                    self.cutpoints, self.kernel.varphi, self.noise_variance,
                     self.kernel.scale, fx, gxs[i]))
         if x2s is not None:
             return (
@@ -1176,7 +1177,7 @@ class VBOrdinalGP(Approximator):
             norm_pdf_z1s,
             norm_pdf_z2s,
             *_ )= truncated_norm_normalising_constant(
-                self.gamma_ts, self.gamma_tplus1s, self.noise_std,
+                self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean, self.EPS)
             fx = self.objective(
                 self.N, posterior_mean, nu, self.trace_cov,
@@ -1187,7 +1188,7 @@ class VBOrdinalGP(Approximator):
             if verbose:
                 print("({}), error={}".format(iteration, error))
         gx = self.objective_gradient(
-            gx.copy(), intervals, self.gamma_ts, self.gamma_tplus1s,
+            gx.copy(), intervals, self.cutpoints_ts, self.cutpoints_tplus1s,
             self.kernel.varphi, self.noise_variance, self.noise_std,
             posterior_mean, nu, self.cov, self.trace_cov,
             self.partial_K_varphi, self.N, Z,
@@ -1195,16 +1196,16 @@ class VBOrdinalGP(Approximator):
             numerical_stability=True, verbose=False)
         gx = gx[indices_where]
         if verbose:
-            # print("gamma=", repr(self.gamma), ", ")
+            # print("cutpoints=", repr(self.cutpoints), ", ")
             # print("varphi=", self.kernel.varphi)
             # print("noise_variance=", self.noise_variance, ", ")
             # print("scale=", self.kernel.scale, ", ")
             # print("\nfunction_eval={}\n jacobian_eval={}".format(
             #     fx, gx))
             print(
-                "gamma={}, noise_variance={}, "
+                "cutpoints={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
-                    self.gamma,
+                    self.cutpoints,
                     self.noise_variance,
                     self.kernel.varphi, fx))
         if calculate_posterior_cov == 1:
@@ -1243,24 +1244,24 @@ class EPOrdinalGP(Approximator):
     Process.
     """
     def __init__(
-        self, gamma, noise_variance=1.0, *args, **kwargs):
-        # gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
+        self, cutpoints, noise_variance=1.0, *args, **kwargs):
+        # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`EPOrderedGP` Approximator object.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
             then initialised to one, default `None`.
 
         :returns: An :class:`EPOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
-        # if gamma_hyperparameters is not None:
-        #     warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
-        #     self.gamma_hyperparameters = gamma_hyperparameters
+        # if cutpoints_hyperparameters is not None:
+        #     warnings.warn("cutpoints_hyperparameters set as {}".format(cutpoints_hyperparameters))
+        #     self.cutpoints_hyperparameters = cutpoints_hyperparameters
         # else:
-        #     self.gamma_hyperparameters = None
+        #     self.cutpoints_hyperparameters = None
         # if noise_std_hyperparameters is not None:
         #     warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
@@ -1281,10 +1282,10 @@ class EPOrdinalGP(Approximator):
         self.EPS_2 = self.EPS**2
         self.jitter = 1e-10
         # Initiate hyperparameters
-        self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
+        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
 
     def hyperparameters_update(
-        self, gamma=None, varphi=None, scale=None, noise_variance=None):
+        self, cutpoints=None, varphi=None, scale=None, noise_variance=None):
         """
         TODO: can probably collapse this code into other hyperparameter update
         Reset kernel hyperparameters, generating new prior and posterior
@@ -1297,8 +1298,8 @@ class EPOrdinalGP(Approximator):
         :meth:`approximate`. Problem is, if it changes at approximate time, then a
         hyperparameter update needs to be called.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg varphi:
         :type varphi:
         :arg scale:
@@ -1308,55 +1309,57 @@ class EPOrdinalGP(Approximator):
         """
         # TODO: can't this be done in an _update_prior()
         #self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        if gamma is not None:
-            # Convert gamma to numpy array
-            gamma = np.array(gamma)
+        if cutpoints is not None:
+            # Convert cutpoints to numpy array
+            cutpoints = np.array(cutpoints)
             # Not including -\infty or \infty
-            if np.shape(gamma)[0] == self.J - 1:
-                gamma = np.append(gamma, np.inf)  # Append \infty
-                gamma = np.insert(gamma, np.NINF)  # Insert -\infty at index 0
+            if np.shape(cutpoints)[0] == self.J - 1:
+                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
+                cutpoints = np.insert(cutpoints, np.NINF)  # Insert -\infty at index 0
                 pass  # correct format
             # Not including one cutpoints
-            elif np.shape(gamma)[0] == self.J:
-                if gamma[-1] != np.inf:
-                    if gamma[0] != np.NINF:
+            elif np.shape(cutpoints)[0] == self.J:
+                if cutpoints[-1] != np.inf:
+                    if cutpoints[0] != np.NINF:
                         raise ValueError(
-                            "The last cutpoint parameter must be numpy.inf, or"
-                            " the first cutpoint parameter must be numpy.NINF "
+                            "Either the largest cutpoint parameter b_J is not "
+                            "positive infinity, or the smallest cutpoint "
+                            "parameter must b_0 is not negative infinity."
                             "(got {}, expected {})".format(
-                            [gamma[0], gamma[-1]], [np.inf, np.NINF]))
-                    else:  #gamma[0] is -\infty
-                        gamma.append(np.inf)
+                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
+                    else:  #cutpoints[0] is -\infty
+                        cutpoints.append(np.inf)
                         pass  # correct format
                 else:
-                    gamma = np.insert(gamma, np.NINF)
+                    cutpoints = np.insert(cutpoints, np.NINF)
                     pass  # correct format
             # Including all the cutpoints
-            elif np.shape(gamma)[0] == self.J + 1:
-                if gamma[0] != np.NINF:
+            elif np.shape(cutpoints)[0] == self.J + 1:
+                if cutpoints[0] != np.NINF:
                     raise ValueError(
-                        "The cutpoint parameter \gamma must be numpy.NINF "
-                        "(got {}, expected {})".format(gamma[0], np.NINF))
-                if gamma[-1] != np.inf:
+                        "The smallest cutpoint parameter b_0 must be negative "
+                        "infinity (got {}, expected {})".format(
+                            cutpoints[0], np.NINF))
+                if cutpoints[-1] != np.inf:
                     raise ValueError(
-                        "The cutpoint parameter \gamma_J must be "
-                        "numpy.inf (got {}, expected {})".format(
-                            gamma[-1], np.inf))
+                        "The largest cutpoint parameter b_J must be positive "
+                        "infinity (got {}, expected {})".format(
+                            cutpoints[-1], np.inf))
                 pass  # correct format
             else:
                 raise ValueError(
-                    "Could not recognise gamma shape. "
-                    "(np.shape(gamma) was {})".format(np.shape(gamma)))
-            assert gamma[0] == np.NINF
-            assert gamma[-1] == np.inf
-            assert np.shape(gamma)[0] == self.J + 1
+                    "Could not recognise cutpoints shape. "
+                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
+            assert cutpoints[0] == np.NINF
+            assert cutpoints[-1] == np.inf
+            assert np.shape(cutpoints)[0] == self.J + 1
             if not all(
-                    gamma[i] <= gamma[i + 1]
+                    cutpoints[i] <= cutpoints[i + 1]
                     for i in range(self.J)):
-                raise CutpointValueError(gamma)
-            self.gamma = gamma
-            self.gamma_ts = gamma[self.t_train]
-            self.gamma_tplus1s = gamma[self.t_train + 1]
+                raise CutpointValueError(cutpoints)
+            self.cutpoints = cutpoints
+            self.cutpoints_ts = cutpoints[self.t_train]
+            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
         if varphi is not None or scale is not None:
             self.kernel.update_hyperparameter(
                 varphi=varphi, scale=scale)
@@ -1450,8 +1453,8 @@ class EPOrdinalGP(Approximator):
         have to be optimized with model selection step.
 
         :arg int steps: The number of iterations the Approximator takes.
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg varphi: Initialisation of hyperparameter approximate posterior means.
             If `None` then initialised to ones, default `None`.
         :type varphi: :class:`numpy.ndarray` or float
@@ -1511,7 +1514,7 @@ class EPOrdinalGP(Approximator):
             grad_Z_wrt_cavity_mean_n, posterior_mean_n_new,
             posterior_covariance_n_new, z1, z2, nu_n) = self._include(
                 target, cavity_mean_n, cavity_variance_n,
-                self.gamma[target], self.gamma[target + 1],
+                self.cutpoints[target], self.cutpoints[target + 1],
                 self.noise_variance)
             # Update EP weight (alpha)
             grad_Z_wrt_cavity_mean[index] = grad_Z_wrt_cavity_mean_n
@@ -1681,7 +1684,7 @@ class EPOrdinalGP(Approximator):
 
     def _include(
             self, target, cavity_mean_n, cavity_variance_n,
-            gamma_t, gamma_tplus1, noise_variance, numerically_stable=False):
+            cutpoints_t, cutpoints_tplus1, noise_variance, numerically_stable=False):
         """
         Update the approximate posterior by incorporating the message
         p(t_i|m_i) into Q^{\i}(\bm{f}).
@@ -1699,8 +1702,8 @@ class EPOrdinalGP(Approximator):
             (the class of the datapoint that is "left out").
         :arg float cavity_mean_n: The cavity mean of the current site.
         :arg float cavity_variance_n: The cavity variance of the current site.
-        :arg float gamma_t: The upper cutpoint parameters.
-        :arg float gamma_tplus1: The lower cutpoint parameter.
+        :arg float cutpoints_t: The upper cutpoint parameters.
+        :arg float cutpoints_tplus1: The lower cutpoint parameter.
         :arg float noise_variance: Initialisation of noise variance. If
             `None` then initialised to one, default `None`.
         :arg bool numerically_stable: Boolean variable for assert valid
@@ -1718,22 +1721,22 @@ class EPOrdinalGP(Approximator):
         z1 = 0.0
         z2 = 0.0
         if target == 0:
-            z1 = (gamma_tplus1 - cavity_mean_n) / std_dev
+            z1 = (cutpoints_tplus1 - cavity_mean_n) / std_dev
             z1_abs = np.abs(z1)
             if z1_abs > self.upper_bound:
                 z1 = np.sign(z1) * self.upper_bound
             Z_n = norm_cdf(z1) - norm_cdf_z2
             norm_pdf_z1 = norm_z_pdf(z1)
         elif target == self.J - 1:
-            z2 = (gamma_t - cavity_mean_n) / std_dev
+            z2 = (cutpoints_t - cavity_mean_n) / std_dev
             z2_abs = np.abs(z2)
             if z2_abs > self.upper_bound:
                 z2 = np.sign(z2) * self.upper_bound
             Z_n = norm_cdf_z1 - norm_cdf(z2)
             norm_pdf_z2 = norm_z_pdf(z2)
         else:
-            z1 = (gamma_tplus1 - cavity_mean_n) / std_dev
-            z2 = (gamma_t - cavity_mean_n) / std_dev
+            z1 = (cutpoints_tplus1 - cavity_mean_n) / std_dev
+            z2 = (cutpoints_t - cavity_mean_n) / std_dev
             Z_n = norm_cdf(z1) - norm_cdf(z2)
             norm_pdf_z1 = norm_z_pdf(z1)
             norm_pdf_z2 = norm_z_pdf(z2)
@@ -1916,12 +1919,12 @@ class EPOrdinalGP(Approximator):
             return np.sum(approximate_marginal_likelihood)
 
     def _predict_vector(
-        self, gamma, cov, posterior_mean, varphi, noise_variance,
+        self, cutpoints, cov, posterior_mean, varphi, noise_variance,
         X_test):
         """
         Make EP prediction over classes of X_test given the posterior samples.
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg posterior_cov: TODO: don't need posterior_cov here
         :arg posterior_mean:
         :arg varphi:
@@ -1950,14 +1953,14 @@ class EPOrdinalGP(Approximator):
         predictive_distributions = np.empty((N_test, self.J))
         for j in range(self.J):
             Z1 = np.divide(np.subtract(
-                gamma[j + 1], posterior_pred_mean), posterior_pred_std)
+                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
             Z2 = np.divide(
-                np.subtract(gamma[j], posterior_pred_mean), posterior_pred_std)
+                np.subtract(cutpoints[j], posterior_pred_mean), posterior_pred_std)
             predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
         return predictive_distributions, posterior_pred_mean, posterior_std
 
     def predict(
-            self, gamma, posterior_inv_cov, posterior_mean,
+            self, cutpoints, posterior_inv_cov, posterior_mean,
             varphi, noise_variance, X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
@@ -1981,7 +1984,7 @@ class EPOrdinalGP(Approximator):
         else:
             if vectorised:
                 return self._predict_vector(
-                    gamma, posterior_inv_cov, posterior_mean,
+                    cutpoints, posterior_inv_cov, posterior_mean,
                     varphi, noise_variance, X_test)
             else:
                 return ValueError(
@@ -2009,15 +2012,15 @@ class EPOrdinalGP(Approximator):
         Phi_new, fxs,
         gxs, gx_0, intervals,
         indices_where) = self._grid_over_hyperparameters_initiate(
-            res, domain, indices, self.gamma)
+            res, domain, indices, self.cutpoints)
         for i, phi in enumerate(Phi_new):
             self._grid_over_hyperparameters_update(
-                phi, indices, self.gamma)
+                phi, indices, self.cutpoints)
             if verbose:
                 print(
-                    "gamma_0 = {}, varphi_0 = {}, noise_variance_0 = {}, "
+                    "cutpoints_0 = {}, varphi_0 = {}, noise_variance_0 = {}, "
                     "scale_0 = {}".format(
-                        self.gamma, self.kernel.varphi, self.noise_variance,
+                        self.cutpoints, self.kernel.varphi, self.noise_variance,
                         self.kernel.scale))
             # Reset parameters
             iteration = 0
@@ -2134,7 +2137,7 @@ class EPOrdinalGP(Approximator):
             t2, t3, t4, t5, Lambda, weights, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
-            # print("gamma=", repr(self.gamma), ", ")
+            # print("cutpoints=", repr(self.cutpoints), ", ")
             # print("varphi=", self.kernel.varphi, ", ")
             # # print("varphi=", self.kernel.constant_variance, ", ")
             # print("noise_variance=", self.noise_variance, ", ")
@@ -2142,9 +2145,9 @@ class EPOrdinalGP(Approximator):
             # print("\nfunction_eval={}\n jacobian_eval={}".format(
             #     fx, gx))
             print(
-                "\ngamma={}, noise_variance={}, "
+                "\ncutpoints={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
-                    self.gamma, self.noise_variance, self.kernel.varphi, fx))
+                    self.cutpoints, self.noise_variance, self.kernel.varphi, fx))
 
         if calculate_posterior_cov == 1:
             # Inverse of K
@@ -2204,7 +2207,7 @@ class EPOrdinalGP(Approximator):
         """
         noise_std = np.sqrt(noise_variance)
         mean = (posterior_mean * noise_variance
-            + posterior_variance * self.gamma_ts) / (
+            + posterior_variance * self.cutpoints_ts) / (
                 noise_variance + posterior_variance)
         sigma = np.sqrt(
             (noise_variance * posterior_variance) / (
@@ -2222,37 +2225,37 @@ class EPOrdinalGP(Approximator):
                 a, b, h,
                 posterior_mean,
                 posterior_variance,
-                self.gamma_ts,
-                self.gamma_tplus1s,
+                self.cutpoints_ts,
+                self.cutpoints_tplus1s,
                 noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
         t3 = fromb_t3_vector(
                 y_0.copy(), mean, sigma,
                 a, b,
                 h, posterior_mean,
                 posterior_variance,
-                self.gamma_ts,
-                self.gamma_tplus1s,
+                self.cutpoints_ts,
+                self.cutpoints_tplus1s,
                 noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
         t4 = fromb_t4_vector(
                 y_0.copy(), mean, sigma,
                 a, b,
                 h, posterior_mean,
                 posterior_variance,
-                self.gamma_ts,
-                self.gamma_tplus1s,
+                self.cutpoints_ts,
+                self.cutpoints_tplus1s,
                 noise_variance, noise_std, self.EPS, self.EPS_2, self.N),
         t5 = fromb_t5_vector(
                 y_0.copy(), mean, sigma,
                 a, b, h,
                 posterior_mean,
                 posterior_variance,
-                self.gamma_ts,
-                self.gamma_tplus1s,
+                self.cutpoints_ts,
+                self.cutpoints_tplus1s,
                 noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
         return (
             fromb_t1_vector(
                 y_0.copy(), posterior_mean, posterior_variance,
-                self.gamma_ts, self.gamma_tplus1s,
+                self.cutpoints_ts, self.cutpoints_tplus1s,
                 noise_std, self.EPS, self.EPS_2, self.N),
             t2,
             t3,
@@ -2475,24 +2478,24 @@ class LaplaceOrdinalGP(Approximator):
     Process.
     """
     def __init__(
-        self, gamma, noise_variance=1.0, *args, **kwargs):
-        # gamma_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
+        self, cutpoints, noise_variance=1.0, *args, **kwargs):
+        # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`LaplaceOrdinalGP` Approximator object.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
             then initialised to one, default `None`.
 
         :returns: An :class:`EPOrderedGP` object.
         """
         super().__init__(*args, **kwargs)
-        # if gamma_hyperparameters is not None:
-        #     warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
-        #     self.gamma_hyperparameters = gamma_hyperparameters
+        # if cutpoints_hyperparameters is not None:
+        #     warnings.warn("cutpoints_hyperparameters set as {}".format(cutpoints_hyperparameters))
+        #     self.cutpoints_hyperparameters = cutpoints_hyperparameters
         # else:
-        #     self.gamma_hyperparameters = None
+        #     self.cutpoints_hyperparameters = None
         # if noise_std_hyperparameters is not None:
         #     warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
@@ -2516,10 +2519,10 @@ class LaplaceOrdinalGP(Approximator):
         self.jitter = 1e-6  # 1e-10 was too small when the noise variance is very low, resulting in infs or nans in chol
         #self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
         # Initiate hyperparameters
-        self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
+        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
 
     def hyperparameters_update(
-        self, gamma=None, varphi=None, scale=None, noise_variance=None):
+        self, cutpoints=None, varphi=None, scale=None, noise_variance=None):
         """
         TODO: can probably collapse this code into other hyperparameter update
         Reset kernel hyperparameters, generating new prior and posterior
@@ -2532,8 +2535,8 @@ class LaplaceOrdinalGP(Approximator):
         :meth:`approximate`. Problem is, if it changes at approximate time, then a
         hyperparameter update needs to be called.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg varphi:
         :type varphi:
         :arg scale:
@@ -2543,55 +2546,57 @@ class LaplaceOrdinalGP(Approximator):
         """
         # TODO: can't this be done in an _update_prior()
         #self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        if gamma is not None:
-            # Convert gamma to numpy array
-            gamma = np.array(gamma)
+        if cutpoints is not None:
+            # Convert cutpoints to numpy array
+            cutpoints = np.array(cutpoints)
             # Not including -\infty or \infty
-            if np.shape(gamma)[0] == self.J - 1:
-                gamma = np.append(gamma, np.inf)  # Append \infty
-                gamma = np.insert(gamma, np.NINF)  # Insert -\infty at index 0
+            if np.shape(cutpoints)[0] == self.J - 1:
+                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
+                cutpoints = np.insert(cutpoints, np.NINF)  # Insert -\infty at index 0
                 pass  # correct format
             # Not including one cutpoints
-            elif np.shape(gamma)[0] == self.J:
-                if gamma[-1] != np.inf:
-                    if gamma[0] != np.NINF:
+            elif np.shape(cutpoints)[0] == self.J:
+                if cutpoints[-1] != np.inf:
+                    if cutpoints[0] != np.NINF:
                         raise ValueError(
-                            "The last cutpoint parameter must be numpy.inf, or"
-                            " the first cutpoint parameter must be numpy.NINF "
+                            "Either the largest cutpoint parameter b_J is not "
+                            "positive infinity, or the smallest cutpoint "
+                            "parameter must b_0 is not negative infinity."
                             "(got {}, expected {})".format(
-                            [gamma[0], gamma[-1]], [np.inf, np.NINF]))
-                    else:  #gamma[0] is -\infty
-                        gamma.append(np.inf)
+                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
+                    else:  #cutpoints[0] is -\infty
+                        cutpoints.append(np.inf)
                         pass  # correct format
                 else:
-                    gamma = np.insert(gamma, np.NINF)
+                    cutpoints = np.insert(cutpoints, np.NINF)
                     pass  # correct format
             # Including all the cutpoints
-            elif np.shape(gamma)[0] == self.J + 1:
-                if gamma[0] != np.NINF:
+            elif np.shape(cutpoints)[0] == self.J + 1:
+                if cutpoints[0] != np.NINF:
                     raise ValueError(
-                        "The cutpoint parameter \gamma must be numpy.NINF "
-                        "(got {}, expected {})".format(gamma[0], np.NINF))
-                if gamma[-1] != np.inf:
+                        "The smallest cutpoint parameter b_0 must be negative"
+                        " infinity (got {}, expected {})".format(
+                            cutpoints[0], np.NINF))
+                if cutpoints[-1] != np.inf:
                     raise ValueError(
-                        "The cutpoint parameter \gamma_J must be "
-                        "numpy.inf (got {}, expected {})".format(
-                            gamma[-1], np.inf))
+                        "The largest cutpoint parameter b_J must be positive"
+                        " infinity (got {}, expected {})".format(
+                            cutpoints[-1], np.inf))
                 pass  # correct format
             else:
                 raise ValueError(
-                    "Could not recognise gamma shape. "
-                    "(np.shape(gamma) was {})".format(np.shape(gamma)))
-            assert gamma[0] == np.NINF
-            assert gamma[-1] == np.inf
-            assert np.shape(gamma)[0] == self.J + 1
+                    "Could not recognise cutpoints shape. "
+                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
+            assert cutpoints[0] == np.NINF
+            assert cutpoints[-1] == np.inf
+            assert np.shape(cutpoints)[0] == self.J + 1
             if not all(
-                    gamma[i] <= gamma[i + 1]
+                    cutpoints[i] <= cutpoints[i + 1]
                     for i in range(self.J)):
-                raise CutpointValueError(gamma)
-            self.gamma = gamma
-            self.gamma_ts = gamma[self.t_train]
-            self.gamma_tplus1s = gamma[self.t_train + 1]
+                raise CutpointValueError(cutpoints)
+            self.cutpoints = cutpoints
+            self.cutpoints_ts = cutpoints[self.t_train]
+            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
         if varphi is not None or scale is not None:
             self.kernel.update_hyperparameter(
                 varphi=varphi, scale=scale)
@@ -2641,12 +2646,12 @@ class LaplaceOrdinalGP(Approximator):
             return np.sum(approximate_marginal_likelihood)
 
     def _predict_vector(
-            self, gamma, invcov,
+            self, cutpoints, invcov,
             posterior_mean, varphi, noise_variance, X_test):
         """
         Make EP prediction over classes of X_test given the posterior samples.
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg posterior_mean:
         :arg varphi:
         :arg X_test: The new data points, array like (N_test, D).
@@ -2673,14 +2678,14 @@ class LaplaceOrdinalGP(Approximator):
         predictive_distributions = np.empty((N_test, self.J))
         for j in range(self.J):
             Z1 = np.divide(np.subtract(
-                gamma[j + 1], posterior_pred_mean), posterior_pred_std)
+                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
             Z2 = np.divide(
-                np.subtract(gamma[j], posterior_pred_mean), posterior_pred_std)
+                np.subtract(cutpoints[j], posterior_pred_mean), posterior_pred_std)
             predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
         return predictive_distributions, posterior_pred_mean, posterior_std
 
     def predict(
-            self, gamma, invcov, posterior_mean,
+            self, cutpoints, invcov, posterior_mean,
             varphi, noise_variance, X_test, vectorised=True):
         """
         Return the posterior predictive distribution over classes.
@@ -2703,7 +2708,7 @@ class LaplaceOrdinalGP(Approximator):
         else:
             if vectorised:
                 return self._predict_vector(
-                    gamma, invcov, posterior_mean, varphi, noise_variance, X_test)
+                    cutpoints, invcov, posterior_mean, varphi, noise_variance, X_test)
             else:
                 return ValueError(
                     "The scalar implementation has been "
@@ -2729,15 +2734,15 @@ class LaplaceOrdinalGP(Approximator):
         Phi_new, fxs,
         gxs, gx_0, intervals,
         indices_where) = self._grid_over_hyperparameters_initiate(
-            res, domain, indices, self.gamma)
+            res, domain, indices, self.cutpoints)
         for i, phi in enumerate(Phi_new):
             self._grid_over_hyperparameters_update(
-                phi, indices, self.gamma)
+                phi, indices, self.cutpoints)
             if verbose:
                 print(
-                    "gamma_0 = {}, varphi_0 = {}, noise_variance_0 = {}, "
+                    "cutpoints_0 = {}, varphi_0 = {}, noise_variance_0 = {}, "
                     "scale_0 = {}".format(
-                        self.gamma, self.kernel.varphi, self.noise_variance,
+                        self.cutpoints, self.kernel.varphi, self.noise_variance,
                         self.kernel.scale))
             # Reset parameters
             iteration = 0
@@ -2820,7 +2825,7 @@ class LaplaceOrdinalGP(Approximator):
         (Z,
         norm_pdf_z1s, norm_pdf_z2s,
         z1s, z2s, *_) = truncated_norm_normalising_constant(
-            self.gamma_ts, self.gamma_tplus1s, self.noise_std,
+            self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
             posterior_mean, self.EPS,
             upper_bound=self.upper_bound,
             upper_bound2=self.upper_bound2)
@@ -3018,9 +3023,9 @@ class LaplaceOrdinalGP(Approximator):
         :rtype: (12,) tuple.
         """
         if posterior_mean_0 is None:
-            posterior_mean_0 = self.gamma_ts.copy()
+            posterior_mean_0 = self.cutpoints_ts.copy()
             idx = np.where(self.t_train == 0)
-            posterior_mean_0[idx] = self.gamma_tplus1s[idx]
+            posterior_mean_0[idx] = self.cutpoints_tplus1s[idx]
         error = 0.0
         weight_0 = np.empty(self.N)
         inverse_variance_0 = np.empty(self.N)
@@ -3043,8 +3048,8 @@ class LaplaceOrdinalGP(Approximator):
         equal to the negative Hessian of the log of the target density.
 
         :arg int steps: The number of iterations the Approximator takes.
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg varphi: Initialisation of hyperparameter approximate posterior means.
             If `None` then initialised to ones, default `None`.
         :type varphi: :class:`numpy.ndarray` or float
@@ -3079,7 +3084,7 @@ class LaplaceOrdinalGP(Approximator):
                 z1s, z2s,
                 norm_cdf_z1s, norm_cdf_z2s
                 ) = truncated_norm_normalising_constant(
-                self.gamma_ts, self.gamma_tplus1s, self.noise_std,
+                self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean, self.EPS, upper_bound=self.upper_bound)
                 # upper_bound2=self.upper_bound2)
             weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
@@ -3150,7 +3155,7 @@ class LaplaceOrdinalGP(Approximator):
             w1, w2, g1, g2, v1, v2, q1, q2, cov, weight, self.N, self.K, precision, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
-            # print("gamma=", repr(self.gamma), ", ")
+            # print("cutpoints=", repr(self.cutpoints), ", ")
             # print("varphi=", self.kernel.varphi, ", ")
             # # print("varphi=", self.kernel.constant_variance, ", ")
             # print("noise_variance=", self.noise_variance, ", ")
@@ -3158,9 +3163,9 @@ class LaplaceOrdinalGP(Approximator):
             # print("\nfunction_eval={}\n jacobian_eval={}".format(
             #     fx, gx))
             print(
-                "\ngamma={}, noise_variance={}, "
+                "\ncutpoints={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
-                    self.gamma, self.noise_variance, self.kernel.varphi, fx))
+                    self.cutpoints, self.noise_variance, self.kernel.varphi, fx))
 
         if calculate_posterior_cov == 1:
             # Inverse of K

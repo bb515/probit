@@ -65,7 +65,7 @@ def main():
         (X_trains, t_trains,
         X_tests, t_tests,
         X_true, y_tests,
-        gamma_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, D, Kernel) = load_data(
             dataset, bins)
         burn_steps = 2000
@@ -75,17 +75,17 @@ def main():
         # outer_loops(
         #     test, GibsOrdinalGP, Kernel, X_trains, t_trains, X_tests,
         #     t_tests, burn_steps, steps,
-        #     gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
+        #     cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate classifier
         sampler = GibbsOrdinalGP(
-            gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
-        plot(sampler, m_0, y_0, gamma_0, burn_steps, steps, J, D)
+            cutpoints_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
+        plot(sampler, m_0, y_0, cutpoints_0, burn_steps, steps, J, D)
     elif dataset in datasets["synthetic"]:
         (X, t,
         X_true, y_true,
-        gamma_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
         # Set varphi hyperparameters
         varphi_hyperparameters = np.array([3.4, 2.0])  # [loc, scale] of a normal on np.exp(varphi)
@@ -97,13 +97,13 @@ def main():
         steps = 1000
         m_0 = y_true.flatten()
         y_0 = y_true.flatten()
-        # sampler = GibbsOrdinalGP(gamma_0, noise_variance_0, kernel, X, t, J)
+        # sampler = GibbsOrdinalGP(cutpoints_0, noise_variance_0, kernel, X, t, J)
         noise_std_hyperparameters = None
-        gamma_hyperparameters = None
+        cutpoints_hyperparameters = None
         sampler = EllipticalSliceOrdinalGP(
-            gamma_0, noise_variance_0,
+            cutpoints_0, noise_variance_0,
             noise_std_hyperparameters,
-            gamma_hyperparameters, kernel, X, t, J)
+            cutpoints_hyperparameters, kernel, X, t, J)
         nu_true = sampler.cov @ y_true.flatten()
         m_true = sampler.K @ nu_true
         # plt.scatter(sampler.X_train, m_true)
@@ -121,7 +121,7 @@ def main():
         indices[J] = 0
         # Fix varphi
         #indices[-1] = 0
-        # Fix gamma
+        # Fix cutpoints
         indices[1:J] = 0
         # Just varphi
         domain = ((-4, 4), None)
@@ -169,7 +169,7 @@ def main():
 
         # Pseudo Marginal approach - EP
         approximator = EPOrdinalGP(
-            gamma_0, noise_variance_0,
+            cutpoints_0, noise_variance_0,
             kernel, X, t, J)
         hyper_sampler = PseudoMarginal(approximator)
         log_p_pseudo_marginalss = []
@@ -215,7 +215,7 @@ def main():
         # plt.plot(varphis, p_theta_giv_ms, label="SA")
         # plt.plot(varphis, p_theta_giv_y_nus, label="AA")
 
-        # plot(sampler, m_0, gamma_0, burn_steps, steps, J, D)
+        # plot(sampler, m_0, cutpoints_0, burn_steps, steps, J, D)
 
     if args.profile:
         profile.disable()
@@ -231,57 +231,57 @@ if __name__ == "__main__":
 
 
 # # Burn in
-# m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0, y_0, gamma_0, steps_burn)
-# #m_samples, y_samples, gamma_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, gamma_0, 0.5, steps_burn)
+# m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample(m_0, y_0, cutpoints_0, steps_burn)
+# #m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, cutpoints_0, 0.5, steps_burn)
 # m_0_burned = m_samples[-1]
 # y_0_burned = y_samples[-1]
-# gamma_0_burned = gamma_samples[-1]
+# cutpoints_0_burned = cutpoints_samples[-1]
 
 # # Sample
-# m_samples, y_samples, gamma_samples = gibbs_classifier.sample(m_0_burned, y_0_burned, gamma_0_burned, steps)
-# #m_samples, y_samples, gamma_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, gamma_0, 0.5, steps)
+# m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample(m_0_burned, y_0_burned, cutpoints_0_burned, steps)
+# #m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, cutpoints_0, 0.5, steps)
 # m_tilde = np.mean(m_samples, axis=0)
 # y_tilde = np.mean(y_samples, axis=0)
-# gamma_tilde = np.mean(gamma_samples, axis=0)
+# cutpoints_tilde = np.mean(cutpoints_samples, axis=0)
 
 # if argument == "diabetes_quantile":
 #     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-#     ax[0].plot(gamma_samples[:, 1])
-#     ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)
-#     ax[1].plot(gamma_samples[:, 2])
-#     ax[1].set_ylabel(r"$\gamma_2$", fontsize=16)
-#     plt.title('Mixing for cutpoint posterior samples $\gamma$')
+#     ax[0].plot(cutpoints_samples[:, 1])
+#     ax[0].set_ylabel(r"$\cutpoints_1$", fontsize=16)
+#     ax[1].plot(cutpoints_samples[:, 2])
+#     ax[1].set_ylabel(r"$\cutpoints_2$", fontsize=16)
+#     plt.title('Mixing for cutpoint posterior samples $\cutpoints$')
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-#     ax[0].plot(gamma_samples[:, 3])
-#     ax[0].set_ylabel(r"$\gamma_3$", fontsize=16)
-#     ax[1].plot(gamma_samples[:, 4])
-#     ax[1].set_ylabel(r"$\gamma_4$", fontsize=16)
-#     plt.title('Mixing for cutpoint posterior samples $\gamma$')
+#     ax[0].plot(cutpoints_samples[:, 3])
+#     ax[0].set_ylabel(r"$\cutpoints_3$", fontsize=16)
+#     ax[1].plot(cutpoints_samples[:, 4])
+#     ax[1].set_ylabel(r"$\cutpoints_4$", fontsize=16)
+#     plt.title('Mixing for cutpoint posterior samples $\cutpoints$')
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-#     ax[0].plot(gamma_samples[:, 5])
-#     ax[0].set_ylabel(r"$\gamma_5$", fontsize=16)
-#     ax[1].plot(gamma_samples[:, 6])
-#     ax[1].set_ylabel(r"$\gamma_6$", fontsize=16)
-#     plt.title('Mixing for cutpoint posterior samples $\gamma$')
+#     ax[0].plot(cutpoints_samples[:, 5])
+#     ax[0].set_ylabel(r"$\cutpoints_5$", fontsize=16)
+#     ax[1].plot(cutpoints_samples[:, 6])
+#     ax[1].set_ylabel(r"$\cutpoints_6$", fontsize=16)
+#     plt.title('Mixing for cutpoint posterior samples $\cutpoints$')
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
 #     g_star = -1. * np.ones(3)
-#     n0, g0, patches = ax[0].hist(gamma_samples[:, 1], 20, density="probability", histtype='stepfilled')
-#     n1, g1, patches = ax[1].hist(gamma_samples[:, 2], 20, density="probability", histtype='stepfilled')
+#     n0, g0, patches = ax[0].hist(cutpoints_samples[:, 1], 20, density="probability", histtype='stepfilled')
+#     n1, g1, patches = ax[1].hist(cutpoints_samples[:, 2], 20, density="probability", histtype='stepfilled')
 #     g_star[0] = g0[np.argmax(n0)]
 #     g_star[1] = g1[np.argmax(n1)]
-#     ax[0].axvline(g_star[0], color='k', label=r"Maximum $\gamma_1$")
-#     ax[1].axvline(g_star[1], color='k', label=r"Maximum $\gamma_2$")
-#     ax[0].set_xlabel(r"$\gamma_1$", fontsize=16)
-#     ax[1].set_xlabel(r"$\gamma_2$", fontsize=16)
+#     ax[0].axvline(g_star[0], color='k', label=r"Maximum $\cutpoints_1$")
+#     ax[1].axvline(g_star[1], color='k', label=r"Maximum $\cutpoints_2$")
+#     ax[0].set_xlabel(r"$\cutpoints_1$", fontsize=16)
+#     ax[1].set_xlabel(r"$\cutpoints_2$", fontsize=16)
 #     ax[0].legend()
 #     ax[1].legend()
-#     plt.title(r"$\gamma$ posterior samples")
+#     plt.title(r"$\cutpoints$ posterior samples")
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
@@ -352,7 +352,7 @@ if __name__ == "__main__":
 #     X_new = X_new.reshape((N * N, D))
 
 #     # Test
-#     Z = gibbs_classifier.predict(y_samples, gamma_samples, X_test, vectorised=True)  # (n_test, K)
+#     Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_test, vectorised=True)  # (n_test, K)
 
 #     # Mean zero-one error
 #     t_star = np.argmax(Z, axis=1)
@@ -364,8 +364,8 @@ if __name__ == "__main__":
 #     print(mean_zero_one)
 
 #     # X_new = x.reshape((N, D))
-#     print(np.shape(gamma_samples), 'shape gamma')
-#     Z = gibbs_classifier.predict(y_samples, gamma_samples, X_new, vectorised=True)
+#     print(np.shape(cutpoints_samples), 'shape cutpoints')
+#     Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
 #     Z_new = Z.reshape((N, N, K))
 #     print(np.sum(Z, axis=1), 'sum')
 
@@ -408,26 +408,26 @@ if __name__ == "__main__":
 
 # elif argument == "tertile":
 #     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
-#     ax[0].plot(gamma_samples[:, 1])
-#     ax[0].set_ylabel(r"$\gamma_1$", fontsize=16)
-#     ax[1].plot(gamma_samples[:, 2])
-#     ax[1].set_ylabel(r"$\gamma_1$", fontsize=16)
-#     plt.title('Mixing for cutpoint posterior samples $\gamma$')
+#     ax[0].plot(cutpoints_samples[:, 1])
+#     ax[0].set_ylabel(r"$\cutpoints_1$", fontsize=16)
+#     ax[1].plot(cutpoints_samples[:, 2])
+#     ax[1].set_ylabel(r"$\cutpoints_1$", fontsize=16)
+#     plt.title('Mixing for cutpoint posterior samples $\cutpoints$')
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
 #     g_star = -1. * np.ones(3)
-#     n0, g0, patches = ax[0].hist(gamma_samples[:, 1], 20, density="probability", histtype='stepfilled')
-#     n1, g1, patches = ax[1].hist(gamma_samples[:, 2], 20, density="probability", histtype='stepfilled')
+#     n0, g0, patches = ax[0].hist(cutpoints_samples[:, 1], 20, density="probability", histtype='stepfilled')
+#     n1, g1, patches = ax[1].hist(cutpoints_samples[:, 2], 20, density="probability", histtype='stepfilled')
 #     g_star[0] = g0[np.argmax(n0)]
 #     g_star[1] = g1[np.argmax(n1)]
-#     ax[0].axvline(g_star[0], color='k', label=r"Maximum $\gamma_1$")
-#     ax[1].axvline(g_star[1], color='k', label=r"Maximum $\gamma_2$")
-#     ax[0].set_xlabel(r"$\gamma_1$", fontsize=16)
-#     ax[1].set_xlabel(r"$\gamma_2$", fontsize=16)
+#     ax[0].axvline(g_star[0], color='k', label=r"Maximum $\cutpoints_1$")
+#     ax[1].axvline(g_star[1], color='k', label=r"Maximum $\cutpoints_2$")
+#     ax[0].set_xlabel(r"$\cutpoints_1$", fontsize=16)
+#     ax[1].set_xlabel(r"$\cutpoints_2$", fontsize=16)
 #     ax[0].legend()
 #     ax[1].legend()
-#     plt.title(r"$\gamma$ posterior samples")
+#     plt.title(r"$\cutpoints$ posterior samples")
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
@@ -491,8 +491,8 @@ if __name__ == "__main__":
 #     N = 1000
 #     x = np.linspace(lower_x, upper_x, N)
 #     X_new = x.reshape((N, D))
-#     print(np.shape(gamma_samples), 'shape gamma')
-#     Z = gibbs_classifier.predict(y_samples, gamma_samples, X_new, vectorised=True)
+#     print(np.shape(cutpoints_samples), 'shape cutpoints')
+#     Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
 #     print(np.sum(Z, axis=1), 'sum')
 #     plt.xlim(lower_x, upper_x)
 #     plt.ylim(0.0, 1.0)
@@ -515,9 +515,9 @@ if __name__ == "__main__":
 # elif argument == "septile":
 #     fig, ax = plt.subplots(1, 6, figsize=(30, 5))
 #     for i in range(6):
-#         ax[i].plot(gamma_samples[:, i + 1])
-#         ax[i].set_ylabel(r"$\gamma_{}$".format(i + 1), fontsize=16)
-#     plt.title('Mixing for cutpoint posterior samples $\gamma$')
+#         ax[i].plot(cutpoints_samples[:, i + 1])
+#         ax[i].set_ylabel(r"$\cutpoints_{}$".format(i + 1), fontsize=16)
+#     plt.title('Mixing for cutpoint posterior samples $\cutpoints$')
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
@@ -530,12 +530,12 @@ if __name__ == "__main__":
 #     fig, ax = plt.subplots(1, 6, figsize=(30, 5))
 #     g_star = -1. * np.ones(6)
 #     for i in range(6):
-#         ni, gi, patches = ax[i].hist(gamma_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
+#         ni, gi, patches = ax[i].hist(cutpoints_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
 #         g_star[i] = gi[np.argmax(ni)]
-#         ax[i].axvline(g_star[i], color='k', label=r"Maximum $\gamma_{}$".format(i+1))
-#         ax[i].set_xlabel(r"$\gamma_{}$".format(i+1), fontsize=16)
+#         ax[i].axvline(g_star[i], color='k', label=r"Maximum $\cutpoints_{}$".format(i+1))
+#         ax[i].set_xlabel(r"$\cutpoints_{}$".format(i+1), fontsize=16)
 #         ax[i].legend()
-#     plt.title(r"$\gamma$ posterior samples")
+#     plt.title(r"$\cutpoints$ posterior samples")
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
@@ -583,8 +583,8 @@ if __name__ == "__main__":
 #     N = 1000
 #     x = np.linspace(lower_x, upper_x, N)
 #     X_new = x.reshape((N, D))
-#     print(np.shape(gamma_samples), 'shape gamma')
-#     Z = gibbs_classifier.predict(y_samples, gamma_samples, X_new, vectorised=True)
+#     print(np.shape(cutpoints_samples), 'shape cutpoints')
+#     Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
 #     print(np.sum(Z, axis=1), 'sum')
 #     plt.xlim(lower_x, upper_x)
 #     plt.ylim(0.0, 1.0)

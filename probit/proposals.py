@@ -52,13 +52,13 @@ def proposal(theta, indices, L_cov, J):
         log_jacobian_theta[index] = -theta[index]  # -ve since jacobian is 1/\sigma
         index += 1
     if indices[1]:
-        # gamma_1 is sampled from the domain of gamma_1, so jacobian is unity
+        # cutpoints_1 is sampled from the domain of cutpoints_1, so jacobian is unity
         log_jacobian_theta[index] = 0.0
         index += 1
     for j in range(2, J):
         if indices[j]:
-            # gamma_j is sampled from the domain of log(gamma_j - gamma_j-1) and so the jacobian is
-            log_jacobian_theta[index] = -theta[index] # -ve since jacobian is 1/(gamma_j - gamma_j-1)
+            # cutpoints_j is sampled from the domain of log(cutpoints_j - cutpoints_j-1) and so the jacobian is
+            log_jacobian_theta[index] = -theta[index] # -ve since jacobian is 1/(cutpoints_j - cutpoints_j-1)
             index += 1
     if indices[J]:
         # scale is sampled from the domain of log(scale) and so the jacobian is

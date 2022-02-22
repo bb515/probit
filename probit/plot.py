@@ -28,8 +28,8 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
     :type res: (tuple, tuple) or (tuple, None)
     :arg string now: A string for plots, can be e.g., a time stamp, and is
         to distinguish between plots.
-    :arg gamma:
-    :type gamma: :class:`numpy.ndarray` or None
+    :arg cutpoints:
+    :type cutpoints: :class:`numpy.ndarray` or None
     :arg varphi:
     :type varphi: :class:`numpy.ndarray` or float or None
     :arg noise_variance:
@@ -46,7 +46,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
         # TODO: not sure if this is good code, but makes sense conceptually
         # as new data requires a new model.
         classifier.__init__(
-            classifier.gamma, classifier.noise_variance,
+            classifier.cutpoints, classifier.noise_variance,
             classifier.kernel, X_trains[split], t_trains[split], classifier.J)
         (Z, grad,
         x, y,
@@ -200,7 +200,7 @@ def test(classifier, X_test, t_test, y_test, steps, domain=None):
     (Z,
     posterior_predictive_m,
     posterior_std) = classifier.predict(
-        classifier.gamma, posterior_inv_cov, posterior_mean,
+        classifier.cutpoints, posterior_inv_cov, posterior_mean,
         classifier.kernel.varphi,
         classifier.noise_variance, X_test, vectorised=True)
 
@@ -217,7 +217,7 @@ def test(classifier, X_test, t_test, y_test, steps, domain=None):
         (Z,
         posterior_predictive_m,
         posterior_std) = classifier.predict(
-            classifier.gamma, posterior_inv_cov, posterior_mean,
+            classifier.cutpoints, posterior_inv_cov, posterior_mean,
             classifier.kernel.varphi,
             classifier.noise_variance, X_new_, vectorised=True)
         Z_new = Z.reshape((N, N, classifier.J))
@@ -242,13 +242,13 @@ def test(classifier, X_test, t_test, y_test, steps, domain=None):
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.savefig("contour_{}.png".format(j))
             plt.close()
-    return posterior_inv_cov, posterior_mean, fx, calculate_metrics(y_test, t_test, Z, classifier.gamma)
+    return posterior_inv_cov, posterior_mean, fx, calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
  
 
 def outer_loop_problem_size(
         test, Classifier, Kernel, method, X_trains, t_trains, X_tests, t_tests,
         y_tests, steps,
-        gamma_0, varphi_0, noise_variance_0, scale_0, J, D, size, num,
+        cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D, size, num,
         string="VB"):
     """
     Plots outer loop for metrics and variational lower bound over N_train
@@ -273,8 +273,8 @@ def outer_loop_problem_size(
     :arg y_tests:
     :type y_tests:
     :arg steps:
-    :arg gamma_0
-    :type gamma_0:
+    :arg cutpoints_0
+    :type cutpoints_0:
     :arg varphi_0:
     :type varphi_0:
     :arg noise_variance_0:
@@ -303,7 +303,7 @@ def outer_loop_problem_size(
             test, Classifier, Kernel, method,
             X_trains[:, :N, :], t_trains[:, :N],
             X_tests, t_tests, y_tests, steps,
-            gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
+            cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
         plot_N.append(N)
         plot_mean_fx.append(mean_fx)
         plot_std_fx.append(std_fx)
@@ -460,18 +460,18 @@ def outer_loop_problem_size(
 
 def outer_loops(
         test, Classifier, Kernel, method, X_trains, t_trains, X_tests, t_tests,
-        y_tests, steps, gamma_0, varphi_0, noise_variance_0, scale_0, J, D):
+        y_tests, steps, cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D):
     moments_fx = []
     #moments_varphi = []
     #moments_noise_variance = []
-    #moments_gamma = []
+    #moments_cutpoints = []
     moments_metrics = []
     for split in range(1):
         # Reset kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Build the classifier with the new training data
         classifier = Classifier(
-            gamma_0, noise_variance_0, kernel,
+            cutpoints_0, noise_variance_0, kernel,
             X_trains[split, :, :], t_trains[split, :], J)
         fx, metrics = test(
             classifier,
@@ -482,7 +482,7 @@ def outer_loops(
         moments_metrics.append(metrics)
         # moments_varphi.append(classifier.varphi)
         # moments_noise_variance.append(classifier.noise_variance)
-        # moments_gamma.append(classifier.gamma[1:-1])
+        # moments_cutpoints.append(classifier.cutpoints[1:-1])
     moments_fx = np.array(moments_fx)
     moments_metrics = np.array(moments_metrics)
     mean_fx = np.average(moments_fx)
@@ -495,7 +495,7 @@ def outer_loops(
 def outer_loops_Rogers(
         test, Classifier, Kernel, X_trains, t_trains, X_tests, t_tests,
         y_tests,
-        gamma_0, varphi_0, noise_variance_0, scale_0, J, D, plot=False):
+        cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D, plot=False):
     steps = 50
     grid = np.ogrid[0:len(X_tests[0, :, :])]
     moments_fx_Z = []
@@ -515,7 +515,7 @@ def outer_loops_Rogers(
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Build the classifier with the new training data
         classifier = Classifier(
-            gamma_0, noise_variance_0, kernel,
+            cutpoints_0, noise_variance_0, kernel,
             X_trains[split, :, :], t_trains[split, :, :], J)
         X_test = X_tests[split, :, :]
         t_test = t_tests[split, :]
@@ -748,7 +748,7 @@ def plot(classifier, steps, domain=None):
         (Z,
         posterior_predictive_m,
         posterior_std) = classifier.predict(
-            classifier.gamma, posterior_inv_cov, posterior_mean,
+            classifier.cutpoints, posterior_inv_cov, posterior_mean,
             classifier.kernel.varphi,
             classifier.noise_variance, X_new_, vectorised=True)
         Z_new = Z.reshape((N, N, classifier.J))
@@ -797,7 +797,7 @@ def plot_synthetic(
                 (Z,
                 posterior_predictive_m,
                 posterior_std) = classifier.predict(
-                    classifier.gamma, cov, posterior_mean,
+                    classifier.cutpoints, cov, posterior_mean,
                     classifier.kernel.varphi,
                     classifier.noise_variance, X_new, vectorised=True)
                 print(np.sum(Z, axis=1), 'sum')
@@ -861,7 +861,7 @@ def plot_synthetic(
                 (Z,
                 posterior_predictive_m,
                 posterior_std) = classifier.predict(
-                    classifier.gamma, cov, posterior_mean,
+                    classifier.cutpoints, cov, posterior_mean,
                     classifier.kernel.varphi,
                     classifier.noise_variance, X_new, vectorised=True)
                 fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
@@ -931,7 +931,7 @@ def plot_synthetic(
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                classifier.gamma, cov, posterior_mean,
+                classifier.cutpoints, cov, posterior_mean,
                 classifier.kernel.varphi,
                 classifier.noise_variance, X_new, vectorised=True)
             print(np.sum(Z, axis=1), 'sum')
@@ -1020,7 +1020,7 @@ def figure2(
     xx, yy,
     Phi_new,
     *_) = approximator._grid_over_hyperparameters_initiate(
-        res, domain, indices, approximator.gamma)
+        res, domain, indices, approximator.cutpoints)
     log_p_pseudo_marginalss = []
     log_p_priors = []
     if x2s is not None:
@@ -1033,7 +1033,7 @@ def figure2(
 
     for i, phi in enumerate(Phi_new):
         # Need to update sampler hyperparameters
-        approximator._grid_over_hyperparameters_update(phi, indices, approximator.gamma)
+        approximator._grid_over_hyperparameters_update(phi, indices, approximator.cutpoints)
         theta = approximator.get_theta(indices)
         log_p_pseudo_marginals, log_p_prior = hyper_sampler.tmp_compute_marginal(
                 theta, indices, steps=steps, reparameterised=reparameterised,
@@ -1043,8 +1043,8 @@ def figure2(
         if verbose:
             print("log_p_pseudo_marginal {}, log_p_prior {}".format(np.mean(log_p_pseudo_marginals), log_p_prior))
             print(
-                "gamma={}, varphi={}, noise_variance={}, scale={}, ".format(
-                approximator.gamma, approximator.kernel.varphi, approximator.noise_variance,
+                "cutpoints={}, varphi={}, noise_variance={}, scale={}, ".format(
+                approximator.cutpoints, approximator.kernel.varphi, approximator.noise_variance,
                 approximator.kernel.scale))
     if x2s is not None:
         raise ValueError("Multivariate plots are TODO")

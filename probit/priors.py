@@ -1,13 +1,13 @@
 """Priors for hyperparameters."""
 import numpy as np
 from scipy.stats import expon, norm
-from scipy.stats import gamma as gamma_
+from scipy.stats import gamma
 from scipy.special import ndtr, log_ndtr
 import warnings
 
 def prior_reparameterised(
         theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
-        gamma_hyperparameters, scale_hyperparameters, gamma_0):
+        cutpoints_hyperparameters, scale_hyperparameters, cutpoints_0):
     """
     A reparametrisation such that all of the hyperparameters can be sampled from the real line,
     therefore there is no transformation (thus no jacobian) when sampling from the proposal distribution.
@@ -15,7 +15,7 @@ def prior_reparameterised(
     """
     # Do not update these hyperparameters by default
     noise_variance = None
-    gamma = None
+    cutpoints = None
     scale = None
     varphi = None
     index = 0
@@ -43,22 +43,22 @@ def prior_reparameterised(
         index += 1
     for j in range(1, J):
         if indices[j]:
-            gamma = gamma_0
+            cutpoints = cutpoints_0
     if indices[1]:
-        gamma[1] = theta[index]
+        cutpoints[1] = theta[index]
         log_prior_pdf = norm.logpdf(
             theta[index],
-            loc=gamma_hyperparameters[1, 0],
-            scale=gamma_hyperparameters[1, 1])
+            loc=cutpoints_hyperparameters[1, 0],
+            scale=cutpoints_hyperparameters[1, 1])
         log_prior_theta[index] = log_prior_pdf
         index += 1
     for j in range(2, J):
         if indices[j]:
-            gamma[j] = gamma[j-1] + np.exp(theta[index])
+            cutpoints[j] = cutpoints[j-1] + np.exp(theta[index])
             log_prior_pdf = norm.pdf(
                 theta[index],
-                loc=gamma_hyperparameters[j, 0],
-                scale=gamma_hyperparameters[j, 1])
+                loc=cutpoints_hyperparameters[j, 0],
+                scale=cutpoints_hyperparameters[j, 1])
             log_prior_theta[index] = log_prior_pdf
             index += 1
     if indices[J]:
@@ -86,7 +86,7 @@ def prior_reparameterised(
         #     theta[index],
         #     loc=varphi_hyperparameters[0],
         #     scale=varphi_hyperparameters[1])
-        log_prior_pdf = gamma_.logpdf(
+        log_prior_pdf = gamma.logpdf(
             varphi,
             a=varphi_hyperparameters[0],
             scale=varphi_hyperparameters[1])
@@ -94,10 +94,10 @@ def prior_reparameterised(
         log_prior_pdf += theta[index]
         log_prior_theta[index] = log_prior_pdf
         index += 1
-    return gamma, varphi, scale, noise_variance, log_prior_theta
+    return cutpoints, varphi, scale, noise_variance, log_prior_theta
 
 def prior(theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
-        gamma_hyperparameters, scale_hyperparameters, gamma_0):
+        cutpoints_hyperparameters, scale_hyperparameters, cutpoints_0):
     """
     A priors defined over their usual domains, and so a transformation of random variables is used
     for sampling from proposal distrubutions defined over continuous domains.
@@ -105,7 +105,7 @@ def prior(theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
     """
     # Do not update these hyperparameters by default
     noise_variance = None
-    gamma = None
+    cutpoints = None
     scale = None
     varphi = None
     log_prior_theta = np.zeros(len(theta))
@@ -113,7 +113,7 @@ def prior(theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
     if indices[0]:
         # Gamma prior is placed on the noise std - evaluate the prior pdf
         noise_std = np.exp(theta[index])
-        log_prior_pdf = gamma_.logpdf(
+        log_prior_pdf = gamma.logpdf(
             noise_std,
             loc=noise_std_hyperparameters[0],
             scale=noise_std_hyperparameters[1])
@@ -132,22 +132,22 @@ def prior(theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
         index += 1
     for j in range(1, J):
         if indices[j]:
-            gamma = gamma_0
+            cutpoints = cutpoints_0
     if indices[1]:
-        gamma[1] = theta[index]
+        cutpoints[1] = theta[index]
         log_prior_pdf = norm.logpdf(
             theta[index],
-            loc=gamma_hyperparameters[1, 0],
-            scale=gamma_hyperparameters[1, 1])
+            loc=cutpoints_hyperparameters[1, 0],
+            scale=cutpoints_hyperparameters[1, 1])
         log_prior_theta[index] = log_prior_pdf
         index += 1
     for j in range(2, J):
         if indices[j]:
-            gamma[j] = gamma[j-1] + np.exp(theta[index])
+            cutpoints[j] = cutpoints[j-1] + np.exp(theta[index])
             log_prior_pdf = norm.logpdf(
                 theta[index],
-                loc=gamma_hyperparameters[j, 0],
-                scale=gamma_hyperparameters[j, 1])
+                loc=cutpoints_hyperparameters[j, 0],
+                scale=cutpoints_hyperparameters[j, 1])
             log_prior_theta[index] = log_prior_pdf
             index += 1
     if indices[J]:
@@ -155,8 +155,8 @@ def prior(theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
         scale = scale_std**2
         log_prior_pdf = norm.logpdf(
                 theta[index],
-                loc=gamma_hyperparameters[J, 0],
-                scale=gamma_hyperparameters[J, 1])
+                loc=cutpoints_hyperparameters[J, 0],
+                scale=cutpoints_hyperparameters[J, 1])
         log_prior_theta[index] = log_prior_pdf
         index += 1
     if indices[J + 1]:
@@ -174,11 +174,11 @@ def prior(theta, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
         #     varphi,
         #     loc=varphi_hyperparameters[0],
         #     scale=varphi_hyperparameters[1])
-        log_prior_pdf = gamma_.logpdf(
+        log_prior_pdf = gamma.logpdf(
             varphi,
             a=varphi_hyperparameters[0],
             scale=varphi_hyperparameters[1])
         # log_prior_pdf = - theta[index]  # Jeffreys? But this hasn't been reparametrised
         log_prior_theta[index] = log_prior_pdf  # This is the log prior for theta, but not varphi. So correct
         index += 1
-    return gamma, varphi, scale, noise_variance, log_prior_theta
+    return cutpoints, varphi, scale, noise_variance, log_prior_theta

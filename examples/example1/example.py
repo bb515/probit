@@ -57,7 +57,7 @@ def main():
         (X_trains, t_trains,
         X_tests, t_tests,
         X_true, y_tests,
-        gamma_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, D, Kernel) = load_data(
             dataset, bins)
         N_train = np.shape(t_trains[0])
@@ -72,17 +72,17 @@ def main():
             Approximator = LaplaceOrdinalGP
         outer_loops(
             Approximator, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
-            gamma_0, varphi_0, noise_variance_0, scale_0, J, D)
+            cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate the classifier with the training data
         classifier = Approximator(
-            gamma_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
+            cutpoints_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
         indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen
         # Fix noise_variance
         indices[0] = 0
-        # Fix gamma
+        # Fix cutpoints
         indices[1:J] = 0
         # Fix scale
         indices[J] = 0
@@ -94,11 +94,11 @@ def main():
             classifier, X_tests[2], t_tests[2], y_tests[2], steps)
     elif dataset in datasets["synthetic"]:
         # (X, Y, t,
-        # gamma_0, varphi_0, noise_variance_0, scale_0,
+        # cutpoints_0, varphi_0, noise_variance_0, scale_0,
         # J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
         (X, t,
         X_true, Y_true,
-        gamma_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
         # Initiate kernel
         kernel = Kernel(
@@ -115,7 +115,7 @@ def main():
             Approximator = LaplaceOrdinalGP
         # Initiate classifier
         classifier = Approximator(
-            gamma_0, noise_variance_0, kernel, X, t, J)
+            cutpoints_0, noise_variance_0, kernel, X, t, J)
         indices = np.ones(J + 2)
         # Fix noise_variance
         indices[0] = 0
@@ -123,7 +123,7 @@ def main():
         indices[J] = 0
         # Fix varphi
         #indices[-1] = 0
-        # Fix gamma
+        # Fix cutpoints
         indices[1:J] = 0
         # Just varphi
         domain = ((-4, 4), None)
