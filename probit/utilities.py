@@ -453,51 +453,41 @@ def fromb_t5_vector(
     return q
 
 
-def vectorised_unnormalised_log_multivariate_normal_pdf(
-        ms, mean=None, covs=None):
-    """
-    Evaluate a vector of log multivariate normal pdf in a
-    numerically stable way.
-    """
-    if covs is None:
-        raise ValueError("Must provide sample covariance matrices ({} was provided)".format(covs))
-    if mean is not None:
-        ms = ms - mean
-    Ls = np.linalg.cholesky(covs)
-    L_invs = np.linalg.inv(Ls)
-    K_invs = L_invs.transpose((0, 2, 1)) @ L_invs
-    half_log_det_covs = np.trace(np.log(Ls), axis1=1, axis2=2)
-    return -1. * half_log_det_covs - 0.5 * (K_invs @ ms) @ ms
-
-
-def unnormalised_log_multivariate_normal_pdf(x, mean=None, cov=None):
-    """Evaluate the multivariate normal pdf in a numerically stable way."""
-    if cov is None:
-        cov = np.eye(len(x))
+def log_multivariate_normal_pdf(
+        x, cov_inv, half_log_det_cov, mean=None):
+    """Get the pdf of the multivariate normal distribution."""
     if mean is not None:
         x = x - mean
-    L = np.linalg.cholesky(cov)
-    L_inv = np.linalg.inv(L)
-    J_inv = L_inv.T @ L_inv
-    half_log_det_cov = np.trace(np.log(L))
-    return -1. * half_log_det_cov - 0.5 * x.T @ J_inv @ x
+    return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
 
 
-def sample_varphis(psi, n_samples):
+def log_multivariate_normal_pdf_vectorised(
+        xs, cov_inv, half_log_det_cov, mean=None):
+    """Get the pdf of the multivariate normal distribution."""
+    if mean is not None:
+        xs = xs - mean
+    return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.einsum(
+        'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
+        
+
+def sample_varphis(varphi_hyperparameter, n_samples):
     """
-    Take n_samples of varphi, given the hyper-hyperparameter psi.
+    Take n_samples of varphi, given the hyperparameter of varphi.
 
-    psi is a rate parameter since, with an uninformative prior (sigma=tau=0), then the posterior mean of Q(psi) is
-    psi_tilde = 1. / varphi_tilde. Therefore, by taking the expected value of the prior on varphi ~ Exp(psi_tilde),
-    we expect to obtain varphi_tilde = 1. / psi_tilde. We get this if psi_tilde is a rate.
+    varphi_hyperparameter is a rate parameter since, with an uninformative
+    prior (sigma=tau=0), then the posterior mean of Q(psi) is
+    psi_tilde = 1. / varphi_tilde. Therefore, by taking the expected value of
+    the prior on varphi ~ Exp(psi_tilde),
+    we expect to obtain varphi_tilde = 1. / psi_tilde. We get this if
+    psi_tilde is a rate.
 
     :arg psi: float (Array) of hyper-hyperparameter(s)
     :type psi: :class:`np.ndarray`
     :arg int n_samples: The number of samples for the importance sample.
     """
-    # scale = psi
-    scale = 1. / psi
-    shape = np.shape(psi)
+    # scale = varphi_hyperparameter
+    scale = 1. / varphi_hyperparameter
+    shape = np.shape(varphi_hyperparameter)
     if shape == ():
         size = (n_samples,)
     else:

@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 
-from scipy.stats.stats import weightedtau
-from sklearn.metrics import precision_recall_curve
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import random
@@ -22,14 +20,14 @@ from .utilities import (
 from scipy.stats import norm
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from .utilities import (
-    sample_varphis, unnormalised_log_multivariate_normal_pdf,
-    vectorised_unnormalised_log_multivariate_normal_pdf,
+    sample_varphis,
     fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
     fromb_t5_vector)
 
 
 class Approximator(ABC):
     """
+    TODO: change `gamma` to `cutpoints`.
     TODO: separate the approximation from the likelihood, e.g. probit.models.EP(likelihood = ordinal),
         probit.models.Laplace(likelihood = ordinal), probit.models.VGP(likelihood = probit).
     Base class for variational Bayes approximators.
@@ -90,14 +88,6 @@ class Approximator(ABC):
             self.t_train = t_train
         self.J = J
         self.grid = np.ogrid[0:self.N]  # For indexing sets of self.t_train
-        if self.kernel._ARD:
-            sigma = np.reshape(self.kernel.sigma, (self.J, 1))
-            tau = np.reshape(self.kernel.tau, (self.J, 1))
-            self.sigma = np.tile(sigma, (1, self.D))  # (J, D)
-            self.tau = np.tile(tau, (1, self.D))  # (J, D)
-        else:
-            self.sigma = self.kernel.sigma
-            self.tau = self.kernel.tau
         # See GPML by Williams et al. for a good explanation of jitter
         # self.jitter = 1e-8 
         self.jitter = 1e-10
@@ -115,6 +105,10 @@ class Approximator(ABC):
         # neglected probability mass in the tails
         # Good values found between 18 and 30
         self.upper_bound2 = 30  # May need decreasing if experience infs or NaNs
+        # TODO: In the case where a classifier is being loaded from a file,
+        # no need to update prior
+        # When loading a model, it is probably best to separate it from the
+        # Approximator class all together.
         warnings.warn("Updating prior covariance.")
         self._update_prior()
 
@@ -163,38 +157,6 @@ class Approximator(ABC):
             return np.sum(np.log(Z), axis=1)  # (num_samples,)
         elif np.ndim(m) == 1:
                return np.sum(np.log(Z))  # (1,)
-
-    def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
-        """Get the pdf of the multivariate normal distribution."""
-        if mean is not None:
-            x = x - mean
-        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
-
-    def _log_multivariate_normal_pdf_vectorised(self, xs, cov_inv, half_log_det_cov, mean=None):
-        """Get the pdf of the multivariate normal distribution."""
-        if mean is not None:
-            xs = xs - mean
-        return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.einsum(
-            'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
-
-    def _psi(self, varphi):
-        """
-        Return the approximate posterior mean of the hyperhyperparameters psi.
-
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial
-        Probit Regression with Gaussian Process Priors," in Neural Computation,
-        vol. 18, no. 8, pp. 1790-1817, Aug. 2006,
-        doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(10).
-
-        This is the same for all categorical approximators, and so can live in the
-        Abstract Base Class.
-
-        :arg varphi: Posterior mean approximate of varphi.
-        :type varphi: :class:`numpy.ndarray`
-        :return: The approximate posterior mean of the hyperhyperparameters psi
-            Girolami and Rogers Page 9 Eq.(10).
-        """
-        return np.divide(np.add(1, self.sigma), np.add(self.tau, varphi))  # TODO self.sigma does/should not exist probs
 
     def get_theta(self, indices):
         """
@@ -575,7 +537,8 @@ class VBOrdinalGP(Approximator):
         self.trace_posterior_cov_div_var = np.einsum('ij, ij -> ', self.K, self.cov)
 
     def hyperparameters_update(
-        self, gamma=None, varphi=None, scale=None, noise_variance=None):
+        self, gamma=None, varphi=None, scale=None, noise_variance=None,
+        varphi_hyperparameters=None):
         """
         Reset kernel hyperparameters, generating new prior and posterior
         covariances. Note that hyperparameters are fixed parameters of the
@@ -652,6 +615,9 @@ class VBOrdinalGP(Approximator):
             warnings.warn("Updating prior covariance.")
             self._update_prior()
             warnings.warn("Done posterior covariance.")
+        if varphi_hyperparameters is not None:
+            self.kernel.update_hyperparameter(
+                varphi_hyperparameters=varphi_hyperparameters)
         # Initalise the noise variance
         if noise_variance is not None:
             self.noise_variance = noise_variance
@@ -670,8 +636,8 @@ class VBOrdinalGP(Approximator):
         :type m_0: :class:`numpy.ndarray`
         """
         if posterior_mean_0 is None:
-            posterior_mean_0 = np.random.rand(self.N)  # TODO: justification for this?
-            # posterior_mean_0 = np.zeros(self.N)
+            # posterior_mean_0 = np.random.rand(self.N)  # TODO: justification for this?
+            posterior_mean_0 = np.zeros(self.N)
         ys = []
         posterior_means = []
         varphis = []
@@ -681,7 +647,8 @@ class VBOrdinalGP(Approximator):
         return posterior_mean_0, containers
 
     def approximate(
-            self, steps, posterior_mean_0=None, first_step=1, write=False, plot=False):
+            self, steps, posterior_mean_0=None, first_step=1,
+            write=False):
         """
         Estimating the posterior means are a 3 step iteration over posterior_mean,
         varphi and psi Eq.(8), (9), (10), respectively or,
@@ -714,20 +681,20 @@ class VBOrdinalGP(Approximator):
                 p_, posterior_mean, self.noise_std)
             posterior_mean, nu = self._posterior_mean(
                 y, self.cov, self.K)
-            if plot:
-                plt.scatter(self.X_train, y, label="y")
-                plt.scatter(self.X_train, posterior_mean, label="posterior_mean")
-                plt.legend()
-                plt.savefig("VB_approximate_posterior_mean_and_latents.png")
-                plt.close()
-            if 0:
-            #if self.kernel.varphi_hyperparameters is not None:
+            if self.kernel.varphi_hyperhyperparameters is not None:
                 # Posterior mean update for kernel hyperparameters
                 # Kernel hyperparameters are variables here
+                # TODO maybe this shouldn't be performed at every step.
                 varphi = self._varphi(
-                    posterior_mean, self.kernel.varphi_hyperparameters, n_samples=1000)
-                varphi_hyperparameters = self._varphi_hyperparameters(self.kernel.varphi)
-                self.hyperparameters_update(varphi=varphi)
+                    posterior_mean, self.kernel.varphi_hyperparameters,
+                    n_samples=10)
+                varphi_hyperparameters = self._varphi_hyperparameters(
+                    self.kernel.varphi)
+                self.hyperparameters_update(
+                    varphi=varphi,
+                    varphi_hyperparameters=varphi_hyperparameters)
+                print("varphi = ", self.kernel.varphi)
+                print("varphihyper = ", self.kernel.varphi_hyperparameters)
             if write:
                 Z, *_ = truncated_norm_normalising_constant(
                     self.gamma_ts, self.gamma_tplus1s,
@@ -750,6 +717,9 @@ class VBOrdinalGP(Approximator):
             self, gamma, cov, y, noise_variance, X_test):
         """
         TODO: probably a way to do this with just the posterior mean?
+        The predictions are k^T K^-1 f, = k^T nu
+        which avoids the cov y calculation.
+        since nu = K^-1 f = cov y
         Make variational Bayes prediction over classes of X_test given the
         posterior samples.
 
@@ -828,7 +798,30 @@ class VBOrdinalGP(Approximator):
                     "The scalar implementation has been superseded. Please use"
                     " the vector implementation.")
 
-    def _varphi(self, posterior_mean, varphi_hyperparameters, n_samples=10, vectorised=True):
+    def _varphi_hyperparameters(self, varphi):
+        """
+        Return the approximate posterior mean of the hyperhyperparameters psi.
+
+        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial
+        Probit Regression with Gaussian Process Priors," in Neural Computation,
+        vol. 18, no. 8, pp. 1790-1817, Aug. 2006,
+        doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(10).
+
+        This is the same for all categorical approximators, and so can live in the
+        Abstract Base Class.
+
+        :arg varphi: Posterior mean approximate of varphi.
+        :type varphi: :class:`numpy.ndarray`
+        :return: The approximate posterior mean of the hyperhyperparameters psi
+            Girolami and Rogers Page 9 Eq.(10).
+        """
+        return np.divide(
+            np.add(1, self.kernel.varphi_hyperhyperparameters[0]),
+            np.add(self.kernel.varphi_hyperhyperparameters[1], varphi))
+
+    def _varphi(
+            self, posterior_mean, varphi_hyperparameters, n_samples=10,
+            vectorised=False):
         """
         Return the w values of the sample
 
@@ -838,7 +831,8 @@ class VBOrdinalGP(Approximator):
         doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(9).
 
         :arg posterior_mean: approximate posterior mean.
-        :arg varphi_hyperparameters: approximate posterior mean of the kernel hyperparameters.
+        :arg varphi_hyperparameters: approximate posterior mean of the kernel
+            hyperparameters.
         :arg int n_samples: The number of samples for the importance sampling
             estimate, 500 is used in 2005 Page 13.
         """
@@ -846,33 +840,44 @@ class VBOrdinalGP(Approximator):
         # (n_samples, J, D) in general and _ARD, (n_samples, ) for single
         # shared kernel and ISO case. Depends on the
         # shape of psi.
-        varphis = sample_varphis(varphi_hyperparameters, n_samples)  # (n_samples, )
+        varphis = sample_varphis(
+            varphi_hyperparameters, n_samples)  # (n_samples, )
+        print(varphis)
         log_varphis = np.log(varphis)
         # (n_samples, J, N, N) in general and _ARD, (n_samples, N, N) for
         # single shared kernel and ISO case. Depends on
         # the shape of psi.
-        Cs_samples = self.kernel.kernel_matrices(
+        Ks_samples = self.kernel.kernel_matrices(
             self.X_train, self.X_train, varphis)  # (n_samples, N, N)
-        Cs_samples = np.add(Cs_samples, 1e-5 * np.eye(self.N))
+        Ks_samples = np.add(Ks_samples, self.jitter * np.eye(self.N))
         if vectorised:
-            log_ws = vectorised_unnormalised_log_multivariate_normal_pdf(
-                posterior_mean, mean=None, covs=Cs_samples)
+            raise ValueError("TODO")
         else:
             log_ws = np.empty((n_samples,))
             # Scalar version
             for i in range(n_samples):
-                log_ws[i] = unnormalised_log_multivariate_normal_pdf(
-                    posterior_mean, mean=None, cov=Cs_samples[i])
+                (prior_L, lower) = cho_factor(
+                    Ks_samples[i])
+                half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L)))
+                # weight = cho_solve(
+                #     (prior_L, lower), posterior_mean)
+                # print(posterior_mean.T @ weight)
+                # TODO something not quite right - converges to zero
+                prior_LT_inv = solve_triangular(
+                    prior_L.T, np.eye(self.N), lower=True)
+                K_inv = solve_triangular(
+                    prior_L, prior_LT_inv, lower=False)
+                log_ws[i] = -0.5 * np.log(2 * np.pi) - half_log_det_prior_cov\
+                    - 0.5 * posterior_mean.T @ K_inv @ posterior_mean
         # Normalise the w vectors
         max_log_ws = np.max(log_ws)
         log_normalising_constant = max_log_ws + np.log(
             np.sum(np.exp(log_ws - max_log_ws), axis=0))
         log_ws = np.subtract(log_ws, log_normalising_constant)
+        print(np.sum(np.exp(log_ws)))
         element_prod = np.add(log_varphis, log_ws)
         element_prod = np.exp(element_prod)
-        magic_number = 2.0
-        print("varphi", magic_number * np.sum(element_prod, axis=0))
-        return magic_number * np.sum(element_prod, axis=0)
+        return np.sum(element_prod, axis=0)
 
     def _posterior_mean(self, y, cov, K):
         """
@@ -894,7 +899,7 @@ class VBOrdinalGP(Approximator):
 
     def _y(self, p, posterior_mean, noise_std):
         """
-        Calculate Y elements 2021 Page Eq.().
+        Calculate y elements 2021 Page Eq.().
 
         :arg p:
         :type p:
@@ -940,7 +945,8 @@ class VBOrdinalGP(Approximator):
         :rtype: float
         """
         trace_K_inv_posterior_cov = noise_variance * trace_cov
-        log_det_posterior_cov = log_det_K + N * np.log(noise_variance) + log_det_cov 
+        log_det_posterior_cov = log_det_K + N * np.log(noise_variance)\
+            + log_det_cov 
         one = - trace_posterior_cov_div_var / 2
         two = - log_det_K / 2
         three = - trace_K_inv_posterior_cov / 2
@@ -1141,7 +1147,7 @@ class VBOrdinalGP(Approximator):
             return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
 
     def approximate_posterior(
-            self, theta, indices, steps=None, first_step=1,
+            self, theta, indices, steps=None, first_step=1, max_iter=2,
             calculate_posterior_cov=True, write=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
@@ -1161,7 +1167,7 @@ class VBOrdinalGP(Approximator):
         fx_old = np.inf
         posterior_mean = None
         # Convergence is sometimes very fast so this may not be necessary
-        while error / steps > self.EPS:
+        while error / steps > self.EPS and iteration < max_iter:
             iteration += 1
             (posterior_mean, nu, *_) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,

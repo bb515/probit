@@ -60,7 +60,6 @@ def main():
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, Kernel) = load_data(
             dataset, bins)
-        steps = 1000
         N_train = np.shape(t_trains[0])
         if approximation == "EP":
             steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
@@ -101,15 +100,15 @@ def main():
         X_true, Y_true,
         gamma_0, varphi_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
-        steps = 50
         # Initiate kernel
-        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        kernel = Kernel(
+            varphi=varphi_0, scale=scale_0)
         N_train = np.shape(t)[0]
         if approximation == "EP":
-            steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
+            steps = np.max([100, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
             Approximator = EPOrdinalGP
         elif approximation == "VB":
-            steps = np.max([100, N_train//10])
+            steps = np.max([10, N_train//10])
             Approximator = VBOrdinalGP
         elif approximation == "LA":
             steps = np.max([2, N_train//1000])
@@ -147,7 +146,7 @@ def main():
         # test(classifier, X, t, Y_true, steps)
         #grid_synthetic(classifier, domain, res, indices, show=False)
         plot_synthetic(
-            classifier, dataset, X_true, Y_true, classifier.N, colors=colors)
+            classifier, dataset, X_true, Y_true, steps, colors=colors)
         #plot_synthetic(classifier, dataset, X, Y, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))

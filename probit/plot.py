@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from pytest import approx
 from scipy.optimize import minimize
 from probit.data.utilities import MinimizeStopper, colors, datasets
-from probit.data.utilities_nplan import calculate_metrics
+from probit.data.utilities import calculate_metrics
 import matplotlib.colors as mcolors
 from matplotlib import rc
 
@@ -821,7 +821,7 @@ def plot_synthetic(
                             classifier.t_train == j)]) + val,
                         s=15, facecolors=colors[j], edgecolors='white')
                 plt.savefig(
-                    "Ordered Gibbs Cumulative distribution plot of class "
+                    "Cumulative distribution plot of ordinal class "
                     "distributions for x_new=[{}, {}].png".format(
                         x_lims[0], x_lims[1]))
                 plt.show()
@@ -840,9 +840,11 @@ def plot_synthetic(
                 for j in range(classifier.J):
                     plt.scatter(
                         classifier.X_train[np.where(classifier.t_train == j)],
-                        np.zeros_like(classifier.X_train[np.where(classifier.t_train == j)]),
+                        np.zeros_like(classifier.X_train[
+                            np.where(classifier.t_train == j)]),
                         s=15, facecolors=colors[j], edgecolors='white')
-                plt.savefig("scatter_versus_posterior_mean.png")
+                plt.savefig(
+                    "Scatter plot of data compared to posterior mean.png")
                 plt.show()
                 plt.close()
             elif classifier.D == 2:
@@ -866,15 +868,18 @@ def plot_synthetic(
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
-                    Z.T[0, :].reshape(N, N), alpha=0.4, color=colors[0], label=r"$p(\omega=0|x, X, t)$")
+                    Z.T[0, :].reshape(N, N), alpha=0.4, color=colors[0],
+                        label=r"$p(\omega=0|x, X, t)$")
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
-                    Z.T[1, :].reshape(N, N), alpha=0.4, color=colors[1], label=r"$p(\omega=1|x, X, t)$")
+                    Z.T[1, :].reshape(N, N), alpha=0.4, color=colors[1],
+                        label=r"$p(\omega=1|x, X, t)$")
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
-                    Z.T[2, :].reshape(N, N), alpha=0.4, color=colors[2], label=r"$p(\omega=2|x, X, t)$")
+                    Z.T[2, :].reshape(N, N), alpha=0.4, color=colors[2],
+                        label=r"$p(\omega=2|x, X, t)$")
                 cmap = plt.cm.get_cmap('viridis', classifier.J)
                 import matplotlib as mpl
                 fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
@@ -910,7 +915,11 @@ def plot_synthetic(
                 def colorTriangle(r,g,b):
                     image = np.stack([r,g,b],axis=2)
                     return image/image.max(axis=2)[:,:,None]
-                plt.imshow(colorTriangle(Z.T[0, :].reshape(N, N), Z.T[1, :].reshape(N, N), Z.T[2, :].reshape(N, N)),origin='lower',extent=(-4.0,6.0,-4.0,6.0)) 
+                plt.imshow(
+                    colorTriangle(
+                        Z.T[0, :].reshape(N, N), Z.T[1, :].reshape(N, N),
+                        Z.T[2, :].reshape(N, N)),
+                        origin='lower',extent=(-4.0,6.0,-4.0,6.0)) 
                 plt.show()
                 plt.close()
         elif classifier.J == 13:

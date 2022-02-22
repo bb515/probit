@@ -102,7 +102,8 @@ def main():
             print("metrics = {} +/- {}".format(mean_metrics, std_metrics))
         if 1:
             # Initiate kernel
-            kernel = Kernel(varphi=varphi_0, scale=scale_0)
+            kernel = Kernel(
+                varphi=varphi_0, scale=scale_0)
             # Initiate the classifier with the training data
             classifier = Approximator(
                 gamma_0, noise_variance_0, kernel,

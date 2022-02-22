@@ -9,7 +9,8 @@ import pathlib
 import numpy as np
 from .utilities import (
     norm_z_pdf, norm_cdf, sample_y,
-    truncated_norm_normalising_constant)
+    truncated_norm_normalising_constant, log_multivariate_normal_pdf,
+    log_multivariate_normal_pdf_vectorised)
 import numba_scipy  # Numba overloads for scipy and scipy.special
 from scipy.stats import norm, uniform, expon
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
@@ -1492,35 +1493,26 @@ class PseudoMarginal(object):
         # intervals = self.approximator.gamma[2:self.approximator.J] - self.approximator.gamma[1:self.approximator.J - 1]
         return log_prior_theta
 
-    # def _weight(
-    #     self, f_samp, prior_L_cov, half_log_det_prior_cov, posterior_L_cov, half_log_det_posterior_cov, posterior_mean):
-    #     return (
-    #         self.approximator._get_log_likelihood(f_samp)
-    #         + self.approximator._log_multivariate_normal_pdf(
-    #             f_samp, prior_L_cov, half_log_det_prior_cov)
-    #         - self.approximator._log_multivariate_normal_pdf(
-    #             f_samp, posterior_L_cov, half_log_det_posterior_cov, mean=posterior_mean)
-    #     )
-
     def _weight(
-            self, f_samp, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv,
-            half_log_det_posterior_cov, posterior_mean):
+            self, f_samp, prior_cov_inv, half_log_det_prior_cov,
+            posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
         return (
             self.approximator.get_log_likelihood(f_samp)
-            + self.approximator._log_multivariate_normal_pdf(
+            + log_multivariate_normal_pdf(
                 f_samp, prior_cov_inv, half_log_det_prior_cov)
-            - self.approximator._log_multivariate_normal_pdf(
-                f_samp, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean)
-        )
+            - log_multivariate_normal_pdf(
+                f_samp, posterior_cov_inv, half_log_det_posterior_cov,
+                mean=posterior_mean))
 
     def _weight_vectorised(
-            self, f_samps, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv,
-            half_log_det_posterior_cov, posterior_mean):
+            self, f_samps, prior_cov_inv, half_log_det_prior_cov,
+            posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
         log_ws = (self.approximator.get_log_likelihood(f_samps)
-            + self.approximator._log_multivariate_normal_pdf_vectorised(
+            + log_multivariate_normal_pdf_vectorised(
                 f_samps, prior_cov_inv, half_log_det_prior_cov)
-            - self.approximator._log_multivariate_normal_pdf_vectorised(
-                f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+            - log_multivariate_normal_pdf_vectorised(
+                f_samps, posterior_cov_inv, half_log_det_posterior_cov,
+                mean=posterior_mean))
         return log_ws
 
     def _importance_sampler_vectorised(
@@ -1573,7 +1565,7 @@ class PseudoMarginal(object):
         #plt.show()
         # Normalise the w vectors using the log-sum-exp operator
         max_log_ws = np.max(log_ws)
-        log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
+        log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))  # TODO TODO!!!! Shouldn't this be along a certain axis? axis 0
         return log_sum_exp - np.log(num_importance_samples)
 
     def tmp_compute_marginal(
@@ -1640,7 +1632,6 @@ class PseudoMarginal(object):
                 u, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
                 None, None,
                 self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
-
         fx, gx, posterior_mean, (posterior_matrix, is_inv) = self.approximator.approximate_posterior(
             v, indices, first_step=1, write=False, verbose=False)
         prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
