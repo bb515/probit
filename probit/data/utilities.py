@@ -744,14 +744,13 @@ def generate_synthetic_data(N_per_class, J, D, kernel, noise_variance):
     return X_j, Y_true_j, X, Y_true, t
 
 
-def load_data(dataset, bins):
+def load_data(dataset, J):
     if dataset == "abalone":
         from probit.data import abalone
         with pkg_resources.path(abalone, 'abalone.npz') as path:
             data_continuous = np.load(path)
         D = 10
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "init": (  # Unstable
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
@@ -824,9 +823,8 @@ def load_data(dataset, bins):
             from probit.data.abalone import quantile
             with pkg_resources.path(quantile, 'abalone.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
+        elif J == 10:
             from probit.data.abalone import decile
-            J = 10
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -853,8 +851,7 @@ def load_data(dataset, bins):
         D = 7
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
@@ -886,8 +883,7 @@ def load_data(dataset, bins):
             from probit.data.auto import quantile
             with pkg_resources.path(quantile, 'auto.data.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
-            J = 10
+        elif J == 10:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -914,8 +910,7 @@ def load_data(dataset, bins):
         from probit.data import diabetes
         with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
             data_continuous = np.load(path)
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
@@ -952,8 +947,7 @@ def load_data(dataset, bins):
             from probit.data.diabetes import quantile
             with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
-            J = 10
+        elif J == 10:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -981,8 +975,7 @@ def load_data(dataset, bins):
         from probit.data import bostonhousing
         with pkg_resources.path(bostonhousing, 'housing.npz') as path:
             data_continuous = np.load(path)
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
@@ -1009,8 +1002,7 @@ def load_data(dataset, bins):
             from probit.data.bostonhousing import quantile
             with pkg_resources.path(quantile, 'housing.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
-            J = 10
+        elif J == 10:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -1038,8 +1030,7 @@ def load_data(dataset, bins):
         from probit.data import machinecpu
         with pkg_resources.path(machinecpu, 'machine.npz') as path:
             data_continuous = np.load(path)
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
@@ -1066,8 +1057,7 @@ def load_data(dataset, bins):
             from probit.data.machinecpu import quantile
             with pkg_resources.path(quantile, 'machine.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
-            J = 10
+        elif J == 10:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -1095,8 +1085,7 @@ def load_data(dataset, bins):
         D = 27
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
@@ -1138,8 +1127,7 @@ def load_data(dataset, bins):
             from probit.data.pyrimidines import quantile
             with pkg_resources.path(quantile, 'pyrim.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
-            J = 10
+        elif J == 10:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -1165,8 +1153,7 @@ def load_data(dataset, bins):
         with pkg_resources.path(stocksdomain, 'stock.npz') as path:
             data_continuous = np.load(path)
         D = 9
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "720.0": (
                     np.array([-np.inf, -0.5, -0.02, 0.43, 0.96, np.inf]),
@@ -1223,8 +1210,7 @@ def load_data(dataset, bins):
             from probit.data.stocksdomain import quantile
             with pkg_resources.path(quantile, 'stock.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
-            J = 10
+        elif J == 10:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -1252,8 +1238,7 @@ def load_data(dataset, bins):
         D = 60
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
@@ -1285,8 +1270,7 @@ def load_data(dataset, bins):
             from probit.data.triazines import quantile
             with pkg_resources.path(quantile, 'triazines.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
-            J = 10
+        elif J == 10:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -1314,8 +1298,7 @@ def load_data(dataset, bins):
         from probit.data import wisconsin
         with pkg_resources.path(wisconsin, 'wpbc.npz') as path:
             data_continuous = np.load(path)
-        if bins == "quantile":
-            J = 5
+        if J == 5:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf]),
@@ -1342,8 +1325,7 @@ def load_data(dataset, bins):
             from probit.data.wisconsin import quantile
             with pkg_resources.path(quantile, 'wpbc.npz') as path:
                 data = np.load(path)
-        elif bins == "decile":
-            J = 10
+        elif J == 10:
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -1555,7 +1537,7 @@ def generate_synthetic_data_new(N_per_class, N_test, splits, J, D, varphi=30.0, 
         X_show, Z_show, colors)
 
 
-def load_data_synthetic(dataset, bins, plot=False):
+def load_data_synthetic(dataset, J, plot=False):
     """Load synthetic data. TODO SS"""
     print(dataset)
     if dataset == "SEIso":
@@ -1563,8 +1545,7 @@ def load_data_synthetic(dataset, bins, plot=False):
         #Kernel = LabSharpenedCosine
         Kernel = LabEQ
         #Kernel = SEIso
-        if bins == "tertile":
-            J = 3
+        if J == 3:
             from probit.data.SEIso import tertile
             with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
@@ -1607,8 +1588,7 @@ def load_data_synthetic(dataset, bins, plot=False):
             }
             cutpoints_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
             colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
-        elif bins == "thirteen":
-            J = 13
+        elif J == 13:
             from probit.data.SEIso import thirteen
             with pkg_resources.path(
                 thirteen,
@@ -1647,8 +1627,7 @@ def load_data_synthetic(dataset, bins, plot=False):
     elif dataset == "Linear":
         D = 1
         Kernel = Linear
-        if bins == "tertile":
-            J = 3
+        if J == 3:
             from probit.data.Linear import tertile
             with pkg_resources.path(tertile, 'data.npz') as path:
                 data = np.load(path)
@@ -1676,8 +1655,7 @@ def load_data_synthetic(dataset, bins, plot=False):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
-        elif bins == "thirteen":
-            J = 13
+        elif J == 13:
             from probit.data.Linear import thirteen
             with pkg_resources.path(thirteen, 'data.npz') as path:
                 data = np.load(path)

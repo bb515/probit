@@ -19,7 +19,7 @@ from pstats import Stats, SortKey
 import pathlib
 from probit.plot import train, outer_loops, outer_loop_problem_size, grid, test
 from probit.approximators import VBOrdinalGP, EPOrdinalGP, LaplaceOrdinalGP
-from probit.data.utilities_nplan import datasets, load_data
+from probit.data.utilities import datasets, load_data
 import numpy as np
 
 
@@ -29,7 +29,7 @@ def main():
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
     parser.add_argument(
-        "bins", help="quantile or decile")
+        "num_classes", help="e.g., 13 or 101")
     parser.add_argument(
         "method", help="L-BFGS-B or CG or Newton-CG or BFGS")
     # The type of approximate posterior used
@@ -49,7 +49,7 @@ def main():
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
-    bins = args.bins
+    J = np.int(args.num_classes)
     text_data = args.text_data
     real_valued = args.real_valued
     N_train = args.N_train
@@ -70,15 +70,15 @@ def main():
         (X_trains, t_trains,
         X_tests, t_tests,
         X_true, y_tests,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0,
-        J, D, data, Kernel, cutpoints) = load_data(dataset,
-            bins, N_train=N_train, N_test=N_test, text_data=text_data,
+        cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
+        J, D, data, Kernel, bin_edges) = load_data(dataset,
+            J, N_train=N_train, N_test=N_test, text_data=text_data,
             real_valued_only=real_valued)
         # (_, _,
         # X_tests, t_tests,
         # X_true, y_tests,
         # *_) = load_data("acciona_test1",
-        #     bins, N_train=N_train, N_test=N_test, text_data=text_data,
+        #     J, N_train=N_train, N_test=N_test, text_data=text_data,
         #     real_valued_only=real_valued)
         if approximation == "EP":
             steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
@@ -97,17 +97,17 @@ def main():
             mean_fx, std_fx, mean_metrics, std_metrics = outer_loops(
                 test, Approximator, Kernel, method, X_trains, t_trains, X_tests,
                 t_tests, y_tests, steps,
-                cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
+                cutpoints_0, varphi_0, noise_variance_0, signal_variance_0, J, D)
             print("fx = {} +/- {}".format(mean_fx, std_fx))
             print("metrics = {} +/- {}".format(mean_metrics, std_metrics))
         if 1:
             # Initiate kernel
             kernel = Kernel(
-                varphi=varphi_0, scale=scale_0)
+                varphi=varphi_0, variance=signal_variance_0)
             # Initiate the classifier with the training data
             classifier = Approximator(
                 cutpoints_0, noise_variance_0, kernel,
-                X_trains[0], t_trains[0], J)
+                J, (X_trains[0], t_trains[0]))
             posterior_inv_cov, posterior_mean, *_ = test(
                 classifier, X_tests[0], t_tests[0], y_tests[0], steps)
 
@@ -161,24 +161,24 @@ def main():
 
         if 0:
             # Initiate kernel
-            kernel = Kernel(varphi=varphi_0, scale=scale_0)
+            kernel = Kernel(varphi=varphi_0, variance=signal_variance_0)
             # Initiate the classifier with the training data
             classifier = Approximator(
-                cutpoints_0, noise_variance_0, kernel,
-                X_trains[0], t_trains[0], J)
+                cutpoints_0, noise_variance_0, kernel, J,
+                (X_trains[0], t_trains[0]))
             indices = np.ones(15, dtype=int)
-            # # fix noise_variance
+            # # fix noise variance
             # indices[0] = 0
             # fix cutpoints
             indices[1:J] = 0
-            # fix scale
+            # fix signal variance
             indices[J] = 0
             # fix varphi
             # indices[-1] = 0
             outer_loop_problem_size(
                 test, Approximator, Kernel, method, X_trains, t_trains, X_tests,
                 t_tests, y_tests, steps,
-                cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D, size=4.23,
+                cutpoints_0, varphi_0, noise_variance_0, signal_variance_0, J, D, size=4.23,
                 num=4)
             print("indices", indices)
             grid(classifier, X_trains, t_trains,

@@ -26,14 +26,14 @@ class Kernel(ABC):
     """
 
     @abstractmethod
-    def __init__(self, scale=1.0, scale_hyperparameters=None, varphi_hyperhyperparameters=None):
+    def __init__(self, variance=1.0, variance_hyperparameters=None, varphi_hyperhyperparameters=None):
         """
         Create an :class:`Kernel` object.
 
         This method should be implemented in every concrete kernel. Initiating
         a kernel should be a very cheap operation.
  
-        :arg float scale: The kernel scale hyperparameters as a numpy array.
+        :arg float variance: The kernel variance hyperparameters as a numpy array.
             Default 1.0.
         :arg sigma: The (K, ) array or float or None (location/ scale)
             hyper-hyper-parameters that define varphi_hyperparameters prior. Not to be confused
@@ -45,13 +45,13 @@ class Kernel(ABC):
 
         :returns: A :class:`Kernel` object
         """
-        scale = np.float64(scale)
-        self.scale = scale
-        if scale_hyperparameters is not None:
-            self.scale_hyperparameters = self._initialise_hyperparameter(
-                self.scale, scale_hyperparameters)
+        variance = np.float64(variance)
+        self.variance = variance
+        if variance_hyperparameters is not None:
+            self.variance_hyperparameters = self._initialise_hyperparameter(
+                self.variance, variance_hyperparameters)
         else:
-            self.scale_hyperparameters = None
+            self.variance_hyperparameters = None
 
     @abstractmethod
     def kernel(self):
@@ -154,7 +154,7 @@ class Kernel(ABC):
 
     def update_hyperparameter(
             self, varphi=None, varphi_hyperparameters=None,
-            scale=None, scale_hyperparameters=None,
+            variance=None, variance_hyperparameters=None,
             varphi_hyperhyperparameters=None):
         if varphi is not None:
             self.varphi, self.L, self.M = self._initialise_varphi(
@@ -162,12 +162,12 @@ class Kernel(ABC):
         if varphi_hyperparameters is not None:
             self.varphi_hyperparameters = self._initialise_hyperparameter(
                 self.varphi, varphi_hyperparameters)
-        if scale is not None:
-            # Update scale
-            self.scale = scale
-        if scale_hyperparameters is not None:
-            self.scale_hyperparameters = self._initialise_hyperparameter(
-                self.scale, scale_hyperparameters)
+        if variance is not None:
+            # Update variance
+            self.variance = variance
+        if variance_hyperparameters is not None:
+            self.variance_hyperparameters = self._initialise_hyperparameter(
+                self.variance, variance_hyperparameters)
         if varphi_hyperhyperparameters is not None:
             # Update varphi hyperhyperparameter
             self.varphi_hyperhyperparameters = varphi_hyperhyperparameters
@@ -277,12 +277,12 @@ class Linear(Kernel):
         return varphi, L
 
     def update_hyperparameter(
-        self, varphi=None, scale=None, sigma=None, tau=None):
+        self, varphi=None, variance=None, sigma=None, tau=None):
         if varphi is not None:
             self.varphi, self.L = self._initialise_varphi(varphi)
-        if scale is not None:
-            # Update scale
-            self.scale = scale
+        if variance is not None:
+            # Update variance
+            self.variance = variance
         if sigma is not None:
             # Update sigma
             self.sigma = sigma
@@ -325,7 +325,7 @@ class Linear(Kernel):
         :rtype: float
         """
         return (
-            self.scale * (X_j - self.c).T @ (X_i - self.c)
+            self.variance * (X_j - self.c).T @ (X_i - self.c)
             + self.constant_variance)
  
     def kernel_vector(self, x_new, X):
@@ -339,7 +339,7 @@ class Linear(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * np.einsum(
+        return self.variance * np.einsum(
             'ij, j -> i', X - self.c, x_new[0]
             - self.c) + self.constant_variance
 
@@ -355,7 +355,7 @@ class Linear(Kernel):
         :return: (N,) Gram diagonal.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * np.einsum(
+        return self.variance * np.einsum(
             'ij, ij -> i', X1 - self.c, X2 - self.c) + self.constant_variance
 
     def kernel_prior_diagonal(self, X):
@@ -382,7 +382,7 @@ class Linear(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * np.einsum(
+        return self.variance * np.einsum(
             'ik, jk -> ij', X1 - self.c, X2 - self.c) + self.constant_variance
 
     def kernel_partial_derivative_constant_variance(self, X1, X2):
@@ -417,12 +417,12 @@ class Linear(Kernel):
         # TODO this is checked on scratch.py, but worth checking that the order
         # of X1 and X2 is expected
         if np.shape(self.c) == ():
-            return  self.scale * (
+            return  self.variance * (
                 X1[:, np.newaxis, :]
                 + X2[np.newaxis, :, :]
                 + 2 * self.c)
         else:
-            return self.scale * (
+            return self.variance * (
                 X1[:, np.newaxis, :]
                 + X2[np.newaxis, :, :]
                 + 2 * self.c[np.newaxis, np.newaxis, :])
@@ -468,7 +468,7 @@ class Polynomial(Kernel):
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`d` is the
-    order, :math:`s` is the scale and
+    order, :math:`s` is the variance and
     :math:`c` is the intercept.
 
     TODO: kernel has been designed to be easy to differentiate analytically.
@@ -536,7 +536,7 @@ class Polynomial(Kernel):
     def _initialise_varphi(self, varphi):
         """
         Initialise as Matern type kernel
-        (loosely defined here as a kernel with a length scale) 
+        (loosely defined here as a kernel with a lengthscale) 
         """
         if type(varphi) is list:
             L = np.len(varphi)
@@ -581,7 +581,7 @@ class Polynomial(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return (self.scale * ((X_i - self.c).T @ (X_j - self.c)
+        return (self.variance * ((X_i - self.c).T @ (X_j - self.c)
             + self.constant_variance) ** self.order)
 
     def kernel_vector(self, x_new, X):
@@ -595,7 +595,7 @@ class Polynomial(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * (
+        return self.variance * (
             np.einsum('ij, j -> i', X - self.c, x_new[0] - self.c)
             + self.constant_variance)**self.order
 
@@ -611,7 +611,7 @@ class Polynomial(Kernel):
         :return: (N,) Gram diagonal.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * (
+        return self.variance * (
             np.einsum('ij, ij -> i', X1 - self.c, X2 - self.c)
             + self.constant_variance)**self.order
 
@@ -639,7 +639,7 @@ class Polynomial(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * (
+        return self.variance * (
             np.einsum('ik, jk -> ij', X1 - self.c, X2 - self.c)
             + self.constant_variance) ** self.order
 
@@ -658,7 +658,7 @@ class Polynomial(Kernel):
         """
         raise ValueError("TODO")
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_variance(self, X1, X2):
         """
         Get partial derivative with respect to lengthscale hyperparameters as
         a numpy array.
@@ -688,7 +688,7 @@ class Polynomial(Kernel):
             covariance matrices.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * self.order * (
+        return self.variance * self.order * (
             np.einsum('ik, jk -> ij', X1 + self.c, X2 + self.c)
             + self.constant_variance) ** (self.order - 1)
 
@@ -706,7 +706,7 @@ class LabEQ(Kernel):
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
-    the single, shared lengthscale and hyperparameter, :math:`s` is the scale.
+    the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
     def __init__(
             self, varphi=None, varphi_hyperparameters=None,
@@ -750,10 +750,10 @@ class LabEQ(Kernel):
             raise ValueError(
                 "M wrong for non-ARD kernel (expected {}, got {})".format(
                     1, self.M))
-        if self.scale is None:
+        if self.variance is None:
             raise ValueError(
-                "You must supply a scale for the simple kernel "
-                "(expected {} type, got {})".format(float, self.scale))
+                "You must supply a variance for the simple kernel "
+                "(expected {} type, got {})".format(float, self.variance))
         self.num_hyperparameters = np.size(self.varphi)
 
     @property
@@ -785,7 +785,7 @@ class LabEQ(Kernel):
         :rtype: float
         """
         return (
-            self.scale * B.exp(
+            self.variance * B.exp(
                 -self.varphi * B.ew_dists2(
                     X_i.reshape(1, -1), X_j.reshape(1, -1)))[0, 0])
 
@@ -800,11 +800,11 @@ class LabEQ(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * B.exp(-self.varphi * B.ew_dists2(
+        return self.variance * B.exp(-self.varphi * B.ew_dists2(
             X, x_new.reshape(1, -1)))
 
     def kernel_prior_diagonal(self, X):
-        return self.scale * np.ones(np.shape(X)[0])
+        return self.variance * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
         """
@@ -818,7 +818,7 @@ class LabEQ(Kernel):
         :return: (N,) Gram diagonal.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * B.exp(-self.varphi * B.ew_dists2(X1, X2))
+        return self.variance * B.exp(-self.varphi * B.ew_dists2(X1, X2))
 
     def kernel_matrix(self, X1, X2):
         """
@@ -831,7 +831,7 @@ class LabEQ(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
+        return self.variance * B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -848,9 +848,9 @@ class LabEQ(Kernel):
         """
         distance_mat_2 = B.pw_dists2(X1, X2)
         return -B.multiply(
-            distance_mat_2, self.scale * B.exp(-self.varphi * distance_mat_2))
+            distance_mat_2, self.variance * B.exp(-self.varphi * distance_mat_2))
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_variance(self, X1, X2):
         """
         Get Gram matrix efficiently using scipy's distance matrix function.
 
@@ -877,7 +877,7 @@ class LabSharpenedCosine(Kernel):
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
-    the single, shared lengthscale and hyperparameter, :math:`s` is the scale.
+    the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
     def __init__(self,  varphi=None, varphi_hyperparameters=None, *args, **kwargs):
         """
@@ -914,10 +914,10 @@ class LabSharpenedCosine(Kernel):
             raise ValueError(
                 "M wrong for sharpened cosine kernel (expected {}, got {})".format(
                     2, self.M))
-        if self.scale is None:
+        if self.variance is None:
             raise ValueError(
-                "You must supply a scale for the sharpened cosine kernel "
-                "(expected {} type, got {})".format(float, self.scale))
+                "You must supply a variance for the sharpened cosine kernel "
+                "(expected {} type, got {})".format(float, self.variance))
         self.num_hyperparameters = np.size(self.varphi)
 
     @property
@@ -949,12 +949,12 @@ class LabSharpenedCosine(Kernel):
         :rtype: float
         """
         # TODO: may need to reshape
-        return self.scale * B.matmul(X_i, X_j, tr_a=True)**self.varphi[1]
-        # return self.scale * (np.dot(X_i, X_j) / (
+        return self.variance * B.matmul(X_i, X_j, tr_a=True)**self.varphi[1]
+        # return self.variance * (np.dot(X_i, X_j) / (
         #     (np.linalg.norm(X_i) + self.varphi[0])
         #     * (np.linalg.norm(X_j) + self.varphi[0])))**self.varphi[1]
-        # return (self.scale * B.matmul(B.transpose(X_i), X_j))
-        # return (self.scale * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
+        # return (self.variance * B.matmul(B.transpose(X_i), X_j))
+        # return (self.variance * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
 
     def kernel_vector(self, x_new, X):
         """
@@ -967,12 +967,12 @@ class LabSharpenedCosine(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * B.einsum('k, ik -> i', x_new, X)**self.varphi[1]
-        # return self.scale * (np.einsum('k, ik -> i', x_new, X) / (
+        return self.variance * B.einsum('k, ik -> i', x_new, X)**self.varphi[1]
+        # return self.variance * (np.einsum('k, ik -> i', x_new, X) / (
         #     (np.linalg.norm(x_new) + self.varphi[0]) * (np.linalg.norm(X, axis=1) + self.varphi[0])))**self.varphi[1]
 
     def kernel_prior_diagonal(self, X):
-        return self.scale * np.ones(np.shape(X)[0])
+        return self.variance * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
         """
@@ -985,12 +985,12 @@ class LabSharpenedCosine(Kernel):
         :return: (N,) Gram diagonal.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * B.einsum('ik, ik -> i', X1, X2)**self.varphi[1]
-        # return self.scale * np.einsum('ik, ik -> i', X1, X2)**self.varphi[1]
-        # return self.scale * (np.einsum('ik, ik -> i', X1, X2) / (
+        return self.variance * B.einsum('ik, ik -> i', X1, X2)**self.varphi[1]
+        # return self.variance * np.einsum('ik, ik -> i', X1, X2)**self.varphi[1]
+        # return self.variance * (np.einsum('ik, ik -> i', X1, X2) / (
         #     (np.linalg.norm(X1, axis=1) + self.varphi[0])
         #     * (np.linalg.norm(X2, axis=1) + self.varphi[0])))**self.varphi[1]
-        # return self.scale * B.exp(-self.varphi * B.ew_dists2(X1, X2))
+        # return self.variance * B.exp(-self.varphi * B.ew_dists2(X1, X2))
 
     def kernel_matrix(self, X1, X2):
         """
@@ -1003,15 +1003,15 @@ class LabSharpenedCosine(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale * B.matmul(X1, X2, tr_b=True)**self.varphi[1]
-        #return self.scale * B.outer(X1, X2)**self.varphi[1]
-        #return self.scale * np.einsum('ik, jk -> ij', X1, X2)**self.varphi[1]
-        # return self.scale * (np.einsum('ik, jk -> ij', X1, X2) / (
+        return self.variance * B.matmul(X1, X2, tr_b=True)**self.varphi[1]
+        #return self.variance * B.outer(X1, X2)**self.varphi[1]
+        #return self.variance * np.einsum('ik, jk -> ij', X1, X2)**self.varphi[1]
+        # return self.variance * (np.einsum('ik, jk -> ij', X1, X2) / (
         #     np.outer(
         #         (np.linalg.norm(X1, axis=1) + self.varphi[0]),
         #         (np.linalg.norm(X2, axis=1) + self.varphi[1])
         #         )))**self.varphi[1]
-        #return self.scale * B.exp(-self.varphi * B.pw_dists2(X1, X2))
+        #return self.variance * B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1028,7 +1028,7 @@ class LabSharpenedCosine(Kernel):
         """
         return np.zeros((len(X1), len(X1)))
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_variance(self, X1, X2):
         """
         Get Gram matrix efficiently using scipy's distance matrix function.
 
@@ -1058,7 +1058,7 @@ class SEIso(Kernel):
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and
-    hyperparameter, :math:`s` is the scale.
+    hyperparameter, :math:`s` is the variance.
 
     Note that previous implementations used distance
 
@@ -1098,10 +1098,10 @@ class SEIso(Kernel):
             raise ValueError(
                 "M wrong for non-ARD kernel (expected {}, got {})".format(
                     1, self.M))
-        if self.scale is None:
+        if self.variance is None:
             raise ValueError(
-                "You must supply a scale for the simple kernel "
-                "(expected {} type, got {})".format(float, self.scale))
+                "You must supply a variance for the simple kernel "
+                "(expected {} type, got {})".format(float, self.variance))
         self.num_hyperparameters = np.size(self.varphi)
 
     @property
@@ -1132,7 +1132,7 @@ class SEIso(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * np.exp(
+        return self.variance * np.exp(
             -1. * self.varphi * distance.sqeuclidean(X_i, X_j))
 
     def kernel_vector(self, x_new, X):
@@ -1150,7 +1150,7 @@ class SEIso(Kernel):
         return self.kernel_diagonal(X_new, X)
 
     def kernel_prior_diagonal(self, X):
-        return self.scale * np.ones(np.shape(X)[0])
+        return self.variance * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
         """
@@ -1164,7 +1164,7 @@ class SEIso(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         X = X1 - X2
-        return self.scale * np.exp(-1. * self.varphi * np.einsum(
+        return self.variance * np.exp(-1. * self.varphi * np.einsum(
             'ij, ij -> i', X, X))
 
     def kernel_matrix(self, X1, X2):
@@ -1179,7 +1179,7 @@ class SEIso(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         distance_mat = self.distance_mat(X1, X2)
-        return self.scale * np.exp(-1. * self.varphi * distance_mat**2)
+        return self.variance * np.exp(-1. * self.varphi * distance_mat**2)
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1195,7 +1195,7 @@ class SEIso(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         distance_mat_2 = self.distance_mat(X1, X2)**2
-        C = np.multiply(self.scale, np.exp(-1. * self.varphi * distance_mat_2))
+        C = np.multiply(self.variance, np.exp(-1. * self.varphi * distance_mat_2))
         partial_C = -np.multiply(distance_mat_2, C)
         # D = np.shape(X1)[1]
         # # The general covariance function has a different length scale for each dimension.
@@ -1204,7 +1204,7 @@ class SEIso(Kernel):
         # return partial_C
         return partial_C
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_variance(self, X1, X2):
         """
         Get Gram matrix efficiently using scipy's distance matrix function.
 
@@ -1232,7 +1232,7 @@ class SumPolynomialSEIso(Kernel):
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
-    the single, shared lengthscale and hyperparameter, :math:`s` is the scale.
+    the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
     def __init__(self,  varphi=None, varphi_hyperparameters=None, *args, **kwargs):
         """
@@ -1269,10 +1269,10 @@ class SumPolynomialSEIso(Kernel):
             raise ValueError(
                 "M wrong for sharpened cosine kernel (expected {}, got {})".format(
                     2, self.M))
-        if self.scale is None:
+        if self.variance is None:
             raise ValueError(
-                "You must supply a scale for the sharpened cosine kernel "
-                "(expected {} type, got {})".format(float, self.scale))
+                "You must supply a variance for the sharpened cosine kernel "
+                "(expected {} type, got {})".format(float, self.variance))
         self.num_hyperparameters = np.size(self.varphi)
 
     @property
@@ -1305,8 +1305,8 @@ class SumPolynomialSEIso(Kernel):
         """
         # TODO: may need to reshape
         return (
-            self.scale[0] * B.matmul(X_i, X_j, tr_a=True)**self.varphi[0]
-            + self.scale[1] * B.exp(
+            self.variance[0] * B.matmul(X_i, X_j, tr_a=True)**self.varphi[0]
+            + self.variance[1] * B.exp(
                 -self.varphi[1] * B.ew_dists2(
                     X_i.reshape(1, -1), X_j.reshape(1, -1)))[0, 0])
 
@@ -1321,11 +1321,11 @@ class SumPolynomialSEIso(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale[0] * B.einsum('k, ik -> i', x_new, X)**self.varphi[0] + self.scale[0] * B.exp(-self.varphi[1] * B.ew_dists2(
+        return self.variance[0] * B.einsum('k, ik -> i', x_new, X)**self.varphi[0] + self.variance[0] * B.exp(-self.varphi[1] * B.ew_dists2(
             X, x_new.reshape(1, -1)))
 
     def kernel_prior_diagonal(self, X):
-        return self.scale[0] * np.ones(np.shape(X)[0]) + self.scale[1] * np.ones(np.shape(X)[0])
+        return self.variance[0] * np.ones(np.shape(X)[0]) + self.variance[1] * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
         """
@@ -1338,7 +1338,7 @@ class SumPolynomialSEIso(Kernel):
         :return: (N,) Gram diagonal.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale[0] * B.einsum('ik, ik -> i', X1, X2)**self.varphi[0] + self.scale[1] * B.exp(-self.varphi[1] * B.ew_dists2(X1, X2))
+        return self.variance[0] * B.einsum('ik, ik -> i', X1, X2)**self.varphi[0] + self.variance[1] * B.exp(-self.varphi[1] * B.ew_dists2(X1, X2))
 
     def kernel_matrix(self, X1, X2):
         """
@@ -1351,7 +1351,7 @@ class SumPolynomialSEIso(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.scale[0] * B.matmul(X1, X2, tr_b=True)**self.varphi[0] + self.scale[1] * B.exp(-self.varphi[1] * B.pw_dists2(X1, X2))
+        return self.variance[0] * B.matmul(X1, X2, tr_b=True)**self.varphi[0] + self.variance[1] * B.exp(-self.varphi[1] * B.pw_dists2(X1, X2))
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1368,7 +1368,7 @@ class SumPolynomialSEIso(Kernel):
         """
         return np.zeros((len(X1), len(X1)))
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_variance(self, X1, X2):
         """
         # TODO: needs checking/implementing
 
@@ -1391,7 +1391,7 @@ class SSSEARDMultinomial(Kernel):
 
     where :math:`K_{k}(\cdot, \cdot)` is the kernel function for the :math:`k`th class, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`\varphi_{kd}` is the lengthscale for the
-    :math:`k`th class and :math:`d`th dimension, and :math:`s` is the scale.
+    :math:`k`th class and :math:`d`th dimension, and :math:`s` is the variance.
     """
     def __init__(self, varphi=None, *args, **kwargs):
         """
@@ -1416,10 +1416,10 @@ class SSSEARDMultinomial(Kernel):
             raise ValueError(
                 "M wrong for non-ARD kernel (expected {}, got {})".format(
                     "more than 1", self.M))
-        if self.scale is None:
+        if self.variance is None:
             raise ValueError(
-                "You must supply a scale for the general kernel "
-                "(expected {} type, got {})".format(float, self.scale))
+                "You must supply a variance for the general kernel "
+                "(expected {} type, got {})".format(float, self.variance))
         # In the ARD case (see 2005 paper)
         self.D = self.M
         # In the general setting with one (D, ) hyperparameter for each class
@@ -1454,7 +1454,7 @@ class SSSEARDMultinomial(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * np.exp(-1. * np.sum([self.varphi[k, d] * np.power(
+        return self.variance * np.exp(-1. * np.sum([self.varphi[k, d] * np.power(
             (X_i[d] - X_j[d]), 2) for d in range(self.D)]))
 
     def kernel_vector(self, x_new, X):
@@ -1471,7 +1471,7 @@ class SSSEARDMultinomial(Kernel):
         K = self.K  # length of the classes
         N = np.shape(X)[0]
         Cs = np.empty((K, N))
-        # The general covariance function has a different length scale for each dimension.
+        # The general covariance function has a different lengthscale for each dimension.
         for k in range(K):
             for i in range(N):
                 Cs[k, i] = self.kernel(k, X[i], x_new[0])
@@ -1540,7 +1540,7 @@ class SEARDMultinomial(Kernel):
 
     where :math:`K_{k}(\cdot, \cdot)` is the kernel function for the :math:`k`th class, :math:`x_{i}` is
     the data point, :math:`x_{j}` is another data point, :math:`\varphi_{kd}` is the lengthscale for the
-    :math:`k`th class and :math:`d`th dimension, and :math:`s` is the scale.
+    :math:`k`th class and :math:`d`th dimension, and :math:`s` is the variance.
     """
     def __init__(self, varphi=None, varphi_hyperparameters=None, *args, **kwargs):
         """
@@ -1574,10 +1574,10 @@ class SEARDMultinomial(Kernel):
             raise ValueError(
                 "M wrong for ARD kernel (expected {}, got {})".format(
                     "more than 1", self.M))
-        if self.scale is None:
+        if self.variance is None:
             raise ValueError(
-                "You must supply a scale for the general kernel "
-                "(expected {} type, got {})".format(float, self.scale))
+                "You must supply a variance for the general kernel "
+                "(expected {} type, got {})".format(float, self.variance))
         # In the ARD case (see 2005 paper).
         self.D = self.M
         # In the general setting with one (D, ) hyperparameter for each class case (see 2005 paper bottom of page 4).
@@ -1605,7 +1605,7 @@ class SEARDMultinomial(Kernel):
         Get the ij'th element of the Gram matrix, given the data (X_i and X_j),
         the class (k) and hyper-parameters.
 
-        For internal use only, since the multplication by the scale (s) has
+        For internal use only, since the multplication by the variance (s) has
         been factored out for compute speed.
 
         :arg X_i: (D, ) data point.
@@ -1631,7 +1631,7 @@ class SEARDMultinomial(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * np.exp(
+        return self.variance * np.exp(
             -1. * np.power(
                 distance.minkowski(X_i, X_j, w=self.varphi[k, :]), 2))
 
@@ -1652,7 +1652,7 @@ class SEARDMultinomial(Kernel):
         x = x_new[0]
         for i in range(N):
             Cs[:, i] = self._kernel(X[i], x)
-        return self.scale * Cs
+        return self.variance * Cs
 
     def kernel_matrix(self, X1, X2):
         """
@@ -1682,7 +1682,7 @@ class SEARDMultinomial(Kernel):
                 -1. * np.power(
                     distance.cdist(X1, X2,
                     'minkowski', p=2, w=self.varphi[k, :]), 2))
-        return self.scale * Cs
+        return self.variance * Cs
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1702,7 +1702,7 @@ class SEARDMultinomial(Kernel):
         N2 = np.shape(X2)[0]
         partial_Cs = np.empty((self.D, self.K, N1, N2))
         # The general covariance function has a different
-        # length scale for each dimension.
+        # lengthscale for each dimension.
         for d in range(self.D):
             X1d = X1[:, d].reshape(-1, 1)
             X2d = X2[:, d].reshape(-1, 1)
@@ -1711,7 +1711,7 @@ class SEARDMultinomial(Kernel):
                 pow(distance_matrix(X1d, X2d), 2), Cs)
         return partial_Cs
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_variance(self, X1, X2):
         """
         Get Gram matrix efficiently using scipy's distance matrix function.
 
@@ -1754,7 +1754,7 @@ class SEARD(Kernel):
     :math:`K` classes, :math:`x_{i}` is the data point, :math:`x_{j}` is
     another data point, :math:`\varphi_{d}` is the lengthscale for the
     :math:`d`th dimension, shared across all classes, and :math:`s` is the
-    scale.
+    variance.
     """
     def __init__(self, varphi, varphi_hyperparameters=None, *args, **kwargs):
         """
@@ -1765,7 +1765,7 @@ class SEARD(Kernel):
             common to have a single and shared GP kernel over all classes,
             in which case L=1. If set to `None`, then implies the kernel is
             not a Matern kernel (loosely defined as a
-            kernel with a length scale parameter). Default `None`.
+            kernel with a lengthscale parameter). Default `None`.
         :type varphi: :class:`numpy.ndarray` or float
         :arg varphi_hyperparameters:
         :type varphi_hyperparameters: :class:`numpy.ndarray` or float
@@ -1794,11 +1794,11 @@ class SEARD(Kernel):
             raise ValueError(
                 "M wrong for ARD kernel (expected {}, got {})".format(
                     "more than 1", self.M))
-        if self.scale is None:
+        if self.variance is None:
             raise ValueError(
-                "`scale` hyperparameter must be provided for the SEIso "
+                "`variance` hyperparameter must be provided for the SEIso "
                 "kernel class (expected {}, got {})".format(
-                    float, type(self.scale)))
+                    float, type(self.variance)))
         # In the ARD case (see 2005 paper).
         self.D = self.M
         # In the ordinal setting with a single and shared (D, )
@@ -1825,7 +1825,7 @@ class SEARD(Kernel):
         """
         Get the ij'th element of the Gram matrix, given the data (X_i and X_j), the class (k) and hyper-parameters.
 
-        For internal use only, since the multplication by the scale (s) has been factored out for compute speed.
+        For internal use only, since the multplication by the variance (s) has been factored out for compute speed.
 
         :arg X_i: (D, ) data point.
         :type X_i: :class:`numpy.ndarray`
@@ -1847,7 +1847,7 @@ class SEARD(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        return self.scale * np.exp(-1. * np.power(distance.minkowski(X_i, X_j, w=self.varphi), 2))
+        return self.variance * np.exp(-1. * np.power(distance.minkowski(X_i, X_j, w=self.varphi), 2))
 
     def kernel_vector(self, x_new, X):
         """
@@ -1866,7 +1866,7 @@ class SEARD(Kernel):
         x = x_new[0]
         for i in range(N):
             Cs[:, i] = self._kernel(X[i], x)
-        return self.scale * Cs
+        return self.variance * Cs
 
     def kernel_matrix(self, X1, X2):
         """
@@ -1886,7 +1886,7 @@ class SEARD(Kernel):
         :rtype: class:`numpy.ndarray`
         """
         # TODO: this has been tested (scratch 4), but best to make sure it works
-        return self.scale * np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi), 2))
+        return self.variance * np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi), 2))
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1911,7 +1911,7 @@ class SEARD(Kernel):
             partial_C[d, :, :] = (-1. / self.D) * np.multiply(pow(distance_matrix(X1d, X2d), 2), C)
         return partial_C
 
-    def kernel_partial_derivative_scale(self, X1, X2):
+    def kernel_partial_derivative_variance(self, X1, X2):
         """
         Get Gram matrix efficiently using scipy's distance matrix function.
 

@@ -25,7 +25,6 @@ import sys
 import time
 
 
-
 now = time.ctime()
 write_path = pathlib.Path()
 
@@ -36,7 +35,7 @@ def main():
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
     parser.add_argument(
-        "bins", help="quantile or decile")
+        "bins", help="e.g., 13, 53, 101, etc.")
     parser.add_argument(
         "method", help="L-BFGS-B or CG or Newton-CG or BFGS")
     parser.add_argument(
@@ -45,7 +44,7 @@ def main():
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
-    bins = args.bins
+    bins = int(args.bins)
     method = args.method
     approximation = args.approximation
     write_path = pathlib.Path(__file__).parent.absolute()
@@ -57,7 +56,7 @@ def main():
         (X_trains, t_trains,
         X_tests, t_tests,
         X_true, y_tests,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
         J, D, Kernel) = load_data(
             dataset, bins)
         N_train = np.shape(t_trains[0])
@@ -72,19 +71,20 @@ def main():
             Approximator = LaplaceOrdinalGP
         outer_loops(
             Approximator, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
-            cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
+            cutpoints_0, varphi_0, noise_variance_0, signal_variance_0, J, D)
         # Initiate kernel
-        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        kernel = Kernel(varphi=varphi_0, variance=signal_variance_0)
         # Initiate the classifier with the training data
         classifier = Approximator(
-            cutpoints_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
+            cutpoints_0, noise_variance_0, kernel,
+            J, (X_trains[2], t_trains[2]))
         indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen
         # Fix noise_variance
         indices[0] = 0
         # Fix cutpoints
         indices[1:J] = 0
-        # Fix scale
+        # Fix signal variance
         indices[J] = 0
         # Fix varphi
         indices[-1] = 0
@@ -94,15 +94,15 @@ def main():
             classifier, X_tests[2], t_tests[2], y_tests[2], steps)
     elif dataset in datasets["synthetic"]:
         # (X, Y, t,
-        # cutpoints_0, varphi_0, noise_variance_0, scale_0,
+        # cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
         # J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
         (X, t,
         X_true, Y_true,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
         # Initiate kernel
         kernel = Kernel(
-            varphi=varphi_0, scale=scale_0)
+            varphi=varphi_0, variance=signal_variance_0)
         N_train = np.shape(t)[0]
         if approximation == "EP":
             steps = np.max([100, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
@@ -115,11 +115,12 @@ def main():
             Approximator = LaplaceOrdinalGP
         # Initiate classifier
         classifier = Approximator(
-            cutpoints_0, noise_variance_0, kernel, X, t, J)
+            cutpoints_0, noise_variance_0, kernel,
+            J, (X, t))
         indices = np.ones(J + 2)
-        # Fix noise_variance
+        # Fix noise variance
         indices[0] = 0
-        # Fix scale
+        # Fix signal variance
         indices[J] = 0
         # Fix varphi
         #indices[-1] = 0
@@ -128,13 +129,13 @@ def main():
         # Just varphi
         domain = ((-4, 4), None)
         res = (100, None)
-        # #  just scale
+        # #  just signal variance
         # domain = ((0., 1.8), None)
         # res = (20, None)
         # # just std
         # domain = ((-0.1, 1.), None)
         # res = (100, None)
-        # # varphi and scale
+        # # varphi and signal variance
         # domain = ((0, 2), (0, 2))
         # res = (100, None)
         # # varphi and std

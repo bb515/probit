@@ -34,8 +34,8 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
     :type varphi: :class:`numpy.ndarray` or float or None
     :arg noise_variance:
     :type noise_variance: float or None
-    :arg scale:
-    :type scale: float or None:
+    :arg variance:
+    :type variance: float or None:
     :arg indices:
     :type indices: :class:`numpy.ndarray`
     """
@@ -194,7 +194,7 @@ def test(classifier, X_test, t_test, y_test, steps, domain=None):
     posterior_mean, (posterior_inv_cov, is_inv)
     ) = classifier.approximate_posterior(
             None, None, steps=steps, first_step=1,
-            calculate_posterior_cov=None,
+            calculate_posterior_cov=2,
             write=False, verbose=True)
     # Test
     (Z,
@@ -246,7 +246,7 @@ def test(classifier, X_test, t_test, y_test, steps, domain=None):
  
 
 def outer_loop_problem_size(
-        test, Classifier, Kernel, method, X_trains, t_trains, X_tests, t_tests,
+        test, Approximator, Kernel, method, X_trains, t_trains, X_tests, t_tests,
         y_tests, steps,
         cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D, size, num,
         string="VB"):
@@ -256,8 +256,8 @@ def outer_loop_problem_size(
 
     :arg test:
     :type test:
-    :arg Classifier:
-    :type Classifier:
+    :arg Approximator:
+    :type Approximator:
     :arg Kernel:
     :type Kernel:
     :arg method:
@@ -279,8 +279,8 @@ def outer_loop_problem_size(
     :type varphi_0:
     :arg noise_variance_0:
     :type noise_variance_0:
-    :arg scale_0:
-    :type scale_0:
+    :arg variance_0:
+    :type variance_0:
     :arg J:
     :type J:
     :arg D:
@@ -300,10 +300,10 @@ def outer_loop_problem_size(
         N = int(N)
         print("iter {}, N {}".format(iter, N))
         mean_fx, std_fx, mean_metrics, std_metrics= outer_loops(
-            test, Classifier, Kernel, method,
+            test, Approximator, Kernel, method,
             X_trains[:, :N, :], t_trains[:, :N],
             X_tests, t_tests, y_tests, steps,
-            cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
+            cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D)
         plot_N.append(N)
         plot_mean_fx.append(mean_fx)
         plot_std_fx.append(std_fx)
@@ -459,8 +459,8 @@ def outer_loop_problem_size(
 
 
 def outer_loops(
-        test, Classifier, Kernel, method, X_trains, t_trains, X_tests, t_tests,
-        y_tests, steps, cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D):
+        test, Approximator, Kernel, method, X_trains, t_trains, X_tests, t_tests,
+        y_tests, steps, cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D):
     moments_fx = []
     #moments_varphi = []
     #moments_noise_variance = []
@@ -468,11 +468,11 @@ def outer_loops(
     moments_metrics = []
     for split in range(1):
         # Reset kernel
-        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        kernel = Kernel(varphi=varphi_0, variance=variance_0)
         # Build the classifier with the new training data
-        classifier = Classifier(
-            cutpoints_0, noise_variance_0, kernel,
-            X_trains[split, :, :], t_trains[split, :], J)
+        classifier = Approximator(
+            cutpoints_0, noise_variance_0, kernel, J,
+            (X_trains[split, :, :], t_trains[split, :]))
         fx, metrics = test(
             classifier,
             X_tests[split, :, :], t_tests[split, :],
@@ -493,9 +493,9 @@ def outer_loops(
 
 
 def outer_loops_Rogers(
-        test, Classifier, Kernel, X_trains, t_trains, X_tests, t_tests,
+        test, Approximator, Kernel, X_trains, t_trains, X_tests, t_tests,
         y_tests,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D, plot=False):
+        cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D, plot=False):
     steps = 50
     grid = np.ogrid[0:len(X_tests[0, :, :])]
     moments_fx_Z = []
@@ -512,11 +512,11 @@ def outer_loops_Rogers(
     X_new = X_new.reshape((N * N, 2))
     for split in range(20):
         # Reset kernel
-        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        kernel = Kernel(varphi=varphi_0, variance=variance_0)
         # Build the classifier with the new training data
-        classifier = Classifier(
-            cutpoints_0, noise_variance_0, kernel,
-            X_trains[split, :, :], t_trains[split, :, :], J)
+        classifier = Approximator(
+            cutpoints_0, noise_variance_0, kernel, J,
+            (X_trains[split, :, :], t_trains[split, :, :]))
         X_test = X_tests[split, :, :]
         t_test = t_tests[split, :]
         y_test = y_tests[split, :]
@@ -732,7 +732,7 @@ def plot(classifier, steps, domain=None):
     posterior_mean, (posterior_inv_cov, is_inv)
     ) = classifier.approximate_posterior(
             None, None, steps=steps, first_step=1,
-            calculate_posterior_cov=None,
+            calculate_posterior_cov=2,
             write=False, verbose=True)
     if domain is not None:
         (xlims, ylims) = domain
@@ -783,7 +783,7 @@ def plot_synthetic(
     posterior_mean, (cov, is_inv)
     ) = classifier.approximate_posterior(
             None, None, steps=steps, first_step=1,
-            calculate_posterior_cov=None,
+            calculate_posterior_cov=2,
             write=False, verbose=True)
 
     if dataset in datasets["synthetic"]:
@@ -1043,9 +1043,9 @@ def figure2(
         if verbose:
             print("log_p_pseudo_marginal {}, log_p_prior {}".format(np.mean(log_p_pseudo_marginals), log_p_prior))
             print(
-                "cutpoints={}, varphi={}, noise_variance={}, scale={}, ".format(
+                "cutpoints={}, varphi={}, noise_variance={}, variance={}, ".format(
                 approximator.cutpoints, approximator.kernel.varphi, approximator.noise_variance,
-                approximator.kernel.scale))
+                approximator.kernel.variance))
     if x2s is not None:
         raise ValueError("Multivariate plots are TODO")
     else:
