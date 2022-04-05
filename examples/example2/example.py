@@ -19,7 +19,7 @@ from pstats import Stats, SortKey
 import pathlib
 from probit.plot import train, outer_loops, outer_loop_problem_size, grid, test
 from probit.approximators import VBOrdinalGP, EPOrdinalGP, LaplaceOrdinalGP
-from probit.data.utilities import datasets, load_data
+from probit.data.utilities_nplan import datasets, load_data
 import numpy as np
 
 

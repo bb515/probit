@@ -1,5 +1,7 @@
+# # TODO: tmp
 from abc import ABC, abstractmethod
 
+import enum
 from .kernels import Kernel, InvalidKernel
 import pathlib
 import random
@@ -9,6 +11,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 from .utilities import (
+    read_array,
     norm_z_pdf, norm_cdf,
     norm_logpdf, norm_logcdf,
     truncated_norm_normalising_constant,
@@ -45,6 +48,14 @@ class Approximator(ABC):
     All approximators must define a :meth:`predict` can be used to make
         predictions given test data.
     """
+    @abstractmethod
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+
+        This method should be implemented in every concrete Approximator.
+        """
 
     @abstractmethod
     def __init__(
@@ -57,10 +68,13 @@ class Approximator(ABC):
         :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.
         :arg data: The data tuple. (X_train, t_train), where  
             X_train is the (N, D) The data vector and t_train (N, ) is the
-            target vector.
+            target vector. Default `None`, if `None`, then the data and prior
+            are assumed cached in `write_path` and are attempted to be read.
         :type data: (:class:`numpy.ndarray`, :class:`numpy.ndarray`)
         :arg J: The number of (ordinal) classes.
-        :arg str write_path: Write path for outputs.
+        :arg str write_path: Write path for outputs. If no data is provided,
+            then it assumed that this is the path to the data and cached
+            prior covariance(s).
 
         :returns: A :class:`Approximator` object
         """
@@ -70,6 +84,12 @@ class Approximator(ABC):
         else:
             self.kernel = kernel
         self.J = J
+
+        # Read/write
+        if write_path is None:
+            self.write_path = None
+        else:
+            self.write_path = pathlib.Path(write_path)
 
         # Numerical stability
         # See GPML by Williams et al. for a good explanation of jitter
@@ -90,19 +110,11 @@ class Approximator(ABC):
         # Good values found between 18 and 30
         self.upper_bound2 = 30  # May need decreasing if experience infs or NaNs
 
-        # TODO: should data be defined here? Or should it be defined at approximate_posterior?
-        # consult GPFlow model class. Might be best just to define a GPFlow posterior from AbstractPosterior
-        # that relies on caching to make the predictions. This might work well with the interface.
-        # Data, an optional argument because the classifier may have been
-        # pretrained
+        # TODO: Might be best just to define a GPFlow posterior from AbstractPosterior
+        # that relies on caching to make the predictions. This might pair well with end to end GPFlux
+        # Get data and calculate the prior
         if data is not None:
             X_train, t_train = data
-            if write_path is None:
-                self.write_path = pathlib.Path()
-            else:
-                self.write_path = pathlib.Path(write_path)
-            self.N = np.shape(X_train)[0]
-            self.D = np.shape(X_train)[1]
             self.X_train = X_train
             if np.all(np.mod(t_train, 1) == 0):
                 t_train = t_train.astype(int)
@@ -116,16 +128,26 @@ class Approximator(ABC):
                         t_train))
             else:
                 self.t_train = t_train
-            self.grid = np.ogrid[0:self.N]  # For indexing sets of self.t_train
-            # TODO: In the case where a classifier is being loaded from a file,
-            # no need to update prior
-            # When loading a model, it is probably best to separate it from the
-            # Approximator class all together.
-            warnings.warn("Updating prior covariance.")
             self._update_prior()
         else:
-            # TODO: any arguments for a pretrained model?
-            pass
+            # Try read model from file
+            try:
+                self.X_train = read_array(self.write_path, "X_train")
+                self.t_train = read_array(self.write_path, "t_train")
+                self.K = read_array(self.write_path, "K")
+                self.partial_K_varphi = read_array(
+                    self.write_path, "partial_K_varphi")
+                self.partial_K_variance = read_array(
+                    self.write_path, "partial_K_variance")
+            except KeyError:
+                # The array does not exist in the model file
+                raise
+            except OSError:
+                # Model file does not exist
+                raise
+        self.N = np.shape(self.X_train)[0]
+        self.D = np.shape(self.X_train)[1]
+        self.grid = np.ogrid[0:self.N]  # For indexing sets of self.t_train 
 
     @abstractmethod
     def _approximate_initiate(self):
@@ -143,13 +165,78 @@ class Approximator(ABC):
         This method should be implemented in every concrete Approximator.
         """
 
-    @abstractmethod
-    def predict(self):
+    def predict(
+            self, cutpoints, posterior_inv_cov, posterior_mean,
+            varphi, noise_variance, X_test, vectorised=True):
         """
-        Return the samples
+        Return the posterior predictive distribution over classes.
 
-        This method should be implemented in every concrete Approximator.
+        :arg posterior_cov: The approximate posterior covariance.
+        :arg y: The approximate posterior mean of the latent variable Y.
+        :arg varphi: The approximate posterior mean of the
+            hyper-parameters varphi.
+        :arg X_test: The new data points, array like (N_test, D).
+        :arg n_samples: The number of samples in the Monte Carlo estimate.
+        :return: A Monte Carlo estimate of the class probabilities.
         """
+        if self.kernel._ARD:
+            # This is the general case where there are hyper-parameters
+            # varphi (J, D) for all dimensions and classes.
+            raise ValueError(
+                "For the ordinal likelihood approximator,the kernel "
+                "must not be _ARD type (kernel._ARD=1), but"
+                " ISO type (kernel._ARD=0). (got {}, expected)".format(
+                    self.kernel._ARD, 0))
+        else:
+            if vectorised:
+                return self._predict_vector(
+                    cutpoints, posterior_inv_cov, posterior_mean,
+                    varphi, noise_variance, X_test)
+            else:
+                return ValueError(
+                    "The scalar implementation has been "
+                    "superseded. Please use "
+                    "the vector implementation.")
+
+    def _predict_vector(
+        self, cutpoints, cov, posterior_mean, varphi, noise_variance,
+        X_test):
+        """
+        Make EP prediction over classes of X_test given the posterior samples.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
+        :arg cov:
+        :arg posterior_mean:
+        :arg varphi:
+        :arg noise_variance:
+        :arg X_test: The new data points, array like (N_test, D).
+        :return: A Monte Carlo estimate of the class probabilities.
+        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
+        """
+        N_test = np.shape(X_test)[0]
+        # Update the kernel with new varphi
+        self.kernel.varphi = varphi
+        # C_news[:, i] is C_new for X_test[i]
+        C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
+        c_news = self.kernel.kernel_prior_diagonal(X_test)
+        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
+        intermediate_vectors = cov @ C_news  # (N, N_test)
+        intermediate_scalars = np.einsum(
+            'ij, ij -> j', C_news, intermediate_vectors)
+        posterior_var = c_news - intermediate_scalars
+        posterior_pred_var = posterior_var + noise_variance
+        posterior_std = np.sqrt(posterior_var)
+        posterior_pred_std = np.sqrt(posterior_pred_var)
+        posterior_pred_mean = np.einsum(
+            'ij, i -> j', intermediate_vectors, posterior_mean)
+        predictive_distributions = np.empty((N_test, self.J))
+        for j in range(self.J):
+            Z1 = np.divide(np.subtract(
+                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
+            Z2 = np.divide(
+                np.subtract(cutpoints[j], posterior_pred_mean), posterior_pred_std)
+            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
+        return predictive_distributions, posterior_pred_mean, posterior_std
 
     def get_log_likelihood(self, m):
         """
@@ -178,6 +265,10 @@ class Approximator(ABC):
         Get the parameters (theta) for unconstrained optimization.
 
         :arg indices: Indicator array of the hyperparameters to optimize over.
+            TODO: it is not clear, unless reading the code from this method,
+            that indices[0] means noise_variance, etc. so need to change the
+            interface to expect a dictionary with keys the hyperparameter
+            names and values a bool that they are fixed?
         :type indices: :class:`numpy.ndarray`
         :returns: The unconstrained parameters to optimize over, theta.
         :rtype: :class:`numpy.array`
@@ -282,22 +373,33 @@ class Approximator(ABC):
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
         if steps is None:
-            steps = np.max([200, self.N // 10 ])  # TODO: justify, should it be different for each Laplace, EP, VB
+            # TODO: remove this code
+            if self.__repr__ == "EPOrdinalGP":
+                suggested_steps = np.max([10, self.N//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
+            elif self.__repr__ == "VBOrdinalGP":
+                suggested_steps = np.max([100, self.N//10])
+            elif self.__repr__ == "LaplaceOrdinalGP":
+                suggested_steps = np.max([2, self.N//1000])
+            raise ValueError(
+                "No number of algorithm iterations (kwarg `steps`) was"
+                " supplied as a keyword argument! Please supply a number of "
+                "steps to run in inner loop of the {} approximation for!"
+                " If you are unsure, try steps={} .".format(suggested_steps))
         error = np.inf
         iteration = 0
         indices_where = np.where(indices!=0)
         return (intervals, steps, error, iteration, indices_where, gx)
 
     def hyperparameter_training_step(
-            self, theta, indices, first_step=1, steps=None, write=False,
-            verbose=True):
+            self, theta, indices, verbose, steps,
+            first_step=1, write=False):
         """
         Optimisation routine for hyperparameters.
         :return: fx, gx
         """
         return self.approximate_posterior(theta, indices, first_step=first_step,
             steps=steps, posterior_mean_0=None, calculate_posterior_cov=None,
-            write=write, verbose=verbose)  # (fx, gx)
+            write=write, verbose=verbose)  # returns (fx, gx)
 
     def _grid_over_hyperparameters_initiate(
             self, res, domain, indices, cutpoints):
@@ -363,7 +465,7 @@ class Approximator(ABC):
             if indices[self.J + 1]:
                 # Grid over only kernel hyperparameter, varphi
                 label.append(r"$\varphi$")
-                axis_variance.append("log")
+                axis_scale.append("log")
                 space.append(
                     np.logspace(
                         domain[index][0], domain[index][1], res[index]))
@@ -463,6 +565,7 @@ class Approximator(ABC):
 
     def _update_prior(self):
         """Update prior covariances."""
+        warnings.warn("Updating prior covariance.")
         self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
             self.X_train, self.X_train)
@@ -477,6 +580,7 @@ class Approximator(ABC):
         #     # or by a manual function. I have chosen to evaluate manually.
 
 
+
 class VBOrdinalGP(Approximator):
     """
     A GP classifier for ordinal likelihood using the Variational Bayes (VB)
@@ -487,6 +591,12 @@ class VBOrdinalGP(Approximator):
     inference. It is for the ordinal likelihood. For this a
     :class:`probit.kernels.Kernel` is required for the Gaussian Process.
     """
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "VBOrdinalGP"
 
     def __init__(
             self, cutpoints, noise_variance=1.0, *args, **kwargs):
@@ -600,7 +710,7 @@ class VBOrdinalGP(Approximator):
             # Not including -\infty or \infty
             if np.shape(cutpoints)[0] == self.J - 1:
                 cutpoints = np.append(cutpoints, np.inf)  # Append \infty
-                cutpoints = np.insert(cutpoints, np.NINF)  # Insert -\infty at index 0
+                cutpoints = np.insert(cutpoints, 0, np.NINF)  # Insert -\infty at index 0
                 pass  # Correct format
             # Not including one cutpoints
             elif np.shape(cutpoints)[0] == self.J: 
@@ -616,7 +726,7 @@ class VBOrdinalGP(Approximator):
                         cutpoints.append(np.inf)
                         pass  # correct format
                 else:
-                    cutpoints = np.insert(cutpoints, np.NINF)
+                    cutpoints = np.insert(cutpoints, 0, np.NINF)
                     pass  # correct format
             # Including all the cutpoints
             elif np.shape(cutpoints)[0] == self.J + 1:
@@ -749,91 +859,6 @@ class VBOrdinalGP(Approximator):
                 fxs.append(fx)
         containers = (ms, ys, varphis, psis, fxs)
         return posterior_mean, nu, y, p, containers
-
-    def _predict_vector(
-            self, cutpoints, cov, y, noise_variance, X_test):
-        """
-        TODO: probably a way to do this with just the posterior mean?
-        The predictions are k^T K^-1 f, = k^T nu
-        which avoids the cov y calculation.
-        since nu = K^-1 f = cov y
-        Make variational Bayes prediction over classes of X_test given the
-        posterior samples.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg cov:
-        :arg y:
-        :arg varphi:
-        :arg noise_variance:
-        :arg X_test:
-
-        :return: The class probabilities.
-        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-        """
-        N_test = np.shape(X_test)[0]
-        # C_news[:, i] is C_new for X_test[i]
-        C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-        c_news = self.kernel.kernel_prior_diagonal(X_test)  # (N_test,)
-        intermediate_vectors = cov @ C_news  # (N, N_test)
-        intermediate_scalars = np.sum(
-            np.multiply(C_news, intermediate_vectors), axis=0)  # (N_test,)
-        # Calculate posterior_mean_new # TODO: test this.
-        # TODO: Could This just be a cov @ y @ C_news then a sum?
-        posterior_predictive_m = np.einsum(
-            'ij, i -> j', intermediate_vectors, y)  # (N_test,)
-        # plt.scatter(self.X_train, y)
-        # plt.plot(X_test, posterior_predictive_m)
-        # plt.hlines(cutpoints[[1, 2]], -0.5, 1.5)
-        # plt.show()
-        posterior_var = c_news - intermediate_scalars
-        posterior_std = np.sqrt(posterior_var)
-        posterior_predictive_var = posterior_var + noise_variance  # (N_test,)
-        posterior_predictive_std = np.sqrt(posterior_predictive_var)
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            Z1 = np.divide(np.subtract(
-                cutpoints[j + 1], posterior_predictive_m), posterior_predictive_std)
-            Z2 = np.divide(np.subtract(
-                cutpoints[j], posterior_predictive_m), posterior_predictive_std)
-            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
-        return predictive_distributions, posterior_predictive_m, posterior_std
-
-    def predict(
-            self, cutpoints, cov, y, varphi, noise_variance,
-            X_test, vectorised=True):
-        """
-        Return the posterior predictive distribution over classes.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg cov:
-        :arg y: The approximate posterior mean of the latent variables y.
-        :arg varphi: The approximate posterior mean of the
-            hyperparameters varphi.
-        :arg noise_variance:
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg bool vectorised:
-
-        
-        :arg n_samples: The number of samples in the Monte Carlo estimate.
-        :return: A Monte Carlo estimate of the class probabilities.
-        """
-        if self.kernel._ARD:
-            # This is the general case where there are hyper-parameters
-            # varphi (J, D) for all dimensions and classes.
-            raise ValueError(
-                "For the ordinal likelihood approximator, the kernel must not be"
-                " ARD type (kernel._ARD=1), but ISO type (kernel._ARD=0). "
-                "(got {}, expected)".format(self.kernel._ARD, 0))
-        else:
-            if vectorised:
-                return self._predict_vector(
-                    cutpoints, cov, y, noise_variance, X_test)
-            else:
-                return ValueError(
-                    "The scalar implementation has been superseded. Please use"
-                    " the vector implementation.")
 
     def _varphi_hyperparameters(self, varphi):
         """
@@ -1272,6 +1297,13 @@ class EPOrdinalGP(Approximator):
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian
     Process.
     """
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "EPOrdinalGP"
+
     def __init__(
         self, cutpoints, noise_variance=1.0, *args, **kwargs):
         # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
@@ -1344,7 +1376,7 @@ class EPOrdinalGP(Approximator):
             # Not including -\infty or \infty
             if np.shape(cutpoints)[0] == self.J - 1:
                 cutpoints = np.append(cutpoints, np.inf)  # Append \infty
-                cutpoints = np.insert(cutpoints, np.NINF)  # Insert -\infty at index 0
+                cutpoints = np.insert(cutpoints, 0, np.NINF)  # Insert -\infty at index 0
                 pass  # correct format
             # Not including one cutpoints
             elif np.shape(cutpoints)[0] == self.J:
@@ -1360,7 +1392,7 @@ class EPOrdinalGP(Approximator):
                         cutpoints.append(np.inf)
                         pass  # correct format
                 else:
-                    cutpoints = np.insert(cutpoints, np.NINF)
+                    cutpoints = np.insert(cutpoints, 0, np.NINF)
                     pass  # correct format
             # Including all the cutpoints
             elif np.shape(cutpoints)[0] == self.J + 1:
@@ -1478,7 +1510,7 @@ class EPOrdinalGP(Approximator):
 
         EP does not attempt to learn a posterior distribution over
         hyperparameters, but instead tries to approximate
-        the joint posterior given some hyperparameters. The hyperpamaeters
+        the joint posterior given some hyperparameters. The hyperparameters
         have to be optimized with model selection step.
 
         :arg int steps: The number of iterations the Approximator takes.
@@ -1947,80 +1979,6 @@ class EPOrdinalGP(Approximator):
             )  # TODO: use log det C trick
             return np.sum(approximate_marginal_likelihood)
 
-    def _predict_vector(
-        self, cutpoints, cov, posterior_mean, varphi, noise_variance,
-        X_test):
-        """
-        Make EP prediction over classes of X_test given the posterior samples.
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg posterior_cov: TODO: don't need posterior_cov here
-        :arg posterior_mean:
-        :arg varphi:
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg Lambda: The number of samples in the Monte Carlo estimate.
-        :return: A Monte Carlo estimate of the class probabilities.
-        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-        """
-        
-        N_test = np.shape(X_test)[0]
-        # Update the kernel with new varphi
-        self.kernel.varphi = varphi
-        # C_news[:, i] is C_new for X_test[i]
-        C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-        c_news = self.kernel.kernel_prior_diagonal(X_test)
-        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = cov @ C_news  # (N, N_test)
-        intermediate_scalars = np.einsum(
-            'ij, ij -> j', C_news, intermediate_vectors)
-        posterior_var = c_news - intermediate_scalars
-        posterior_pred_var = posterior_var + noise_variance
-        posterior_std = np.sqrt(posterior_var)
-        posterior_pred_std = np.sqrt(posterior_pred_var)
-        posterior_pred_mean = np.einsum(
-            'ij, i -> j', intermediate_vectors, posterior_mean)
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            Z1 = np.divide(np.subtract(
-                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
-            Z2 = np.divide(
-                np.subtract(cutpoints[j], posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
-        return predictive_distributions, posterior_pred_mean, posterior_std
-
-    def predict(
-            self, cutpoints, posterior_inv_cov, posterior_mean,
-            varphi, noise_variance, X_test, vectorised=True):
-        """
-        Return the posterior predictive distribution over classes.
-
-        :arg posterior_cov: The approximate posterior covariance.
-        :arg y: The approximate posterior mean of the latent variable Y.
-        :arg varphi: The approximate posterior mean of the
-            hyper-parameters varphi.
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg n_samples: The number of samples in the Monte Carlo estimate.
-        :return: A Monte Carlo estimate of the class probabilities.
-        """
-        if self.kernel._ARD:
-            # This is the general case where there are hyper-parameters
-            # varphi (J, D) for all dimensions and classes.
-            raise ValueError(
-                "For the ordinal likelihood approximator,the kernel "
-                "must not be _ARD type (kernel._ARD=1), but"
-                " ISO type (kernel._ARD=0). (got {}, expected)".format(
-                    self.kernel._ARD, 0))
-        else:
-            if vectorised:
-                return self._predict_vector(
-                    cutpoints, posterior_inv_cov, posterior_mean,
-                    varphi, noise_variance, X_test)
-            else:
-                return ValueError(
-                    "The scalar implementation has been "
-                    "superseded. Please use "
-                    "the vector implementation.")
-
     def grid_over_hyperparameters(
             self, domain, res,
             indices=None,
@@ -2135,8 +2093,9 @@ class EPOrdinalGP(Approximator):
         amplitude_EP = amplitude_EP_0
         while error / steps > self.EPS**2:
             iteration += 1
-            (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov, mean_EP,
-             precision_EP, amplitude_EP, containers) = self.approximate(
+            (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov,
+            mean_EP, precision_EP, amplitude_EP,
+            containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
                 posterior_cov_0=posterior_cov, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP,
@@ -2474,6 +2433,13 @@ class LaplaceOrdinalGP(Approximator):
     For this a :class:`probit.kernels.Kernel` is required for the Gaussian
     Process.
     """
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class
+        from the string.
+        """
+        return "LaplaceOrdinalGP"
+
     def __init__(
         self, cutpoints, noise_variance=1.0, *args, **kwargs):
         # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
@@ -2550,7 +2516,7 @@ class LaplaceOrdinalGP(Approximator):
             # Not including -\infty or \infty
             if np.shape(cutpoints)[0] == self.J - 1:
                 cutpoints = np.append(cutpoints, np.inf)  # Append \infty
-                cutpoints = np.insert(cutpoints, np.NINF)  # Insert -\infty at index 0
+                cutpoints = np.insert(cutpoints, 0, np.NINF)  # Insert -\infty at index 0
                 pass  # correct format
             # Not including one cutpoints
             elif np.shape(cutpoints)[0] == self.J:
@@ -2566,7 +2532,7 @@ class LaplaceOrdinalGP(Approximator):
                         cutpoints.append(np.inf)
                         pass  # correct format
                 else:
-                    cutpoints = np.insert(cutpoints, np.NINF)
+                    cutpoints = np.insert(cutpoints, 0, np.NINF)
                     pass  # correct format
             # Including all the cutpoints
             elif np.shape(cutpoints)[0] == self.J + 1:
@@ -2642,76 +2608,6 @@ class LaplaceOrdinalGP(Approximator):
                 approximate_marginal_likelihood, 0.5 * np.log(np.linalg.det(self.K + inverse_precision_matrix))
             )  # TODO: use log det C trick
             return np.sum(approximate_marginal_likelihood)
-
-    def _predict_vector(
-            self, cutpoints, invcov,
-            posterior_mean, varphi, noise_variance, X_test):
-        """
-        Make EP prediction over classes of X_test given the posterior samples.
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg posterior_mean:
-        :arg varphi:
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg Lambda: The number of samples in the Monte Carlo estimate.
-        :return: A Monte Carlo estimate of the class probabilities.
-        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-        """
-        N_test = np.shape(X_test)[0]
-        # Update the kernel with new varphi
-        self.kernel.varphi = varphi
-        # C_news[:, i] is C_new for X_test[i]
-        C_news = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-        c_news = self.kernel.kernel_prior_diagonal(X_test)
-        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = invcov @ C_news  # (N, N_test)
-        intermediate_scalars = np.einsum(
-            'ij, ij -> j', C_news, intermediate_vectors)
-        posterior_var = c_news - intermediate_scalars
-        posterior_pred_var = posterior_var + noise_variance
-        posterior_std = np.sqrt(posterior_var)
-        posterior_pred_std = np.sqrt(posterior_pred_var)
-        posterior_pred_mean = np.einsum(
-            'ij, i -> j', intermediate_vectors, posterior_mean)
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            Z1 = np.divide(np.subtract(
-                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
-            Z2 = np.divide(
-                np.subtract(cutpoints[j], posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
-        return predictive_distributions, posterior_pred_mean, posterior_std
-
-    def predict(
-            self, cutpoints, invcov, posterior_mean,
-            varphi, noise_variance, X_test, vectorised=True):
-        """
-        Return the posterior predictive distribution over classes.
-
-        :arg y: The approximate posterior mean of the latent variable Y.
-        :arg varphi: The approximate posterior mean of the
-            hyper-parameters varphi.
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg n_samples: The number of samples in the Monte Carlo estimate.
-        :return: A Monte Carlo estimate of the class probabilities.
-        """
-        if self.kernel._ARD:
-            # This is the general case where there are hyper-parameters
-            # varphi (J, D) for all dimensions and classes.
-            raise ValueError(
-                "For the ordinal likelihood approximator,the kernel "
-                "must not be _ARD type (kernel._ARD=1), but"
-                " ISO type (kernel._ARD=0). (got {}, expected)".format(
-                    self.kernel._ARD, 0))
-        else:
-            if vectorised:
-                return self._predict_vector(
-                    cutpoints, invcov, posterior_mean, varphi, noise_variance, X_test)
-            else:
-                return ValueError(
-                    "The scalar implementation has been "
-                    "superseded. Please use "
-                    "the vector implementation.")
 
     def grid_over_hyperparameters(
             self, domain, res,
@@ -2948,7 +2844,7 @@ class LaplaceOrdinalGP(Approximator):
                     gx[j] -= np.sum(w2[idxg] - w1[idxg])
                     gx[j] += 0.5 * np.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
                     gx[j] += 0.5 * np.sum(-t2[idxl] * t1[idxl] * diag[idxl])
-                    gx[j] = gx[j] * intervals[j - 1] / noise_std
+                    gx[j] = gx[j] * intervals[j - 2] / noise_std
             # For gx[self.J] -- variance
             if indices[self.J]:
                 raise ValueError("TODO")
@@ -3041,7 +2937,7 @@ class LaplaceOrdinalGP(Approximator):
         posterior_mean, containers, error) = self._approximate_initiate(
             posterior_mean_0)
         (posterior_means, posterior_precisions) = containers
-        for step in trange(first_step, first_step + steps,
+        for _ in trange(first_step, first_step + steps,
                         desc="Laplace GP priors Approximator Progress",
                         unit="iterations", disable=True):
             (Z, norm_pdf_z1s, norm_pdf_z2s,
@@ -3054,7 +2950,9 @@ class LaplaceOrdinalGP(Approximator):
             weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
             z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
             z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
-            precision  = weight**2 + (z2s * norm_pdf_z2s - z1s * norm_pdf_z1s) / Z / self.noise_variance
+            precision  = weight**2 + (
+                z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
+                ) / Z / self.noise_variance
             L_cov = self.K + np.diag(1. / precision)
             m = - self.K @ weight + posterior_mean
             L_cov, _ = cho_factor(L_cov)
@@ -3114,10 +3012,12 @@ class LaplaceOrdinalGP(Approximator):
             gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
         else:
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        print(indices)
         gx = self.objective_gradient(
-            gx, intervals, self.kernel.varphi, self.noise_variance, self.noise_std,
-            w1, w2, g1, g2, v1, v2, q1, q2, cov, weight, self.N, self.K, precision, indices)
-        gx = gx[np.where(indices != 0)]
+            gx, intervals, self.kernel.varphi, self.noise_variance,
+            self.noise_std, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
+            self.N, self.K, precision, indices)
+        gx = gx[np.nonzero(indices)]
         if verbose:
             # print("cutpoints=", repr(self.cutpoints), ", ")
             # print("varphi=", self.kernel.varphi, ", ")
@@ -3129,7 +3029,8 @@ class LaplaceOrdinalGP(Approximator):
             print(
                 "\ncutpoints={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
-                    self.cutpoints, self.noise_variance, self.kernel.varphi, fx))
+                    self.cutpoints, self.noise_variance,
+                    self.kernel.varphi, fx))
 
         if calculate_posterior_cov == 1:
             # Inverse of K
@@ -3146,7 +3047,7 @@ class LaplaceOrdinalGP(Approximator):
         elif calculate_posterior_cov is None:
             return fx, gx
 
-  
+
 class CutpointValueError(Exception):
     """
     An invalid cutpoint argument was used to construct the classifier model.
@@ -3187,3 +3088,35 @@ class InvalidApproximator(Exception):
         )
 
         super().__init__(message)
+
+
+class ApproximatorLoader(enum.Enum):
+    """Factory enum to load approximators.
+    """
+    LA = LaplaceOrdinalGP
+    EP = EPOrdinalGP
+    VB = VBOrdinalGP
+
+
+def load_approximator(
+    approximator_string,
+    **kwargs):
+    """
+    Returns a brand new instance of the classifier manager for training.
+    Observe that this instance is of no use until it has been trained.
+    Input:
+        approximator_string (str):       type of model to be loaded. Our interface can currently provide
+                                trainable instances for: 'keras'
+        model_metadata (str):   absolute path to the file where the model's metadata is going to be
+                                saved. This metadata file will contain all the information required
+                                to re-load the model later.
+        model_kwargs (kwargs):  hyperparameters required to initialise the classification model. For
+                                details look at the desired model's constructor.
+    Output:
+        classifier (ClassifierManager): an instance of a classifier with a standard interface to
+                                        be used in our pipeline.
+    Raises:
+        ValueError: if the classifier type provided is not supported by the interface.
+    """
+    return ApproximatorLoader[approximator_string].value(
+        **kwargs)

@@ -9,6 +9,8 @@ os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
 os.environ["VECLIB_MAXIMUM_THREADS"] = "6" # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = "6" # export NUMEXPR_NUM_THREADS=6
 os.environ["NUMBA_NUM_THREADS"] = "6"
+
+
 from numba import set_num_threads
 set_num_threads(6)
 
@@ -19,7 +21,7 @@ from pstats import Stats, SortKey
 import numpy as np
 import pathlib
 from probit.approximators import EPOrdinalGP, VBOrdinalGP, LaplaceOrdinalGP
-from probit.plot import outer_loops, grid_synthetic, train, test, grid, plot_synthetic, plot
+from probit.plot import outer_loops, grid_synthetic, grid, plot_synthetic, plot, train, test
 from probit.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 import sys
 import time

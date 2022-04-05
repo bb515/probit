@@ -1,13 +1,13 @@
 """Useful plot functions for classifiers."""
-from nbformat import write
 import numpy as np
 import matplotlib.pyplot as plt
-from pytest import approx
+from probit.data.utilities import colors, datasets
+from probit.data.utilities_nplan import calculate_metrics
+import warnings
+import time
 from scipy.optimize import minimize
-from probit.data.utilities import MinimizeStopper, colors, datasets
-from probit.data.utilities import calculate_metrics
-import matplotlib.colors as mcolors
-from matplotlib import rc
+# import matplotlib.colors as mcolors
+# from matplotlib import rc
 
 
 def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
@@ -154,7 +154,65 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
         plt.close()
 
 
-def train(classifier, method, indices, max_sec=5000):
+def plot_contour(
+    classifier, X_test, t_test, steps, posterior_inv_cov, posterior_mean,
+    domain):
+    """
+    Given classifier and approximate posterior mean and covariance,
+    save a contour plot of predictive probabilities over the domain.
+    """
+    (x_lims, y_lims) = domain
+    N = 75
+    x1 = np.linspace(x_lims[0], x_lims[1], N)
+    x2 = np.linspace(y_lims[0], y_lims[1], N)
+    xx, yy = np.meshgrid(x1, x2)
+    X_new = np.dstack((xx, yy))
+    X_new = X_new.reshape((N * N, 2))
+    X_new_ = np.zeros((N * N, classifier.D))
+    X_new_[:, :2] = X_new
+    (Z,
+    posterior_predictive_m,
+    posterior_std) = classifier.predict(
+        classifier.cutpoints, posterior_inv_cov, posterior_mean,
+        classifier.kernel.varphi,
+        classifier.noise_variance, X_new_, vectorised=True)
+    Z_new = Z.reshape((N, N, classifier.J))
+    print(np.sum(Z, axis=1), 'sum')
+    for j in range(classifier.J):
+        fig, axs = plt.subplots(1, figsize=(6, 6))
+        plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
+        plt.scatter(
+            classifier.X_train[np.where(classifier.t_train == j)][:, 0],
+            classifier.X_train[np.where(classifier.t_train == j)][:, 1],
+            color='red')
+        plt.scatter(
+            X_test[np.where(t_test == j)][:, 0],
+            X_test[np.where(t_test == j)][:, 1], color='blue')
+        # plt.scatter(
+        #   X_train[np.where(t == j + 1)][:, 0],
+        #   X_train[np.where(t == j + 1)][:, 1],
+        #   color='blue')
+        # plt.xlim(0, 2)
+        # plt.ylim(0, 2)
+        plt.xlabel(r"$x_1$", fontsize=16)
+        plt.ylabel(r"$x_2$", fontsize=16)
+        plt.savefig("contour_{}.png".format(j))
+        plt.close()
+
+
+def test(
+        classifier, X_test, t_test, y_test,
+        posterior_mean, posterior_inv_cov):
+    (Z,
+    posterior_predictive_m,
+    posterior_std) = classifier.predict(
+        classifier.cutpoints, posterior_inv_cov, posterior_mean,
+        classifier.kernel.varphi,
+        classifier.noise_variance, X_test, vectorised=True)
+    return calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
+
+
+def train(classifier, method, indices, verbose=True, steps=None, max_sec=5000):
     """
     Hyperparameter training via gradient descent of the objective function, a
     negative log marginal likelihood (or bound thereof).
@@ -166,6 +224,8 @@ def train(classifier, method, indices, max_sec=5000):
     :arg indices: Binary array or list of indices indicating which
         hyperparameters to fix, and which to optimize.
     :type indices: :class:`numpy.ndarray` or list
+    :arg bool verbose: Verbosity bool, default True
+    :arg int steps: The number of steps to run the algorithm on the inner loop.
     :arg float max_sec: The max time to do optimization for, in seconds.
         TODO: test.
     :return: The hyperparameters after optimization.
@@ -174,75 +234,74 @@ def train(classifier, method, indices, max_sec=5000):
     """
     minimize_stopper = MinimizeStopper(max_sec=max_sec)
     theta = classifier.get_theta(indices)
-    args = (indices)
+    args = (indices, verbose, steps)
     res = minimize(
         classifier.hyperparameter_training_step, theta,
         args, method=method, jac=True,
-        callback = minimize_stopper.__call__)
+        callback=minimize_stopper.__call__)
     return classifier
 
 
-def test(classifier, X_test, t_test, y_test, steps, domain=None):
+def save_model(
+    classifier, model_file, metadata_file, steps, optimizer_method_string):
     """
-    Test the trained model.
+    Approximate posterior to obtain model weights and save model.
 
     :arg classifier:
-    :type classifier: :class:`probit.approximator.Approximator`
-        or :class:`probit.samplers.Sampler`
+    :arg model_file:
+    :arg metadata_file:
+    :arg steps: Included as an argument as not a class variable of classifier.
+    :arg optimizer_method_string: Included as an argument as not a class variable of classifier.
+
     """
     (fx, gx,
-    posterior_mean, (posterior_inv_cov, is_inv)
-    ) = classifier.approximate_posterior(
-            None, None, steps=steps, first_step=1,
-            calculate_posterior_cov=2,
-            write=False, verbose=True)
-    # Test
-    (Z,
-    posterior_predictive_m,
-    posterior_std) = classifier.predict(
-        classifier.cutpoints, posterior_inv_cov, posterior_mean,
-        classifier.kernel.varphi,
-        classifier.noise_variance, X_test, vectorised=True)
+        posterior_mean, (posterior_inv_cov, is_inv)
+        ) = classifier.approximate_posterior(
+                None, None, steps=steps, first_step=1,
+                calculate_posterior_cov=2,
+                write=False, verbose=True)
+    np.savez(
+        model_file, fx=fx, gx=gx, posterior_mean=posterior_mean,
+        posterior_inv_cov=posterior_inv_cov, is_inv=is_inv)
 
-    if domain is not None:
-        (x_lims, y_lims) = domain
-        N = 75
-        x1 = np.linspace(x_lims[0], x_lims[1], N)
-        x2 = np.linspace(y_lims[0], y_lims[1], N)
-        xx, yy = np.meshgrid(x1, x2)
-        X_new = np.dstack((xx, yy))
-        X_new = X_new.reshape((N * N, 2))
-        X_new_ = np.zeros((N * N, classifier.D))
-        X_new_[:, :2] = X_new
-        (Z,
-        posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            classifier.cutpoints, posterior_inv_cov, posterior_mean,
-            classifier.kernel.varphi,
-            classifier.noise_variance, X_new_, vectorised=True)
-        Z_new = Z.reshape((N, N, classifier.J))
-        print(np.sum(Z, axis=1), 'sum')
-        for j in range(classifier.J):
-            fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
-            plt.scatter(
-                classifier.X_train[np.where(classifier.t_train == j)][:, 0],
-                classifier.X_train[np.where(classifier.t_train == j)][:, 1],
-                color='red')
-            plt.scatter(
-                X_test[np.where(t_test == j)][:, 0],
-                X_test[np.where(t_test == j)][:, 1], color='blue')
-            # plt.scatter(
-            #   X_train[np.where(t == j + 1)][:, 0],
-            #   X_train[np.where(t == j + 1)][:, 1],
-            #   color='blue')
-            # plt.xlim(0, 2)
-            # plt.ylim(0, 2)
-            plt.xlabel(r"$x_1$", fontsize=16)
-            plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("contour_{}.png".format(j))
-            plt.close()
-    return posterior_inv_cov, posterior_mean, fx, calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
+    np.savez(
+            metadata_file, kernel_string=repr(classifier.kernel),
+            approximator_string=repr(classifier),
+            optimizer_method_string=optimizer_method_string,
+            N_train=classifier.N,
+            varphi=classifier.kernel.varphi,
+            varphi_hyperparameters=classifier.kernel.varphi_hyperparameters,
+            varphi_hyperhyperparameters=classifier.kernel.varphi_hyperhyperparameters,
+            signal_variance=classifier.kernel.variance,
+            cutpoints=classifier.cutpoints,
+            noise_variance=classifier.noise_variance,
+            num_ordinal_classes=classifier.J)
+
+
+#SS
+# def _test_given_posterior(classifier, X_test, t_test, y_test, steps, posterior):
+#     """
+#     Test the trained model.
+
+#     :arg classifier:
+#     :type classifier: :class:`probit.approximator.Approximator`
+#         or :class:`probit.samplers.Sampler`
+#     """
+#     if posterior_mean is not None and posterior_inv_cov is not None:
+#         (fx, gx,
+#         posterior_mean, (posterior_inv_cov, is_inv)
+#         ) = classifier.approximate_posterior(
+#                 None, None, steps=steps, first_step=1,
+#                 calculate_posterior_cov=2,
+#                 write=False, verbose=True)
+#         # Test
+#         (Z,
+#         posterior_predictive_m,
+#         posterior_std) = classifier.predict(
+#             classifier.cutpoints, posterior_inv_cov, posterior_mean,
+#             classifier.kernel.varphi,
+#             classifier.noise_variance, X_test, vectorised=True)
+#     return posterior_inv_cov, posterior_mean, calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
  
 
 def outer_loop_problem_size(
@@ -1467,3 +1526,23 @@ def table1(
                                 pr1, pr2, pr30, pr31, pr32, pr33, pr4, pr5))
     # rc('font', **{'family': 'serif', 'serif': ['Computer Modern Roman'], 'size' : 12})
     # rc('text', usetex=True)
+
+
+class TookTooLong(Warning):
+    pass
+
+
+class MinimizeStopper(object):
+    def __init__(self, max_sec=100):
+        self.max_sec = max_sec
+        self.start   = time.time()
+
+    def __call__(self, xk):
+        # callback to terminate if max_sec exceeded
+        elapsed = time.time() - self.start
+        if elapsed > self.max_sec:
+            warnings.warn("Terminating optimization: time limit reached",
+                          TookTooLong)
+        else:
+            # you might want to report other stuff here
+            print("Elapsed: %.3f sec" % elapsed)

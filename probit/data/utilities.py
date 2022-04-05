@@ -10,12 +10,12 @@ os.environ["NUMEXPR_NUM_THREADS"] = nthreads # export NUMEXPR_NUM_THREADS=6
 os.environ["NUMBA_NUM_THREADS"] = nthreads
 import numpy as np
 import matplotlib.pyplot as plt
-import importlib.resources as pkg_resources
-from scipy.stats import gamma
-from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ, LabSharpenedCosine
-import warnings
-import time
 import matplotlib as mpl
+import importlib.resources as pkg_resources
+# from scipy.stats import gamma
+from probit.kernels import KernelLoader
+from probit.approximators import ApproximatorLoader
+from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ, LabSharpenedCosine
 
 # For plotting
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
@@ -126,11 +126,65 @@ metadata = {
 }
 
 
+def load_model(model_kwargs, data, J):
+    """
+    Loads an Ordinal GP classifer using the metadata file provided at
+    construction. This provides the relevant Kernel (which defines the GP
+    model), the data, and the Kernel hyperparameters.
+
+    However, the model is not yet loaded in a state in which it can be used
+    to make predictions or to further train.
+    """
+    approximator_string = model_kwargs['approximation_string']
+    Approximator = ApproximatorLoader(approximator_string)
+
+    kernel_string = model_kwargs['kernel_string']
+    Kernel = KernelLoader(kernel_string)
+
+    varphi_0 = model_kwargs['varphi_0']
+    signal_variance_0 = model_kwargs['varphi_0']
+    cutpoints_0 = model_kwargs['varphi_0']
+    noise_variance_0 = model_kwargs['varphi_0']
+
+    # Initiate kernel
+    kernel = Kernel(
+        varphi=varphi_0, variance=signal_variance_0)
+    # Initiate the classifier with the training data
+    classifier = Approximator(
+        cutpoints_0, noise_variance_0, kernel,
+        J, data)
+    return classifier
+
+
+def load_npz_data(file_path):
+    """
+    This is a minimum working example to load data as numpy arrays.
+
+    :arg file_path: Location and name of the .npz file used as argument to
+        `:meth:numpy.load`.
+    :arg int N_train: Optional argument that returns only the first N examples
+        in the training set.
+    :returns: data tuple, number of ordinal classes, number of data dims,
+        bin edges of the data.
+    """
+    with np.load(file_path) as data:
+        log_cutpoints  = data["log_cutpoints"]
+        text_trains = data["text_trains"]
+        X = data["X"]  # (N_train, D)
+        t = data["t"].astype(int)  # (N_train,)
+        bin_edges = data["bin_edges"]
+        J = data["J"]
+        D = data["D"]
+    return (
+        (X, t), J, D, bin_edges)
+
+
 def indices_initiate(
         self, cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, indices):
     """
-    # TODO: include the kernel is this bad boy.
+    # TODO: include the kernel?
+    # TODO: is calculate_all_gradients SS
     Evaluate container for gradient of the objective function.
 
     :arg cutpoints_0:
@@ -708,7 +762,7 @@ def generate_synthetic_data(N_per_class, J, D, kernel, noise_variance):
         for j in range(J):
             X_j.append(X[N_per_class * j:N_per_class * (j + 1)])
             Y_true_j.append(Y_true[N_per_class * j:N_per_class * (j + 1)])
-            t_j.append(k * np.ones(N_per_class, dtype=int))
+            t_j.append(j * np.ones(N_per_class, dtype=int))
         # Find the first cutpoint and set it equal to 0.0
         cutpoint_0_min = Y_true_j[0][-1]
         cutpoint_0_max = Y_true_j[1][0]
@@ -1997,26 +2051,6 @@ def plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=None):
         plt.savefig("surface.png")
         plt.show()
 
-
-
-class TookTooLong(Warning):
-    pass
-
-
-class MinimizeStopper(object):
-    def __init__(self, max_sec=100):
-        self.max_sec = max_sec
-        self.start   = time.time()
-
-    def __call__(self, xk):
-        # callback to terminate if max_sec exceeded
-        elapsed = time.time() - self.start
-        if elapsed > self.max_sec:
-            warnings.warn("Terminating optimization: time limit reached",
-                          TookTooLong)
-        else:
-            # you might want to report other stuff here
-            print("Elapsed: %.3f sec" % elapsed)
 
 
 if __name__ == "__main__":

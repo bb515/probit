@@ -154,6 +154,7 @@ probit/data/utilities_nplan.py
 probit/data/utils_nplan.py
 examples/example2/
 pipeline/
+dataset_manager/
 examples/paper/theta_*
 probit/scratch.py
 *hist_pred*

@@ -4,11 +4,13 @@ os.environ["OPENBLAS_NUM_THREADS"] = "8" # export OPENBLAS_NUM_THREADS=4
 os.environ["MKL_NUM_THREADS"] = "8" # export MKL_NUM_THREADS=6
 os.environ["VECLIB_MAXIMUM_THREADS"] = "8" # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = "8" # export NUMEXPR_NUM_THREADS=6
+import enum
 import lab as B
 import numpy as np
 from scipy.spatial import distance_matrix, distance
 from abc import ABC, abstractmethod
-from mlkernels import EQ
+# from mlkernels import EQ
+
 
 
 class Kernel(ABC):
@@ -17,7 +19,6 @@ class Kernel(ABC):
 
     TODO: cythonise these functions - or numba. Or replace kernels with existing python GP kernel code. (dont reinvent the wheel)
     TODO: are self.L and self.M really needed?
-    TODO: seems strange to initiate hyperhyperhyperparameters here.
 
     All kernels must define an init method, which may or may not inherit Kernel
     as a parent class using `super()`. All kernels that inherit Kernel define a
@@ -26,7 +27,19 @@ class Kernel(ABC):
     """
 
     @abstractmethod
-    def __init__(self, variance=1.0, variance_hyperparameters=None, varphi_hyperhyperparameters=None):
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+
+        This method should be implemented in every concrete kernel.
+        """
+
+    @abstractmethod
+    def __init__(
+            self, variance=1.0, variance_hyperparameters=None,
+            varphi=None, varphi_hyperparameters=None,
+            varphi_hyperhyperparameters=None):
         """
         Create an :class:`Kernel` object.
 
@@ -35,18 +48,37 @@ class Kernel(ABC):
  
         :arg float variance: The kernel variance hyperparameters as a numpy array.
             Default 1.0.
-        :arg sigma: The (K, ) array or float or None (location/ scale)
+        :arg variance_hyperparameters:
+        :type variance_hyperparameters: float or :class:`numpy.ndarray` or None
+        :arg varphi:
+        :type varphi: float or :class:`numpy.ndarray` or None
+        :arg varphi_hyperparameters:
+        :type varphi_hyperparameters: float or :class:`numpy.ndarray` or None
+        :arg varphi_hyperhyperparameters: The (K, ) array or float or None (location/ scale)
             hyper-hyper-parameters that define varphi_hyperparameters prior. Not to be confused
             with `Sigma`, which is a covariance matrix. Default None.
-        :type sigma: float or :class:`numpy.ndarray` or None
-        :arg tau: The (K, ) array or float or None (location/ scale)
-            hyper-hyper-parameters that define varphi_hyperparameters prior. Default None.
-        :type tau: float or :class:`numpy.ndarray` or None
+        :type varphi_hyperhyperparameters: float or :class:`numpy.ndarray` or None
 
         :returns: A :class:`Kernel` object
         """
         variance = np.float64(variance)
         self.variance = variance
+        if varphi is not None:
+            self.varphi, self.L, self.M = self._initialise_varphi(
+                varphi)
+        else:
+            raise ValueError(
+                "Kernel hyperparameters `varphi` must be provided "
+                "(got {})".format(None))
+        if varphi_hyperparameters is not None:
+            self.varphi_hyperparameters = self._initialise_hyperparameter(
+                self.varphi, varphi_hyperparameters)
+            if varphi_hyperhyperparameters is not None:
+                self.varphi_hyperhyperparameters = self._initialise_hyperparameter(
+                    self.varphi_hyperparameters, varphi_hyperhyperparameters)
+        else:
+            self.varphi_hyperparameters = None
+            self.varphi_hyperhyperparameters = None
         if variance_hyperparameters is not None:
             self.variance_hyperparameters = self._initialise_hyperparameter(
                 self.variance, variance_hyperparameters)
@@ -201,7 +233,15 @@ class Linear(Kernel):
     regularising constant (or scale) and :math:`c` is the intercept
     regularisor.
     """
-    def __init__(self, varphi=None, varphi_hyperparameters=None, *args, **kwargs):
+
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "Linear"
+
+    def __init__(self, *args, **kwargs):
         """
         Create an :class:`Linear` kernel object.
 
@@ -223,8 +263,6 @@ class Linear(Kernel):
             raise ValueError(
                 "Hyperparameters `varphi = [constant_variance, c]` must be "
                 "provided for the Linear kernel class (got {})".format(None))
-        if varphi_hyperparameters is not None:
-            raise ValueError("TODO")
         self.constant_variance = varphi[0]
         self.c = varphi[1]
         if self.constant_variance is None:
@@ -474,7 +512,14 @@ class Polynomial(Kernel):
     TODO: kernel has been designed to be easy to differentiate analytically.
     This will be changed for interpretability once autograd is in place.
     """
-    def __init__(self, varphi, varphi_hyperparameters=None, *args, **kwargs):
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "Polynomial"
+
+    def __init__(self, varphi, *args, **kwargs):
         """
         Create an :class:`Polynomial` kernel object.
 
@@ -482,8 +527,6 @@ class Polynomial(Kernel):
             intercept=0.0, the kernel is called homogeneous. Default 0.0.
         :arg float order: Order of the polynomial kernel. When order=2, the
             kernel is a quadratic kernel. Default 2.
-        :arg varphi_hyperparameters:
-        :type varphi_hyperparameters: :class:`numpy.ndarray` or float
         :returns: An :class:`Polynomial` object
         """
         super().__init__(*args, **kwargs)
@@ -520,8 +563,6 @@ class Polynomial(Kernel):
                 "Type of c is not supported "
                 "(expected array or float, got {})".format(
                     type(self.c)))
-        if varphi_hyperparameters is not None:
-            raise ValueError("TODO")
         self.num_hyperparameters = np.size(
             self.constant_variance) + np.size(self.c)
         if self.order is None:
@@ -708,9 +749,15 @@ class LabEQ(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "LabEQ"
+
     def __init__(
-            self, varphi=None, varphi_hyperparameters=None,
-            varphi_hyperhyperparameters=None, *args, **kwargs):
+            self, *args, **kwargs):
         """
         Create an :class:`SEIso` kernel object.
 
@@ -722,23 +769,6 @@ class LabEQ(Kernel):
         :returns: An :class:`SEIso` object
         """
         super().__init__(*args, **kwargs)
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(
-                varphi)
-        else:
-            raise ValueError(
-                "Lengthscale hyperparameter `varphi` must be provided for the "
-                "SEIso kernel class (got {})".format(None))
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = self._initialise_hyperparameter(
-                self.varphi, varphi_hyperparameters)
-        else:
-            self.varphi_hyperparameters = None
-        if varphi_hyperhyperparameters is not None:
-            self.varphi_hyperhyperparameters = self._initialise_hyperparameter(
-                self.varphi_hyperparameters, varphi_hyperhyperparameters)
-        else:
-            self.varphi_hyperhyperparameters = None
         # For this kernel, the shared and single kernel for each class
         # (i.e. non general) and single lengthscale across
         # all data dims (i.e. non ARD) is assumed.
@@ -879,7 +909,14 @@ class LabSharpenedCosine(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
-    def __init__(self,  varphi=None, varphi_hyperparameters=None, *args, **kwargs):
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "LabSharpenedCosine"
+
+    def __init__(self,  *args, **kwargs):
         """
         Create an :class:`SEIso` kernel object.
 
@@ -891,18 +928,6 @@ class LabSharpenedCosine(Kernel):
         :returns: An :class:`SEIso` object
         """
         super().__init__(*args, **kwargs)
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(
-                varphi)
-        else:
-            raise ValueError(
-                "Lengthscale hyperparameter `varphi` must be provided for the "
-                "SEIso kernel class (got {})".format(None))
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = self._initialise_hyperparameter(
-                self.varphi, varphi_hyperparameters)
-        else:
-            self.varphi_hyperparameters = None
         # For this kernel, the shared and single kernel for each class
         # (i.e. non general) and single lengthscale across
         # all data dims (i.e. non ARD) is assumed.
@@ -1063,7 +1088,14 @@ class SEIso(Kernel):
     Note that previous implementations used distance
 
     """
-    def __init__(self, varphi=None, varphi_hyperparameters=None, *args, **kwargs):
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "SEIso"
+
+    def __init__(self, *args, **kwargs):
         """
         Create an :class:`SEIso` kernel object.
 
@@ -1075,18 +1107,6 @@ class SEIso(Kernel):
         :returns: An :class:`SEIso` object
         """
         super().__init__(*args, **kwargs)
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(
-                varphi)
-        else:
-            raise ValueError(
-                "Lengthscale hyperparameter `varphi` must be provided for the "
-                "SEIso kernel class (got {})".format(None))
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = self._initialise_hyperparameter(
-                self.varphi, varphi_hyperparameters)
-        else:
-            self.varphi_hyperparameters = None
         # For this kernel, the shared and single kernel for each class
         # (i.e. non general) and single lengthscale across
         # all data dims (i.e. non ARD) is assumed.
@@ -1234,7 +1254,14 @@ class SumPolynomialSEIso(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
-    def __init__(self,  varphi=None, varphi_hyperparameters=None, *args, **kwargs):
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "SumPolynomialSEIso"
+
+    def __init__(self, *args, **kwargs):
         """
         Create an :class:`SEIso` kernel object.
 
@@ -1246,21 +1273,6 @@ class SumPolynomialSEIso(Kernel):
         :returns: An :class:`SEIso` object
         """
         super().__init__(*args, **kwargs)
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(
-                varphi)
-        else:
-            raise ValueError(
-                "Lengthscale hyperparameter `varphi` must be provided for the "
-                "SEIso kernel class (got {})".format(None))
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = self._initialise_hyperparameter(
-                self.varphi, varphi_hyperparameters)
-        else:
-            self.varphi_hyperparameters = None
-        # For this kernel, the shared and single kernel for each class
-        # (i.e. non general) and single lengthscale across
-        # all data dims (i.e. non ARD) is assumed.
         if self.L != 1:
             raise ValueError(
                 "L wrong for sharpened cosine kernel (expected {}, got {})".format(
@@ -1393,20 +1405,20 @@ class SSSEARDMultinomial(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi_{kd}` is the lengthscale for the
     :math:`k`th class and :math:`d`th dimension, and :math:`s` is the variance.
     """
-    def __init__(self, varphi=None, *args, **kwargs):
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "SSSEARDMultinomial"
+
+    def __init__(self, *args, **kwargs):
         """
         Create an :class:`SEARDMultinomial` kernel object.
 
         :returns: An :class:`SEARDMultinomial` object
         """
         super().__init__(*args, **kwargs)
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(
-                varphi)
-        else:
-            raise ValueError(
-                "Lengthscale hyperparameter `varphi` must be provided for the "
-                "SEARDMultinomial kernel class (got {})".format(None))
         # For this kernel, the general and ARD setting are assumed.
         if self.L <= 1:
             raise ValueError(
@@ -1542,7 +1554,14 @@ class SEARDMultinomial(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi_{kd}` is the lengthscale for the
     :math:`k`th class and :math:`d`th dimension, and :math:`s` is the variance.
     """
-    def __init__(self, varphi=None, varphi_hyperparameters=None, *args, **kwargs):
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "SEARDMultinomial"
+
+    def __init__(self, *args, **kwargs):
         """
         Create an :class:`SEARD` kernel object.
 
@@ -1556,15 +1575,6 @@ class SEARDMultinomial(Kernel):
         :returns: An :class:`SEARD` object
         """
         super().__init__(*args, **kwargs)
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(varphi)
-        else:
-            raise ValueError(
-                "Lengthscale hyperparameter `varphi` must be provided for the "
-                "SEARDMultinomial kernel class (got {})".format(None))
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = self._initialise_hyperparameter(
-                self.varphi, varphi_hyperparameters)
         # For this kernel, the general and ARD setting are assumed.
         if self.L <= 1:
             raise ValueError(
@@ -1756,6 +1766,13 @@ class SEARD(Kernel):
     :math:`d`th dimension, shared across all classes, and :math:`s` is the
     variance.
     """
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "SEARD"
+
     def __init__(self, varphi, varphi_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`SEARD` kernel object.
@@ -1773,16 +1790,6 @@ class SEARD(Kernel):
         :returns: An :class:`SEARD` object
         """
         super().__init__(*args, **kwargs)
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(
-                varphi)
-        else:
-            raise ValueError(
-                "Lengthscale hyperparameter `varphi` must be provided for the "
-                "SEARD kernel class (got {})".format(None))
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = self._initialise_hyperparameter(
-                self.varphi, varphi_hyperparameters)
         # For this kernel, the ARD setting is assumed. This is not a
         # general_kernel, since the covariance function
         # is shared across classes. 
@@ -1951,24 +1958,37 @@ class InvalidKernel(Exception):
         super().__init__(message)
 
 
-# X1 = np.random.rand(10, 3)
-# X2 = np.random.rand(10, 3)
+class KernelLoader(enum.Enum):
+    """Factory enum to load kernels.
+    """
+    linear = Linear
+    polynomial = Polynomial
+    lab_eq = LabEQ
+    lab_sharpened_cosine = LabSharpenedCosine
+    se_iso = SEIso
+    sum_polynomial_se_iso = SumPolynomialSEIso
+    se_ard = SEARD
 
-# kernel = LabCosine()
 
-# A = kernel.kernel_matrix(X1, X1)
-
-# print(A)
-
-# A = kernel.kernel_vector(X1[0], X1)
-
-# print(A)
-
-# A = kernel.kernel(X1[0], X1[1])
-
-# print(A)
-
-# A = kernel.kernel_prior_diagonal(X1)
-
-# print(A)
-# assert 0
+def load_kernel(
+    kernel_string,
+    **kwargs):
+    """
+    Returns a brand new instance of the classifier manager for training.
+    Observe that this instance is of no use until it has been trained.
+    Input:
+        kernel_string (str):    type of model to be loaded. Our interface can currently provide
+                                trainable instances for: 'keras'
+        model_metadata (str):   absolute path to the file where the model's metadata is going to be
+                                saved. This metadata file will contain all the information required
+                                to re-load the model later.
+        model_kwargs (kwargs):  hyperparameters required to initialise the classification model. For
+                                details look at the desired model's constructor.
+    Output:
+        classifier (ClassifierManager): an instance of a classifier with a standard interface to
+                                        be used in our pipeline.
+    Raises:
+        ValueError: if the classifier type provided is not supported by the interface.
+    """
+    return KernelLoader[kernel_string].value(
+        **kwargs)
