@@ -3,7 +3,82 @@ import numpy as np
 from scipy.stats import expon, norm
 from scipy.special import ndtr, log_ndtr
 import warnings
+import h5py
 
+
+def write_array(write_path, dataset, array):
+    """
+    Write a :class: numpy.ndarray to a HDF5 file.
+    :arg write_path: The path to which the HDF5 file is written.
+    :type write_path: path-like or str
+    :arg dataset: The name of the dataset stored in the HDF5 file.
+    :type dataset: str
+    :array: The array to be written to file.
+    :type array: :class: numpy.ndarray
+    :return: None
+    :rtype: None type
+    """
+    with h5py.File(write_path, 'a') as hf:
+        hf.create_dataset(dataset,  data=array)
+
+
+def read_array(read_path, dataset):
+    """
+    Read a :class numpy.ndarray: from a HDF5 file.
+    :arg read_path: The path to which the HDF5 file is written.
+    :type read_path: path-like or str
+    :arg dataset: The name of the dataset stored in the HDF5 file.
+    :type dataset: str
+    :return: An array which was stored on disk.
+    :rtype: :class numpy.ndarray:
+    """
+    try:
+        with h5py.File(read_path, 'r') as hf:
+            try:
+                array = hf[dataset][:]
+                return array
+            except KeyError:
+                warnings.warn(
+                    "The {} array does not appear to exist in the file {}. "
+                    "Please set a write_path keyword argument in `Model` "
+                    "and the {} array will be created and then written to "
+                    "that file path.".format(dataset, read_path, dataset))
+                raise
+    except OSError:
+        warnings.warn(
+            "The {} file does not appear to exist yet.".format(
+                read_path))
+        raise
+
+
+
+def read_scalar(read_path, dataset):
+    """
+    Read a :class numpy.ndarray: from a HDF5 file.
+    :arg read_path: The path to which the HDF5 file is written.
+    :type read_path: path-like or str
+    :arg dataset: The name of the dataset stored in the HDF5 file.
+    :type dataset: str
+    :return: An array which was stored on disk.
+    :rtype: :class numpy.ndarray:
+    """
+    try:
+        with h5py.File(read_path, 'r') as hf:
+            try:
+                scalar = hf[dataset][()]
+                return scalar 
+            except KeyError:
+                warnings.warn(
+                    "The {} array does not appear to exist in the file {}. "
+                    "Please set a write_path keyword argument in `Model` "
+                    "and the {} array will be created and then written to "
+                    "that file path.".format(dataset, read_path, dataset))
+                raise
+    except OSError:
+        warnings.warn(
+            "The {} file does not appear to exist yet.".format(
+                read_path))
+        raise
 
 over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
 log_over_sqrt_2_pi = np.log(over_sqrt_2_pi)
@@ -35,36 +110,36 @@ def norm_logcdf(x):
     return log_ndtr(x)
 
 
-def return_prob_vector(b, gamma_t, gamma_tplus1, noise_std):
-    return ndtr((gamma_tplus1 - b) / noise_std) - ndtr((gamma_t - b) / noise_std)
+def return_prob_vector(b, cutpoints_t, cutpoints_tplus1, noise_std):
+    return ndtr((cutpoints_tplus1 - b) / noise_std) - ndtr((cutpoints_t - b) / noise_std)
 
 
 def fromb_fft1_vector(
-    b, mean, sigma, noise_std, gamma_t, gamma_tplus1,
+    b, mean, sigma, noise_std, cutpoints_t, cutpoints_tplus1,
     EPS_2):
     """
     :arg float b: The approximate posterior mean vector.
     :arg float mean: A mean value of a pdf inside the integrand.
     :arg float sigma: A standard deviation of a pdf inside the integrand.
     :arg int J: The number of ordinal classes.
-    :arg gamma_t: The vector of the lower cutpoints the data.
-    :type gamma_t: `nd.numpy.array`
-    :arg gamma_t_plus_1: The vector of the upper cutpoints the data.
-    :type gamma_t_plus_1: `nd.numpy.array`
+    :arg cutpoints_t: The vector of the lower cutpoints the data.
+    :type cutpoints_t: `nd.numpy.array`
+    :arg cutpoints_t_plus_1: The vector of the upper cutpoints the data.
+    :type cutpoints_t_plus_1: `nd.numpy.array`
     :arg float noise_variance: A noise variance for the likelihood.
     :arg float EPS: A machine tolerance to be used.
     :return: fromberg numerical integral point evaluation.
     :rtype: float
     """
     prob = return_prob_vector(
-        b, gamma_t, gamma_tplus1, noise_std)
+        b, cutpoints_t, cutpoints_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm_pdf(b, loc=mean, scale=sigma) * np.log(prob)
     #return norm.pdf(b, loc=mean, scale=sigma) * np.log(prob)
 
 
 def fromb_t1_vector(
-    y, posterior_mean, posterior_covariance, gamma_t, gamma_tplus1,
+    y, posterior_mean, posterior_covariance, cutpoints_t, cutpoints_tplus1,
     noise_std, EPS, EPS_2, N):
     """
     :arg posterior_mean: The approximate posterior mean vector.
@@ -73,10 +148,10 @@ def fromb_t1_vector(
         variance vector.
     :type posterior_covariance: :class:`numpy.ndarray`
     :arg int J: The number of ordinal classes.
-    :arg gamma_t: The vector of the lower cutpoints the data.
-    :type gamma_t: `nd.numpy.array`
-    :arg gamma_t_plus_1: The vector of the upper cutpoints the data.
-    :type gamma_t_plus_1: `nd.numpy.array`
+    :arg cutpoints_t: The vector of the lower cutpoints the data.
+    :type cutpoints_t: `nd.numpy.array`
+    :arg cutpoints_t_plus_1: The vector of the upper cutpoints the data.
+    :type cutpoints_t_plus_1: `nd.numpy.array`
     :arg float noise_std: A noise standard deviation for the likelihood.
     :arg float noise_variance: A noise variance for the likelihood.
     :arg float EPS: A machine tolerance to be used.
@@ -90,11 +165,11 @@ def fromb_t1_vector(
     y[0, :] = h * (
         fromb_fft1_vector(
             a, posterior_mean, posterior_std, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
         + fromb_fft1_vector(
             b, posterior_mean, posterior_std, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
     ) / 2.0
     m = 1
@@ -106,7 +181,7 @@ def fromb_t1_vector(
             x = a + (i + 0.5) * h
             p += fromb_fft1_vector(
                 x, posterior_mean, posterior_std, noise_std,
-                gamma_t, gamma_tplus1,
+                cutpoints_t, cutpoints_tplus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
@@ -125,7 +200,7 @@ def fromb_t1_vector(
 
 def fromb_fft2_vector(
         b, mean, sigma, posterior_mean, posterior_covariance,
-        noise_variance, noise_std, gamma_t, gamma_tplus1,
+        noise_variance, noise_std, cutpoints_t, cutpoints_tplus1,
         EPS_2):
     """
     :arg b: The approximate posterior mean evaluated at the datapoint.
@@ -133,7 +208,7 @@ def fromb_fft2_vector(
     :arg sigma: A standard deviation of a pdf inside the integrand.
     :arg t: The target value for the datapoint.
     :arg int J: The number of ordinal classes.
-    :arg gamma: The vector of cutpoints.
+    :arg cutpoints: The vector of cutpoints.
     :arg float noise_std: A noise standard deviation for the likelihood.
     :arg float noise_variance: A noise variance for the likelihood.
     :arg float EPS: A machine tolerance to be used.
@@ -141,16 +216,16 @@ def fromb_fft2_vector(
     :rtype: float
     """
     prob = return_prob_vector(
-        b, gamma_t, gamma_tplus1, noise_std)
+        b, cutpoints_t, cutpoints_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
-        posterior_mean, loc=gamma_t, scale=np.sqrt(
+        posterior_mean, loc=cutpoints_t, scale=np.sqrt(
         noise_variance + posterior_covariance))
 
 
 def fromb_t2_vector(
     y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
-    gamma_t, gamma_tplus1,
+    cutpoints_t, cutpoints_tplus1,
     noise_variance, noise_std, EPS, EPS_2, N):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -158,12 +233,12 @@ def fromb_t2_vector(
     :arg float posterior_covariance: The approximate posterior marginal
         variance.
     :arg int J: The number of ordinal classes.
-    :arg gamma_t: The vector of the lower cutpoints the data.
-    :type gamma_t: `nd.numpy.array`
-    :arg gamma_t_plus_1: The vector of the upper cutpoints the data.
-    :type gamma_t_plus_1: `nd.numpy.array`
-    :arg gamma: The vector of cutpoints.
-    :type gamma: `numpy.ndarray`
+    :arg cutpoints_t: The vector of the lower cutpoints the data.
+    :type cutpoints_t: `nd.numpy.array`
+    :arg cutpoints_t_plus_1: The vector of the upper cutpoints the data.
+    :type cutpoints_t_plus_1: `nd.numpy.array`
+    :arg cutpoints: The vector of cutpoints.
+    :type cutpoints: `numpy.ndarray`
     :arg float noise_std: A noise standard deviation for the likelihood.
     :arg float noise_variance: A noise variance for the likelihood.
     :arg float EPS: A machine tolerance to be used.
@@ -174,11 +249,11 @@ def fromb_t2_vector(
         fromb_fft2_vector(
             a, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
         + fromb_fft2_vector(
             b, mean, sigma, posterior_mean, posterior_covariance,
-            noise_variance, noise_std, gamma_t, gamma_tplus1,
+            noise_variance, noise_std, cutpoints_t, cutpoints_tplus1,
             EPS_2)
     ) / 2.0
     m = 1
@@ -191,7 +266,7 @@ def fromb_t2_vector(
             p += fromb_fft2_vector(
                 x, mean, sigma, posterior_mean, posterior_covariance,
                 noise_variance, noise_std,
-                gamma_t, gamma_tplus1,
+                cutpoints_t, cutpoints_tplus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
@@ -210,7 +285,7 @@ def fromb_t2_vector(
 
 def fromb_fft3_vector(
         b, mean, sigma, posterior_mean, posterior_covariance,
-        noise_variance, noise_std, gamma_t, gamma_tplus1,
+        noise_variance, noise_std, cutpoints_t, cutpoints_tplus1,
         EPS_2):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
@@ -227,16 +302,16 @@ def fromb_fft3_vector(
     :rtype: float
     """
     prob = return_prob_vector(
-        b, gamma_t, gamma_tplus1, noise_std)
+        b, cutpoints_t, cutpoints_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return  norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
-        posterior_mean, loc=gamma_tplus1, scale=np.sqrt(
+        posterior_mean, loc=cutpoints_tplus1, scale=np.sqrt(
         noise_variance + posterior_covariance))
 
 
 def fromb_t3_vector(
     y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
-    gamma_t, gamma_tplus1,
+    cutpoints_t, cutpoints_tplus1,
     noise_std, noise_variance, EPS, EPS_2, N):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -253,12 +328,12 @@ def fromb_t3_vector(
         fromb_fft3_vector(
             a, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
         + fromb_fft3_vector(
             b, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
     ) / 2.0
     m = 1
@@ -271,7 +346,7 @@ def fromb_t3_vector(
             p = p + fromb_fft3_vector(
                 x, mean, sigma, posterior_mean, posterior_covariance,
                 noise_variance, noise_std,
-                gamma_t, gamma_tplus1,
+                cutpoints_t, cutpoints_tplus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
@@ -290,7 +365,7 @@ def fromb_t3_vector(
 
 def fromb_fft4_vector(
         b, mean, sigma, posterior_mean, posterior_covariance,
-        noise_std, noise_variance, gamma_t, gamma_tplus1,
+        noise_std, noise_variance, cutpoints_t, cutpoints_tplus1,
         EPS_2):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
@@ -298,24 +373,24 @@ def fromb_fft4_vector(
     :arg float sigma: A standard deviation of a pdf inside the integrand.
     :arg int t: The target value for the datapoint.
     :arg int J: The number of ordinal classes.
-    :arg gamma: The vector of cutpoints.
-    :type gamma: `numpy.ndarray`
+    :arg cutpoints: The vector of cutpoints.
+    :type cutpoints: `numpy.ndarray`
     :arg float noise_variance: A noise variance for the likelihood.
     :arg float EPS: A machine tolerance to be used.
     :return: fromberg numerical integral point evaluation.
     :rtype: float
     """
     prob = return_prob_vector(
-        b, gamma_t, gamma_tplus1, noise_std)
+        b, cutpoints_t, cutpoints_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
-        posterior_mean, loc=gamma_tplus1, scale=np.sqrt(
-        noise_variance + posterior_covariance)) * (gamma_tplus1 - b)
+        posterior_mean, loc=cutpoints_tplus1, scale=np.sqrt(
+        noise_variance + posterior_covariance)) * (cutpoints_tplus1 - b)
 
 
 def fromb_t4_vector(
     y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
-    gamma_t, gamma_tplus1,
+    cutpoints_t, cutpoints_tplus1,
     noise_variance, noise_std, EPS, EPS_2, N):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -324,8 +399,8 @@ def fromb_t4_vector(
         variance.
     :arg int t: The target value for the datapoint.
     :arg int J: The number of ordinal classes.
-    :arg gamma: The vector of cutpoints.
-    :type gamma: `numpy.ndarray`
+    :arg cutpoints: The vector of cutpoints.
+    :type cutpoints: `numpy.ndarray`
     :arg float noise_variance: A noise variance for the likelihood.
     :arg float EPS: A machine tolerance to be used.
     :return: fromberg numerical integral numerical value.
@@ -335,12 +410,12 @@ def fromb_t4_vector(
         fromb_fft4_vector(
             a, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
         + fromb_fft4_vector(
             b, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
     ) / 2.0
     m = 1
@@ -353,7 +428,7 @@ def fromb_t4_vector(
             p = p + fromb_fft4_vector(
                 x, mean, sigma, posterior_mean, posterior_covariance,
                 noise_variance, noise_std,
-                gamma_t, gamma_tplus1,
+                cutpoints_t, cutpoints_tplus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
@@ -373,7 +448,7 @@ def fromb_t4_vector(
 def fromb_fft5_vector(
         b, mean, sigma, posterior_mean, posterior_covariance,
         noise_variance, noise_std,
-        gamma_t, gamma_tplus1,
+        cutpoints_t, cutpoints_tplus1,
         EPS_2):
     """
     :arg float b: The approximate posterior mean evaluated at the datapoint.
@@ -381,24 +456,24 @@ def fromb_fft5_vector(
     :arg float sigma: A standard deviation of a pdf inside the integrand.
     :arg int t: The target value for the datapoint.
     :arg int J: The number of ordinal classes.
-    :arg gamma: The vector of cutpoints.
-    :type gamma: `numpy.ndarray`
+    :arg cutpoints: The vector of cutpoints.
+    :type cutpoints: `numpy.ndarray`
     :arg float noise_variance: A noise variance for the likelihood.
     :arg float EPS: A machine tolerance to be used.
     :return: fromberg numerical integral point evaluation.
     :rtype: float
     """
     prob = return_prob_vector(
-        b, gamma_t, gamma_tplus1, noise_std)
+        b, cutpoints_t, cutpoints_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
-        posterior_mean, loc=gamma_t, scale=np.sqrt(
-        noise_variance + posterior_covariance)) * (gamma_t - b)
+        posterior_mean, loc=cutpoints_t, scale=np.sqrt(
+        noise_variance + posterior_covariance)) * (cutpoints_t - b)
 
 
 def fromb_t5_vector(
         y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
-        gamma_t, gamma_tplus1,
+        cutpoints_t, cutpoints_tplus1,
         noise_variance, noise_std, EPS, EPS_2, N):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
@@ -407,8 +482,8 @@ def fromb_t5_vector(
         variance.
     :arg int t: The target value for the datapoint.
     :arg int J: The number of ordinal classes.
-    :arg gamma: The vector of cutpoints.
-    :type gamma: `numpy.ndarray`
+    :arg cutpoints: The vector of cutpoints.
+    :type cutpoints: `numpy.ndarray`
     :arg float noise_variance: A noise variance for the likelihood.
     :arg float EPS: A machine tolerance to be used.
     :return: fromberg numerical integral numerical value.
@@ -418,12 +493,12 @@ def fromb_t5_vector(
         fromb_fft5_vector(
             a, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
         + fromb_fft5_vector(
             b, mean, sigma, posterior_mean, posterior_covariance,
             noise_variance, noise_std,
-            gamma_t, gamma_tplus1,
+            cutpoints_t, cutpoints_tplus1,
             EPS_2)
     ) / 2.0
     m = 1
@@ -436,7 +511,7 @@ def fromb_t5_vector(
             p += fromb_fft5_vector(
                 x, mean, sigma, posterior_mean, posterior_covariance,
                 noise_variance, noise_std,
-                gamma_t, gamma_tplus1,
+                cutpoints_t, cutpoints_tplus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
         s = 1.0
@@ -453,51 +528,41 @@ def fromb_t5_vector(
     return q
 
 
-def vectorised_unnormalised_log_multivariate_normal_pdf(
-        ms, mean=None, covs=None):
-    """
-    Evaluate a vector of log multivariate normal pdf in a
-    numerically stable way.
-    """
-    if covs is None:
-        raise ValueError("Must provide sample covariance matrices ({} was provided)".format(covs))
-    if mean is not None:
-        ms = ms - mean
-    Ls = np.linalg.cholesky(covs)
-    L_invs = np.linalg.inv(Ls)
-    K_invs = L_invs.transpose((0, 2, 1)) @ L_invs
-    half_log_det_covs = np.trace(np.log(Ls), axis1=1, axis2=2)
-    return -1. * half_log_det_covs - 0.5 * (K_invs @ ms) @ ms
-
-
-def unnormalised_log_multivariate_normal_pdf(x, mean=None, cov=None):
-    """Evaluate the multivariate normal pdf in a numerically stable way."""
-    if cov is None:
-        cov = np.eye(len(x))
+def log_multivariate_normal_pdf(
+        x, cov_inv, half_log_det_cov, mean=None):
+    """Get the pdf of the multivariate normal distribution."""
     if mean is not None:
         x = x - mean
-    L = np.linalg.cholesky(cov)
-    L_inv = np.linalg.inv(L)
-    J_inv = L_inv.T @ L_inv
-    half_log_det_cov = np.trace(np.log(L))
-    return -1. * half_log_det_cov - 0.5 * x.T @ J_inv @ x
+    return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
 
 
-def sample_varphis(psi, n_samples):
+def log_multivariate_normal_pdf_vectorised(
+        xs, cov_inv, half_log_det_cov, mean=None):
+    """Get the pdf of the multivariate normal distribution."""
+    if mean is not None:
+        xs = xs - mean
+    return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.einsum(
+        'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
+        
+
+def sample_varphis(varphi_hyperparameter, n_samples):
     """
-    Take n_samples of varphi, given the hyper-hyperparameter psi.
+    Take n_samples of varphi, given the hyperparameter of varphi.
 
-    psi is a rate parameter since, with an uninformative prior (sigma=tau=0), then the posterior mean of Q(psi) is
-    psi_tilde = 1. / varphi_tilde. Therefore, by taking the expected value of the prior on varphi ~ Exp(psi_tilde),
-    we expect to obtain varphi_tilde = 1. / psi_tilde. We get this if psi_tilde is a rate.
+    varphi_hyperparameter is a rate parameter since, with an uninformative
+    prior (sigma=tau=0), then the posterior mean of Q(psi) is
+    psi_tilde = 1. / varphi_tilde. Therefore, by taking the expected value of
+    the prior on varphi ~ Exp(psi_tilde),
+    we expect to obtain varphi_tilde = 1. / psi_tilde. We get this if
+    psi_tilde is a rate.
 
     :arg psi: float (Array) of hyper-hyperparameter(s)
     :type psi: :class:`np.ndarray`
     :arg int n_samples: The number of samples for the importance sample.
     """
-    # scale = psi
-    scale = 1. / psi
-    shape = np.shape(psi)
+    # scale = varphi_hyperparameter
+    scale = 1. / varphi_hyperparameter
+    shape = np.shape(varphi_hyperparameter)
     if shape == ():
         size = (n_samples,)
     else:
@@ -561,7 +626,7 @@ def p_far_tails(z):
 
 
 def truncated_norm_normalising_constant(
-        gamma_ts, gamma_tplus1s, noise_std, m, EPS,
+        cutpoints_ts, cutpoints_tplus1s, noise_std, m, EPS,
         upper_bound=None, upper_bound2=None, numerically_stable=False):
     """
     Return the normalising constants for the truncated normal distribution
@@ -571,10 +636,10 @@ def truncated_norm_normalising_constant(
         parallelised scalar (due to the boolean logic).
     TODO: There is no way to calculate this in the log domain (unless expansion
     approximations are used). Could investigate only using approximations here.
-    :arg gamma_ts: gamma[t_train] (N, ) array of cutpoints
-    :type gamma_ts: :class:`numpy.ndarray`
-    :arg gamma_tplus1s: gamma[t_train + 1] (N, ) array of cutpoints
-    :type gamma_ts: :class:`numpy.ndarray`
+    :arg cutpoints_ts: cutpoints[t_train] (N, ) array of cutpoints
+    :type cutpoints_ts: :class:`numpy.ndarray`
+    :arg cutpoints_tplus1s: cutpoints[t_train + 1] (N, ) array of cutpoints
+    :type cutpoints_ts: :class:`numpy.ndarray`
     :arg float noise_std: The noise standard deviation.
     :arg m: The mean vector.
     :type m: :class:`numpy.ndarray`
@@ -598,8 +663,8 @@ def truncated_norm_normalising_constant(
         :class:`numpy.ndarray`, :class:`numpy.ndarray`)
     """
     # Otherwise
-    z1s = (gamma_ts - m) / noise_std
-    z2s = (gamma_tplus1s - m) / noise_std
+    z1s = (cutpoints_ts - m) / noise_std
+    z2s = (cutpoints_tplus1s - m) / noise_std
     norm_pdf_z1s = norm_pdf(z1s)
     norm_pdf_z2s = norm_pdf(z2s)
     norm_cdf_z1s = norm_cdf(z1s)
@@ -648,7 +713,7 @@ def truncated_norm_normalising_constant(
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
-def p(m, gamma_ts, gamma_tplus1s, noise_std,
+def p(m, cutpoints_ts, cutpoints_tplus1s, noise_std,
         EPS, upper_bound, upper_bound2):
     """
     The rightmost term of 2021 Page Eq.(),
@@ -657,10 +722,10 @@ def p(m, gamma_ts, gamma_tplus1s, noise_std,
 
     :arg m: The current posterior mean estimate.
     :type m: :class:`numpy.ndarray`
-    :arg gamma_ts: gamma[t_train] (N, ) array of cutpoints
-    :type gamma_ts: :class:`numpy.ndarray`
-    :arg gamma_tplus1s: gamma[t_train + 1] (N, ) array of cutpoints
-    :type gamma_ts: :class:`numpy.ndarray`
+    :arg cutpoints_ts: cutpoints[t_train] (N, ) array of cutpoints
+    :type cutpoints_ts: :class:`numpy.ndarray`
+    :arg cutpoints_tplus1s: cutpoints[t_train + 1] (N, ) array of cutpoints
+    :type cutpoints_ts: :class:`numpy.ndarray`
     :arg float noise_std: The noise standard deviation.
     :arg float EPS: The tolerated absolute error.
     :arg float upper_bound: Threshold of single sided standard
@@ -675,7 +740,7 @@ def p(m, gamma_ts, gamma_tplus1s, noise_std,
     norm_pdf_z1s, norm_pdf_z2s,
     z1s, z2s,
     *_) = truncated_norm_normalising_constant(
-        gamma_ts, gamma_tplus1s, noise_std, m, EPS)
+        cutpoints_ts, cutpoints_tplus1s, noise_std, m, EPS)
     p = (norm_pdf_z1s - norm_pdf_z2s) / Z
     # Need to deal with the tails to prevent catestrophic cancellation
     indices1 = np.where(z1s > upper_bound)
@@ -695,7 +760,7 @@ def p(m, gamma_ts, gamma_tplus1s, noise_std,
     return p
 
 
-def dp(m, gamma_ts, gamma_tplus1s, noise_std, EPS,
+def dp(m, cutpoints_ts, cutpoints_tplus1s, noise_std, EPS,
         upper_bound, upper_bound2=None):
     """
     The analytic derivative of :meth:`p` (p are the correction
@@ -704,10 +769,10 @@ def dp(m, gamma_ts, gamma_tplus1s, noise_std, EPS,
 
     :arg m: The current posterior mean estimate.
     :type m: :class:`numpy.ndarray`
-    :arg gamma_ts: gamma[t_train] (N, ) array of cutpoints
-    :type gamma_ts: :class:`numpy.ndarray`
-    :arg gamma_tplus1s: gamma[t_train + 1] (N, ) array of cutpoints
-    :type gamma_ts: :class:`numpy.ndarray`
+    :arg cutpoints_ts: cutpoints[t_train] (N, ) array of cutpoints
+    :type cutpoints_ts: :class:`numpy.ndarray`
+    :arg cutpoints_tplus1s: cutpoints[t_train + 1] (N, ) array of cutpoints
+    :type cutpoints_ts: :class:`numpy.ndarray`
     :arg float noise_std: The noise standard deviation.
     :arg float EPS: The tolerated absolute error.
     :arg float upper_bound: Threshold of single sided standard
@@ -722,7 +787,7 @@ def dp(m, gamma_ts, gamma_tplus1s, noise_std, EPS,
     norm_pdf_z1s, norm_pdf_z2s,
     z1s, z2s,
     *_) = truncated_norm_normalising_constant(
-        gamma_ts, gamma_tplus1s, noise_std, m, EPS)
+        cutpoints_ts, cutpoints_tplus1s, noise_std, m, EPS)
     sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / Z
     # Need to deal with the tails to prevent catestrophic cancellation
     indices1 = np.where(z1s > upper_bound)
@@ -753,13 +818,13 @@ def dp(m, gamma_ts, gamma_tplus1s, noise_std, EPS,
     return sigma_dp
 
 
-def sample_y(y, m, t_train, gamma, noise_std, N):
+def sample_y(y, m, t_train, cutpoints, noise_std, N):
     for i in range(N):
         # Target class index
         j_true = t_train[i]
         y_i = np.NINF  # this is a trick for the next line
         # Sample from the truncated Gaussian
-        while y_i > gamma[j_true + 1] or y_i <= gamma[j_true]:
+        while y_i > cutpoints[j_true + 1] or y_i <= cutpoints[j_true]:
             # sample y
             y_i = m[i] + np.random.normal(loc=m[i], scale=noise_std)
         # Add sample to the Y vector

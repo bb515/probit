@@ -9,7 +9,8 @@ import pathlib
 import numpy as np
 from .utilities import (
     norm_z_pdf, norm_cdf, sample_y,
-    truncated_norm_normalising_constant)
+    truncated_norm_normalising_constant, log_multivariate_normal_pdf,
+    log_multivariate_normal_pdf_vectorised)
 import numba_scipy  # Numba overloads for scipy and scipy.special
 from scipy.stats import norm, uniform, expon
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
@@ -118,7 +119,7 @@ class Sampler(ABC):
 
     def get_log_likelihood(self, m):
         """
-        TODO: once self.gamma is factored out,
+        TODO: once self.cutpoints is factored out,
             this needs to go somewhere else. Like a KL divergence/likelihoods folder.
 
         Likelihood of ordinal regression. This is product of scalar normal cdf.
@@ -130,7 +131,7 @@ class Sampler(ABC):
         be run twice with numerical stability turned on to see if it makes a difference.
         """
         Z, *_ = truncated_norm_normalising_constant(
-            self.gamma_ts, self.gamma_tplus1s,
+            self.cutpoints_ts, self.cutpoints_tplus1s,
             self.noise_std, m, self.EPS)
             #  upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)  #  , numerically_stable=True)
         if np.ndim(m) == 2:
@@ -162,40 +163,41 @@ class Sampler(ABC):
     #     intermediate_vector = solve_triangular(L_cov, intermediate_vector, lower=False)
     #     return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.dot(x, intermediate_vector)  # log likelihood
 
-    def _vector_probit_likelihood(self, m_ns, gamma):
+    def _vector_probit_likelihood(self, m_ns, cutpoints):
         """
-        Get the probit likelihood given GP posterior mean samples and gamma sample.
+        Get the probit likelihood given GP posterior mean samples and cutpoints sample.
 
         :return distribution_over_classes: the (N_samples, K) array of values.
         """
         N_samples = np.shape(m_ns)[0]
         distribution_over_classess = np.empty((N_samples, self.K))
-        # Special case for gamma[-1] == np.NINF, gamma[0] == 0.0
-        distribution_over_classess[:, 0] = norm.cdf(np.subtract(gamma[0], m_ns))
+        # Special case for cutpoints[-1] == np.NINF, cutpoints[0] == 0.0
+        distribution_over_classess[:, 0] = norm.cdf(np.subtract(cutpoints[0], m_ns))
         for k in range(1, self.K + 1):
-            gamma_k = gamma[k]
-            gamma_k_1 = gamma[k - 1]
+            cutpoints_k = cutpoints[k]
+            cutpoints_k_1 = cutpoints[k - 1]
             distribution_over_classess[:, k - 1] = norm.cdf(
-                np.subtract(gamma_k, m_ns)) - norm.cdf(np.subtract(gamma_k_1, m_ns))
+                np.subtract(cutpoints_k, m_ns)) - norm.cdf(np.subtract(cutpoints_k_1, m_ns))
         return distribution_over_classess
 
-    def _probit_likelihood(self, m_n, gamma):
+    def _probit_likelihood(self, m_n, cutpoints):
         """
-                TODO: 01/03 this was refactored without testing. Test it.
-        Get the probit likelihood given GP posterior mean sample and gamma sample.
+                TODO: 01/03/21 this was refactored without testing. Test it.
+                TODO: 22/02/22 is this even needed?
+        Get the probit likelihood given GP posterior mean sample and cutpoints sample.
 
         :return distribution_over_classes: the (K, ) array of.
         """
-        distribution_over_classes = np.empty(self.K)
-        # Special case for gamma[-1] == np.NINF, gamma[0] == 0.0
-        distribution_over_classes[0] = norm.cdf(gamma[0] - m_n)
-        for k in range(1, self.K + 1):
-            gamma_k = gamma[k]  # remember these are the upper bounds of the classes
-            gamma_k_1 = gamma[k - 1]
-            distribution_over_classes[k - 1] = norm.cdf(gamma_k - m_n) - norm.cdf(gamma_k_1 - m_n)
+        distribution_over_classes = np.empty(self.J)
+        # Special case for cutpoints[-1] == np.NINF, cutpoints[0] == 0.0
+        distribution_over_classes[0] = norm.cdf(cutpoints[0] - m_n)
+        for k in range(1, self.J + 1):
+            cutpoints_j = cutpoints[j]  # remember these are the upper bounds of the classes
+            cutpoints_j_1 = cutpoints[j - 1]
+            distribution_over_classes[j - 1] = norm.cdf(cutpoints_j - m_n) - norm.cdf(cutpoints_j_1 - m_n)
         return distribution_over_classes
 
-    def _predict_scalar(self, y_samples, gamma_samples, x_test):
+    def _predict_scalar(self, y_samples, cutpoints_samples, x_test):
         """
             TODO: This code was refactored on 01/03/2021 and 21/06/2021 without testing. Test it.
         Superseded by _predict_vector.
@@ -215,36 +217,36 @@ class Sampler(ABC):
         distribution_over_classes_samples = []
         for i in range(n_posterior_samples):
             y = y_samples[i]
-            gamma = gamma_samples[i]
+            cutpoints = cutpoints_samples[i]
             # Take a sample of m from a GP regression
             mean = y.T @ intermediate_vector  # (1, )
             var = cs_new - intermediate_scalar  # (1, )
             m = norm.rvs(loc=mean, scale=var)
-            # Take a sample of gamma from the posterior gamma|y, t
-            # This is proportional to the likelihood y|gamma, t since we have a flat prior
+            # Take a sample of cutpoints from the posterior cutpoints|y, t
+            # This is proportional to the likelihood y|cutpoints, t since we have a flat prior
             uppers = np.empty(self.K - 2)
             locs = np.empty(self.K - 2)
             for k in range(1, self.K - 1):
                 indeces = np.where(self.t_train == k)
                 indeces2 = np.where(self.t_train == k + 1)
                 if indeces2:
-                    uppers[k - 1] = np.min(np.append(y[indeces2], gamma[k + 2]))
+                    uppers[k - 1] = np.min(np.append(y[indeces2], cutpoints[k + 2]))
                 else:
-                    uppers[k - 1] = gamma[k + 2]
+                    uppers[k - 1] = cutpoints[k + 2]
                 if indeces:
-                    locs[k - 1] = np.max(np.append(y[indeces], gamma[k]))
+                    locs[k - 1] = np.max(np.append(y[indeces], cutpoints[k]))
                 else:
-                    locs[k - 1] = gamma[k]
-            gamma[0] = np.NINF
-            gamma[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
-            gamma[-1] = np.inf
+                    locs[k - 1] = cutpoints[k]
+            cutpoints[0] = np.NINF
+            cutpoints[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
+            cutpoints[-1] = np.inf
             # Calculate the measurable function and append the resulting MC sample
-            distribution_over_classes_samples.append(self._probit_likelihood(m, gamma))
+            distribution_over_classes_samples.append(self._probit_likelihood(m, cutpoints))
 
         monte_carlo_estimate = (1. / n_posterior_samples) * np.sum(distribution_over_classes_samples, axis=0)
         return monte_carlo_estimate
    
-    def _predict_vector(self, y_samples, gamma_samples, X_test):
+    def _predict_vector(self, y_samples, cutpoints_samples, X_test):
         """
         Make gibbs prediction over classes of X_test given the posterior samples.
 
@@ -266,46 +268,46 @@ class Sampler(ABC):
         distribution_over_classes_sampless = []
         for i in range(n_posterior_samples):
             y = y_samples[i]
-            gamma = gamma_samples[i]
+            cutpoints = cutpoints_samples[i]
             mean = intermediate_vectors_T @ y  # (N_test, )
             var = cs_news - intermediate_scalars  # (N_test, )
             m_ns = norm.rvs(loc=mean, scale=var)
-            # Take a sample of gamma from the posterior gamma|y, t
-            # This is proportional to the likelihood y|gamma, t since we have a flat prior
+            # Take a sample of cutpoints from the posterior cutpoints|y, t
+            # This is proportional to the likelihood y|cutpoints, t since we have a flat prior
             # uppers = np.empty(self.K - 2)
             # locs = np.empty(self.K - 2)
             # for k in range(1, self.K - 1):
             #     indeces = np.where(self.t_train == k)
             #     indeces2 = np.where(self.t_train == k + 1)
             #     if indeces2:
-            #         uppers[k - 1] = np.min(np.append(y[indeces2], gamma[k + 1]))
+            #         uppers[k - 1] = np.min(np.append(y[indeces2], cutpoints[k + 1]))
             #     else:
-            #         uppers[k - 1] = gamma[k + 1]
+            #         uppers[k - 1] = cutpoints[k + 1]
             #     if indeces:
-            #         locs[k - 1] = np.max(np.append(y[indeces], gamma[k - 1]))
+            #         locs[k - 1] = np.max(np.append(y[indeces], cutpoints[k - 1]))
             #     else:
-            #         locs[k - 1] = gamma[k - 1]
-            # gamma[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
-            # gamma[0] = 0.0
-            # gamma[-1] = np.inf
+            #         locs[k - 1] = cutpoints[k - 1]
+            # cutpoints[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
+            # cutpoints[0] = 0.0
+            # cutpoints[-1] = np.inf
             # Calculate the measurable function and append the resulting MC sample
-            distribution_over_classes_sampless.append(self._vector_probit_likelihood(m_ns, gamma))
+            distribution_over_classes_sampless.append(self._vector_probit_likelihood(m_ns, cutpoints))
             # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
             # TODO: How do we know that 1000 samples is enough to converge?
             #  Goes with root n_samples but depends on the estimator variance
         # TODO: Could also get a variance from the MC estimate.
         return (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
 
-    def predict(self, y_samples, gamma_samples, X_test, vectorised=True):
+    def predict(self, y_samples, cutpoints_samples, X_test, vectorised=True):
         if self.kernel.general_kernel:
             # This is the general case where there are hyper-parameters
             # varphi (K, D) for all dimensions and classes.
             return ValueError("ARD kernel may not be used in the ordered likelihood estimator.")
         else:
             if vectorised:
-                return self._predict_vector(y_samples, gamma_samples, X_test)
+                return self._predict_vector(y_samples, cutpoints_samples, X_test)
             else:
-                return self._predict_scalar(y_samples, gamma_samples, X_test)
+                return self._predict_scalar(y_samples, cutpoints_samples, X_test)
 
     def _hyperparameter_initialise(self, theta, indices):
         """
@@ -322,12 +324,12 @@ class Sampler(ABC):
             shared lengthscale parameter or vector of parameters in which
             there are in the most general case J * D parameters.
         :type theta: :class:`numpy.ndarray`
-        :return: (gamma, noise_variance) the updated cutpoints and noise variance.
+        :return: (cutpoints, noise_variance) the updated cutpoints and noise variance.
         :rtype: (2,) tuple
         """
         # Initiate at None since those that are None do not get updated        
         noise_variance = None
-        gamma = None
+        cutpoints = None
         scale = None
         varphi = None
         index = 0
@@ -346,15 +348,15 @@ class Sampler(ABC):
                 "(noise_variance={}).".format(noise_variance))
             index += 1
         for j in range(1, self.J):
-            if gamma is None and indices[j]:
-                # Get gamma from classifier
-                gamma = self.gamma
+            if cutpoints is None and indices[j]:
+                # Get cutpoints from classifier
+                cutpoints = self.cutpoints
         if indices[1]:
-            gamma[1] = theta[1]
+            cutpoints[1] = theta[1]
             index += 1
         for j in range(2, self.J):
             if indices[j]:
-                gamma[j] = gamma[j - 1] + np.exp(theta[j])
+                cutpoints[j] = cutpoints[j - 1] + np.exp(theta[j])
                 index += 1
         if indices[self.J]:
             scale_std = np.exp(theta[self.J])
@@ -378,10 +380,10 @@ class Sampler(ABC):
                 index += 1
         # Update prior and posterior covariance
         self.hyperparameters_update(
-            gamma=gamma, varphi=varphi, scale=scale,
+            cutpoints=cutpoints, varphi=varphi, scale=scale,
             noise_variance=noise_variance)
         # TODO not sure if needed
-        intervals = self.gamma[2:self.J] - self.gamma[1:self.J - 1]
+        intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
         return intervals
 
     def _update_prior(self, K=None):
@@ -422,7 +424,7 @@ class Sampler(ABC):
         self.L_Sigma = np.linalg.cholesky(Sigma + self.jitter * np.eye(self.N))
 
     def hyperparameters_update(
-        self, gamma=None, varphi=None, scale=None, noise_variance=None,
+        self, cutpoints=None, varphi=None, scale=None, noise_variance=None,
         K=None, L_K=None, log_det_K=None):
         """
         Reset kernel hyperparameters, generating new prior and posterior
@@ -435,8 +437,8 @@ class Sampler(ABC):
         estimate. Problem is, if it changes at estimate time, then a
         hyperparameter update needs to be called.
 
-        :arg gamma: (J + 1, ) array of the cutpoints.
-        :type gamma: :class:`np.ndarray`.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`np.ndarray`.
         :arg varphi:
         :type varphi:
         :arg scale:
@@ -447,55 +449,55 @@ class Sampler(ABC):
         :arg L_K: Optional argument supplied if L_K is already known.
         :arg log_det_K: Optional argument supplied if log_det_K is already known.
         """
-        if gamma is not None:
-            # Convert gamma to numpy array
-            gamma = np.array(gamma)
+        if cutpoints is not None:
+            # Convert cutpoints to numpy array
+            cutpoints = np.array(cutpoints)
             # Not including -\infty or \infty
-            if np.shape(gamma)[0] == self.J - 1:
-                gamma = np.append(gamma, np.inf)  # Append \infty
-                gamma = np.insert(gamma, np.NINF)  # Insert -\infty at index 0
+            if np.shape(cutpoints)[0] == self.J - 1:
+                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
+                cutpoints = np.insert(cutpoints, np.NINF)  # Insert -\infty at index 0
                 pass  # Correct format
             # Not including one cutpoints
-            elif np.shape(gamma)[0] == self.J: 
-                if gamma[-1] != np.inf:
-                    if gamma[0] != np.NINF:
+            elif np.shape(cutpoints)[0] == self.J: 
+                if cutpoints[-1] != np.inf:
+                    if cutpoints[0] != np.NINF:
                         raise ValueError(
                             "The last cutpoint parameter must be numpy.inf, or"
                             " the first cutpoint parameter must be numpy.NINF "
                             "(got {}, expected {})".format(
-                            [gamma[0], gamma[-1]], [np.inf, np.NINF]))
-                    else:  # gamma[0] is -\infty
-                        gamma.append(np.inf)
+                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
+                    else:  # cutpoints[0] is -\infty
+                        cutpoints.append(np.inf)
                         pass  # correct format
                 else:
-                    gamma = np.insert(gamma, np.NINF)
+                    cutpoints = np.insert(cutpoints, np.NINF)
                     pass  # correct format
             # Including all the cutpoints
-            elif np.shape(gamma)[0] == self.J + 1:
-                if gamma[0] != np.NINF:
+            elif np.shape(cutpoints)[0] == self.J + 1:
+                if cutpoints[0] != np.NINF:
                     raise ValueError(
-                        "The cutpoint parameter \gamma must be numpy.NINF "
-                        "(got {}, expected {})".format(gamma[0], np.NINF))
-                if gamma[-1] != np.inf:
+                        "The cutpoint parameter \cutpoints must be numpy.NINF "
+                        "(got {}, expected {})".format(cutpoints[0], np.NINF))
+                if cutpoints[-1] != np.inf:
                     raise ValueError(
-                        "The cutpoint parameter \gamma_J must be "
+                        "The cutpoint parameter \cutpoints_J must be "
                         "numpy.inf (got {}, expected {})".format(
-                            gamma[-1], np.inf))
+                            cutpoints[-1], np.inf))
                 pass  # correct format
             else:
                 raise ValueError(
-                    "Could not recognise gamma shape. "
-                    "(np.shape(gamma) was {})".format(np.shape(gamma)))
-            assert gamma[0] == np.NINF
-            assert gamma[-1] == np.inf
-            assert np.shape(gamma)[0] == self.J + 1
+                    "Could not recognise cutpoints shape. "
+                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
+            assert cutpoints[0] == np.NINF
+            assert cutpoints[-1] == np.inf
+            assert np.shape(cutpoints)[0] == self.J + 1
             if not all(
-                    gamma[i] <= gamma[i + 1]
+                    cutpoints[i] <= cutpoints[i + 1]
                     for i in range(self.J)):
-                raise CutpointValueError(gamma)
-            self.gamma = gamma
-            self.gamma_ts = gamma[self.t_train]
-            self.gamma_tplus1s = gamma[self.t_trainplus1]
+                raise CutpointValueError(cutpoints)
+            self.cutpoints = cutpoints
+            self.cutpoints_ts = cutpoints[self.t_train]
+            self.cutpoints_tplus1s = cutpoints[self.t_trainplus1]
         if varphi is not None or scale is not None:
             self.kernel.update_hyperparameter(
                 varphi=varphi, scale=scale)
@@ -526,10 +528,10 @@ class Sampler(ABC):
         if indices[0]:
             theta.append(np.log(np.sqrt(self.noise_variance)))
         if indices[1]:
-            theta.append(self.gamma[1])
+            theta.append(self.cutpoints[1])
         for j in range(2, self.J):
             if indices[j]:
-                theta.append(np.log(self.gamma[j] - self.gamma[j - 1]))
+                theta.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
         if indices[self.J]:
             theta.append(np.log(np.sqrt(self.kernel.scale)))
         # TODO: replace this with kernel number of hyperparameters.
@@ -538,7 +540,7 @@ class Sampler(ABC):
         return np.array(theta)
 
     def _grid_over_hyperparameters_initiate(
-            self, res, domain, indices, gamma):
+            self, res, domain, indices, cutpoints):
         """
         Initiate metadata and hyperparameters for plotting the objective
         function surface over hyperparameters.
@@ -564,16 +566,16 @@ class Sampler(ABC):
                 np.logspace(domain[index][0], domain[index][1], res[index]))
             index += 1
         if indices[1]:
-            # Grid over b_1
-            label.append(r"$\gamma_{1}$")
+            # Grid over the first cutpoint b_1
+            label.append(r"$\b_{1}$")
             axis_scale.append("linear")
             space.append(
                 np.linspace(domain[index][0], domain[index][1], res[index]))
             index += 1
         for j in range(2, self.J):
             if indices[j]:
-                # Grid over b_j
-                label.append(r"$\gamma_{} - \gamma{}$".format(j, j-1))
+                # Grid over b_j - b_{j-1}
+                label.append(r"$b_{} - b_{}$".format(j, j-1))
                 axis_scale.append("log")
                 space.append(
                     np.logspace(
@@ -629,7 +631,7 @@ class Sampler(ABC):
         assert len(meshgrid) == 2
         assert len(space) ==  2
         assert len(label) == 2
-        intervals = gamma[2:self.J] - gamma[1:self.J - 1]
+        intervals = cutpoints[2:self.J] - cutpoints[1:self.J - 1]
         indices_where = np.where(indices != 0)
         return (
             space[0], space[1],
@@ -639,7 +641,7 @@ class Sampler(ABC):
             Phi_new, fxs, gxs, gx_0, intervals, indices_where)
 
     def _grid_over_hyperparameters_update(
-        self, phi, indices, gamma):
+        self, phi, indices, cutpoints):
         """
         Update the hyperparameters, phi.
 
@@ -661,17 +663,17 @@ class Sampler(ABC):
         else:
             noise_variance_update = None
         if indices[1]:
-            gamma = np.empty((self.J + 1,))
-            gamma[0] = np.NINF
-            gamma[-1] = np.inf
-            gamma[1] = phi[index]
+            cutpoints = np.empty((self.J + 1,))
+            cutpoints[0] = np.NINF
+            cutpoints[-1] = np.inf
+            cutpoints[1] = phi[index]
             index += 1
         for j in range(2, self.J):
             if indices[j]:
                 if np.isscalar(phi):
-                    gamma[j] = gamma[j-1] + phi
+                    cutpoints[j] = cutpoints[j-1] + phi
                 else:
-                    gamma[j] = gamma[j-1] + phi[index]
+                    cutpoints[j] = cutpoints[j-1] + phi[index]
                 index += 1
         if indices[self.J]:
             scale_std = phi[index]
@@ -691,7 +693,7 @@ class Sampler(ABC):
             varphi_update = None
         # Update kernel parameters, update prior and posterior covariance
         self.hyperparameters_update(
-                gamma=gamma, 
+                cutpoints=cutpoints, 
                 noise_variance=noise_variance_update,
                 scale=scale_update,
                 varphi=varphi_update)
@@ -703,7 +705,7 @@ class GibbsOrdinalGP(Sampler):
     Gibbs sampler for ordinal GP regression. Inherits the sampler ABC.
     """
 
-    def __init__(self, gamma, noise_variance=1.0, *args, **kwargs):
+    def __init__(self, cutpoints, noise_variance=1.0, *args, **kwargs):
         """
         Create an :class:`GibbsOrdinalGP` sampler object.
 
@@ -728,7 +730,7 @@ class GibbsOrdinalGP(Sampler):
         self.jitter = 1e-6
         self.t_trainplus1 = self.t_train + 1
         # Initiate hyperparameters
-        self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
+        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _m_tilde(self, y, cov, K):
         """
@@ -752,7 +754,7 @@ class GibbsOrdinalGP(Sampler):
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
-            then over y (auxilliaries). In this sampler, gamma (cutpoint parameters) are fixed.
+            then over y (auxilliaries). In this sampler, cutpoints (cutpoint parameters) are fixed.
 
         :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
@@ -767,7 +769,7 @@ class GibbsOrdinalGP(Sampler):
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
             # Sample y from the usual full conditional
-            y = sample_y(y_container.copy(), m, self.t_train, self.gamma, self.noise_std, self.N)
+            y = sample_y(y_container.copy(), m, self.t_train, self.cutpoints, self.noise_std, self.N)
             # Calculate statistics, then sample other conditional
             m_tilde, _ = self._m_tilde(y, self.cov, self.K)
             m = m_tilde + self.L_Sigma @ norm.rvs(size=self.N)
@@ -775,7 +777,7 @@ class GibbsOrdinalGP(Sampler):
             y_samples.append(y)
         return np.array(m_samples), np.array(y_samples)
 
-    def _sample_metropolis_within_gibbs_initiate(self, m_0, gamma_0):
+    def _sample_metropolis_within_gibbs_initiate(self, m_0, cutpoints_0):
         """
         Initialise variables for the sample method.
         TODO: 03/03/2021 The first Gibbs step is not robust to a poor choice of m_0 (it will never sample a y_1 within
@@ -786,146 +788,146 @@ class GibbsOrdinalGP(Sampler):
         """
         m_samples = []
         y_samples = []
-        gamma_samples = []
-        gamma_0_prev_jplus1 = gamma_0[self.t_trainplus1]
-        gamma_0_prev_j = gamma_0[self.t_train]
-        return m_0, gamma_0, gamma_0_prev_jplus1, gamma_0_prev_j, m_samples, y_samples, gamma_samples
+        cutpoints_samples = []
+        cutpoints_0_prev_jplus1 = cutpoints_0[self.t_trainplus1]
+        cutpoints_0_prev_j = cutpoints_0[self.t_train]
+        return m_0, cutpoints_0, cutpoints_0_prev_jplus1, cutpoints_0_prev_j, m_samples, y_samples, cutpoints_samples
 
-    def sample_metropolis_within_gibbs(self, indices, m_0, gamma_0, sigma_gamma, steps, first_step=1):
+    def sample_metropolis_within_gibbs(self, indices, m_0, cutpoints_0, sigma_cutpoints, steps, first_step=1):
         """
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
-            then jointly (using a Metropolis step) over y (auxilliaries) and gamma (cutpoint parameters).
+            then jointly (using a Metropolis step) over y (auxilliaries) and cutpoints (cutpoint parameters).
             The purpose of the Metroplis step is that it is allows quicker convergence of the iterates
-            since the full conditional over gamma is really thin if the bins are full. We get around sampling
-            from the full conditional by sampling from the joint full conditional y, \gamma using a
+            since the full conditional over cutpoints is really thin if the bins are full. We get around sampling
+            from the full conditional by sampling from the joint full conditional y, \cutpoints using a
             Metropolis step.
 
         :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
         :arg y_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type y_0: :class:`np.ndarray`.
-        :arg gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
-        :type gamma_0: :class:`np.ndarray`.
-        :arg float sigma_gamma: The
+        :arg cutpoints_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
+        :type cutpoints_0: :class:`np.ndarray`.
+        :arg float sigma_cutpoints: The
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
         """
         (m,
-        gamma_prev, gamma_prev_jplus1, gamma_prev_j,
-        m_samples, y_samples, gamma_samples,
+        cutpoints_prev, cutpoints_prev_jplus1, cutpoints_prev_j,
+        m_samples, y_samples, cutpoints_samples,
         y_container) = self._sample_initiate(
-            m_0, gamma_0)
-        precision_gamma = 1. / sigma_gamma
+            m_0, cutpoints_0)
+        precision_cutpoints = 1. / sigma_cutpoints
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            # Empty gamma (J + 1, ) array to collect the upper cut-points for each class
-            gamma = np.empty(self.J + 1)
-            # Fix \gamma_0 = -\infty, \gamma_1 = 0, \gamma_J = +\infty
-            gamma[0] = np.NINF
-            gamma[-1] = np.inf
+            # Empty cutpoints (J + 1, ) array to collect the upper cut-points for each class
+            cutpoints = np.empty(self.J + 1)
+            # Fix \cutpoints_0 = -\infty, \cutpoints_1 = 0, \cutpoints_J = +\infty
+            cutpoints[0] = np.NINF
+            cutpoints[-1] = np.inf
             for j in range(1, self.J):
-                gamma_proposal = -np.inf
+                cutpoints_proposal = -np.inf
                 if indices[j]:
-                    while gamma_proposal <= gamma[j - 1] or gamma_proposal > gamma_prev[j + 1]:
-                        gamma_proposal = norm.rvs(loc=gamma_prev[j], scale=sigma_gamma)
+                    while cutpoints_proposal <= cutpoints[j - 1] or cutpoints_proposal > cutpoints_prev[j + 1]:
+                        cutpoints_proposal = norm.rvs(loc=cutpoints_prev[j], scale=sigma_cutpoints)
                 else:
-                    gamma_proposal = gamma_0[j]
-                gamma[j] = gamma_proposal
+                    cutpoints_proposal = cutpoints_0[j]
+                cutpoints[j] = cutpoints_proposal
             # Calculate acceptance probability
             num_2 = np.sum(np.log(
-                    norm_cdf(precision_gamma * (gamma_prev[2:] - gamma_prev[1:-1]))
-                    - norm_cdf(precision_gamma * (gamma[0:-2] - gamma_prev[1:-1]))
+                    norm_cdf(precision_cutpoints * (cutpoints_prev[2:] - cutpoints_prev[1:-1]))
+                    - norm_cdf(precision_cutpoints * (cutpoints[0:-2] - cutpoints_prev[1:-1]))
             ))
             den_2 = np.sum(np.log(
-                    norm_cdf(precision_gamma * (gamma[2:] - gamma[1:-1]))
-                    - norm_cdf(precision_gamma * (gamma_prev[0:-2] - gamma[1:-1]))
+                    norm_cdf(precision_cutpoints * (cutpoints[2:] - cutpoints[1:-1]))
+                    - norm_cdf(precision_cutpoints * (cutpoints_prev[0:-2] - cutpoints[1:-1]))
             ))
-            gamma_jplus1 = gamma[self.t_trainplus1]
-            gamma_prev_jplus1 = gamma_prev[self.t_trainplus1]
-            gamma_j = gamma[self.t_train]
-            gamma_prev_j = gamma_prev[self.t_train]
-            num_1 = np.sum(np.log(norm_cdf(gamma_jplus1 - m) - norm_cdf(gamma_j - m)))
-            den_1 = np.sum(np.log(norm_cdf(gamma_prev_jplus1 - m) - norm_cdf(gamma_prev_j - m)))
+            cutpoints_jplus1 = cutpoints[self.t_trainplus1]
+            cutpoints_prev_jplus1 = cutpoints_prev[self.t_trainplus1]
+            cutpoints_j = cutpoints[self.t_train]
+            cutpoints_prev_j = cutpoints_prev[self.t_train]
+            num_1 = np.sum(np.log(norm_cdf(cutpoints_jplus1 - m) - norm_cdf(cutpoints_j - m)))
+            den_1 = np.sum(np.log(norm_cdf(cutpoints_prev_jplus1 - m) - norm_cdf(cutpoints_prev_j - m)))
             log_A = num_1 + num_2 - den_1 - den_2
             threshold = np.random.uniform(low=0.0, high=1.0)
             if log_A > np.log(threshold):
                 # Accept
-                gamma_prev = gamma
-                gamma_prev_jplus1 = gamma_jplus1
-                gamma_prev_j = gamma_j
+                cutpoints_prev = cutpoints
+                cutpoints_prev_jplus1 = cutpoints_jplus1
+                cutpoints_prev_j = cutpoints_j
                 # Sample y from the full conditional
-                y = sample_y(y_container.copy(), self.t_train, gamma, self.noise_std, self.N)
+                y = sample_y(y_container.copy(), self.t_train, cutpoints, self.noise_std, self.N)
             else:
-                # Reject, and use previous \gamma, y sample
-                gamma = gamma_prev
+                # Reject, and use previous \cutpoints, y sample
+                cutpoints = cutpoints_prev
             # Calculate statistics, then sample other conditional
             m_tilde, nu = self._m_tilde(y, self.cov, self.K)  # TODO: Numba?
             m = m_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
             # plt.scatter(self.X_train, m)
             # plt.show()
-            # print(gamma)
+            # print(cutpoints)
             m_samples.append(m.flatten())
             y_samples.append(y.flatten())
-            gamma_samples.append(gamma.flatten())
-        return np.array(m_samples), np.array(y_samples), np.array(gamma_samples)
+            cutpoints_samples.append(cutpoints.flatten())
+        return np.array(m_samples), np.array(y_samples), np.array(cutpoints_samples)
 
-    def _sample_initiate(self, m_0, gamma_0):
+    def _sample_initiate(self, m_0, cutpoints_0):
         self.indices = []
         for j in range(0, self.J -1):
             self.indices.append(np.where(self.t_train == j))
         m_samples = []
         y_samples = []
-        gamma_samples = []
-        return m_0, gamma_0, m_samples, y_samples, gamma_samples
+        cutpoints_samples = []
+        return m_0, cutpoints_0, m_samples, y_samples, cutpoints_samples
 
-    def sample(self, m_0, gamma_0, steps, first_step=1):
+    def sample(self, m_0, cutpoints_0, steps, first_step=1):
         """
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: y (auxilliaries), m (GP regression posterior means) and
-        gamma (cutpoint parameters).
+        cutpoints (cutpoint parameters).
 
         :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
-        :arg gamma_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
-        :type gamma_0: :class:`np.ndarray`.
+        :arg cutpoints_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
+        :type cutpoints_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
 
         :return: Gibbs samples. The acceptance rate for the Gibbs algorithm is 1.
         """
-        m, gamma, gamma_prev, m_samples, y_samples, gamma_samples = self._sample_initiate(m_0, gamma_0)
+        m, cutpoints, cutpoints_prev, m_samples, y_samples, cutpoints_samples = self._sample_initiate(m_0, cutpoints_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            y = sample_y(y, m, self.t_train, gamma, self.noise_std, self.N)
+            y = sample_y(y, m, self.t_train, cutpoints, self.noise_std, self.N)
             # Calculate statistics, then sample other conditional
             m_tilde, _ = self._m_tilde(y, self.cov, self.K)
             m = m_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
-            # Empty gamma (J + 1, ) array to collect the upper cut-points for each class
-            gamma = -1. * np.ones(self.J + 1)
+            # Empty cutpoints (J + 1, ) array to collect the upper cut-points for each class
+            cutpoints = -1. * np.ones(self.J + 1)
             uppers = -1. * np.ones(self.J - 2)
             locs = -1. * np.ones(self.J - 2)
             for j in range(self.J - 2):  # TODO change the index to the class.
                 if self.indices[j+1]:
-                    uppers[j] = np.min(np.append(y[self.indices[j + 1]], gamma_prev[j + 2]))
+                    uppers[j] = np.min(np.append(y[self.indices[j + 1]], cutpoints_prev[j + 2]))
                 else:
-                    uppers[j] = gamma_prev[j + 2]
+                    uppers[j] = cutpoints_prev[j + 2]
                 if self.indeces[j]:
-                    locs[j] = np.max(np.append(y[self.indeces[j]], gamma_prev[j]))
+                    locs[j] = np.max(np.append(y[self.indeces[j]], cutpoints_prev[j]))
                 else:
-                    locs[j] = gamma_prev[j]
-            # Fix \gamma_0 = -\infty, \gamma_1 = 0, \gamma_K = +\infty
-            gamma[0] = np.NINF
-            gamma[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
-            gamma[-1] = np.inf
-            # update gamma prev
-            gamma_prev = gamma
+                    locs[j] = cutpoints_prev[j]
+            # Fix \cutpoints_0 = -\infty, \cutpoints_1 = 0, \cutpoints_K = +\infty
+            cutpoints[0] = np.NINF
+            cutpoints[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
+            cutpoints[-1] = np.inf
+            # update cutpoints prev
+            cutpoints_prev = cutpoints
             m_samples.append(m)
             y_samples.append(y)
-            gamma_samples.append(gamma)
-        return np.array(m_samples), np.array(y_samples), np.array(gamma_samples)
+            cutpoints_samples.append(cutpoints)
+        return np.array(m_samples), np.array(y_samples), np.array(cutpoints_samples)
 
 
 class EllipticalSliceOrdinalGP(Sampler):
@@ -933,8 +935,8 @@ class EllipticalSliceOrdinalGP(Sampler):
     Elliptical Slice sampling of the latent variables.
     """
 
-    def __init__(self, gamma, noise_variance=1.0,
-            gamma_hyperparameters=None, noise_std_hyperparameters=None,
+    def __init__(self, cutpoints, noise_variance=1.0,
+            cutpoints_hyperparameters=None, noise_std_hyperparameters=None,
             *args, **kwargs):
         """
         Create an :class:`EllipticalSliceOrdinalGP` sampler object.
@@ -942,11 +944,11 @@ class EllipticalSliceOrdinalGP(Sampler):
         :returns: An :class:`EllipticalSliceOrdinalGP` object.
         """
         super().__init__(*args, **kwargs)
-        if gamma_hyperparameters is not None:
-            warnings.warn("gamma_hyperparameters set as {}".format(gamma_hyperparameters))
-            self.gamma_hyperparameters = gamma_hyperparameters
+        if cutpoints_hyperparameters is not None:
+            warnings.warn("cutpoints_hyperparameters set as {}".format(cutpoints_hyperparameters))
+            self.cutpoints_hyperparameters = cutpoints_hyperparameters
         else:
-            self.gamma_hyperparameters = None
+            self.cutpoints_hyperparameters = None
         if noise_std_hyperparameters is not None:
             warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
             self.noise_std_hyperparameters = noise_std_hyperparameters
@@ -970,7 +972,7 @@ class EllipticalSliceOrdinalGP(Sampler):
         self.jitter = 1e-6
         self.t_trainplus1 = self.t_train + 1
         # Initiate hyperparameters
-        self.hyperparameters_update(gamma=gamma, noise_variance=noise_variance)
+        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _sample_initiate(self, m_0):
         """Initialise variables for the sample method."""
@@ -988,7 +990,7 @@ class EllipticalSliceOrdinalGP(Sampler):
 
         Sampling occurs in Gibbs blocks over the parameters: m (GP regression
             posterior means) and then over y (auxilliaries). In this sampler,
-            gamma (cutpoint parameters) are fixed.
+            cutpoints (cutpoint parameters) are fixed.
 
         :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
@@ -1101,15 +1103,15 @@ class SufficientAugmentation(object):
     def tmp_compute_marginal(self, m, theta, indices, proposal_L_cov, reparameterised=True):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
-            gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
+            cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
-                self.sampler.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.sampler.gamma)
+                self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.sampler.cutpoints)
         else:
-            gamma, varphi, scale, noise_variance, log_p_theta = prior(
+            cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
-                self.sampler.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.sampler.gamma)
+                self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.sampler.cutpoints)
         nu = solve_triangular(self.sampler.L_K.T, m, lower=True)  # TODO just make sure this is the correct solve.
         log_p_m_giv_theta = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
         log_p_theta_giv_m = log_p_theta[0] + log_p_m_giv_theta
@@ -1130,7 +1132,7 @@ class SufficientAugmentation(object):
         # Make copies of previous hyperparameters in case of reject
         # So we don't need to recalculate
         # TODO do I need copy?
-        gamma = self.sampler.gamma.copy()
+        cutpoints = self.sampler.cutpoints.copy()
         varphi = self.sampler.kernel.varphi.copy()
         scale = self.sampler.scale.copy()
         noise_variance = self.sampler.noise_variance.copy()
@@ -1168,7 +1170,7 @@ class SufficientAugmentation(object):
             # Revert the hyperparameters and
             # prior and posterior covariances to previous values
             self.sampler.hyperparameters_update(
-                gamma=gamma, varphi=varphi, scale=scale,
+                cutpoints=cutpoints, varphi=varphi, scale=scale,
                 noise_variance=noise_variance,
                 K=K, L_K=L_K, log_det_K=log_det_K, cov=cov, L_Sigma=L_Sigma)
             joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
@@ -1205,7 +1207,7 @@ class SufficientAugmentation(object):
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
-            then over y (auxilliaries). In this sampler, gamma (cutpoint parameters) are fixed.
+            then over y (auxilliaries). In this sampler, cutpoints (cutpoint parameters) are fixed.
 
         :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
@@ -1241,7 +1243,7 @@ class SufficientAugmentation(object):
             # Update hyperparameters from theta.
             # plt.scatter(self.sampler.X_train, m)
             # plt.show()
-            # print(gamma)
+            # print(cutpoints)
             m_samples.append(m)
             theta_samples.append(theta)
             joint_log_likelihood_samples.append(joint_log_likelihood)
@@ -1304,15 +1306,15 @@ class AncilliaryAugmentation(Sampler):
     def tmp_compute_marginal(self, m, theta, indices, proposal_L_cov, reparameterised=True):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
-            gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
+            cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
-                self.sampler.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.sampler.gamma)
+                self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.sampler.cutpoints)
         else:
-            gamma, varphi, scale, noise_variance, log_p_theta = prior(
+            cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
-                self.sampler.noise_std_hyperparameters, self.sampler.gamma_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.sampler.gamma)
+                self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
+                self.sampler.kernel.scale_hyperparameters, self.sampler.cutpoints)
         log_p_y_giv_nu_theta = self.sampler.get_log_likelihood(m)
         log_p_theta_giv_y_nu = log_p_theta[0] + log_p_y_giv_nu_theta
         return log_p_theta_giv_y_nu
@@ -1331,7 +1333,7 @@ class AncilliaryAugmentation(Sampler):
         # Make copies of previous hyperparameters in case of reject
         # So we don't need to recalculate
         # TODO do I need copy?
-        gamma = self.sampler.gamma.copy()
+        cutpoints = self.sampler.cutpoints.copy()
         varphi = self.sampler.kernel.varphi.copy()
         scale = self.sampler.scale.copy()
         noise_variance = self.sampler.noise_variance.copy()
@@ -1369,7 +1371,7 @@ class AncilliaryAugmentation(Sampler):
             # Revert the hyperparameters and
             # prior and posterior covariances to previous values
             self.sampler.hyperparameters_update(
-                gamma=gamma, varphi=varphi, scale=scale,
+                cutpoints=cutpoints, varphi=varphi, scale=scale,
                 noise_variance=noise_variance,
                 K=K, L_K=L_K, log_det_K=log_det_K, cov=cov, L_Sigma=L_Sigma)
             joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
@@ -1406,7 +1408,7 @@ class AncilliaryAugmentation(Sampler):
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
-            then over y (auxilliaries). In this sampler, gamma (cutpoint parameters) are fixed.
+            then over y (auxilliaries). In this sampler, cutpoints (cutpoint parameters) are fixed.
 
         :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type m_0: :class:`np.ndarray`.
@@ -1441,7 +1443,7 @@ class AncilliaryAugmentation(Sampler):
             # Update hyperparameters from theta.
             # plt.scatter(self.sampler.X_train, m)
             # plt.show()
-            # print(gamma)
+            # print(cutpoints)
             m_samples.append(m)
             theta_samples.append(theta)
             joint_log_likelihood_samples.append(joint_log_likelihood)
@@ -1484,43 +1486,34 @@ class PseudoMarginal(object):
         for sampling from proposal distrubutions defined over continuous domains.
         Hyperparameter priors assumed to be independent assumption so take the product of prior pdfs.
         """
-        gamma, varphi, scale, noise_variance, log_prior_theta = prior(theta, indices)
+        cutpoints, varphi, scale, noise_variance, log_prior_theta = prior(theta, indices)
         # Update prior covariance
         self.approximator.hyperparameters_update(
-            gamma=gamma, varphi=varphi, scale=scale,
+            cutpoints=cutpoints, varphi=varphi, scale=scale,
             noise_variance=noise_variance)
-        # intervals = self.approximator.gamma[2:self.approximator.J] - self.approximator.gamma[1:self.approximator.J - 1]
+        # intervals = self.approximator.cutpoints[2:self.approximator.J] - self.approximator.cutpoints[1:self.approximator.J - 1]
         return log_prior_theta
 
-    # def _weight(
-    #     self, f_samp, prior_L_cov, half_log_det_prior_cov, posterior_L_cov, half_log_det_posterior_cov, posterior_mean):
-    #     return (
-    #         self.approximator._get_log_likelihood(f_samp)
-    #         + self.approximator._log_multivariate_normal_pdf(
-    #             f_samp, prior_L_cov, half_log_det_prior_cov)
-    #         - self.approximator._log_multivariate_normal_pdf(
-    #             f_samp, posterior_L_cov, half_log_det_posterior_cov, mean=posterior_mean)
-    #     )
-
     def _weight(
-            self, f_samp, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv,
-            half_log_det_posterior_cov, posterior_mean):
+            self, f_samp, prior_cov_inv, half_log_det_prior_cov,
+            posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
         return (
             self.approximator.get_log_likelihood(f_samp)
-            + self.approximator._log_multivariate_normal_pdf(
+            + log_multivariate_normal_pdf(
                 f_samp, prior_cov_inv, half_log_det_prior_cov)
-            - self.approximator._log_multivariate_normal_pdf(
-                f_samp, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean)
-        )
+            - log_multivariate_normal_pdf(
+                f_samp, posterior_cov_inv, half_log_det_posterior_cov,
+                mean=posterior_mean))
 
     def _weight_vectorised(
-            self, f_samps, prior_cov_inv, half_log_det_prior_cov, posterior_cov_inv,
-            half_log_det_posterior_cov, posterior_mean):
+            self, f_samps, prior_cov_inv, half_log_det_prior_cov,
+            posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
         log_ws = (self.approximator.get_log_likelihood(f_samps)
-            + self.approximator._log_multivariate_normal_pdf_vectorised(
+            + log_multivariate_normal_pdf_vectorised(
                 f_samps, prior_cov_inv, half_log_det_prior_cov)
-            - self.approximator._log_multivariate_normal_pdf_vectorised(
-                f_samps, posterior_cov_inv, half_log_det_posterior_cov, mean=posterior_mean))
+            - log_multivariate_normal_pdf_vectorised(
+                f_samps, posterior_cov_inv, half_log_det_posterior_cov,
+                mean=posterior_mean))
         return log_ws
 
     def _importance_sampler_vectorised(
@@ -1573,22 +1566,22 @@ class PseudoMarginal(object):
         #plt.show()
         # Normalise the w vectors using the log-sum-exp operator
         max_log_ws = np.max(log_ws)
-        log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
+        log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))  # TODO TODO!!!! Shouldn't this be along a certain axis? axis 0
         return log_sum_exp - np.log(num_importance_samples)
 
     def tmp_compute_marginal(
             self, theta, indices, steps=None, num_importance_samples=64, reparameterised=False):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
-            gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
+            cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
                 theta, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
+                self.approximator.kernel.scale_hyperparameters, self.approximator.cutpoints)
         else:
-            gamma, varphi, scale, noise_variance, log_p_theta = prior(
+            cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
+                self.approximator.kernel.scale_hyperparameters, self.approximator.cutpoints)
         fx, gx, posterior_mean, (posterior_matrix, is_inv) = self.approximator.approximate_posterior(
             theta, indices, steps=steps, first_step=1, write=False, verbose=False)
         prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
@@ -1630,17 +1623,16 @@ class PseudoMarginal(object):
         # Evaluate priors and proposal conditionals
         if reparameterised:
             v, log_jacobian_v = proposal_reparameterised(u, indices, proposal_L_cov)
-            gamma, varphi, scale, noise_variance, log_p_v = prior_reparameterised(
+            cutpoints, varphi, scale, noise_variance, log_p_v = prior_reparameterised(
                 v, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
+                self.approximator.kernel.scale_hyperparameters, self.approximator.cutpoints)
         else:
             u, log_jacobian_u = proposal(u, indices, proposal_L_cov, self.approximator.J)
-            gamma, varphi, scale, noise_variance, log_p_u = prior(
+            cutpoints, varphi, scale, noise_variance, log_p_u = prior(
                 u, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
-
+                self.approximator.kernel.scale_hyperparameters, self.approximator.cutpoints)
         fx, gx, posterior_mean, (posterior_matrix, is_inv) = self.approximator.approximate_posterior(
             v, indices, first_step=1, write=False, verbose=False)
         prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
@@ -1713,16 +1705,16 @@ class PseudoMarginal(object):
         proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
         if reparameterised:
             theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, indices, proposal_L_cov)
-            gamma, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
+            cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
                 theta_0, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
+                self.approximator.kernel.scale_hyperparameters, self.approximator.cutpoints)
         else:
             theta_0, log_jacobian_theta = proposal(theta_0, indices, proposal_L_cov, self.approximator.J)
-            gamma, varphi, scale, noise_variance, log_p_theta = prior(
+            cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta_0, indices, self.approximator.J, self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters, self.approximator.gamma)
+                self.approximator.kernel.scale_hyperparameters, self.approximator.cutpoints)
         theta_samples = []
         acceptance_rate = 0.0
         return (

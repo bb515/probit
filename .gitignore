@@ -152,8 +152,10 @@ probit/data/tf_parseSS.py
 probit/data/tfrecord/
 probit/data/utilities_nplan.py
 probit/data/utils_nplan.py
-examples/example8/example_EP_nPlan.py
-examples/example8/example_VB_nPlan.py
+examples/example2/
+examples/example8/
+pipeline/
+dataset_manager/
 examples/paper/theta_*
 probit/scratch.py
 *hist_pred*
