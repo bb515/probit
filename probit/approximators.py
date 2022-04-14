@@ -2479,8 +2479,9 @@ class LaplaceOrdinalGP(Approximator):
         self.EPS = 1e-2
         # self.EPS = 1e-6
         self.EPS_2 = self.EPS**2
-        self.jitter = 1e-6  # 1e-10 was too small when the noise variance is very low, resulting in infs or nans in chol
-        #self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
+        # self.jitter = 1e-4  # Try increasing the noise variance if jitter has to be this large
+        # self.jitter = 1e-6  # 1e-10 was too small when the noise variance is very low, resulting in infs or nans in chol
+        self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
         # Initiate hyperparameters
         self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
 
@@ -2945,8 +2946,9 @@ class LaplaceOrdinalGP(Approximator):
                 norm_cdf_z1s, norm_cdf_z2s
                 ) = truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
-                posterior_mean, self.EPS, upper_bound=self.upper_bound)
-                # upper_bound2=self.upper_bound2)
+                posterior_mean, self.EPS, upper_bound=self.upper_bound,
+                )
+                #upper_bound2=self.upper_bound2)  # TODO Turn this off!
             weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
             z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
             z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
