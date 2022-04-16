@@ -32,7 +32,7 @@ write_path = pathlib.Path()
 
 
 def main():
-    """Conduct an EP approximation to the posterior, and optimise hyperparameters."""
+    """Conduct an approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
@@ -125,11 +125,11 @@ def main():
         # Fix signal variance
         indices[J] = 0
         # Fix varphi
-        #indices[-1] = 0
+        indices[-1] = 0
         # Fix cutpoints
-        indices[1:J] = 0
+        indices[1] = 0
         # Just varphi
-        domain = ((-4, 4), None)
+        domain = ((-0.0, 0.3), None)
         res = (100, None)
         # #  just signal variance
         # domain = ((0., 1.8), None)
@@ -140,16 +140,18 @@ def main():
         # # varphi and signal variance
         # domain = ((0, 2), (0, 2))
         # res = (100, None)
-        # # varphi and std
-        # domain = ((0, 2), (0, 2))
-        # res = (100, None)
+        # # cutpoints b_1 and b_2 - b_1
+        # domain = ((-0.75, -0.5), (-1.0, 1.0))
+        # res = (14, 14)
         # grid_synthetic(classifier, domain, res, indices, show=False)
         # plot(classifier, domain=None)
         # classifier = train(classifier, method, indices)
+        # classifier = train(
+        #     classifier, method, indices, verbose=True, steps=steps)
         # test(classifier, X, t, Y_true, steps)
-        #grid_synthetic(classifier, domain, res, indices, show=False)
-        plot_synthetic(
-            classifier, dataset, X_true, Y_true, steps, colors=colors)
+        grid_synthetic(classifier, domain, res, indices, show=True)
+        # plot_synthetic(
+        #     classifier, dataset, X_true, Y_true, steps, colors=colors)
         #plot_synthetic(classifier, dataset, X, Y, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))

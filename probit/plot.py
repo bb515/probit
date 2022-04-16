@@ -2,12 +2,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from probit.data.utilities import colors, datasets
-from probit.data.utilities_nplan import calculate_metrics
+from probit.data.utilities import calculate_metrics
 import warnings
 import time
 from scipy.optimize import minimize
-from probit.data.utilities import MinimizeStopper, colors
-from probit.data.utilities import calculate_metrics
 import matplotlib.colors as mcolors
 from matplotlib import rc
 # import matplotlib.colors as mcolors
@@ -762,10 +760,12 @@ def grid_synthetic(
         fig, ax = plt.subplots(1, 1)
         ax.set_aspect(1)
         ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
-        ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
+        ax.quiver(x, y, u, v, units='xy', scale=0.1, color='red')
         ax.plot(0.1, 30, 'm')
         plt.xscale(xscale)
-        plt.xlim(1, 100.0)  #TODO: What is this for?
+        # TODO: add xlim based on the domain
+        plt.xlim(domain[0])  #TODO: temporary, remove.
+        #plt.ylim(domain[1])
         plt.yscale(yscale)
         plt.xlabel(xlabel, fontsize=16)
         plt.ylabel(ylabel, fontsize=16)

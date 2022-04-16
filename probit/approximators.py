@@ -16,7 +16,7 @@ from .utilities import (
     norm_logpdf, norm_logcdf,
     truncated_norm_normalising_constant,
     p, dp)
-# Usually the numba implementation is not faster
+# NOTE Usually the numba implementation is not faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
 #     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
@@ -147,7 +147,9 @@ class Approximator(ABC):
                 raise
         self.N = np.shape(self.X_train)[0]
         self.D = np.shape(self.X_train)[1]
-        self.grid = np.ogrid[0:self.N]  # For indexing sets of self.t_train 
+        self.grid = np.ogrid[0:self.N]  # For indexing sets of self.t_train
+        self.indices_where_0 = np.where(self.t_train == 0)
+        self.indices_where_J_1 = np.where(self.t_train == self.J - 1)
 
     @abstractmethod
     def _approximate_initiate(self):
@@ -330,15 +332,15 @@ class Approximator(ABC):
                         " stability issues may arise "
                     "(noise_variance={}).".format(noise_variance))
                 index += 1
-            for j in range(1, self.J):
-                if cutpoints is None and indices[j]:
-                    # Get cutpoints from classifier
-                    cutpoints = self.cutpoints
+            if cutpoints is None and np.any(indices[1:self.J]):
+                # Get cutpoints from classifier
+                cutpoints = self.cutpoints
             if indices[1]:
                 cutpoints[1] = theta[index]
                 index += 1
             for j in range(2, self.J):
                 if indices[j]:
+                    print(np.exp(theta[index]))
                     cutpoints[j] = cutpoints[j - 1] + np.exp(theta[index])
                     index += 1
             if indices[self.J]:
@@ -372,19 +374,19 @@ class Approximator(ABC):
         else:
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
-        if steps is None:
-            # TODO: remove this code
-            if self.__repr__ == "EPOrdinalGP":
-                suggested_steps = np.max([10, self.N//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
-            elif self.__repr__ == "VBOrdinalGP":
-                suggested_steps = np.max([100, self.N//10])
-            elif self.__repr__ == "LaplaceOrdinalGP":
-                suggested_steps = np.max([2, self.N//1000])
-            raise ValueError(
-                "No number of algorithm iterations (kwarg `steps`) was"
-                " supplied as a keyword argument! Please supply a number of "
-                "steps to run in inner loop of the {} approximation for!"
-                " If you are unsure, try steps={} .".format(suggested_steps))
+        # TODO: remove this code
+        # if steps is None:
+        #     if self.__repr__ == "EPOrdinalGP":
+        #         suggested_steps = np.max([10, self.N//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
+        #     elif self.__repr__ == "VBOrdinalGP":
+        #         suggested_steps = np.max([100, self.N//10])
+        #     elif self.__repr__ == "LaplaceOrdinalGP":
+        #         suggested_steps = np.max([2, self.N//1000])
+        #     raise ValueError(
+        #         "No number of algorithm iterations (kwarg `steps`) was"
+        #         " supplied as a keyword argument! Please supply a number of "
+        #         "steps to run in inner loop of the {} approximation for!"
+        #         " If you are unsure, try steps={} .".format(suggested_steps))
         error = np.inf
         iteration = 0
         indices_where = np.where(indices!=0)
@@ -429,7 +431,7 @@ class Approximator(ABC):
             index += 1
         if indices[1]:
             # Grid over b_1, the first cutpoint
-            label.append(r"$\b_{1}$")
+            label.append(r"$b_{}$".format(1))
             axis_scale.append("linear")
             space.append(
                 np.linspace(domain[index][0], domain[index][1], res[index]))
@@ -437,7 +439,7 @@ class Approximator(ABC):
         for j in range(2, self.J):
             if indices[j]:
                 # Grid over b_j - b_{j-1}, the differences between cutpoints
-                label.append(r"$\b_{} - \b{}$".format(j, j-1))
+                label.append(r"$b_{} - b_{}$".format(j, j-1))
                 axis_scale.append("log")
                 space.append(
                     np.logspace(
@@ -530,7 +532,10 @@ class Approximator(ABC):
             cutpoints = np.empty((self.J + 1,))
             cutpoints[0] = np.NINF
             cutpoints[-1] = np.inf
-            cutpoints[1] = phi[index]
+            if np.isscalar(phi):
+                cutpoints[1] = phi
+            else:
+                cutpoints[1] = phi[index]
             index += 1
         for j in range(2, self.J):
             if indices[j]:
@@ -1083,16 +1088,16 @@ class VBOrdinalGP(Approximator):
                     print("gx_sigma = ", one + two)
                 gx[0] = one + two
             # For gx[1] -- \b_1
-            if indices[1]:
+            if np.any(indices[1:self.J]):  # TODO: analytic and numeric gradients do not match
                 # TODO: treat these with numerical stability, or fix them
                 intermediate_vector_1s = np.divide(norm_pdf_z1s, Z)
                 intermediate_vector_2s = np.divide(norm_pdf_z2s, Z)
-                indices = np.where(self.t_train == 0)
-                gx[1] += np.sum(intermediate_vector_1s[indices])
+                idx = np.where(self.t_train == 0)  # TODO factor out
+                gx[1] += np.sum(intermediate_vector_1s[idx])
                 for j in range(2, self.J):
-                    indices = np.where(self.t_train == j - 1)
-                    gx[j - 1] -= np.sum(intermediate_vector_2s[indices])
-                    gx[j] += np.sum(intermediate_vector_1s[indices])
+                    idx = np.where(self.t_train == j - 1)  # TODO: factor it out seems inefficient. Is there a better way?
+                    gx[j - 1] -= np.sum(intermediate_vector_2s[idx])
+                    gx[j] += np.sum(intermediate_vector_1s[idx])
                 # gx[self.J] -= 0  # Since J is number of classes
                 gx[1:self.J] /= noise_std
                 # For gx[2:self.J] -- ln\Delta^r
@@ -2069,6 +2074,7 @@ class EPOrdinalGP(Approximator):
         :type steps:
         :arg posterior_mean_0:
         :type posterior_mean_0:
+        :arg int calculate_posterior_cov:
         :arg posterior_cov_0:
         :type posterior_cov_0:
         :arg mean_EP_0:
@@ -2080,7 +2086,7 @@ class EPOrdinalGP(Approximator):
         :arg int first_step:
         :arg bool write:
         :arg bool verbose:
-        :return:
+        :return: fx the objective and gx the objective gradient
         """
         # Update prior covariance and get hyperparameters from theta
         (intervals, steps, error, iteration, indices_where,
@@ -2102,7 +2108,8 @@ class EPOrdinalGP(Approximator):
                 amplitude_EP_0=amplitude_EP,
                 first_step=first_step, write=write)
             if verbose:
-                print("({}), error={}".format(iteration, error))
+                pass
+                # print("({}), error={}".format(iteration, error))
         (weights,
         precision_EP,
         Lambda_cholesky,
@@ -2130,12 +2137,17 @@ class EPOrdinalGP(Approximator):
             # # print("varphi=", self.kernel.constant_variance, ", ")
             # print("noise_variance=", self.noise_variance, ", ")
             # print("variance=", self.kernel.variance, ", ")
+            print("____")
+            print(gx)
+            print(self.cutpoints)
+            print(fx)
+            print("____")
             # print("\nfunction_eval={}\n jacobian_eval={}".format(
             #     fx, gx))
-            print(
-                "\ncutpoints={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
-                    self.cutpoints, self.noise_variance, self.kernel.varphi, fx))
+            # print(
+            #     "\ncutpoints={}, noise_variance={}, "
+            #     "varphi={}".format(
+            #         self.cutpoints, self.noise_variance, self.kernel.varphi))
 
         if calculate_posterior_cov == 1:
             # Inverse of K
@@ -2162,57 +2174,64 @@ class EPOrdinalGP(Approximator):
         Compute the integrals required for the gradient evaluation.
         """
         noise_std = np.sqrt(noise_variance)
-        mean = (posterior_mean * noise_variance
+        mean_ts = (posterior_mean * noise_variance
             + posterior_variance * self.cutpoints_ts) / (
+                noise_variance + posterior_variance)
+        mean_tplus1s = (posterior_mean * noise_variance
+            + posterior_variance * self.cutpoints_tplus1s) / (
                 noise_variance + posterior_variance)
         sigma = np.sqrt(
             (noise_variance * posterior_variance) / (
             noise_variance + posterior_variance))
-        a = mean - 5.0 * sigma
-        b = mean + 5.0 * sigma
-        h = b - a
+        a_ts = mean_ts - 5.0 * sigma
+        b_ts = mean_ts + 5.0 * sigma
+        h_ts = b_ts - a_ts
+        a_tplus1s = mean_tplus1s - 5.0 * sigma
+        b_tplus1s = mean_tplus1s + 5.0 * sigma
+        h_tplus1s = b_tplus1s - a_tplus1s
         y_0 = np.zeros((20, self.N))
-        t2 = np.zeros((self.N,))
-        t3 = np.zeros((self.N,))
-        t4 = np.zeros((self.N,))
-        t5 = np.zeros((self.N,))
-        t2 = fromb_t2_vector(
-                y_0.copy(), mean, sigma,
-                a, b, h,
-                posterior_mean,
-                posterior_variance,
-                self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
-        t3 = fromb_t3_vector(
-                y_0.copy(), mean, sigma,
-                a, b,
-                h, posterior_mean,
-                posterior_variance,
-                self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
-        t4 = fromb_t4_vector(
-                y_0.copy(), mean, sigma,
-                a, b,
-                h, posterior_mean,
-                posterior_variance,
-                self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.EPS, self.EPS_2, self.N),
-        t5 = fromb_t5_vector(
-                y_0.copy(), mean, sigma,
-                a, b, h,
-                posterior_mean,
-                posterior_variance,
-                self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
-        return (
-            fromb_t1_vector(
+        t1 = fromb_t1_vector(
                 y_0.copy(), posterior_mean, posterior_variance,
                 self.cutpoints_ts, self.cutpoints_tplus1s,
-                noise_std, self.EPS, self.EPS_2, self.N),
+                noise_std, self.EPS, self.EPS_2, self.N)
+        t2 = fromb_t2_vector(
+                y_0.copy(), mean_ts, sigma,
+                a_ts, b_ts, h_ts,
+                posterior_mean,
+                posterior_variance,
+                self.cutpoints_ts,
+                self.cutpoints_tplus1s,
+                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
+        t2[self.indices_where_0] = 0.0
+        t3 = fromb_t3_vector(
+                y_0.copy(), mean_tplus1s, sigma,
+                a_tplus1s, b_tplus1s,
+                h_tplus1s, posterior_mean,
+                posterior_variance,
+                self.cutpoints_ts,
+                self.cutpoints_tplus1s,
+                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
+        t3[self.indices_where_J_1] = 0.0
+        t4 = fromb_t4_vector(
+                y_0.copy(), mean_tplus1s, sigma,
+                a_tplus1s, b_tplus1s,
+                h_tplus1s, posterior_mean,
+                posterior_variance,
+                self.cutpoints_ts,
+                self.cutpoints_tplus1s,
+                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
+        t4[self.indices_where_J_1] = 0.0
+        t5 = fromb_t5_vector(
+                y_0.copy(), mean_ts, sigma,
+                a_ts, b_ts, h_ts,
+                posterior_mean,
+                posterior_variance,
+                self.cutpoints_ts,
+                self.cutpoints_tplus1s,
+                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
+        t5[self.indices_where_0] = 0.0
+        return (
+            t1,
             t2,
             t3,
             t4,
@@ -2885,8 +2904,7 @@ class LaplaceOrdinalGP(Approximator):
         """
         if posterior_mean_0 is None:
             posterior_mean_0 = self.cutpoints_ts.copy()
-            idx = np.where(self.t_train == 0)
-            posterior_mean_0[idx] = self.cutpoints_tplus1s[idx]
+            posterior_mean_0[self.indices_where_0] = self.cutpoints_tplus1s[self.indices_where_0]
         error = 0.0
         weight_0 = np.empty(self.N)
         inverse_variance_0 = np.empty(self.N)
