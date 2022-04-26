@@ -593,6 +593,7 @@ class Approximator(ABC):
         #     # This can be done via automatic differentiation, here
         #     # or by a manual function. I have chosen to evaluate manually.
 
+<<<<<<< HEAD
     def _update_nystrom_prior(self, M):
         """
         Update prior covariances with Nyström approximation.
@@ -608,6 +609,8 @@ class Approximator(ABC):
 
         raise NotImplementedError()
 
+=======
+>>>>>>> master
 
 class VBOrdinalGP(Approximator):
     """
@@ -1581,7 +1584,7 @@ class EPOrdinalGP(Approximator):
         for step in trange(first_step, first_step + steps,
                         desc="EP GP priors Approximator Progress",
                         unit="iterations", disable=True):
-            index = self.new_point(step, random_selection=False)
+            index = self.new_point(step, random_selection=True)
             target = self.t_train[index]
             # Find the mean and variance of the leave-one-out
             # posterior distribution Q^{\backslash i}(\bm{f})
