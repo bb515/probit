@@ -1,5 +1,8 @@
 """Sparse GPs"""
+import warnings
 from approximators import VBOrdinalGP, EPOrdinalGP, LaplaceOrdinalGP
+from scipy.linalg import cho_solve, cho_factor, solve_triangular
+import numpy as np
 
 
 class SparseVBOrdinalGP(VBOrdinalGP):
@@ -34,12 +37,14 @@ class SparseVBOrdinalGP(VBOrdinalGP):
         # self.EPS = 1e-8
         # self.EPS_2 = self.EPS**2
         # self.jitter = 1e-10
+        # Choose inducing points
+        self.M = M
+        inducing_idx = np.random.randint(self.X_train.shape[0], size=self.M)
+        self.Z = self.X[inducing_idx, :]
         # Initiate hyperparameters
-        self._update_nystrom_prior(M)
-        self.hyperparameters_update(
-            cutpoints=cutpoints, noise_variance=noise_variance)
+        self._update_nystrom_prior()
 
-    def _update_nystrom_prior(self, M):
+    def _update_nystrom_prior(self):
         """
         Update prior covariances with Nyström approximation.
 
@@ -50,7 +55,7 @@ class SparseVBOrdinalGP(VBOrdinalGP):
         self.Kmm = self.kernel.kernel_matrix(self.Z, self.Z)
         self.Knn = self.kernel.kernel_diagonal(self.X, self.X)
         self.Knm = self.kernel.kernel_matrix(self.X, self.Z)
-        self.M = M
+        warnings.warn("Done updating prior covariance with Nyström approximation")
 
         raise NotImplementedError()
 
@@ -77,72 +82,47 @@ class SparseVBOrdinalGP(VBOrdinalGP):
         :arg float noise_variance: The noise variance.
         :type noise_variance:
         """
-        if cutpoints is not None:
-            # Convert cutpoints to numpy array
-            cutpoints = np.array(cutpoints)
-            # Not including -\infty or \infty
-            if np.shape(cutpoints)[0] == self.J - 1:
-                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
-                cutpoints = np.insert(cutpoints, 0, np.NINF)  # Insert -\infty at index 0
-                pass  # Correct format
-            # Not including one cutpoints
-            elif np.shape(cutpoints)[0] == self.J: 
-                if cutpoints[-1] != np.inf:
-                    if cutpoints[0] != np.NINF:
-                        raise ValueError(
-                            "Either the largest cutpoint parameter b_J is not "
-                            "positive infinity, or the smallest cutpoint "
-                            "parameter must b_0 is not negative infinity."
-                            "(got {}, expected {})".format(
-                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
-                    else:  # cutpoints[0] is -\infty
-                        cutpoints.append(np.inf)
-                        pass  # correct format
-                else:
-                    cutpoints = np.insert(cutpoints, 0, np.NINF)
-                    pass  # correct format
-            # Including all the cutpoints
-            elif np.shape(cutpoints)[0] == self.J + 1:
-                if cutpoints[0] != np.NINF:
-                    raise ValueError(
-                        "The smallest cutpoint parameter b_0 must be negative "
-                        "infinity (got {}, expected {})".format(
-                            cutpoints[0], np.NINF))
-                if cutpoints[-1] != np.inf:
-                    raise ValueError(
-                        "The largest cutpoint parameter b_J must be "
-                        "positive infinity (got {}, expected {})".format(
-                            cutpoints[-1], np.inf))
-                pass  # correct format
-            else:
-                raise ValueError(
-                    "Could not recognise cutpoints shape. "
-                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
-            assert cutpoints[0] == np.NINF
-            assert cutpoints[-1] == np.inf
-            assert np.shape(cutpoints)[0] == self.J + 1
-            if not all(
-                    cutpoints[i] <= cutpoints[i + 1]
-                    for i in range(self.J)):
-                raise CutpointValueError(cutpoints)
-            self.cutpoints = cutpoints
-            self.cutpoints_ts = cutpoints[self.t_train]
-            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
-        if varphi is not None or variance is not None:
-            self.kernel.update_hyperparameter(
-                varphi=varphi, variance=variance)
-            # Update prior covariance
-            warnings.warn("Updating prior covariance.")
-            self._update_prior()
-            warnings.warn("Done posterior covariance.")
+        self.hyperparameters_update(
+            cutpoints=cutpoints, varphi=varphi,
+            variance=variance, noise_variance=noise_variance)
         if varphi_hyperparameters is not None:
             self.kernel.update_hyperparameter(
                 varphi_hyperparameters=varphi_hyperparameters)
-        # Initalise the noise variance
-        if noise_variance is not None:
-            self.noise_variance = noise_variance
-            self.noise_std = np.sqrt(noise_variance)
         # Update posterior covariance
         warnings.warn("Updating posterior covariance.")
-        self._update_posterior()
+        self._update_nystrom_posterior()
         warnings.warn("Done updating posterior covariance.")
+
+        def _update_posterior(self):
+            """Update posterior covariances."""
+            # TODO: Is this really the best cholesky to take. What are the eigenvalues?
+            # are they bounded?
+            # Note that this scipy implementation returns an upper triangular matrix
+            # whereas numpy, tf, scipy.cholesky return a lower triangular,
+            # then the position of the matrix transpose in the code would change.
+            (self.L_cov, self.lower) = cho_factor(
+                self.noise_variance * np.eye(self.N) + self.K)
+            # Unfortunately, it is necessary to take this cho_factor,
+            # only for log_det_K
+            (L_K, lower) = cho_factor(self.K + self.jitter * np.eye(self.N))
+
+            # tmp
+            L_KT_inv = solve_triangular(
+                L_K.T, np.eye(self.N), lower=True)
+            self.K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
+
+            self.log_det_K = 2 * np.sum(np.log(np.diag(L_K)))
+            self.log_det_cov = -2 * np.sum(np.log(np.diag(self.L_cov)))
+            # TODO: If jax @jit works really well with the GPU for cho_solve,
+            # it is worth not storing this matrix - due to storage cost, and it
+            # will be faster. See alternative implementation on feature/cho_solve
+            # For the CPU, storing self.cov saves solving for the gradient and the
+            # fx. Maybe have it as part of a seperate method.
+            # TODO: should be using  cho_solve and not solve_triangular, unless I used it because that is what is used
+            # in tensorflow for whatever reason (maybe tensorflow has no cho_solve)
+            # Note that Tensorflow uses tf.linalg.triangular_solve
+            L_covT_inv = solve_triangular(
+                self.L_cov.T, np.eye(self.N), lower=True)
+            self.cov = solve_triangular(self.L_cov, L_covT_inv, lower=False)
+            self.trace_cov = np.sum(np.diag(self.cov))
+            self.trace_posterior_cov_div_var = np.einsum('ij, ij -> ', self.K, self.cov)
