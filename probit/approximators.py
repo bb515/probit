@@ -593,21 +593,6 @@ class Approximator(ABC):
         #     # This can be done via automatic differentiation, here
         #     # or by a manual function. I have chosen to evaluate manually.
 
-    def _update_nystrom_prior(self, M):
-        """
-        Update prior covariances with Nyström approximation.
-
-        :arg M: Number of inducing inputs.
-
-        """
-        warnings.warn("Updating prior covariance with Nyström approximation")
-        self.Kmm = self.kernel.kernel_matrix(self.Z, self.Z)
-        self.Knn = self.kernel.kernel_diagonal(self.X, self.X)
-        self.Knm = self.kernel.kernel_matrix(self.X, self.Z)
-        self.M = M
-
-        raise NotImplementedError()
-
 
 class VBOrdinalGP(Approximator):
     """
