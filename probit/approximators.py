@@ -593,7 +593,6 @@ class Approximator(ABC):
         #     # This can be done via automatic differentiation, here
         #     # or by a manual function. I have chosen to evaluate manually.
 
-<<<<<<< HEAD
     def _update_nystrom_prior(self, M):
         """
         Update prior covariances with Nyström approximation.
@@ -609,8 +608,6 @@ class Approximator(ABC):
 
         raise NotImplementedError()
 
-=======
->>>>>>> master
 
 class VBOrdinalGP(Approximator):
     """
