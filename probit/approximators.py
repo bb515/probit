@@ -593,7 +593,7 @@ class Approximator(ABC):
         #     # This can be done via automatic differentiation, here
         #     # or by a manual function. I have chosen to evaluate manually.
 
-    def _update_approximate_prior(self):
+    def _update_nystrom_prior(self):
         """Update prior covariances with Nyström approximation."""
         warnings.warn("Updating prior covariance with Nyström approximation")
         self.Kmm = self.kernel.kernel_matrix(self.Z, self.Z)
