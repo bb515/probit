@@ -299,6 +299,65 @@ class Approximator(ABC):
             theta.append(np.log(self.kernel.varphi))
         return np.array(theta)
 
+    def _check_cutpoints(
+        self, cutpoints):
+        """
+        Check that the cutpoints are compatible with this class.
+
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`numpy.ndarray`.
+        """
+        # Convert cutpoints to numpy array
+        cutpoints = np.array(cutpoints)
+        # Not including -\infty or \infty
+        if np.shape(cutpoints)[0] == self.J - 1:
+            # Append \infty
+            cutpoints = np.append(cutpoints, np.inf)
+            # Insert -\infty at index 0
+            cutpoints = np.insert(cutpoints, 0, np.NINF)
+            pass  # correct format
+        # Not including one cutpoints
+        elif np.shape(cutpoints)[0] == self.J:
+            if cutpoints[-1] != np.inf:
+                if cutpoints[0] != np.NINF:
+                    raise ValueError(
+                        "Either the largest cutpoint parameter b_J is not "
+                        "positive infinity, or the smallest cutpoint "
+                        "parameter must b_0 is not negative infinity."
+                        "(got {}, expected {})".format(
+                        [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
+                else:  #cutpoints[0] is -\infty
+                    cutpoints.append(np.inf)
+                    pass  # correct format
+            else:
+                cutpoints = np.insert(cutpoints, 0, np.NINF)
+                pass  # correct format
+        # Including all the cutpoints
+        elif np.shape(cutpoints)[0] == self.J + 1:
+            if cutpoints[0] != np.NINF:
+                raise ValueError(
+                    "The smallest cutpoint parameter b_0 must be negative "
+                    "infinity (got {}, expected {})".format(
+                        cutpoints[0], np.NINF))
+            if cutpoints[-1] != np.inf:
+                raise ValueError(
+                    "The largest cutpoint parameter b_J must be positive "
+                    "infinity (got {}, expected {})".format(
+                        cutpoints[-1], np.inf))
+            pass  # correct format
+        else:
+            raise ValueError(
+                "Could not recognise cutpoints shape. "
+                "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
+        assert cutpoints[0] == np.NINF
+        assert cutpoints[-1] == np.inf
+        assert np.shape(cutpoints)[0] == self.J + 1
+        if not all(
+                cutpoints[i] <= cutpoints[i + 1]
+                for i in range(self.J)):
+            raise CutpointValueError(cutpoints)
+        return cutpoints
+
     def _hyperparameters_update(
         self, cutpoints=None, varphi=None, variance=None, noise_variance=None):
         """
@@ -322,56 +381,7 @@ class Approximator(ABC):
         :type varphi: :class:`numpy.ndarray` or float.
         """
         if cutpoints is not None:
-            # Convert cutpoints to numpy array
-            cutpoints = np.array(cutpoints)
-            # Not including -\infty or \infty
-            if np.shape(cutpoints)[0] == self.J - 1:
-                # Append \infty
-                cutpoints = np.append(cutpoints, np.inf)
-                # Insert -\infty at index 0
-                cutpoints = np.insert(cutpoints, 0, np.NINF)
-                pass  # correct format
-            # Not including one cutpoints
-            elif np.shape(cutpoints)[0] == self.J:
-                if cutpoints[-1] != np.inf:
-                    if cutpoints[0] != np.NINF:
-                        raise ValueError(
-                            "Either the largest cutpoint parameter b_J is not "
-                            "positive infinity, or the smallest cutpoint "
-                            "parameter must b_0 is not negative infinity."
-                            "(got {}, expected {})".format(
-                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
-                    else:  #cutpoints[0] is -\infty
-                        cutpoints.append(np.inf)
-                        pass  # correct format
-                else:
-                    cutpoints = np.insert(cutpoints, 0, np.NINF)
-                    pass  # correct format
-            # Including all the cutpoints
-            elif np.shape(cutpoints)[0] == self.J + 1:
-                if cutpoints[0] != np.NINF:
-                    raise ValueError(
-                        "The smallest cutpoint parameter b_0 must be negative "
-                        "infinity (got {}, expected {})".format(
-                            cutpoints[0], np.NINF))
-                if cutpoints[-1] != np.inf:
-                    raise ValueError(
-                        "The largest cutpoint parameter b_J must be positive "
-                        "infinity (got {}, expected {})".format(
-                            cutpoints[-1], np.inf))
-                pass  # correct format
-            else:
-                raise ValueError(
-                    "Could not recognise cutpoints shape. "
-                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
-            assert cutpoints[0] == np.NINF
-            assert cutpoints[-1] == np.inf
-            assert np.shape(cutpoints)[0] == self.J + 1
-            if not all(
-                    cutpoints[i] <= cutpoints[i + 1]
-                    for i in range(self.J)):
-                raise CutpointValueError(cutpoints)
-            self.cutpoints = cutpoints
+            self.cutpoints = self._check_cutpoints(cutpoints)
             self.cutpoints_ts = cutpoints[self.t_train]
             self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
         if varphi is not None or variance is not None:
@@ -815,7 +825,7 @@ class VBOrdinalGP(Approximator):
         :arg varphi_hyperparameters:
         :type varphi_hyperparameters:
         """
-        self._hyperparameters_update(
+        self.hyperparameters_update(
             cutpoints=cutpoints, varphi=varphi,
             variance=variance, noise_variance=noise_variance)
         if varphi_hyperparameters is not None:
