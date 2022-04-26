@@ -13,7 +13,6 @@ import numpy as np
 from .utilities import (
     read_array,
     norm_z_pdf, norm_cdf,
-    norm_logpdf, norm_logcdf,
     truncated_norm_normalising_constant,
     p, dp)
 # NOTE Usually the numba implementation is not faster
@@ -59,20 +58,20 @@ class Approximator(ABC):
 
     @abstractmethod
     def __init__(
-            self, kernel, J, data=None, write_path=None):
+            self, kernel, J, data=None, read_path=None):
         """
         Create an :class:`Approximator` object.
 
         This method should be implemented in every concrete Approximator.
 
         :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.
+        :arg int J: The number of (ordinal) classes.
         :arg data: The data tuple. (X_train, t_train), where  
             X_train is the (N, D) The data vector and t_train (N, ) is the
             target vector. Default `None`, if `None`, then the data and prior
-            are assumed cached in `write_path` and are attempted to be read.
+            are assumed cached in `read_path` and are attempted to be read.
         :type data: (:class:`numpy.ndarray`, :class:`numpy.ndarray`)
-        :arg J: The number of (ordinal) classes.
-        :arg str write_path: Write path for outputs. If no data is provided,
+        :arg str read_path: Read path for outputs. If no data is provided,
             then it assumed that this is the path to the data and cached
             prior covariance(s).
 
@@ -86,15 +85,15 @@ class Approximator(ABC):
         self.J = J
 
         # Read/write
-        if write_path is None:
-            self.write_path = None
+        if read_path is None:
+            self.read_path = None
         else:
-            self.write_path = pathlib.Path(write_path)
+            self.read_path = pathlib.Path(read_path)
 
         # Numerical stability
         # See GPML by Williams et al. for a good explanation of jitter
-        # self.jitter = 1e-8 
         self.jitter = 1e-10
+    
         # Threshold of single sided standard deviations that
         # normal cdf can be approximated to 0 or 1
         # More than this + redundancy leads to numerical instability
@@ -103,15 +102,14 @@ class Approximator(ABC):
         # expansion at infinity truncation
         # Good values found between 4 and 6
         self.upper_bound = 6
+
         # More than this + redundancy leads to numerical
         # instability due to overflow
         # Less than this results in poor approximation due to
         # neglected probability mass in the tails
         # Good values found between 18 and 30
-        self.upper_bound2 = 30  # May need decreasing if experience infs or NaNs
+        self.upper_bound2 = 30  # Try decreasing if experiencing infs or NaNs
 
-        # TODO: Might be best just to define a GPFlow posterior from AbstractPosterior
-        # that relies on caching to make the predictions. This might pair well with end to end GPFlux
         # Get data and calculate the prior
         if data is not None:
             X_train, t_train = data
@@ -132,13 +130,13 @@ class Approximator(ABC):
         else:
             # Try read model from file
             try:
-                self.X_train = read_array(self.write_path, "X_train")
-                self.t_train = read_array(self.write_path, "t_train")
-                self.K = read_array(self.write_path, "K")
+                self.X_train = read_array(self.read_path, "X_train")
+                self.t_train = read_array(self.read_path, "t_train")
+                self.K = read_array(self.read_path, "K")
                 self.partial_K_varphi = read_array(
-                    self.write_path, "partial_K_varphi")
+                    self.read_path, "partial_K_varphi")
                 self.partial_K_variance = read_array(
-                    self.write_path, "partial_K_variance")
+                    self.read_path, "partial_K_variance")
             except KeyError:
                 # The array does not exist in the model file
                 raise
@@ -173,10 +171,17 @@ class Approximator(ABC):
         """
         Return the posterior predictive distribution over classes.
 
-        :arg posterior_cov: The approximate posterior covariance.
-        :arg y: The approximate posterior mean of the latent variable Y.
-        :arg varphi: The approximate posterior mean of the
-            hyper-parameters varphi.
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg posterior_inv_cov: The approximate posterior inverse covariance.
+            Array like (N, N).
+        :type posterior_inv_cov: :class:`numpy.ndarray`.
+        :arg posterior_mean: The approximate posterior mean of the latent
+            variable. Array like (N,)
+        :type posterior_mean: :class:`numpy.ndarray`.
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
+        :arg float noise_variance: The noise variance. 
         :arg X_test: The new data points, array like (N_test, D).
         :arg n_samples: The number of samples in the Monte Carlo estimate.
         :return: A Monte Carlo estimate of the class probabilities.
@@ -206,11 +211,15 @@ class Approximator(ABC):
         """
         Make EP prediction over classes of X_test given the posterior samples.
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg cov:
-        :arg posterior_mean:
-        :arg varphi:
-        :arg noise_variance:
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg cov: A covariance matrix used in calculation of posterior
+            predictions. Array like (N, N).
+        :type cov: :class:`numpy.ndarray`
+        :arg posterior_mean: The posterior mean. Array like (N,).
+        :type posterior_mean: :class:`numpy.ndarray`
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
+        :arg float noise_variance: The noise variance.
         :arg X_test: The new data points, array like (N_test, D).
         :return: A Monte Carlo estimate of the class probabilities.
         :rtype tuple: ((N_test, J), (N_test,), (N_test,))
@@ -242,9 +251,6 @@ class Approximator(ABC):
 
     def get_log_likelihood(self, m):
         """
-        TODO: once self.cutpoints is factored out,
-            this needs to go somewhere else. Like a KL divergence/likelihoods folder.
-
         Likelihood of ordinal regression. This is product of scalar normal cdf.
 
         If np.ndim(m) == 2, vectorised so that it returns (num_samples,)
@@ -255,8 +261,11 @@ class Approximator(ABC):
         """
         Z, *_ = truncated_norm_normalising_constant(
             self.cutpoints_ts, self.cutpoints_tplus1s,
-            self.noise_std, m, self.EPS, upper_bound=self.upper_bound)
-            #  upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)  #  , numerically_stable=True)
+            self.noise_std, m, self.EPS,
+            upper_bound=self.upper_bound,
+            # upper_bound2=self.upper_bound2,  # optional
+            # numerically_stable=True  # optional
+            )
         if np.ndim(m) == 2:
             return np.sum(np.log(Z), axis=1)  # (num_samples,)
         elif np.ndim(m) == 1:
@@ -416,7 +425,7 @@ class Approximator(ABC):
         :arg indices: Indicator array of the hyperparameters to sample over.
         :type indices: :class:`numpy.ndarray`
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
+        :type cutpoints: :class:`numpy.ndarray`.
         """
         index = 0
         label = []
@@ -514,7 +523,7 @@ class Approximator(ABC):
         :arg indices:
         :type indices:
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
+        :type cutpoints: :class:`numpy.ndarray`.
         """
         index = 0
         if indices[0]:
@@ -584,6 +593,14 @@ class Approximator(ABC):
         #     # This can be done via automatic differentiation, here
         #     # or by a manual function. I have chosen to evaluate manually.
 
+    def _update_approximate_prior(self):
+        """Update prior covariances with Nyström approximation."""
+        warnings.warn("Updating prior covariance with Nyström approximation")
+        self.Kmm = self.kernel.kernel_matrix(self.Z, self.Z)
+        self.Knn = self.kernel.kernel_diagonal(self.X, self.X)
+        self.Knm = self.kernel.kernel_matrix(self.X, self.Z)
+        raise NotImplementedError()
+
 
 
 class VBOrdinalGP(Approximator):
@@ -610,7 +627,7 @@ class VBOrdinalGP(Approximator):
         Create an :class:`VBOrderedGP` Approximator object.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
+        :type cutpoints: :class:`numpy.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
             then initialised to one, default `None`.
 
@@ -701,12 +718,12 @@ class VBOrdinalGP(Approximator):
         hyperparameter update needs to be called.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg varphi:
-        :type varphi:
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
         :arg variance:
         :type variance:
-        :arg noise_variance:
+        :arg float noise_variance: The noise variance.
         :type noise_variance:
         """
         if cutpoints is not None:
@@ -953,7 +970,7 @@ class VBOrdinalGP(Approximator):
         2021 Page Eq.()
 
         :arg y: (N,) array
-        :type y: :class:`np.ndarray`
+        :type y: :class:`numpy.ndarray`
         :arg cov:
         :type cov:
         :arg K:
@@ -972,8 +989,7 @@ class VBOrdinalGP(Approximator):
         :type p:
         :arg posterior_mean:
         :type posterior_mean:
-        :arg noise_std:
-        :type noise_std:
+        :arg float noise_std: The square root of the noise variance.
         """
         return np.add(posterior_mean, noise_std * p)
 
@@ -1055,9 +1071,9 @@ class VBOrdinalGP(Approximator):
             between cutpoints for unconstrained optimisation of the cutpoint
             parameters.
         :type intervals: :class:`numpy.ndarray`
-        :arg varphi: The lengthscale parameters.
-        :type varphi: :class:`numpy.ndarray` or float
-        :arg float noise_variance:
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
+        :arg float noise_variance: The noise variance.
         :arg float noise_std:
         :arg m: The posterior mean.
         :type m: :class:`numpy.ndarray`
@@ -1316,9 +1332,9 @@ class EPOrdinalGP(Approximator):
         Create an :class:`EPOrderedGP` Approximator object.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
+        :type cutpoints: :class:`numpy.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to one, default `None`.
+            then initialised to 1.0, default `None`.
 
         :returns: An :class:`EPOrderedGP` object.
         """
@@ -1365,13 +1381,13 @@ class EPOrdinalGP(Approximator):
         hyperparameter update needs to be called.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg varphi:
-        :type varphi:
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
         :arg variance:
         :type variance:
-        :arg noise_variance:
-        :type noise_variance:
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
         """
         # TODO: can't this be done in an _update_prior()
         #self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
@@ -1503,15 +1519,15 @@ class EPOrdinalGP(Approximator):
                 containers, error)
 
     def approximate(
-            self, steps, posterior_mean_0=None, posterior_cov_0=None, mean_EP_0=None,
-            precision_EP_0=None, amplitude_EP_0=None,
+            self, steps, posterior_mean_0=None, posterior_cov_0=None,
+            mean_EP_0=None, precision_EP_0=None, amplitude_EP_0=None,
             first_step=1, write=False):
         """
         Estimating the posterior means and posterior covariance (and marginal
         likelihood) via Expectation propagation iteration as written in
         Appendix B Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes
-        for Ordinal Regression.. Journal of Machine Learning
-        Research. 6. 1019-1041.
+        for Ordinal Regression.. Journal of Machine Learning Research. 6.
+        1019-1041.
 
         EP does not attempt to learn a posterior distribution over
         hyperparameters, but instead tries to approximate
@@ -1519,13 +1535,6 @@ class EPOrdinalGP(Approximator):
         have to be optimized with model selection step.
 
         :arg int steps: The number of iterations the Approximator takes.
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg varphi: Initialisation of hyperparameter approximate posterior means.
-            If `None` then initialised to ones, default `None`.
-        :type varphi: :class:`numpy.ndarray` or float
-        :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to one, default `None`.
         :arg posterior_mean_0: The initial state of the approximate posterior
             mean (N,). If `None` then initialised to zeros, default `None`.
         :type posterior_mean_0: :class:`numpy.ndarray`
@@ -2295,10 +2304,10 @@ class EPOrdinalGP(Approximator):
 
         :arg intervals:
         :type intervals:
-        :arg varphi:
-        :type varphi:
-        :arg noise_variance:
-        :type noise_variance:
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
         :arg t2:
         :type t2:
         :arg t3:
@@ -2466,7 +2475,7 @@ class LaplaceOrdinalGP(Approximator):
         Create an :class:`LaplaceOrdinalGP` Approximator object.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
+        :type cutpoints: :class:`numpy.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
             then initialised to one, default `None`.
 
@@ -2520,13 +2529,13 @@ class LaplaceOrdinalGP(Approximator):
         hyperparameter update needs to be called.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg varphi:
-        :type varphi:
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
         :arg variance:
         :type variance:
-        :arg noise_variance:
-        :type noise_variance:
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
         """
         # TODO: can't this be done in an _update_prior()
         #self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
@@ -2774,9 +2783,9 @@ class LaplaceOrdinalGP(Approximator):
         :type gx:
         :arg intervals:
         :type intervals:
-        :arg varphi:
-        :type varphi:
-        :arg float noise_variance:
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
+        :arg float noise_variance: The noise variance.
         :arg float noise_std:
         :arg w1:
         :type w1:
@@ -2927,20 +2936,10 @@ class LaplaceOrdinalGP(Approximator):
         equal to the negative Hessian of the log of the target density.
 
         :arg int steps: The number of iterations the Approximator takes.
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg varphi: Initialisation of hyperparameter approximate posterior means.
-            If `None` then initialised to ones, default `None`.
-        :type varphi: :class:`numpy.ndarray` or float
-        :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to one, default `None`.
         :arg posterior_mean_0: The initial state of the approximate posterior
             mean (N,). If `None` then initialised to zeros, default `None`.
         :type posterior_mean_0: :class:`numpy.ndarray`
         :arg int first_step: The first step. Useful for burn in algorithms.
-        :arg bool fix_hyperparameters: Must be `True`, since the hyperparameter
-            approximate posteriors are of the hyperparameters are not
-            calculated in this EP approximation.
         :arg bool write: Boolean variable to store and write arrays of
             interest. If set to "True", the method will output non-empty
             containers of evolution of the statistics over the steps.
