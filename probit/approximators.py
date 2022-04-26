@@ -299,6 +299,112 @@ class Approximator(ABC):
             theta.append(np.log(self.kernel.varphi))
         return np.array(theta)
 
+    def _check_cutpoints(
+        self, cutpoints):
+        """
+        Check that the cutpoints are compatible with this class.
+
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`numpy.ndarray`.
+        """
+        # Convert cutpoints to numpy array
+        cutpoints = np.array(cutpoints)
+        # Not including -\infty or \infty
+        if np.shape(cutpoints)[0] == self.J - 1:
+            # Append \infty
+            cutpoints = np.append(cutpoints, np.inf)
+            # Insert -\infty at index 0
+            cutpoints = np.insert(cutpoints, 0, np.NINF)
+            pass  # correct format
+        # Not including one cutpoints
+        elif np.shape(cutpoints)[0] == self.J:
+            if cutpoints[-1] != np.inf:
+                if cutpoints[0] != np.NINF:
+                    raise ValueError(
+                        "Either the largest cutpoint parameter b_J is not "
+                        "positive infinity, or the smallest cutpoint "
+                        "parameter must b_0 is not negative infinity."
+                        "(got {}, expected {})".format(
+                        [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
+                else:  #cutpoints[0] is -\infty
+                    cutpoints.append(np.inf)
+                    pass  # correct format
+            else:
+                cutpoints = np.insert(cutpoints, 0, np.NINF)
+                pass  # correct format
+        # Including all the cutpoints
+        elif np.shape(cutpoints)[0] == self.J + 1:
+            if cutpoints[0] != np.NINF:
+                raise ValueError(
+                    "The smallest cutpoint parameter b_0 must be negative "
+                    "infinity (got {}, expected {})".format(
+                        cutpoints[0], np.NINF))
+            if cutpoints[-1] != np.inf:
+                raise ValueError(
+                    "The largest cutpoint parameter b_J must be positive "
+                    "infinity (got {}, expected {})".format(
+                        cutpoints[-1], np.inf))
+            pass  # correct format
+        else:
+            raise ValueError(
+                "Could not recognise cutpoints shape. "
+                "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
+        assert cutpoints[0] == np.NINF
+        assert cutpoints[-1] == np.inf
+        assert np.shape(cutpoints)[0] == self.J + 1
+        if not all(
+                cutpoints[i] <= cutpoints[i + 1]
+                for i in range(self.J)):
+            raise CutpointValueError(cutpoints)
+        return cutpoints
+
+    def _hyperparameters_update(
+        self, cutpoints=None, varphi=None, variance=None, noise_variance=None):
+        """
+        Reset kernel hyperparameters, generating new prior and posterior
+        covariances. Note that hyperparameters are fixed parameters of the
+        approximator, not variables that change during the estimation. The strange
+        thing is that hyperparameters can be absorbed into the set of variables
+        and so the definition of hyperparameters and variables becomes
+        muddled. Since varphi can be a variable or a parameter, then optionally
+        initiate it as a parameter, and then intitate it as a variable within
+        :meth:`approximate`. Problem is, if it changes at approximate time, then a
+        hyperparameter update needs to be called.
+
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
+        :arg variance:
+        :type variance:
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
+        """
+        if cutpoints is not None:
+            self.cutpoints = self._check_cutpoints(cutpoints)
+            self.cutpoints_ts = cutpoints[self.t_train]
+            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
+        if varphi is not None or variance is not None:
+            self.kernel.update_hyperparameter(
+                varphi=varphi, variance=variance)
+            # Update prior covariance
+            warnings.warn("Updating prior covariance.")
+            self._update_prior()
+            warnings.warn("Done updating prior covariance")
+        # Initalise the noise variance
+        if noise_variance is not None:
+            self.noise_variance = noise_variance
+            self.noise_std = np.sqrt(noise_variance)
+
+    def hyperparameters_update(
+        self, cutpoints=None, varphi=None, variance=None, noise_variance=None):
+        """
+        Wrapper function for :meth:`_hyperparameters_update`.
+        """
+        return self._hyperparameters_update(
+            cutpoints=cutpoints, varphi=varphi, variance=variance,
+            noise_variance=noise_variance)
+
     def _hyperparameter_training_step_initialise(
             self, theta, indices, steps):
         """
@@ -575,7 +681,6 @@ class Approximator(ABC):
                 noise_variance=noise_variance_update,
                 variance=variance_update,
                 varphi=varphi_update)
-        return 0
 
     def _update_prior(self):
         """Update prior covariances."""
@@ -658,7 +763,8 @@ class VBOrdinalGP(Approximator):
         #self.jitter = 1e-6
         self.jitter = 1e-10
         # Initiate hyperparameters
-        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
+        self.hyperparameters_update(
+            cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _update_posterior(self):
         """Update posterior covariances."""
@@ -695,7 +801,7 @@ class VBOrdinalGP(Approximator):
         self.trace_posterior_cov_div_var = np.einsum('ij, ij -> ', self.K, self.cov)
 
     def hyperparameters_update(
-        self, theta=None, cutpoints=None, varphi=None, variance=None, noise_variance=None,
+        self, cutpoints=None, varphi=None, variance=None, noise_variance=None,
         varphi_hyperparameters=None):
         """
         Reset kernel hyperparameters, generating new prior and posterior
@@ -716,72 +822,15 @@ class VBOrdinalGP(Approximator):
         :type variance:
         :arg float noise_variance: The noise variance.
         :type noise_variance:
+        :arg varphi_hyperparameters:
+        :type varphi_hyperparameters:
         """
-        if cutpoints is not None:
-            # Convert cutpoints to numpy array
-            cutpoints = np.array(cutpoints)
-            # Not including -\infty or \infty
-            if np.shape(cutpoints)[0] == self.J - 1:
-                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
-                cutpoints = np.insert(cutpoints, 0, np.NINF)  # Insert -\infty at index 0
-                pass  # Correct format
-            # Not including one cutpoints
-            elif np.shape(cutpoints)[0] == self.J: 
-                if cutpoints[-1] != np.inf:
-                    if cutpoints[0] != np.NINF:
-                        raise ValueError(
-                            "Either the largest cutpoint parameter b_J is not "
-                            "positive infinity, or the smallest cutpoint "
-                            "parameter must b_0 is not negative infinity."
-                            "(got {}, expected {})".format(
-                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
-                    else:  # cutpoints[0] is -\infty
-                        cutpoints.append(np.inf)
-                        pass  # correct format
-                else:
-                    cutpoints = np.insert(cutpoints, 0, np.NINF)
-                    pass  # correct format
-            # Including all the cutpoints
-            elif np.shape(cutpoints)[0] == self.J + 1:
-                if cutpoints[0] != np.NINF:
-                    raise ValueError(
-                        "The smallest cutpoint parameter b_0 must be negative "
-                        "infinity (got {}, expected {})".format(
-                            cutpoints[0], np.NINF))
-                if cutpoints[-1] != np.inf:
-                    raise ValueError(
-                        "The largest cutpoint parameter b_J must be "
-                        "positive infinity (got {}, expected {})".format(
-                            cutpoints[-1], np.inf))
-                pass  # correct format
-            else:
-                raise ValueError(
-                    "Could not recognise cutpoints shape. "
-                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
-            assert cutpoints[0] == np.NINF
-            assert cutpoints[-1] == np.inf
-            assert np.shape(cutpoints)[0] == self.J + 1
-            if not all(
-                    cutpoints[i] <= cutpoints[i + 1]
-                    for i in range(self.J)):
-                raise CutpointValueError(cutpoints)
-            self.cutpoints = cutpoints
-            self.cutpoints_ts = cutpoints[self.t_train]
-            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
-        if varphi is not None or variance is not None:
-            self.kernel.update_hyperparameter(
-                varphi=varphi, variance=variance)
-            # Update prior covariance
-            warnings.warn("Updating prior covariance.")
-            self._update_prior()
-            warnings.warn("Done posterior covariance.")
+        self.hyperparameters_update(
+            cutpoints=cutpoints, varphi=varphi,
+            variance=variance, noise_variance=noise_variance)
         if varphi_hyperparameters is not None:
             self.kernel.update_hyperparameter(
                 varphi_hyperparameters=varphi_hyperparameters)
-        # Initalise the noise variance
-        if noise_variance is not None:
-            self.noise_variance = noise_variance
-            self.noise_std = np.sqrt(noise_variance)
         # Update posterior covariance
         warnings.warn("Updating posterior covariance.")
         self._update_posterior()
@@ -1356,95 +1405,6 @@ class EPOrdinalGP(Approximator):
         self.jitter = 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
-
-    def hyperparameters_update(
-        self, theta=None, cutpoints=None, varphi=None, variance=None, noise_variance=None):
-        """
-        TODO: can probably collapse this code into other hyperparameter update
-        Reset kernel hyperparameters, generating new prior and posterior
-        covariances. Note that hyperparameters are fixed parameters of the
-        approximator, not variables that change during the estimation. The strange
-        thing is that hyperparameters can be absorbed into the set of variables
-        and so the definition of hyperparameters and variables becomes
-        muddled. Since varphi can be a variable or a parameter, then optionally
-        initiate it as a parameter, and then intitate it as a variable within
-        :meth:`approximate`. Problem is, if it changes at approximate time, then a
-        hyperparameter update needs to be called.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
-        :arg variance:
-        :type variance:
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
-        """
-        # TODO: can't this be done in an _update_prior()
-        #self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        if cutpoints is not None:
-            # Convert cutpoints to numpy array
-            cutpoints = np.array(cutpoints)
-            # Not including -\infty or \infty
-            if np.shape(cutpoints)[0] == self.J - 1:
-                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
-                cutpoints = np.insert(cutpoints, 0, np.NINF)  # Insert -\infty at index 0
-                pass  # correct format
-            # Not including one cutpoints
-            elif np.shape(cutpoints)[0] == self.J:
-                if cutpoints[-1] != np.inf:
-                    if cutpoints[0] != np.NINF:
-                        raise ValueError(
-                            "Either the largest cutpoint parameter b_J is not "
-                            "positive infinity, or the smallest cutpoint "
-                            "parameter must b_0 is not negative infinity."
-                            "(got {}, expected {})".format(
-                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
-                    else:  #cutpoints[0] is -\infty
-                        cutpoints.append(np.inf)
-                        pass  # correct format
-                else:
-                    cutpoints = np.insert(cutpoints, 0, np.NINF)
-                    pass  # correct format
-            # Including all the cutpoints
-            elif np.shape(cutpoints)[0] == self.J + 1:
-                if cutpoints[0] != np.NINF:
-                    raise ValueError(
-                        "The smallest cutpoint parameter b_0 must be negative "
-                        "infinity (got {}, expected {})".format(
-                            cutpoints[0], np.NINF))
-                if cutpoints[-1] != np.inf:
-                    raise ValueError(
-                        "The largest cutpoint parameter b_J must be positive "
-                        "infinity (got {}, expected {})".format(
-                            cutpoints[-1], np.inf))
-                pass  # correct format
-            else:
-                raise ValueError(
-                    "Could not recognise cutpoints shape. "
-                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
-            assert cutpoints[0] == np.NINF
-            assert cutpoints[-1] == np.inf
-            assert np.shape(cutpoints)[0] == self.J + 1
-            if not all(
-                    cutpoints[i] <= cutpoints[i + 1]
-                    for i in range(self.J)):
-                raise CutpointValueError(cutpoints)
-            self.cutpoints = cutpoints
-            self.cutpoints_ts = cutpoints[self.t_train]
-            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
-        if varphi is not None or variance is not None:
-            self.kernel.update_hyperparameter(
-                varphi=varphi, variance=variance)
-            # Update prior covariance
-            warnings.warn("Updating prior covariance.")
-            self._update_prior()
-        # Initalise the noise variance
-        if noise_variance is not None:
-            self.noise_variance = noise_variance
-            self.noise_std = np.sqrt(noise_variance)
-        # Posterior covariance is calculated iteratively in EP,
-        # so no update here.
 
     def _approximate_initiate(
             self, posterior_mean_0=None, posterior_cov_0=None,
@@ -2502,97 +2462,8 @@ class LaplaceOrdinalGP(Approximator):
         # self.jitter = 1e-6  # 1e-10 was too small when the noise variance is very low, resulting in infs or nans in chol
         self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
         # Initiate hyperparameters
-        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
-
-    def hyperparameters_update(
-        self, theta=None, cutpoints=None, varphi=None, variance=None,
-        noise_variance=None):
-        """
-        TODO: can probably collapse this code into other hyperparameter update
-        Reset kernel hyperparameters, generating new prior and posterior
-        covariances. Note that hyperparameters are fixed parameters of the
-        approximator, not variables that change during the estimation. The strange
-        thing is that hyperparameters can be absorbed into the set of variables
-        and so the definition of hyperparameters and variables becomes
-        muddled. Since varphi can be a variable or a parameter, then optionally
-        initiate it as a parameter, and then intitate it as a variable within
-        :meth:`approximate`. Problem is, if it changes at approximate time, then a
-        hyperparameter update needs to be called.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
-        :arg variance:
-        :type variance:
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
-        """
-        # TODO: can't this be done in an _update_prior()
-        #self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
-        if cutpoints is not None:
-            # Convert cutpoints to numpy array
-            cutpoints = np.array(cutpoints)
-            # Not including -\infty or \infty
-            if np.shape(cutpoints)[0] == self.J - 1:
-                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
-                cutpoints = np.insert(cutpoints, 0, np.NINF)  # Insert -\infty at index 0
-                pass  # correct format
-            # Not including one cutpoints
-            elif np.shape(cutpoints)[0] == self.J:
-                if cutpoints[-1] != np.inf:
-                    if cutpoints[0] != np.NINF:
-                        raise ValueError(
-                            "Either the largest cutpoint parameter b_J is not "
-                            "positive infinity, or the smallest cutpoint "
-                            "parameter must b_0 is not negative infinity."
-                            "(got {}, expected {})".format(
-                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
-                    else:  #cutpoints[0] is -\infty
-                        cutpoints.append(np.inf)
-                        pass  # correct format
-                else:
-                    cutpoints = np.insert(cutpoints, 0, np.NINF)
-                    pass  # correct format
-            # Including all the cutpoints
-            elif np.shape(cutpoints)[0] == self.J + 1:
-                if cutpoints[0] != np.NINF:
-                    raise ValueError(
-                        "The smallest cutpoint parameter b_0 must be negative"
-                        " infinity (got {}, expected {})".format(
-                            cutpoints[0], np.NINF))
-                if cutpoints[-1] != np.inf:
-                    raise ValueError(
-                        "The largest cutpoint parameter b_J must be positive"
-                        " infinity (got {}, expected {})".format(
-                            cutpoints[-1], np.inf))
-                pass  # correct format
-            else:
-                raise ValueError(
-                    "Could not recognise cutpoints shape. "
-                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
-            assert cutpoints[0] == np.NINF
-            assert cutpoints[-1] == np.inf
-            assert np.shape(cutpoints)[0] == self.J + 1
-            if not all(
-                    cutpoints[i] <= cutpoints[i + 1]
-                    for i in range(self.J)):
-                raise CutpointValueError(cutpoints)
-            self.cutpoints = cutpoints
-            self.cutpoints_ts = cutpoints[self.t_train]
-            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
-        if varphi is not None or variance is not None:
-            self.kernel.update_hyperparameter(
-                varphi=varphi, variance=variance)
-            # Update prior covariance
-            warnings.warn("Updating prior covariance.")
-            self._update_prior()
-        # Initalise the noise variance
-        if noise_variance is not None:
-            self.noise_variance = noise_variance
-            self.noise_std = np.sqrt(noise_variance)
-        # Posterior covariance is calculated iteratively in EP,
-        # so no update here.
+        self.hyperparameters_update(
+            cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _approximate_log_marginal_likelihood(
             self, posterior_cov, precision_EP,
