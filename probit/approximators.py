@@ -79,6 +79,9 @@ class Approximator(ABC):
         """
         # Model
         if not (isinstance(kernel, Kernel)):
+            print("kernel", kernel)
+            print("J", J)
+            print("data", data)
             raise InvalidKernel(kernel)
         else:
             self.kernel = kernel
@@ -481,7 +484,6 @@ class Approximator(ABC):
         # Update prior and posterior covariance
         # TODO: this should include an argument as to whether derivatives need to be calculated. Perhaps this is given by indices.
         self.hyperparameters_update(
-            theta=theta,
             cutpoints=cutpoints, varphi=varphi, variance=variance,
             noise_variance=noise_variance)
         if self.kernel._general and self.kernel._ARD:
@@ -775,17 +777,20 @@ class VBOrdinalGP(Approximator):
         # then the position of the matrix transpose in the code would change.
         (self.L_cov, self.lower) = cho_factor(
             self.noise_variance * np.eye(self.N) + self.K)
-        # Unfortunately, it is necessary to take this cho_factor,
-        # only for log_det_K
-        (L_K, lower) = cho_factor(self.K + self.jitter * np.eye(self.N))
 
-        # tmp
-        L_KT_inv = solve_triangular(
-            L_K.T, np.eye(self.N), lower=True)
-        self.K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
+        # cho_solve defaults as upper triangular, whereas
+        # linalg.cholesky is lower triangular by default.
+        # Therefore I don't need any transpose in my algorithm.
+        # But if I revert to a lower triangular cholesky decomp,
+        # then I will exactly follow e.g., gpflow.
 
-        self.log_det_K = 2 * np.sum(np.log(np.diag(L_K)))
-        self.log_det_cov = -2 * np.sum(np.log(np.diag(self.L_cov)))
+        # Using scipy.linalg.cholesky() and scipy.linalg.cho_factor()
+        # probably uses the same code.
+        # If the same cholesky is computed twice,
+        # then the second time the result is cached (?) and will take no time to
+        # evaluate (scipy will just point to the memory object that it has
+        # already calculated)
+
         # TODO: If jax @jit works really well with the GPU for cho_solve,
         # it is worth not storing this matrix - due to storage cost, and it
         # will be faster. See alternative implementation on feature/cho_solve
@@ -797,8 +802,13 @@ class VBOrdinalGP(Approximator):
         L_covT_inv = solve_triangular(
             self.L_cov.T, np.eye(self.N), lower=True)
         self.cov = solve_triangular(self.L_cov, L_covT_inv, lower=False)
+
+        # log det (\sigma^{2}I + K)^{-1} = -2 * trace(log(L)),
+        # where LL^{T} = (\sigma^{2}I + K)
+        self.log_det_cov = -2 * np.sum(np.log(np.diag(self.L_cov)))
         self.trace_cov = np.sum(np.diag(self.cov))
-        self.trace_posterior_cov_div_var = np.einsum('ij, ij -> ', self.K, self.cov)
+        self.trace_posterior_cov_div_var = np.einsum(
+            'ij, ij -> ', self.K, self.cov)
 
     def hyperparameters_update(
         self, cutpoints=None, varphi=None, variance=None, noise_variance=None,
@@ -911,7 +921,7 @@ class VBOrdinalGP(Approximator):
                 fx = self.objective(
                     self.N, posterior_mean, nu, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
-                    self.noise_variance, self.log_det_K,
+                    self.noise_variance,
                     self.log_det_cov)
                 ms.append(posterior_mean)
                 ys.append(y)
@@ -1034,10 +1044,63 @@ class VBOrdinalGP(Approximator):
         return np.add(posterior_mean, noise_std * p)
 
     def objective(
+        self, N, m, nu, trace_cov, trace_posterior_cov_div_var, Z,
+        noise_variance,
+        log_det_cov, verbose=False):
+        """
+        # TODO: tidy
+        Calculate fx, the variational lower bound of the log marginal
+        likelihood.
+
+        .. math::
+                \mathcal{F(\Phi)} =,
+
+            where :math:`F(\Phi)` is the variational lower bound of the log
+                marginal likelihood at the EP equilibrium,
+            :math:`h`, :math:`\Pi`, :math:`K`. #TODO
+
+        :arg int N: The number of datapoints.
+        :arg m: The posterior mean.
+        :type m: :class:`numpy.ndarray`
+        :arg y: The posterior mean.
+        :type y: :class:`numpy.ndarray`
+        :arg K: The prior covariance.
+        :type K: :class:`numpy.ndarray`
+        :arg float noise_variance: The noise variance.
+        :arg float log_det_cov: The log determinant of (a factor in) the
+            posterior covariance.
+        :arg Z: The array of normalising constants.
+        :type Z: :class:`numpy.ndarray`
+        :arg bool numerical_stability: If the function is evaluated in a
+            numerically stable way, default `True`. `False`
+            is NOT recommended as often np.linalg.det(C) returns a value 0.0.
+        :return: fx
+        :rtype: float
+        """
+        trace_K_inv_posterior_cov = noise_variance * trace_cov
+        one = - trace_posterior_cov_div_var / 2
+        three = - trace_K_inv_posterior_cov / 2
+        four = - m.T @ nu / 2
+        five = (N * np.log(noise_variance) + log_det_cov) / 2
+        six = N / 2
+        seven = np.sum(Z)
+        fx = one + three + four + five + six  + seven
+        if verbose:
+            print("one ", one)
+            print("three ", three)
+            print("four ", four)  # Sometimes largest contribution
+            print("five ", five)
+            print("six ", six)
+            print("seven ", seven)
+            print('fx = {}'.format(fx))
+        return -fx
+
+    def objectiveSS(
             self, N, m, nu, trace_cov, trace_posterior_cov_div_var, Z,
             noise_variance,
             log_det_K, log_det_cov, verbose=False):
         """
+        # TODO log_det_K cancels out of this calculation!!!
         Calculate fx, the variational lower bound of the log marginal
         likelihood.
 
@@ -1069,7 +1132,7 @@ class VBOrdinalGP(Approximator):
         """
         trace_K_inv_posterior_cov = noise_variance * trace_cov
         log_det_posterior_cov = log_det_K + N * np.log(noise_variance)\
-            + log_det_cov 
+            + log_det_cov  # or should this be negative?
         one = - trace_posterior_cov_div_var / 2
         two = - log_det_K / 2
         three = - trace_K_inv_posterior_cov / 2
@@ -1241,7 +1304,7 @@ class VBOrdinalGP(Approximator):
                 fx = self.objective(
                     self.N, posterior_mean_0, nu, self.trace_cov, self.trace_posterior_cov_div_var,
                     Z,
-                    self.noise_variance, self.log_det_K, self.log_det_cov)
+                    self.noise_variance, self.log_det_cov)
                 error = np.abs(fx_old - fx)
                 fx_old = fx
                 print("({}), error={}".format(iteration, error))
@@ -1304,7 +1367,7 @@ class VBOrdinalGP(Approximator):
             fx = self.objective(
                 self.N, posterior_mean, nu, self.trace_cov,
                 self.trace_posterior_cov_div_var, Z,
-                self.noise_variance, self.log_det_K, self.log_det_cov)
+                self.noise_variance, self.log_det_cov)
             error = np.abs(fx_old - fx)
             fx_old = fx
             if verbose:
@@ -1330,9 +1393,10 @@ class VBOrdinalGP(Approximator):
                     self.cutpoints,
                     self.noise_variance,
                     self.kernel.varphi, fx))
-        if calculate_posterior_cov == 1:
-            return fx, gx, posterior_mean, (self.noise_variance * np.eye(self.N) + self.K_inv, True)
-        elif calculate_posterior_cov == 0:
+        # if calculate_posterior_cov == 1:
+            # TODO: Why is this necessary?
+            # return fx, gx, posterior_mean, (self.noise_variance * np.eye(self.N) + self.K_inv, True)
+        if calculate_posterior_cov == 0:
             return fx, gx, posterior_mean, (self.noise_variance * self.K @ self.cov, False)
         elif calculate_posterior_cov == 2:
             return fx, gx, posterior_mean, (self.cov, True)
@@ -2550,8 +2614,11 @@ class LaplaceOrdinalGP(Approximator):
             fx = self.objective(weight, precision, L_cov, Z)
             fxs[i] = fx
             gx = self.objective_gradient(
-                gx_0.copy(), intervals, self.kernel.varphi, self.noise_variance, self.noise_std,
-                w1, w2, g1, g2, v1, v2, q1, q2, cov, weight, self.N, self.K, precision, indices)
+                gx_0.copy(), (self.X_train, self.t_train), self.grid, self.J,
+                intervals, self.kernel.varphi, self.noise_variance,
+                self.noise_std,
+                w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
+                self.N, self.K, precision, indices)
             gxs[i] = gx[indices_where]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
@@ -2627,8 +2694,10 @@ class LaplaceOrdinalGP(Approximator):
         return fx
 
     def objective_gradient(
-            self, gx, intervals, varphi, noise_variance, noise_std,
-            w1, w2, g1, g2, v1, v2, q1, q2, cov, weight, N, K, precision, indices):
+            self, gx, data, grid, J,
+            intervals, varphi, noise_variance, noise_std,
+            w1, w2, g1, g2, v1, v2, q1, q2,
+            cov, weight, N, K, precision, indices):
         """
         Calculate gx, the jacobian of the variational lower bound of the
         log marginal likelihood at the EP equilibrium.
@@ -2643,6 +2712,12 @@ class LaplaceOrdinalGP(Approximator):
 
         :arg gx: 
         :type gx:
+        :arg data:
+        :type data:
+        :arg grid:
+        :type grid:
+        :arg J:
+        :type J:
         :arg intervals:
         :type intervals:
         :arg varphi: The kernel hyper-parameters.
@@ -2680,6 +2755,7 @@ class LaplaceOrdinalGP(Approximator):
         :return: gx
         :rtype: float
         """
+        X_train, t_train = data
         if indices is not None:
             # compute a diagonal
             dsigma = cov @ K
@@ -2710,8 +2786,10 @@ class LaplaceOrdinalGP(Approximator):
                 gx[1] += 0.5 * np.sum(t1 * (1 - t2) * diag)
                 gx[1] = gx[1] / noise_std
             # For gx[2] -- ln\Delta^r
-            for j in range(2, self.J):
-                targets = self.t_train[self.grid]
+            for j in range(2, J):
+                targets = t_train[grid]
+                print(targets)
+                print(t_train)
                 # Prepare D f / D delta_l
                 cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
                 cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
@@ -2731,28 +2809,28 @@ class LaplaceOrdinalGP(Approximator):
                         - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
                         - v2[idxj]
                         - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
-                    gx[j] += 0.5 * np.sum((temp[idxj] - t2[idxj] * t1[idxj]) * diag[idxj])
+                    gx[j] += 0.5 * np.sum((temp - t2[idxj] * t1[idxj]) * diag[idxj])
                     gx[j] -= np.sum(w2[idxg] - w1[idxg])
                     gx[j] += 0.5 * np.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
                     gx[j] += 0.5 * np.sum(-t2[idxl] * t1[idxl] * diag[idxl])
                     gx[j] = gx[j] * intervals[j - 2] / noise_std
-            # For gx[self.J] -- variance
-            if indices[self.J]:
+            # For gx[J] -- variance
+            if indices[J]:
                 raise ValueError("TODO")
-            # For gx[self.J + 1] -- varphi
-            if indices[self.J + 1]:
+            # For gx[J + 1] -- varphi
+            if indices[J + 1]:
                 partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
-                    self.X_train, self.X_train)
+                    X_train, X_train)
                 if self.kernel._general and self.kernel._ARD:
                     raise ValueError("TODO")
                 else:
                     dmat = partial_K_varphi @ cov
                     t2 = (dmat @ weight) / precision
-                    gx[self.J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
-                    gx[self.J + 1] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
-                    gx[self.J + 1] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
+                    gx[J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
+                    gx[J + 1] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
+                    gx[J + 1] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
                     # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
-                    # gx[self.J] -= 0.1 * varphi
+                    # gx[J] -= 0.1 * varphi
         return gx
 
     def _approximate_initiate(
@@ -2784,7 +2862,7 @@ class LaplaceOrdinalGP(Approximator):
         containers = (posterior_means, posterior_precisions)
         return (weight_0, inverse_variance_0, posterior_mean_0, containers, error)
 
-    def approximate(
+    def approximateSS(
             self, steps, posterior_mean_0=None, first_step=1, write=False):
         """
         Estimating the posterior means and posterior covariance (and marginal
@@ -2849,6 +2927,38 @@ class LaplaceOrdinalGP(Approximator):
         containers = (posterior_means, posterior_precisions)
         return error, weight, posterior_mean, containers
 
+
+    def approximateSS(
+            self, steps, posterior_mean_0=None, first_step=1, write=False):
+        """
+        Estimating the posterior means and posterior covariance (and marginal
+        likelihood) via Laplace approximation via Newton-Raphson iteration as
+        written in
+        Appendix A Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes
+        for Ordinal Regression.. Journal of Machine Learning
+        Research. 6. 1019-1041.
+
+        Laplace imposes an inverse covariance for the approximating Gaussian
+        equal to the negative Hessian of the log of the target density.
+
+        :arg int steps: The number of iterations the Approximator takes.
+        :arg posterior_mean_0: The initial state of the approximate posterior
+            mean (N,). If `None` then initialised to zeros, default `None`.
+        :type posterior_mean_0: :class:`numpy.ndarray`
+        :arg int first_step: The first step. Useful for burn in algorithms.
+        :arg bool write: Boolean variable to store and write arrays of
+            interest. If set to "True", the method will output non-empty
+            containers of evolution of the statistics over the steps.
+            If set to "False", statistics will not be written and those
+            containers will remain empty.
+        :return: approximate posterior mean and covariances.
+        :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
+            posterior means, other statistics and tuple of lists of per-step
+            evolution of those statistics.
+        """ 
+
+
+
     def approximate_posterior(
             self, theta, indices, steps=None,
             posterior_mean_0=None,
@@ -2895,8 +3005,10 @@ class LaplaceOrdinalGP(Approximator):
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         print(indices)
         gx = self.objective_gradient(
-            gx, intervals, self.kernel.varphi, self.noise_variance,
-            self.noise_std, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
+            gx, (self.X_train, self.t_train), self.grid,
+            self.J, intervals, self.kernel.varphi, self.noise_variance,
+            self.noise_std,
+            w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
             self.N, self.K, precision, indices)
         gx = gx[np.nonzero(indices)]
         if verbose:

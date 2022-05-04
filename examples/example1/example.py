@@ -3,6 +3,8 @@ Ordinal regression concrete examples. Approximate inference.
 """
 # Make sure to limit CPU usage
 import os
+
+from pytest import approx
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
@@ -21,6 +23,7 @@ from pstats import Stats, SortKey
 import numpy as np
 import pathlib
 from probit.approximators import EPOrdinalGP, VBOrdinalGP, LaplaceOrdinalGP
+from probit.sparse import SparseLaplaceOrdinalGP
 from probit.plot import outer_loops, grid_synthetic, grid, plot_synthetic, plot, train, test
 from probit.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 import sys
@@ -71,6 +74,9 @@ def main():
         elif approximation == "LA":
             steps = np.max([2, N_train//1000])
             Approximator = LaplaceOrdinalGP
+        elif approximation == "SLA":
+            steps = np.max([2, N_train//1000])
+            Approximator = SparseLaplaceOrdinalGP
         outer_loops(
             Approximator, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
             cutpoints_0, varphi_0, noise_variance_0, signal_variance_0, J, D)
@@ -78,8 +84,8 @@ def main():
         kernel = Kernel(varphi=varphi_0, variance=signal_variance_0)
         # Initiate the classifier with the training data
         classifier = Approximator(
-            cutpoints_0, noise_variance_0, kernel,
-            J, (X_trains[2], t_trains[2]))
+            cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
+            K=J, data=(X_trains[2], t_trains[2]))
         indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen
         # Fix noise_variance
@@ -115,10 +121,22 @@ def main():
         elif approximation == "LA":
             steps = np.max([2, N_train//1000])
             Approximator = LaplaceOrdinalGP
-        # Initiate classifier
+        elif approximation == "SLA":
+            steps = np.max([2, N_train//1000])
+            Approximator = SparseLaplaceOrdinalGP
+        else:
+            raise ValueError(
+                "Approximator not found (got {}, expected EP, VB, LA, or SLA)".format(
+                    approximation))
+        # Initiate sparse classifier
+        M = 135
         classifier = Approximator(
-            cutpoints_0, noise_variance_0, kernel,
-            J, (X, t))
+            M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
+            J=J, data=(X, t))
+        # # Initiate classifier
+        # classifier = Approximator(
+        #     cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
+        #     J=J, data=(X, t))
         indices = np.ones(J + 2)
         # Fix noise variance
         indices[0] = 0
@@ -149,9 +167,9 @@ def main():
         # classifier = train(
         #     classifier, method, indices, verbose=True, steps=steps)
         # test(classifier, X, t, Y_true, steps)
-        grid_synthetic(classifier, domain, res, indices, show=True)
-        # plot_synthetic(
-        #     classifier, dataset, X_true, Y_true, steps, colors=colors)
+        # grid_synthetic(classifier, domain, res, indices, show=True)
+        plot_synthetic(
+            classifier, dataset, X_true, Y_true, steps, colors=colors)
         #plot_synthetic(classifier, dataset, X, Y, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
