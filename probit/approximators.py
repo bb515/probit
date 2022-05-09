@@ -255,53 +255,6 @@ class Approximator(ABC):
             predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
         return predictive_distributions, posterior_pred_mean, posterior_std
 
-    def _predict_vectorSS(
-        self, cutpoints, cov, posterior_mean, varphi, noise_variance,
-        X_test):
-        """
-        Make posterior prediction over ordinal classes of X_test.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg cov: A covariance matrix used in calculation of posterior
-            predictions. (\sigma^2I + K)^{-1} Array like (N, N).
-        :type cov: :class:`numpy.ndarray`
-        :arg posterior_mean: The posterior mean. Array like (N,).
-        :type posterior_mean: :class:`numpy.ndarray`
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
-        :arg float noise_variance: The noise variance.
-        :arg X_test: The new data points, array like (N_test, D).
-        :return: A Monte Carlo estimate of the class probabilities.
-        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-        """
-        N_test = np.shape(X_test)[0]
-        # Update the kernel with new varphi
-        self.kernel.varphi = varphi
-        # C_news[:, i] is C_new for X_test[i]
-        Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-        # intermediate_vectors[:, i] is intermediate_vector for X_test[i]
-        intermediate_vectors = cov @ Kfs  # (N, N_test)
-        intermediate_scalars = np.einsum(
-            'ij, ij -> j', Kfs, intermediate_vectors)
-        posterior_var = self.kernel.kernel_prior_diagonal(
-            X_test) - intermediate_scalars
-        posterior_pred_var = posterior_var + noise_variance
-        posterior_std = np.sqrt(posterior_var)
-        posterior_pred_std = np.sqrt(posterior_pred_var)
-        # TODO: This calculation is wrong, which is why it was superceded.
-        posterior_pred_mean = np.einsum(
-            'ij, i -> j', intermediate_vectors, posterior_mean)
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            Z1 = np.divide(np.subtract(
-                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
-            Z2 = np.divide(
-                np.subtract(cutpoints[j],
-                posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
-        return predictive_distributions, posterior_pred_mean, posterior_std
-
     def get_log_likelihood(self, m):
         """
         Likelihood of ordinal regression. This is product of scalar normal cdf.
