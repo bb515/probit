@@ -289,6 +289,7 @@ class Approximator(ABC):
         posterior_pred_var = posterior_var + noise_variance
         posterior_std = np.sqrt(posterior_var)
         posterior_pred_std = np.sqrt(posterior_pred_var)
+        # TODO: This calculation is wrong, which is why it was superceded.
         posterior_pred_mean = np.einsum(
             'ij, i -> j', intermediate_vectors, posterior_mean)
         predictive_distributions = np.empty((N_test, self.J))
