@@ -157,7 +157,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
 
 
 def plot_contour(
-    classifier, X_test, t_test, steps, posterior_inv_cov, posterior_mean,
+    classifier, X_test, t_test, steps, cov, weights,
     domain):
     """
     Given classifier and approximate posterior mean and covariance,
@@ -175,9 +175,7 @@ def plot_contour(
     (Z,
     posterior_predictive_m,
     posterior_std) = classifier.predict(
-        classifier.cutpoints, posterior_inv_cov, posterior_mean,
-        classifier.kernel.varphi,
-        classifier.noise_variance, X_new_, vectorised=True)
+        X_new_, cov, weights)
     Z_new = Z.reshape((N, N, classifier.J))
     print(np.sum(Z, axis=1), 'sum')
     for j in range(classifier.J):
@@ -204,13 +202,11 @@ def plot_contour(
 
 def test(
         classifier, X_test, t_test, y_test,
-        posterior_mean, posterior_inv_cov):
+        weights, cov):
     (Z,
     posterior_predictive_m,
     posterior_std) = classifier.predict(
-        classifier.cutpoints, posterior_inv_cov, posterior_mean,
-        classifier.kernel.varphi,
-        classifier.noise_variance, X_test, vectorised=True)
+        X_test, cov, weights)
     return calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
 
 
@@ -300,9 +296,7 @@ def save_model(
 #         (Z,
 #         posterior_predictive_m,
 #         posterior_std) = classifier.predict(
-#             classifier.cutpoints, posterior_inv_cov, posterior_mean,
-#             classifier.kernel.varphi,
-#             classifier.noise_variance, X_test, vectorised=True)
+#             X_test, cov, weights)
 #     return posterior_inv_cov, posterior_mean, calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
  
 
@@ -792,10 +786,9 @@ def plot(classifier, steps, domain=None):
     Contour plot of the predictive probabilities over a chosen domain.
     """
     (fx, gx,
-    posterior_mean, (posterior_inv_cov, is_inv)
+    weights, (cov, is_inv)
     ) = classifier.approximate_posterior(
-            None, None, steps=steps, first_step=1,
-            calculate_posterior_cov=2,
+            None, None, steps=steps, first_step=1, calculate_posterior_cov=2,
             write=False, verbose=True)
     if domain is not None:
         (xlims, ylims) = domain
@@ -808,12 +801,8 @@ def plot(classifier, steps, domain=None):
         X_new_ = np.zeros((N * N, classifier.D))
         X_new_[:, :2] = X_new
         # Test
-        (Z,
-        posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            classifier.cutpoints, posterior_inv_cov, posterior_mean,
-            classifier.kernel.varphi,
-            classifier.noise_variance, X_new_, vectorised=True)
+        (Z, posterior_predictive_mean, posterior_std) = classifier.predict(
+            X_new_, cov, weights)
         Z_new = Z.reshape((N, N, classifier.J))
         print(np.sum(Z, axis=1), 'sum')
         for j in range(classifier.J):
@@ -843,7 +832,7 @@ def plot_synthetic(
     TODO: needs generalizing to other datasets other than Chu.
     """
     (fx, gx,
-    posterior_mean, (cov, is_inv)
+    weights, (cov, is_inv)
     ) = classifier.approximate_posterior(
             None, None, steps=steps, first_step=1,
             calculate_posterior_cov=2,
@@ -860,9 +849,7 @@ def plot_synthetic(
                 (Z,
                 posterior_predictive_m,
                 posterior_std) = classifier.predict(
-                    classifier.cutpoints, cov, posterior_mean,
-                    classifier.kernel.varphi,
-                    classifier.noise_variance, X_new, vectorised=True)
+                    X_new, cov, weights)
                 print(np.sum(Z, axis=1), 'sum')
                 plt.xlim(x_lims)
                 plt.ylim(0.0, 1.0)
@@ -924,9 +911,7 @@ def plot_synthetic(
                 (Z,
                 posterior_predictive_m,
                 posterior_std) = classifier.predict(
-                    classifier.cutpoints, cov, posterior_mean,
-                    classifier.kernel.varphi,
-                    classifier.noise_variance, X_new, vectorised=True)
+                    X_new, cov, weights)
                 fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
@@ -994,9 +979,7 @@ def plot_synthetic(
             (Z,
             posterior_predictive_m,
             posterior_std) = classifier.predict(
-                classifier.cutpoints, cov, posterior_mean,
-                classifier.kernel.varphi,
-                classifier.noise_variance, X_new, vectorised=True)
+                X_new, cov, weights)
             print(np.sum(Z, axis=1), 'sum')
             plt.xlim(x_lims)
             plt.ylim(0.0, 1.0)
