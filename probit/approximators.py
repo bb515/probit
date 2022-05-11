@@ -2869,7 +2869,6 @@ class LaplaceOrdinalGP(Approximator):
             posterior_mean_0[self.indices_where_0] = self.cutpoints_tplus1s[
                 self.indices_where_0]
         error = 0.0
-        posterior_mean_0 = np.empty(self.N)
         posterior_means = []
         posterior_precisions = []
         containers = (posterior_means, posterior_precisions)
