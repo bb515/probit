@@ -170,7 +170,7 @@ class Approximator(ABC):
         """
 
     def predict(
-            self, X_test, cov, nu):
+            self, X_test, cov, f, reparametrised=False, whitened=False):
         """
         Return the posterior predictive distribution over classes.
 
@@ -192,30 +192,28 @@ class Approximator(ABC):
                 " ISO type (kernel._ARD=0). (got {}, expected)".format(
                     self.kernel._ARD, 0))
         else:
-            return self._predict_vector(
-                X_test, cov, nu,
-                cutpoints=self.cutpoints,
-                noise_variance=self.noise_variance,
-                numerically_stable=False)
+            if whitened is True:
+                raise NotImplementedError("Not implemented.")
+            elif reparametrised is True:
+                return self._predict_vector(
+                    X_test, cov, nu=f,
+                    cutpoints=self.cutpoints,
+                    noise_variance=self.noise_variance)
+            else:
+                return self._predict_vector_from_posterior_mean(
+                    X_test, cov, posterior_mean=f,
+                    cutpoints=self.cutpoints,
+                    noise_variance=self.noise_variance)
 
     def _predict_vector_from_posterior_mean(
-            self, X_test, cov, f, cutpoints, noise_variance,
-            numerically_stable=False):
+            self, X_test, cov, posterior_mean, cutpoints, noise_variance):
         """
         Make posterior prediction over ordinal classes of X_test.
 
-        Could be working with
-        f is (K + \sigma^{2}I)^{-1} y = \nu = K @ posterior_mean 
-        or
-        f is K (K + \sigma^{2}I)^{-1} y = posterior mean
-        or
-        f is L^{T} \nu = L^{-1} posterior_mean = whitened posterior mean
+        f is K (K + \sigma^{2}I)^{-1} y = posterior mean,
 
-        It turns out to be simpler to work with \nu, where
-            f = K @ \nu = K @ cov y
-        for the predictions.
-
-        TODO: will working with whitened variables every be useful?
+        so f* = Knm K^{-1} f = Knm L^{-T} L^{-1} f, which requires two
+        backsolves
 
         :arg X_test: The new data points, array like (N_test, D).
         :arg cov: A covariance matrix used in calculation of posterior
@@ -235,17 +233,11 @@ class Approximator(ABC):
         Kss = self.kernel.kernel_prior_diagonal(X_test)
         Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
 
-        if numerically_stable:
-            L_cov = self.K + noise_variance * np.eye(np.shape(self.X_train)[0])
-            (L_cov, lower) = cho_factor(L_cov)
-            A = solve_triangular(L_cov.T, Kfs, lower=True)
-            A = solve_triangular(L_cov, A, lower=False)
-            posterior_variance = Kss - np.sum(A**2, axis=0)
-            # posterior_mean = A @ y
-        else:
-            intermediate_vectors = cov @ Kfs
-            posterior_variance = Kss - np.einsum(
-            'ij, ij -> j', Kfs, intermediate_vectors)
+        intermediate_vectors = cov @ Kfs
+        posterior_variance = Kss - np.einsum(
+        'ij, ij -> j', Kfs, intermediate_vectors)
+
+        # cholesky of Kmm needed, which is clearly not available.
 
         posterior_std = np.sqrt(posterior_variance)
         posterior_pred_mean = Kfs.T @ f
@@ -263,23 +255,11 @@ class Approximator(ABC):
         return predictive_distributions, posterior_pred_mean, posterior_std
 
     def _predict_vector(
-            self, X_test, cov, f, cutpoints, noise_variance,
-            numerically_stable=False):
+            self, X_test, cov, nu, cutpoints, noise_variance):
         """
         Make posterior prediction over ordinal classes of X_test.
 
-        Could be working with
-        f is (K + \sigma^{2}I)^{-1} y = \nu = K @ posterior_mean 
-        or
-        f is K (K + \sigma^{2}I)^{-1} y = posterior mean
-        or
-        f is L^{T} \nu = L^{-1} posterior_mean = whitened posterior mean
-
-        It turns out to be simpler to work with \nu, where
-            f = K @ \nu = K @ cov y
-        for the predictions.
-
-        TODO: will working with whitened variables every be useful?
+        f is (K + \sigma^{2}I)^{-1} y = \nu = K^{-1} @ posterior_mean 
 
         :arg X_test: The new data points, array like (N_test, D).
         :arg cov: A covariance matrix used in calculation of posterior
@@ -299,20 +279,12 @@ class Approximator(ABC):
         Kss = self.kernel.kernel_prior_diagonal(X_test)
         Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
 
-        if numerically_stable:
-            L_cov = self.K + noise_variance * np.eye(np.shape(self.X_train)[0])
-            (L_cov, lower) = cho_factor(L_cov)
-            A = solve_triangular(L_cov.T, Kfs, lower=True)
-            A = solve_triangular(L_cov, A, lower=False)
-            posterior_variance = Kss - np.sum(A**2, axis=0)
-            # posterior_mean = A @ y
-        else:
-            intermediate_vectors = cov @ Kfs
-            posterior_variance = Kss - np.einsum(
-            'ij, ij -> j', Kfs, intermediate_vectors)
+        intermediate_vectors = cov @ Kfs
+        posterior_variance = Kss - np.einsum(
+        'ij, ij -> j', Kfs, intermediate_vectors)
 
         posterior_std = np.sqrt(posterior_variance)
-        posterior_pred_mean = Kfs.T @ f
+        posterior_pred_mean = Kfs.T @ nu
         posterior_pred_variance = posterior_variance + noise_variance
         posterior_pred_std = np.sqrt(posterior_pred_variance)
 
@@ -2959,7 +2931,7 @@ class LaplaceOrdinalGP(Approximator):
         containers = (posterior_means, posterior_precisions)
         return (posterior_mean_0, containers, error)
 
-    def approximate(
+    def approximateSS(
             self, steps, posterior_mean_0=None, first_step=1, write=False):
         """
         Estimating the posterior means and posterior covariance (and marginal
@@ -3023,7 +2995,7 @@ class LaplaceOrdinalGP(Approximator):
         containers = (nus, precisions)
         return error, weight, nu, posterior_mean, containers
 
-    def approximateSS(
+    def approximate(
             self, steps, posterior_mean_0=None, first_step=1, write=False):
         """
         Estimating the posterior means and posterior covariance (and marginal
@@ -3051,9 +3023,7 @@ class LaplaceOrdinalGP(Approximator):
             posterior means, other statistics and tuple of lists of per-step
             evolution of those statistics.
         """
-        (weight_0,
-        inverse_variance_0,
-        posterior_mean, containers, error) = self._approximate_initiate(
+        (posterior_mean, containers, error) = self._approximate_initiate(
             posterior_mean_0)
         (posterior_means, posterior_precisions) = containers
         for _ in trange(first_step, first_step + steps,
@@ -3072,13 +3042,13 @@ class LaplaceOrdinalGP(Approximator):
             precision  = weight**2 + (
                 z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
                 ) / Z / self.noise_variance
-            L_cov = self.K + np.diag(1. / precision)
-            m = - self.K @ weight + posterior_mean  # TODO avoid this multiply by K by using K\nu = \mu
-            L_cov, _ = cho_factor(L_cov)
-            L_covT_inv = solve_triangular(
-                L_cov.T, np.eye(self.N), lower=True)
-            invcov = solve_triangular(L_cov, L_covT_inv, lower=False)
-            t1 = - (invcov @ m) / precision
+            L = self.K + np.diag(1. / precision)
+            m = - self.K @ weight + posterior_mean
+            L, _ = cho_factor(L)
+            LT_inv = solve_triangular(
+                L.T, np.eye(self.N), lower=True)
+            cov = solve_triangular(L, LT_inv, lower=False)
+            t1 = - (cov @ m) / precision
             posterior_mean += t1
             error = np.abs(max(t1.min(), t1.max(), key=abs))
             if write is True:

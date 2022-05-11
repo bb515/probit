@@ -236,8 +236,6 @@ class SparseVBOrdinalGP(VBOrdinalGP):
         N_test = np.shape(X_test)[0]
         Kss = self.kernel.kernel_prior_diagonal(X_test)
         Kus = self.kernel.kernel_matrix(self.Z, X_test)  # (M, N_test)
-        Kfu = self.kernel.kernel_matrix(self.X_train, X_test)
-
 
         if numerically_stable:
             # Seems to be necessary to take this cho factor
@@ -246,7 +244,6 @@ class SparseVBOrdinalGP(VBOrdinalGP):
             A = solve_triangular(L, self.Kuf, lower=True) / self.noise_std
             B = A @ A.T + np.eye(self.M)
             (LB, lower) = cho_factor(B, lower=True)
-
 
         err = self.noise_variance * nu  # TODO: i think this is meant to be prior error! not posterior_mean error
         Aerr = A @ err
