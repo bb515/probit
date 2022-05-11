@@ -8,8 +8,6 @@ import time
 from scipy.optimize import minimize
 import matplotlib.colors as mcolors
 from matplotlib import rc
-# import matplotlib.colors as mcolors
-# from matplotlib import rc
 
 
 def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):

@@ -1,6 +1,4 @@
-# # TODO: tmp
 from abc import ABC, abstractmethod
-
 import enum
 from .kernels import Kernel, InvalidKernel
 import pathlib
@@ -19,7 +17,6 @@ from .utilities import (
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
 #     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
-from scipy.stats import norm
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from .utilities import (
     sample_varphis,
@@ -243,7 +240,7 @@ class Approximator(ABC):
             Z2 = np.divide(
                 np.subtract(cutpoints[j],
                 posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
+            predictive_distributions[:, j] = norm_cdf(Z1) - norm_cdf(Z2)
         return predictive_distributions, posterior_pred_mean, posterior_std
 
     def get_log_likelihood(self, m):

@@ -1,6 +1,6 @@
 """Utility functions for probit."""
 import numpy as np
-from scipy.stats import expon, norm
+from scipy.stats import expon
 from scipy.special import ndtr, log_ndtr
 import warnings
 import h5py
@@ -111,12 +111,13 @@ def norm_logcdf(x):
 
 
 def return_prob_vector(b, cutpoints_t, cutpoints_tplus1, noise_std):
-    return ndtr((cutpoints_tplus1 - b) / noise_std) - ndtr((cutpoints_t - b) / noise_std)
+    return ndtr(
+        (cutpoints_tplus1 - b) / noise_std) - ndtr(
+            (cutpoints_t - b) / noise_std)
 
 
 def fromb_fft1_vector(
-    b, mean, sigma, noise_std, cutpoints_t, cutpoints_tplus1,
-    EPS_2):
+        b, mean, sigma, noise_std, cutpoints_t, cutpoints_tplus1, EPS_2):
     """
     :arg float b: The approximate posterior mean vector.
     :arg float mean: A mean value of a pdf inside the integrand.
@@ -135,12 +136,11 @@ def fromb_fft1_vector(
         b, cutpoints_t, cutpoints_tplus1, noise_std)
     prob[prob < EPS_2] = EPS_2
     return norm_pdf(b, loc=mean, scale=sigma) * np.log(prob)
-    #return norm.pdf(b, loc=mean, scale=sigma) * np.log(prob)
 
 
 def fromb_t1_vector(
-    y, posterior_mean, posterior_covariance, cutpoints_t, cutpoints_tplus1,
-    noise_std, EPS, EPS_2, N):
+        y, posterior_mean, posterior_covariance, cutpoints_t, cutpoints_tplus1,
+        noise_std, EPS, EPS_2, N):
     """
     :arg posterior_mean: The approximate posterior mean vector.
     :type posterior_mean: :class:`numpy.ndarray`
@@ -224,9 +224,9 @@ def fromb_fft2_vector(
 
 
 def fromb_t2_vector(
-    y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
-    cutpoints_t, cutpoints_tplus1,
-    noise_variance, noise_std, EPS, EPS_2, N):
+        y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
+        cutpoints_t, cutpoints_tplus1,
+        noise_variance, noise_std, EPS, EPS_2, N):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
         datapoint. (pdf inside the integrand)
@@ -310,9 +310,9 @@ def fromb_fft3_vector(
 
 
 def fromb_t3_vector(
-    y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
-    cutpoints_t, cutpoints_tplus1,
-    noise_std, noise_variance, EPS, EPS_2, N):
+        y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
+        cutpoints_t, cutpoints_tplus1,
+        noise_std, noise_variance, EPS, EPS_2, N):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
         datapoint. (pdf inside the integrand)
@@ -389,9 +389,9 @@ def fromb_fft4_vector(
 
 
 def fromb_t4_vector(
-    y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
-    cutpoints_t, cutpoints_tplus1,
-    noise_variance, noise_std, EPS, EPS_2, N):
+        y, mean, sigma, a, b, h, posterior_mean, posterior_covariance,
+        cutpoints_t, cutpoints_tplus1,
+        noise_variance, noise_std, EPS, EPS_2, N):
     """
     :arg float posterior_mean: The approximate posterior mean evaluated at the
         datapoint. (pdf inside the integrand)
@@ -533,7 +533,8 @@ def log_multivariate_normal_pdf(
     """Get the pdf of the multivariate normal distribution."""
     if mean is not None:
         x = x - mean
-    return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
+    return -0.5 * np.log(2 * np.pi)\
+        - half_log_det_cov - 0.5 * x.T @ cov_inv @ x  # log likelihood
 
 
 def log_multivariate_normal_pdf_vectorised(
@@ -632,7 +633,7 @@ def truncated_norm_normalising_constant(
     Return the normalising constants for the truncated normal distribution
     in a numerically stable manner.
 
-    TODO: Make a numba version, shouldn't be difficult, but will have to be
+    TODO: Could a numba version, shouldn't be difficult, but will have to be
         parallelised scalar (due to the boolean logic).
     TODO: There is no way to calculate this in the log domain (unless expansion
     approximations are used). Could investigate only using approximations here.
@@ -669,11 +670,6 @@ def truncated_norm_normalising_constant(
     norm_pdf_z2s = norm_pdf(z2s)
     norm_cdf_z1s = norm_cdf(z1s)
     norm_cdf_z2s = norm_cdf(z2s)
-    ## SS: test timings
-    # norm_pdf_z1s = norm.pdf(z1s)
-    # norm_pdf_z2s = norm.pdf(z2s)
-    # norm_cdf_z1s = norm.cdf(z1s)
-    # norm_cdf_z2s = norm.cdf(z2s)
     Z = norm_cdf_z2s - norm_cdf_z1s
     if upper_bound is not None:
         # Using series expansion approximations
