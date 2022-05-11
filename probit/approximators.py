@@ -2976,8 +2976,6 @@ class LaplaceOrdinalGP(Approximator):
             (error, weight, posterior_mean, containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
                 first_step=first_step, write=write)
-            plt.scatter(self.X_train, posterior_mean)
-            plt.show()
             if verbose:
                 print("({}), error={}".format(iteration, error))
         # Calculates weights and matrix inverses one more time.
