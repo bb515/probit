@@ -686,6 +686,7 @@ class Approximator(ABC):
             self.X_train, self.X_train)
         self.partial_K_variance = self.kernel.kernel_partial_derivative_variance(
             self.X_train, self.X_train)
+        warnings.warn("Done updating prior covariance.")
         # TODO: When it is not necessary to calculate the partial derivatives - when no gradient eval is required.
         # if theta is not None:
         #     # If the unconstrained optimization input (theta) is defined then
