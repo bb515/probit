@@ -132,15 +132,19 @@ def main():
             raise ValueError(
                 "Approximator not found (got {}, expected EP, VB, LA, or SLA)".format(
                     approximation))
-        # Initiate sparse classifier
-        M = 100
-        classifier = Approximator(
-            M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
+
+        if approximation in ["EP", "VB", "LA"]:
+            # Initiate classifier
+            classifier = Approximator(
+            cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
             J=J, data=(X, t))
-        # # Initiate classifier
-        # classifier = Approximator(
-        #     cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
-        #     J=J, data=(X, t))
+        else:
+            # Initiate sparse classifier
+            M = 10  # Number of inducing points. Is there a problem when this is small?
+            classifier = Approximator(
+                M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
+                J=J, data=(X, t))
+ 
         indices = np.ones(J + 2)
         # Fix noise variance
         indices[0] = 0

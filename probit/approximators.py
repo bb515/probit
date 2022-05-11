@@ -170,7 +170,7 @@ class Approximator(ABC):
         """
 
     def predict(
-            self, X_test, cov, f, reparametrised=False, whitened=False):
+            self, X_test, cov, f, reparametrised=True, whitened=False):
         """
         Return the posterior predictive distribution over classes.
 
@@ -200,59 +200,7 @@ class Approximator(ABC):
                     cutpoints=self.cutpoints,
                     noise_variance=self.noise_variance)
             else:
-                return self._predict_vector_from_posterior_mean(
-                    X_test, cov, posterior_mean=f,
-                    cutpoints=self.cutpoints,
-                    noise_variance=self.noise_variance)
-
-    def _predict_vector_from_posterior_mean(
-            self, X_test, cov, posterior_mean, cutpoints, noise_variance):
-        """
-        Make posterior prediction over ordinal classes of X_test.
-
-        f is K (K + \sigma^{2}I)^{-1} y = posterior mean,
-
-        so f* = Knm K^{-1} f = Knm L^{-T} L^{-1} f, which requires two
-        backsolves
-
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg cov: A covariance matrix used in calculation of posterior
-            predictions. (\sigma^2I + K)^{-1} Array like (N, N).
-        :type cov: :class:`numpy.ndarray`
-        :arg nu: The posterior mean. Array like (N,).
-        :type nu: :class:`numpy.ndarray`
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg float noise_variance: The noise variance.
-        :arg bool numerically_stable: Use matmul or triangular solve.
-            Default `False`. 
-        :return: A Monte Carlo estimate of the class probabilities.
-        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-        """
-        N_test = np.shape(X_test)[0]
-        Kss = self.kernel.kernel_prior_diagonal(X_test)
-        Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-
-        intermediate_vectors = cov @ Kfs
-        posterior_variance = Kss - np.einsum(
-        'ij, ij -> j', Kfs, intermediate_vectors)
-
-        # cholesky of Kmm needed, which is clearly not available.
-
-        posterior_std = np.sqrt(posterior_variance)
-        posterior_pred_mean = Kfs.T @ f
-        posterior_pred_variance = posterior_variance + noise_variance
-        posterior_pred_std = np.sqrt(posterior_pred_variance)
-
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            Z1 = np.divide(np.subtract(
-                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
-            Z2 = np.divide(
-                np.subtract(cutpoints[j],
-                posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
-        return predictive_distributions, posterior_pred_mean, posterior_std
+                raise NotImplementedError("Not implemented.")
 
     def _predict_vector(
             self, X_test, cov, nu, cutpoints, noise_variance):
@@ -1118,9 +1066,6 @@ class VBOrdinalGP(Approximator):
             posterior covariance.
         :arg Z: The array of normalising constants.
         :type Z: :class:`numpy.ndarray`
-        :arg bool numerical_stability: If the function is evaluated in a
-            numerically stable way, default `True`. `False`
-            is NOT recommended as often np.linalg.det(C) returns a value 0.0.
         :return: fx
         :rtype: float
 
@@ -1172,9 +1117,6 @@ class VBOrdinalGP(Approximator):
             posterior covariance.
         :arg Z: The array of normalising constants.
         :type Z: :class:`numpy.ndarray`
-        :arg bool numerical_stability: If the function is evaluated in a
-            numerically stable way, default `True`. `False`
-            is NOT recommended as often np.linalg.det(C) returns a value 0.0.
         :return: fx
         :rtype: float
         """
@@ -2031,7 +1973,8 @@ class EPOrdinalGP(Approximator):
             self, posterior_cov, precision_EP, amplitude_EP, mean_EP,
             numerical_stability):
         """
-        Calculate the approximate log marginal likelihood. TODO: need to finish this.
+        Calculate the approximate log marginal likelihood.
+        TODO: need to finish this.
 
         :arg posterior_cov: The approximate posterior covariance.
         :type posterior_cov:
@@ -2923,7 +2866,8 @@ class LaplaceOrdinalGP(Approximator):
         """
         if posterior_mean_0 is None:
             posterior_mean_0 = self.cutpoints_ts.copy()
-            posterior_mean_0[self.indices_where_0] = self.cutpoints_tplus1s[self.indices_where_0]
+            posterior_mean_0[self.indices_where_0] = self.cutpoints_tplus1s[
+                self.indices_where_0]
         error = 0.0
         posterior_mean_0 = np.empty(self.N)
         posterior_means = []
@@ -2931,69 +2875,26 @@ class LaplaceOrdinalGP(Approximator):
         containers = (posterior_means, posterior_precisions)
         return (posterior_mean_0, containers, error)
 
-    def approximateSS(
-            self, steps, posterior_mean_0=None, first_step=1, write=False):
-        """
-        Estimating the posterior means and posterior covariance (and marginal
-        likelihood) via Laplace approximation via Newton-Raphson iteration as
-        written in
-        Appendix A Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes
-        for Ordinal Regression.. Journal of Machine Learning
-        Research. 6. 1019-1041.
-
-        Laplace imposes an inverse covariance for the approximating Gaussian
-        equal to the negative Hessian of the log of the target density.
-
-        :arg int steps: The number of iterations the Approximator takes.
-        :arg posterior_mean_0: The initial state of the approximate posterior
-            mean (N,). If `None` then initialised to zeros, default `None`.
-        :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg int first_step: The first step. Useful for burn in algorithms.
-        :arg bool write: Boolean variable to store and write arrays of
-            interest. If set to "True", the method will output non-empty
-            containers of evolution of the statistics over the steps.
-            If set to "False", statistics will not be written and those
-            containers will remain empty.
-        :return: approximate posterior mean and covariances.
-        :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
-            posterior means, other statistics and tuple of lists of per-step
-            evolution of those statistics.
-        """
-        (posterior_mean, containers, error) = self._approximate_initiate(
-            posterior_mean_0)
-        (nus, precisions) = containers
-        for _ in trange(first_step, first_step + steps,
-                        desc="Laplace GP approximator progress",
-                        unit="iterations", disable=True):
-            
-            (Z, norm_pdf_z1s, norm_pdf_z2s,
-                z1s, z2s,
-                _, _) = truncated_norm_normalising_constant(
-                self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
-                posterior_mean, self.EPS, upper_bound=self.upper_bound,
-                )
-                #upper_bound2=self.upper_bound2)  # TODO Turn this off!
-            weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
-            z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-            z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
-            precision  = weight**2 + (
-                z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
-                ) / Z / self.noise_variance
-            L_cov = self.K + np.diag(1. / precision)
-            L_cov, _ = cho_factor(L_cov)
-            L_covT_inv = solve_triangular(
-                L_cov.T, np.eye(self.N), lower=True)
-            cov = solve_triangular(L_cov, L_covT_inv, lower=False)
-            m = - weight + nu
-            t1 = -  cov @ (m / precision)
-            nu += t1
-            posterior_mean = self.K @ nu
-            error = np.abs(max(t1.min(), t1.max(), key=abs))
-            if write is True:
-                nus.append(nu)
-                precisions.append(precision)
-        containers = (nus, precisions)
-        return error, weight, nu, posterior_mean, containers
+    def _update_posterior(self, Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+            noise_std, noise_variance, posterior_mean):
+        """Update Laplace approximation to the posterior in Newton step."""
+        weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
+        z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
+        z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
+        precision  = weight**2 + (
+            z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
+            ) / Z / noise_variance
+        print(precision)
+        L = self.K + np.diag(1. / precision)
+        m = - self.K @ weight + posterior_mean
+        L, _ = cho_factor(L)
+        LT_inv = solve_triangular(
+            L.T, np.eye(self.N), lower=True)
+        cov = solve_triangular(L, LT_inv, lower=False)
+        t1 = - (cov @ m) / precision
+        posterior_mean += t1
+        error = np.abs(max(t1.min(), t1.max(), key=abs))
+        return error, weight, posterior_mean
 
     def approximate(
             self, steps, posterior_mean_0=None, first_step=1, write=False):
@@ -3029,28 +2930,15 @@ class LaplaceOrdinalGP(Approximator):
         for _ in trange(first_step, first_step + steps,
                         desc="Laplace GP approximator progress",
                         unit="iterations", disable=True):
-            (Z, norm_pdf_z1s, norm_pdf_z2s,
-                z1s, z2s,
-                _, _) = truncated_norm_normalising_constant(
+            (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+                    _, _) = truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean, self.EPS, upper_bound=self.upper_bound,
                 )
                 #upper_bound2=self.upper_bound2)  # TODO Turn this off!
-            weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / self.noise_std
-            z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-            z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
-            precision  = weight**2 + (
-                z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
-                ) / Z / self.noise_variance
-            L = self.K + np.diag(1. / precision)
-            m = - self.K @ weight + posterior_mean
-            L, _ = cho_factor(L)
-            LT_inv = solve_triangular(
-                L.T, np.eye(self.N), lower=True)
-            cov = solve_triangular(L, LT_inv, lower=False)
-            t1 = - (cov @ m) / precision
-            posterior_mean += t1
-            error = np.abs(max(t1.min(), t1.max(), key=abs))
+            error, weight, posterior_mean = self._update_posterior(
+                Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+                self.noise_std, self.noise_variance, posterior_mean)
             if write is True:
                 posterior_means.append(posterior_mean)
                 posterior_precisions.append(posterior_precisions)
@@ -3088,8 +2976,11 @@ class LaplaceOrdinalGP(Approximator):
             (error, weight, posterior_mean, containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
                 first_step=first_step, write=write)
+            plt.scatter(self.X_train, posterior_mean)
+            plt.show()
             if verbose:
                 print("({}), error={}".format(iteration, error))
+        # Calculates weights and matrix inverses one more time.
         (weight, precision,
         w1, w2, g1, g2, v1, v2, q1, q2,
         L_cov, cov, Z) = self.compute_weights(
@@ -3130,7 +3021,8 @@ class LaplaceOrdinalGP(Approximator):
         #     posterior_inv_cov = K_inv + np.diag(precision)
         #     return fx, gx, posterior_mean, (posterior_inv_cov, True)
         if calculate_posterior_cov == 0:
-            return fx, gx, posterior_mean, (self.noise_variance * self.K @ cov, False)
+            return fx, gx, posterior_mean, (
+                self.noise_variance * self.K @ cov, False)
         elif calculate_posterior_cov == 2:
             return fx, gx, weight, (cov, True)
         elif calculate_posterior_cov is None:
