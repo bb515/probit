@@ -26,19 +26,20 @@ from .utilities import (
 
 class Approximator(ABC):
     """
-    TODO: separate the approximation from the likelihood, e.g. probit.models.EP(likelihood = ordinal),
-        probit.models.Laplace(likelihood = ordinal), probit.models.VGP(likelihood = probit).
     Base class for variational Bayes approximators.
 
     This class allows users to define a classification problem,
-    get predictions using an approximate Bayesian inference.
+    get predictions using an approximate Bayesian inference. Here, N is the
+    number of training datapoints, D is the data input dimensions, J is the
+    number of ordinal classes, N_test is the number of testing datapoints.
 
     All approximators must define an init method, which may or may not
         inherit Sampler as a parent class using `super()`.
     All approximators that inherit Approximator define a number of methods that
         return the approximate posterior.
-    All approximators must define a :meth:`approximate` that can be used to approximate
-        the posterior.
+    All approximators must define a :meth:`approximate_posterior` that can be
+        used to approximate the posterior and get ELBO gradients with respect
+        to the hyperparameters.
     All approximators must define a :meth:`_approximate_initiate` that is used to
         initiate approximate.
     All approximators must define a :meth:`predict` can be used to make
@@ -47,8 +48,8 @@ class Approximator(ABC):
     @abstractmethod
     def __repr__(self):
         """
-        Return a string representation of this class, used to import the class from
-        the string.
+        Return a string representation of this class, used to import the class
+        from the string.
 
         This method should be implemented in every concrete Approximator.
         """
@@ -114,16 +115,10 @@ class Approximator(ABC):
         if data is not None:
             X_train, t_train = data
             self.X_train = X_train
-            if np.all(np.mod(t_train, 1) == 0):
-                t_train = t_train.astype(int)
-            else:
-                raise TypeError(
-                    "t must contain only integer values (got {})".format(
-                        t_train))
             if t_train.dtype != int:
                 raise TypeError(
                     "t must contain only integer values (got {})".format(
-                        t_train))
+                        t_train.dtype))
             else:
                 self.t_train = t_train
             self._update_prior()
@@ -159,9 +154,11 @@ class Approximator(ABC):
         """
 
     @abstractmethod
-    def approximate(self):
+    def approximate_posterior(self):
         """
-        Return the samples
+        Return the lower bound on the marginal likelihood and its gradients
+        with respect to the hyperparameters and, optionally, the posterior mean
+        and covariance (or some parameterisation thereof)
 
         This method should be implemented in every concrete Approximator.
         """
@@ -175,8 +172,8 @@ class Approximator(ABC):
         :type X_test: :class:`numpy.ndarray`.
         :arg cov: The approximate
             covariance-posterior-inverse-covariance matrix. Array like (N, N).
-        :arg nu: The approximate inverse-covariance-posterior-mean.
-            Array like (N,).
+        :type cov: :class:`numpy.ndarray`.
+        :arg f: Array like (N,).
         :type weights: :class:`numpy.ndarray`.
         :return: The ordinal class probabilities.
         """
@@ -204,13 +201,19 @@ class Approximator(ABC):
         """
         Make posterior prediction over ordinal classes of X_test.
 
-        f is (K + \sigma^{2}I)^{-1} y = \weight = K^{-1} @ posterior_mean 
+
+
+        weights is (K + \sigma^{2}I)^{-1} y = \weight = K^{-1} @ posterior_mean 
 
         :arg X_test: The new data points, array like (N_test, D).
         :arg cov: A covariance matrix used in calculation of posterior
             predictions. (\sigma^2I + K)^{-1} Array like (N, N).
         :type cov: :class:`numpy.ndarray`
-        :arg weight: The posterior mean. Array like (N,).
+        :arg weight: The approximate inverse-covariance-posterior-mean.
+            .. math::
+                \nu = (\mathbf{K} + \sigma^{2}\mathbf{I})^{-1} \mathbf{y}
+                = \mathbf{K}^{-1} \mathbf{f}
+            Array like (N,).
         :type weight: :class:`numpy.ndarray`
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.
@@ -250,8 +253,9 @@ class Approximator(ABC):
         If np.ndim(m) == 2, vectorised so that it returns (num_samples,)
         vector from (num_samples, N) samples of the posterior mean.
 
-        Note that numerical stability has been turned off in favour of exactness - but experiments should=
-        be run twice with numerical stability turned on to see if it makes a difference.
+        Note that numerical stability has been turned off in favour of
+        exactness - but experiments should be run twice with numerical
+        stability turned on to see if it makes a difference.
         """
         Z, *_ = truncated_norm_normalising_constant(
             self.cutpoints_ts, self.cutpoints_tplus1s,
@@ -355,15 +359,16 @@ class Approximator(ABC):
     def _hyperparameters_update(
         self, cutpoints=None, varphi=None, variance=None, noise_variance=None):
         """
+        TODO: Is the below still relevant?
         Reset kernel hyperparameters, generating new prior and posterior
         covariances. Note that hyperparameters are fixed parameters of the
-        approximator, not variables that change during the estimation. The strange
-        thing is that hyperparameters can be absorbed into the set of variables
-        and so the definition of hyperparameters and variables becomes
-        muddled. Since varphi can be a variable or a parameter, then optionally
-        initiate it as a parameter, and then intitate it as a variable within
-        :meth:`approximate`. Problem is, if it changes at approximate time, then a
-        hyperparameter update needs to be called.
+        approximator, not variables that change during the estimation. The
+        strange thing is that hyperparameters can be absorbed into the set of
+        variables and so the definition of hyperparameters and variables
+        becomes muddled. Since varphi can be a variable or a parameter, then
+        optionally initiate it as a parameter, and then intitate it as a
+        variable within :meth:`approximate`. Problem is, if it changes at
+        approximate time, then a hyperparameter update needs to be called.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.
@@ -482,19 +487,6 @@ class Approximator(ABC):
         else:
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
-        # TODO: remove this code
-        # if steps is None:
-        #     if self.__repr__ == "EPOrdinalGP":
-        #         suggested_steps = np.max([10, self.N//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
-        #     elif self.__repr__ == "VBOrdinalGP":
-        #         suggested_steps = np.max([100, self.N//10])
-        #     elif self.__repr__ == "LaplaceOrdinalGP":
-        #         suggested_steps = np.max([2, self.N//1000])
-        #     raise ValueError(
-        #         "No number of algorithm iterations (kwarg `steps`) was"
-        #         " supplied as a keyword argument! Please supply a number of "
-        #         "steps to run in inner loop of the {} approximation for!"
-        #         " If you are unsure, try steps={} .".format(suggested_steps))
         error = np.inf
         iteration = 0
         indices_where = np.where(indices!=0)
@@ -1239,7 +1231,7 @@ class VBOrdinalGP(Approximator):
         return -gx
 
     def grid_over_hyperparameters(
-            self, domain, res, indices=None, posterior_mean_0=None, write=False,
+            self, domain, res, indices=None, posterior_mean_0=None,
             verbose=False, steps=100):
         """
         TODO: Can this be moved to a plot.py
@@ -1299,8 +1291,9 @@ class VBOrdinalGP(Approximator):
                 print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
             gx = self.objective_gradient(
-                gx_0.copy(), intervals, self.cutpoints_ts, self.cutpoints_tplus1s,
-                self.kernel.varphi, self.noise_variance, self.noise_std, posterior_mean_0,
+                gx_0.copy(), intervals, self.cutpoints_ts,
+                self.cutpoints_tplus1s, self.kernel.varphi,
+                self.noise_variance, self.noise_std, posterior_mean_0,
                 weight, self.cov, self.trace_cov,
                 self.partial_K_varphi, self.N, Z,
                 norm_pdf_z1s, norm_pdf_z2s, indices,
@@ -1410,8 +1403,8 @@ class EPOrdinalGP(Approximator):
     """
     def __repr__(self):
         """
-        Return a string representation of this class, used to import the class from
-        the string.
+        Return a string representation of this class, used to import the class
+        from the string.
         """
         return "EPOrdinalGP"
 
@@ -1468,8 +1461,9 @@ class EPOrdinalGP(Approximator):
         :arg posterior_mean_0: The initial state of the posterior mean (N,). If
              `None` then initialised to zeros, default `None`.
         :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg posterior_cov_0: The initial state of the posterior covariance (N,). If 
-            `None` then initialised to prior covariance, default `None`.
+        :arg posterior_cov_0: The initial state of the posterior covariance
+            (N,). If `None` then initialised to prior covariance,
+            default `None`.
         :type posterior_cov_0: :class:`numpy.ndarray`
         :arg mean_EP_0: The initial state of the individual (site) mean (N,).
             If `None` then initialised to zeros, default `None`.
@@ -1490,8 +1484,8 @@ class EPOrdinalGP(Approximator):
             likelihood wrt to the 'cavity distribution mean'. If `None`
             then initialised to zeros, default `None`.
         :type grad_Z_wrt_cavity_mean_0: :class:`numpy.ndarray`
-        :return: Containers for the approximate posterior means of parameters and
-            hyperparameters.
+        :return: Containers for the approximate posterior means of parameters
+            and hyperparameters.
         :rtype: (12,) tuple.
         """
         if posterior_cov_0 is None:
@@ -1504,7 +1498,8 @@ class EPOrdinalGP(Approximator):
         if amplitude_EP_0 is None:
             amplitude_EP_0 = np.ones((self.N,))
         if posterior_mean_0 is None:
-            posterior_mean_0 = (posterior_cov_0 @ np.diag(precision_EP_0)) @ mean_EP_0
+            posterior_mean_0 = (
+                posterior_cov_0 @ np.diag(precision_EP_0)) @ mean_EP_0
         error = 0.0
         grad_Z_wrt_cavity_mean_0 = np.zeros(self.N)  # Initialisation
         posterior_means = []
@@ -1539,8 +1534,9 @@ class EPOrdinalGP(Approximator):
         :arg posterior_mean_0: The initial state of the approximate posterior
             mean (N,). If `None` then initialised to zeros, default `None`.
         :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg posterior_cov_0: The initial state of the posterior covariance (N, N).
-            If `None` then initialised to prior covariance, default `None`.
+        :arg posterior_cov_0: The initial state of the posterior covariance
+            (N, N). If `None` then initialised to prior covariance,
+            default `None`.
         :type posterior_cov_0: :class:`numpy.ndarray`
         :arg mean_EP_0: The initial state of the individual (site) mean (N,).
             If `None` then initialised to zeros, default `None`.
@@ -1567,12 +1563,12 @@ class EPOrdinalGP(Approximator):
             evolution of those statistics.
         """
         (posterior_mean, posterior_cov, mean_EP, precision_EP,
-        amplitude_EP, grad_Z_wrt_cavity_mean, containers,
-        error) = self._approximate_initiate(
+                amplitude_EP, grad_Z_wrt_cavity_mean, containers,
+                error) = self._approximate_initiate(
             posterior_mean_0, posterior_cov_0, mean_EP_0, precision_EP_0,
             amplitude_EP_0)
-        (posterior_means, posterior_covs, mean_EPs, precision_EPs, amplitude_EPs,
-         approximate_log_marginal_likelihoods) = containers
+        (posterior_means, posterior_covs, mean_EPs, precision_EPs,
+            amplitude_EPs, approximate_log_marginal_likelihoods) = containers
         for step in trange(first_step, first_step + steps,
                         desc="EP GP approximator progress",
                         unit="iterations", disable=True):
@@ -1669,7 +1665,8 @@ class EPOrdinalGP(Approximator):
         "a bit like leaving a hole in the dataset".
 
         :arg float posterior_variance_n: Variance of latent function at index.
-        :arg float posterior_mean_n: The state of the approximate posterior mean.
+        :arg float posterior_mean_n: The state of the approximate posterior
+            mean.
         :arg float mean_EP_n: The state of the individual (site) mean.
         :arg precision_EP_n: The state of the individual (site) variance.
         :arg amplitude_EP_n: The state of the individual (site) amplitudes.
@@ -1689,14 +1686,16 @@ class EPOrdinalGP(Approximator):
                         cavity_variance_n))
         else:
             raise ValueError(
-                "posterior_cov_nn must be non-negative (got {})".format(posterior_variance_n))
+                "posterior_cov_nn must be non-negative (got {})".format(
+                    posterior_variance_n))
         return (
             posterior_mean_n, posterior_variance_n,
             cavity_mean_n, cavity_variance_n,
             mean_EP_n_old, precision_EP_n_old, amplitude_EP_n_old)
 
-    def _assert_valid_values(self, nu_n, variance, cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
-            norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n):
+    def _assert_valid_values(self, nu_n, variance, cavity_mean_n,
+            cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1, norm_pdf_z2,
+            grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n):
         if math.isnan(grad_Z_wrt_cavity_mean_n):
             print(
                 "cavity_mean_n={} \n"
@@ -1707,8 +1706,9 @@ class EPOrdinalGP(Approximator):
                 "norm_pdf_z1 = {} \n"
                 "norm_pdf_z2 = {} \n"
                 "beta = {} alpha = {}".format(
-                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
-                    norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n))
+                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n,
+                    norm_pdf_z1, norm_pdf_z2, grad_Z_wrt_cavity_variance_n,
+                    grad_Z_wrt_cavity_mean_n))
             raise ValueError(
                 "grad_Z_wrt_cavity_mean is nan (got {})".format(
                 grad_Z_wrt_cavity_mean_n))
@@ -1722,8 +1722,9 @@ class EPOrdinalGP(Approximator):
                 "norm_pdf_z1 = {} \n"
                 "norm_pdf_z2 = {} \n"
                 "beta = {} alpha = {}".format(
-                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
-                    norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n))
+                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n,
+                    norm_pdf_z1, norm_pdf_z2, grad_Z_wrt_cavity_variance_n,
+                    grad_Z_wrt_cavity_mean_n))
             raise ValueError(
                 "grad_Z_wrt_cavity_variance is nan (got {})".format(
                     grad_Z_wrt_cavity_variance_n))
@@ -1737,8 +1738,9 @@ class EPOrdinalGP(Approximator):
                 "norm_pdf_z1 = {} \n"
                 "norm_pdf_z2 = {} \n"
                 "beta = {} alpha = {}".format(
-                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
-                    norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n))
+                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n,
+                    norm_pdf_z1, norm_pdf_z2, grad_Z_wrt_cavity_variance_n,
+                    grad_Z_wrt_cavity_mean_n))
             raise ValueError("nu_n must be positive (got {})".format(nu_n))
         if nu_n > 1.0 / variance + self.EPS:
             print(
@@ -1750,8 +1752,9 @@ class EPOrdinalGP(Approximator):
                 "norm_pdf_z1 = {} \n"
                 "norm_pdf_z2 = {} \n"
                 "beta = {} alpha = {}".format(
-                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1,
-                    norm_pdf_z2, grad_Z_wrt_cavity_variance_n, grad_Z_wrt_cavity_mean_n))
+                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n,
+                    norm_pdf_z1, norm_pdf_z2, grad_Z_wrt_cavity_variance_n,
+                    grad_Z_wrt_cavity_mean_n))
             raise ValueError(
                 "nu_n must be less than 1.0 / (cavity_variance_n + "
                 "noise_variance) = {}, got {}".format(
@@ -1760,7 +1763,8 @@ class EPOrdinalGP(Approximator):
 
     def _include(
             self, target, cavity_mean_n, cavity_variance_n,
-            cutpoints_t, cutpoints_tplus1, noise_variance, numerically_stable=False):
+            cutpoints_t, cutpoints_tplus1, noise_variance,
+            numerically_stable=False):
         """
         Update the approximate posterior by incorporating the message
         p(t_i|m_i) into Q^{\i}(\bm{f}).
@@ -1770,8 +1774,8 @@ class EPOrdinalGP(Approximator):
         to the true posterior by minimising a moment-matching KL divergence
         between the tilted distribution and the posterior distribution. This
         gives us an approximate posterior in the approximating family. The
-        update to posterior_cov is a rank-1 update (see the outer product of two 1d
-        vectors), and so it essentially constructs a piecewise low rank
+        update to posterior_cov is a rank-1 update (see the outer product of
+        two 1d vectors), and so it essentially constructs a piecewise low rank
         approximation to the GP posterior covariance matrix, until convergence
         (by which point it will no longer be low rank).
         :arg int target: The ordinal class index of the current site
