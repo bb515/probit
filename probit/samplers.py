@@ -1584,6 +1584,7 @@ class PseudoMarginal(object):
                 self.approximator.kernel.scale_hyperparameters, self.approximator.cutpoints)
         fx, gx, posterior_mean, (posterior_matrix, is_inv) = self.approximator.approximate_posterior(
             theta, indices, steps=steps, first_step=1, write=False, verbose=False)
+        # TODO: check but there may be no need to take this chol
         prior_L_cov = np.linalg.cholesky(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))
         half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
         prior_cov_inv = np.linalg.inv(self.approximator.K + self.approximator.jitter * np.eye(self.approximator.N))

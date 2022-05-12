@@ -193,25 +193,25 @@ class Approximator(ABC):
                 raise NotImplementedError("Not implemented.")
             elif reparametrised is True:
                 return self._predict_vector(
-                    X_test, cov, nu=f,
+                    X_test, cov, weight=f,
                     cutpoints=self.cutpoints,
                     noise_variance=self.noise_variance)
             else:
                 raise NotImplementedError("Not implemented.")
 
     def _predict_vector(
-            self, X_test, cov, nu, cutpoints, noise_variance):
+            self, X_test, cov, weight, cutpoints, noise_variance):
         """
         Make posterior prediction over ordinal classes of X_test.
 
-        f is (K + \sigma^{2}I)^{-1} y = \nu = K^{-1} @ posterior_mean 
+        f is (K + \sigma^{2}I)^{-1} y = \weight = K^{-1} @ posterior_mean 
 
         :arg X_test: The new data points, array like (N_test, D).
         :arg cov: A covariance matrix used in calculation of posterior
             predictions. (\sigma^2I + K)^{-1} Array like (N, N).
         :type cov: :class:`numpy.ndarray`
-        :arg nu: The posterior mean. Array like (N,).
-        :type nu: :class:`numpy.ndarray`
+        :arg weight: The posterior mean. Array like (N,).
+        :type weight: :class:`numpy.ndarray`
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.
         :arg float noise_variance: The noise variance.
@@ -229,7 +229,7 @@ class Approximator(ABC):
         'ij, ij -> j', Kfs, intermediate_vectors)
 
         posterior_std = np.sqrt(posterior_variance)
-        posterior_pred_mean = Kfs.T @ nu
+        posterior_pred_mean = Kfs.T @ weight
         posterior_pred_variance = posterior_variance + noise_variance
         posterior_pred_std = np.sqrt(posterior_pred_variance)
 
@@ -507,9 +507,10 @@ class Approximator(ABC):
         Optimisation routine for hyperparameters.
         :return: fx, gx
         """
-        return self.approximate_posterior(theta, indices, first_step=first_step,
-            steps=steps, posterior_mean_0=None, calculate_posterior_cov=None,
-            write=write, verbose=verbose)  # returns (fx, gx)
+        return self.approximate_posterior(
+            theta, indices, first_step=first_step, steps=steps,
+            posterior_mean_0=None, return_reparameterised=None,
+            verbose=verbose)  # returns (fx, gx)
 
     def _grid_over_hyperparameters_initiate(
             self, res, domain, indices, cutpoints):
@@ -1019,10 +1020,10 @@ class VBOrdinalGP(Approximator):
         :arg K:
         :type K:
         """
-        nu = cov @ y
+        weight = cov @ y
         ## TODO: This is 3-4 times slower on CPU, what about with jit compiled CPU or GPU?
-        # nu = cho_solve((self.L_cov, self.lower), y)
-        return K @ nu, nu  # (N,), (N,)
+        # weight = cho_solve((self.L_cov, self.lower), y)
+        return K @ weight, weight  # (N,), (N,)
 
     def _y(self, p, posterior_mean, noise_std):
         """
@@ -1037,7 +1038,7 @@ class VBOrdinalGP(Approximator):
         return np.add(posterior_mean, noise_std * p)
 
     def objective(
-        self, N, m, nu, trace_cov, trace_posterior_cov_div_var, Z,
+        self, N, m, weight, trace_cov, trace_posterior_cov_div_var, Z,
         noise_variance,
         log_det_cov, verbose=False):
         """
@@ -1071,7 +1072,7 @@ class VBOrdinalGP(Approximator):
         trace_K_inv_posterior_cov = noise_variance * trace_cov
         one = - trace_posterior_cov_div_var / 2
         three = - trace_K_inv_posterior_cov / 2
-        four = - m.T @ nu / 2
+        four = - m.T @ weight / 2
         five = (N * np.log(noise_variance) + log_det_cov) / 2
         six = N / 2
         seven = np.sum(Z)
@@ -1087,7 +1088,7 @@ class VBOrdinalGP(Approximator):
         return -fx
 
     def objectiveSS(
-            self, N, m, nu, trace_cov, trace_posterior_cov_div_var, Z,
+            self, N, m, weight, trace_cov, trace_posterior_cov_div_var, Z,
             noise_variance,
             log_det_K, log_det_cov, verbose=False):
         """
@@ -1124,7 +1125,7 @@ class VBOrdinalGP(Approximator):
         one = - trace_posterior_cov_div_var / 2
         two = - log_det_K / 2
         three = - trace_K_inv_posterior_cov / 2
-        four = - m.T @ nu / 2
+        four = - m.T @ weight / 2
         five = log_det_posterior_cov / 2
         six = N / 2
         seven = np.sum(Z)
@@ -1143,7 +1144,7 @@ class VBOrdinalGP(Approximator):
     def objective_gradient(
             self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, varphi,
             noise_variance, noise_std,
-            m, nu, cov, trace_cov, partial_K_varphi, N,
+            m, weight, cov, trace_cov, partial_K_varphi, N,
             Z, norm_pdf_z1s, norm_pdf_z2s, indices,
             numerical_stability=True, verbose=False):
         """
@@ -1222,7 +1223,7 @@ class VBOrdinalGP(Approximator):
                     if numerical_stability is True:
                         # Update gx[-1], the partial derivative of the lower bound
                         # wrt the lengthscale. Using matrix inversion Lemma
-                        one = (varphi / 2) * nu.T @ partial_K_varphi @ nu
+                        one = (varphi / 2) * weight.T @ partial_K_varphi @ weight
                         # TODO: slower but what about @jit compile CPU or GPU?
                         # D = solve_triangular(
                         #     L_cov.T, partial_K_varphi, lower=True)
@@ -1278,7 +1279,7 @@ class VBOrdinalGP(Approximator):
             # Convergence is sometimes very fast so this may not be necessary
             while error / steps > self.EPS:
                 iteration += 1
-                (posterior_mean_0, nu, y, p, *_) = self.approximate(
+                (posterior_mean_0, weight, y, p, *_) = self.approximate(
                     steps, posterior_mean_0=posterior_mean_0,
                     first_step=1, write=False)
                 (Z,
@@ -1290,7 +1291,7 @@ class VBOrdinalGP(Approximator):
                     self.cutpoints_ts, self.cutpoints_tplus1s,
                     self.noise_std, posterior_mean_0, self.EPS)
                 fx = self.objective(
-                    self.N, posterior_mean_0, nu, self.trace_cov,
+                    self.N, posterior_mean_0, weight, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
                     self.noise_variance, self.log_det_cov)
                 error = np.abs(fx_old - fx)
@@ -1300,7 +1301,7 @@ class VBOrdinalGP(Approximator):
             gx = self.objective_gradient(
                 gx_0.copy(), intervals, self.cutpoints_ts, self.cutpoints_tplus1s,
                 self.kernel.varphi, self.noise_variance, self.noise_std, posterior_mean_0,
-                nu, self.cov, self.trace_cov,
+                weight, self.cov, self.trace_cov,
                 self.partial_K_varphi, self.N, Z,
                 norm_pdf_z1s, norm_pdf_z2s, indices,
                 numerical_stability=True, verbose=False)
@@ -1322,7 +1323,7 @@ class VBOrdinalGP(Approximator):
 
     def approximate_posterior(
             self, theta, indices, steps=None, first_step=1, max_iter=2,
-            calculate_posterior_cov=True, write=False, verbose=False):
+            return_reparameterised=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -1343,15 +1344,15 @@ class VBOrdinalGP(Approximator):
         # Convergence is sometimes very fast so this may not be necessary
         while error / steps > self.EPS and iteration < max_iter:
             iteration += 1
-            (posterior_mean, nu, *_) = self.approximate(
+            (posterior_mean, weight, *_) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
-                first_step=first_step, write=write)
+                first_step=first_step, write=False)
             (Z, norm_pdf_z1s, norm_pdf_z2s,
                     *_ )= truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean, self.EPS)
             fx = self.objective(
-                self.N, posterior_mean, nu, self.trace_cov,
+                self.N, posterior_mean, weight, self.trace_cov,
                 self.trace_posterior_cov_div_var, Z,
                 self.noise_variance, self.log_det_cov)
             error = np.abs(fx_old - fx)
@@ -1362,7 +1363,7 @@ class VBOrdinalGP(Approximator):
                 gx.copy(), intervals, self.cutpoints_ts,
                 self.cutpoints_tplus1s,
                 self.kernel.varphi, self.noise_variance, self.noise_std,
-                posterior_mean, nu, self.cov, self.trace_cov,
+                posterior_mean, weight, self.cov, self.trace_cov,
                 self.partial_K_varphi, self.N, Z,
                 norm_pdf_z1s, norm_pdf_z2s, indices,
                 numerical_stability=True, verbose=False)
@@ -1380,14 +1381,12 @@ class VBOrdinalGP(Approximator):
                     self.cutpoints,
                     self.noise_variance,
                     self.kernel.varphi, fx))
-        # if calculate_posterior_cov == 1:
-            # TODO: Why is this necessary?
-            # return fx, gx, posterior_mean, (self.noise_variance * np.eye(self.N) + self.K_inv, True)
-        if calculate_posterior_cov == 0:
-            return fx, gx, posterior_mean, (self.noise_variance * self.K @ self.cov, False)
-        elif calculate_posterior_cov == 2:
-            return fx, gx, nu, (self.cov, True)
-        elif calculate_posterior_cov is None:
+        if return_reparameterised is True:
+            return fx, gx, weight, (self.cov, False)
+        elif return_reparameterised is False:
+            return fx, gx, posterior_mean, (
+                self.noise_variance * self.K @ self.cov, True)
+        elif return_reparameterised is None:
             return fx, gx
 
 
@@ -2059,7 +2058,7 @@ class EPOrdinalGP(Approximator):
                     steps, posterior_mean_0=posterior_mean, posterior_cov_0=posterior_cov,
                     mean_EP_0=mean_EP, precision_EP_0=precision_EP,
                     amplitude_EP_0=amplitude_EP,
-                    first_step=first_step, write=write)
+                    first_step=first_step, write=False)
                 if verbose:
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
@@ -2089,10 +2088,10 @@ class EPOrdinalGP(Approximator):
 
     def approximate_posterior(
             self, theta, indices, steps=None,
-            posterior_mean_0=None, calculate_posterior_cov=None,
+            posterior_mean_0=None, return_reparameterised=False,
             posterior_cov_0=None, mean_EP_0=None,
             precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, write=False, verbose=True):
+            amplitude_EP_0=None, first_step=1, verbose=True):
         """
         Optimisation routine for hyperparameters.
 
@@ -2107,7 +2106,8 @@ class EPOrdinalGP(Approximator):
         :type steps:
         :arg posterior_mean_0:
         :type posterior_mean_0:
-        :arg int calculate_posterior_cov:
+        :arg return_reparameterised:
+        :type return_reparameterised:
         :arg posterior_cov_0:
         :type posterior_cov_0:
         :arg mean_EP_0:
@@ -2139,27 +2139,24 @@ class EPOrdinalGP(Approximator):
                 posterior_cov_0=posterior_cov, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP,
                 amplitude_EP_0=amplitude_EP,
-                first_step=first_step, write=write)
+                first_step=first_step, write=False)
             if verbose:
                 pass
                 # print("({}), error={}".format(iteration, error))
-        (weights, precision_EP, L_cov, cov) = self.compute_weights(
+        (weight, precision_EP, L_cov, cov) = self.compute_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
-        if write:
-            (posterior_means, posterior_covs, mean_EPs, precision_EPs,
-            amplitude_EPs, approximate_marginal_likelihoods) = containers
         # Try optimisation routine
         t1, t2, t3, t4, t5 = self.compute_integrals_vector(
             np.diag(posterior_cov), posterior_mean, self.noise_variance)
         fx = self.objective(precision_EP, posterior_mean, t1,
-            L_cov, cov, weights)
+            L_cov, cov, weight)
         if self.kernel._general and self.kernel._ARD:
             gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
         else:
             gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
             gx, intervals, self.kernel.varphi, self.noise_variance,
-            t2, t3, t4, t5, cov, weights, indices)
+            t2, t3, t4, t5, cov, weight, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
             # print("cutpoints=", repr(self.cutpoints), ", ")
@@ -2178,22 +2175,11 @@ class EPOrdinalGP(Approximator):
             #     "\ncutpoints={}, noise_variance={}, "
             #     "varphi={}".format(
             #         self.cutpoints, self.noise_variance, self.kernel.varphi))
-
-        # SS
-        # if calculate_posterior_cov == 1:
-        #     # Inverse of K
-        #     L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
-        #     L_KT_inv = solve_triangular(
-        #         L_K.T, np.eye(self.N), lower=True)
-        #     K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
-        #     posterior_inv_cov = K_inv + np.diag(precision_EP)
-        #     return fx, gx, posterior_mean, (posterior_inv_cov, True)
-        if calculate_posterior_cov == 0:
-            # SS
+        if return_reparameterised is True:
+            return fx, gx, weight, (cov, False)
+        elif return_reparameterised is False:
             return fx, gx, posterior_mean, (posterior_cov, False)
-        elif calculate_posterior_cov == 2:
-            return fx, gx, weights, (cov, False)
-        elif calculate_posterior_cov is None:
+        elif return_reparameterised is None:
             return fx, gx
 
     def compute_integrals_vector(
@@ -2456,15 +2442,15 @@ class EPOrdinalGP(Approximator):
             # what about with jit compiled CPU or GPU?
             # Is this ever more stable than a matmul by the inverse?
             y = cho_solve((L_cov, False), mean_EP)
-            nu = cho_solve((L_cov.T, True), y)
+            weight = cho_solve((L_cov.T, True), y)
         else:
-            nu = cov @ mean_EP
+            weight = cov @ mean_EP
         if np.any(
-            np.abs(nu - grad_Z_wrt_cavity_mean) > np.sqrt(self.EPS)):
+            np.abs(weight - grad_Z_wrt_cavity_mean) > np.sqrt(self.EPS)):
             warnings.warn("Fatal error: the weights are not in equilibrium wit"
                 "h the gradients".format(
-                    nu, grad_Z_wrt_cavity_mean))
-        return nu, precision_EP, L_cov, cov
+                    weight, grad_Z_wrt_cavity_mean))
+        return weight, precision_EP, L_cov, cov
 
 
 class LaplaceOrdinalGP(Approximator):
@@ -2577,7 +2563,7 @@ class LaplaceOrdinalGP(Approximator):
             self, domain, res,
             indices=None,
             posterior_mean_0=None,
-            first_step=1, write=False, verbose=True):  # TODO False
+            first_step=1, verbose=True):  # TODO False
         """
         Return meshgrid values of fx and gx over hyperparameter space.
 
@@ -2610,7 +2596,7 @@ class LaplaceOrdinalGP(Approximator):
                 iteration += 1
                 (error, weight, posterior_mean, containers) = self.approximate(
                     steps, posterior_mean_0=posterior_mean,
-                    first_step=first_step, write=write)
+                    first_step=first_step, write=False)
                 if verbose:
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
@@ -2618,8 +2604,6 @@ class LaplaceOrdinalGP(Approximator):
             w1, w2, g1, g2, v1, v2, q1, q2,
             L_cov, cov, Z) = self.compute_weights(
                 posterior_mean)
-            if write:
-                (posterior_means, approximate_marginal_likelihoods) = containers
             fx = self.objective(weight, precision, L_cov, Z)
             fxs[i] = fx
             gx = self.objective_gradient(
@@ -2677,7 +2661,7 @@ class LaplaceOrdinalGP(Approximator):
         cov = solve_triangular(L_cov, L_covT_inv, lower=False)
         return weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, cov, Z
 
-    def objective(self, nu, posterior_mean, precision, L_cov, Z):
+    def objective(self, weight, posterior_mean, precision, L_cov, Z):
         """
         Calculate fx, the variational lower bound of the log marginal
         likelihood at the EP equilibrium.
@@ -2698,7 +2682,7 @@ class LaplaceOrdinalGP(Approximator):
         :rtype: float
         """
         fx = -np.sum(np.log(Z))
-        fx += 0.5 * posterior_mean.T @ nu
+        fx += 0.5 * posterior_mean.T @ weight
         fx += np.sum(np.log(np.diag(L_cov)))
         fx += 0.5 * np.sum(np.log(precision))
         # fx = -fx
@@ -2874,7 +2858,7 @@ class LaplaceOrdinalGP(Approximator):
 
     def _update_posterior(self, Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
             noise_std, noise_variance, posterior_mean):
-        """Update Laplace approximation to the posterior in Newton step."""
+        """Update Laplace approximation posterior covariance in Newton step."""
         weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
         z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
         z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
@@ -2882,12 +2866,11 @@ class LaplaceOrdinalGP(Approximator):
             z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
             ) / Z / noise_variance
         print(precision)
-        L = self.K + np.diag(1. / precision)
         m = - self.K @ weight + posterior_mean
-        L, _ = cho_factor(L)
-        LT_inv = solve_triangular(
-            L.T, np.eye(self.N), lower=True)
-        cov = solve_triangular(L, LT_inv, lower=False)
+        L_cov, _ = cho_factor(self.K + np.diag(1. / precision))
+        L_covT_inv = solve_triangular(
+            L_cov.T, np.eye(self.N), lower=True)
+        cov = solve_triangular(L_cov, L_covT_inv, lower=False)
         t1 = - (cov @ m) / precision
         posterior_mean += t1
         error = np.abs(max(t1.min(), t1.max(), key=abs))
@@ -2916,7 +2899,8 @@ class LaplaceOrdinalGP(Approximator):
             containers of evolution of the statistics over the steps.
             If set to "False", statistics will not be written and those
             containers will remain empty.
-        :return: approximate posterior mean and covariances.
+        :return: convergence error, the regression weights and
+            approximate posterior mean. Containers for write values.
         :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
             posterior means, other statistics and tuple of lists of per-step
             evolution of those statistics.
@@ -2945,10 +2929,10 @@ class LaplaceOrdinalGP(Approximator):
     def approximate_posterior(
             self, theta, indices, steps=None,
             posterior_mean_0=None,
-            calculate_posterior_cov=True, first_step=1,
-            write=False, verbose=False):
+            return_reparameterised=False, first_step=1, verbose=False):
         """
-        Newton-Raphson.
+        Newton-Raphson procedure for convex optimization to find MAP point and
+        curvature.
 
         :arg theta: (log-)hyperparameters to be optimised.
         :type theta:
@@ -2972,7 +2956,7 @@ class LaplaceOrdinalGP(Approximator):
             iteration += 1
             (error, weight, posterior_mean, containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
-                first_step=first_step, write=write)
+                first_step=first_step, write=False)
             if verbose:
                 print("({}), error={}".format(iteration, error))
         # Calculates weights and matrix inverses one more time.
@@ -2980,8 +2964,6 @@ class LaplaceOrdinalGP(Approximator):
         w1, w2, g1, g2, v1, v2, q1, q2,
         L_cov, cov, Z) = self.compute_weights(
             posterior_mean)
-        if write:
-            (posterior_means, approximate_marginal_likelihoods) = containers
         fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
         if self.kernel._general and self.kernel._ARD:
             gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
@@ -3007,20 +2989,12 @@ class LaplaceOrdinalGP(Approximator):
                 "varphi={}\nfunction_eval={}".format(
                     self.cutpoints, self.noise_variance,
                     self.kernel.varphi, fx))
-        # if calculate_posterior_cov == 1:
-        #     # Inverse of K
-        #     L_K, lower = cho_factor(self.K + self.jitter * np.eye(self.N))
-        #     L_KT_inv = solve_triangular(
-        #         L_K.T, np.eye(self.N), lower=True)
-        #     K_inv = solve_triangular(L_K, L_KT_inv, lower=False)
-        #     posterior_inv_cov = K_inv + np.diag(precision)
-        #     return fx, gx, posterior_mean, (posterior_inv_cov, True)
-        if calculate_posterior_cov == 0:
+        if return_reparameterised is True:
+            return fx, gx, weight, (cov, True)
+        if return_reparameterised is False:
             return fx, gx, posterior_mean, (
                 self.noise_variance * self.K @ cov, False)
-        elif calculate_posterior_cov == 2:
-            return fx, gx, weight, (cov, True)
-        elif calculate_posterior_cov is None:
+        elif return_reparameterised is None:
             return fx, gx
 
 

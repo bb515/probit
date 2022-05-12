@@ -251,14 +251,13 @@ def save_model(
 
     """
     (fx, gx,
-        posterior_mean, (posterior_inv_cov, is_inv)
+        posterior_mean, (posterior_inv_cov, is_reparametrised)
         ) = classifier.approximate_posterior(
                 None, None, steps=steps, first_step=1,
-                calculate_posterior_cov=2,
-                write=False, verbose=True)
+                return_reparameterised=True, verbose=True)
     np.savez(
         model_file, fx=fx, gx=gx, posterior_mean=posterior_mean,
-        posterior_inv_cov=posterior_inv_cov, is_inv=is_inv)
+        posterior_inv_cov=posterior_inv_cov, is_reparametrised=is_reparametrised)
 
     np.savez(
             metadata_file, kernel_string=repr(classifier.kernel),
@@ -285,11 +284,10 @@ def save_model(
 #     """
 #     if posterior_mean is not None and posterior_inv_cov is not None:
 #         (fx, gx,
-#         posterior_mean, (posterior_inv_cov, is_inv)
+#         posterior_mean, (posterior_inv_cov, is_reparametrised)
 #         ) = classifier.approximate_posterior(
 #                 None, None, steps=steps, first_step=1,
-#                 calculate_posterior_cov=2,
-#                 write=False, verbose=True)
+#                 return_reparameterised=True, verbose=True)
 #         # Test
 #         (Z,
 #         posterior_predictive_m,
@@ -784,10 +782,10 @@ def plot(classifier, steps, domain=None):
     Contour plot of the predictive probabilities over a chosen domain.
     """
     (fx, gx,
-    weights, (cov, is_inv)
+    weights, (cov, is_reparametrised)
     ) = classifier.approximate_posterior(
-            None, None, steps=steps, first_step=1, calculate_posterior_cov=2,
-            write=False, verbose=True)
+            None, None, steps=steps, first_step=1, return_reparameterised=True,
+            verbose=True)
     if domain is not None:
         (xlims, ylims) = domain
         N = 75
@@ -830,11 +828,10 @@ def plot_synthetic(
     TODO: needs generalizing to other datasets other than Chu.
     """
     (fx, gx,
-    weights, (cov, is_inv)
+    weights, (cov, is_reparametrised)
     ) = classifier.approximate_posterior(
             None, None, steps=steps, first_step=1,
-            calculate_posterior_cov=2,
-            write=False, verbose=True)
+            return_reparameterised=True, verbose=True)
 
     if dataset in datasets["synthetic"]:
         if classifier.J == 3:

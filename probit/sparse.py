@@ -269,7 +269,7 @@ class SparseVBOrdinalGP(VBOrdinalGP):
 
     def approximate_posterior(
             self, theta, indices, steps=None, first_step=1, max_iter=2,
-            calculate_posterior_cov=True, write=False, verbose=False):
+            return_reparameterised=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -290,9 +290,9 @@ class SparseVBOrdinalGP(VBOrdinalGP):
         # Convergence is sometimes very fast so this may not be necessary
         while error / steps > self.EPS and iteration < max_iter:
             iteration += 1
-            (posterior_mean, nu, *_) = self.approximate(
+            (posterior_mean, weight, *_) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
-                first_step=first_step, write=write)
+                first_step=first_step, write=False)
             (Z,
             norm_pdf_z1s,
             norm_pdf_z2s,
@@ -300,7 +300,7 @@ class SparseVBOrdinalGP(VBOrdinalGP):
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean, self.EPS)
             fx = self.objective(
-                self.N, posterior_mean, nu, self.trace_cov,
+                self.N, posterior_mean, weight, self.trace_cov,
                 self.trace_posterior_cov_div_var, Z,
                 self.noise_variance, self.log_det_cov)
             error = np.abs(fx_old - fx)
@@ -311,7 +311,7 @@ class SparseVBOrdinalGP(VBOrdinalGP):
                 gx.copy(), intervals, self.cutpoints_ts,
                 self.cutpoints_tplus1s,
                 self.kernel.varphi, self.noise_variance, self.noise_std,
-                posterior_mean, nu, self.posterior_cov_div_var,
+                posterior_mean, weight, self.posterior_cov_div_var,
                 self.trace_posterior_cov_div_var, self.trace_cov,
                 self.N, Z, norm_pdf_z1s, norm_pdf_z2s, indices,
                 numerical_stability=True, verbose=False)
@@ -322,15 +322,16 @@ class SparseVBOrdinalGP(VBOrdinalGP):
                 "varphi={}\nfunction_eval={}".format(
                     self.cutpoints,
                     self.noise_variance,
-                    self.kernel.varphi, fx))
-        if calculate_posterior_cov == 0:
-            return fx, gx, posterior_mean, (
-                self.noise_variance * self.posterior_cov_div_var, False)
-        elif calculate_posterior_cov == 2:
-            return fx, gx, nu, (
+                    self.kernel.varphi,
+                    fx))
+        if return_reparameterised is True:
+            return fx, gx, weight, (
                 1./self.noise_variance * np.eye(np.shape(self.X_train)[0])
                 - 1./self.noise_variance * self.posterior_cov_div_var, True)
-        elif calculate_posterior_cov is None:
+        elif return_reparameterised is False:
+            return fx, gx, posterior_mean, (
+                self.noise_variance * self.posterior_cov_div_var, False)
+        elif return_reparameterised is None:
             return fx, gx
 
 
@@ -404,8 +405,8 @@ class SparseLaplaceOrdinalGP(LaplaceOrdinalGP):
         # Perhaps not necessary to do this solve
         LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)
         Binv = solve_triangular(LB, LBTinv, lower=False)
-
-        posterior_mean_new = (A.T @ Binv @ A) @ (
+        self.posterior_cov_div_var = A.T @ Binv @ A
+        posterior_mean_new = self.posterior_cov_div_var @ (
             weight + posterior_mean * precision)
         t1 = posterior_mean - posterior_mean_new
         error = np.abs(max(t1.min(), t1.max(), key=abs))
@@ -481,14 +482,13 @@ class SparseLaplaceOrdinalGP(LaplaceOrdinalGP):
         Binv = solve_triangular(LB, LBTinv, lower=False)
         cov = np.diag(precision) \
             - np.diag(precision) @ (A.T @ Binv @ A) @ np.diag(precision)
-
         return weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, LB, cov, Z
 
     def approximate_posterior(
             self, theta, indices, steps=None,
             posterior_mean_0=None,
-            calculate_posterior_cov=True, first_step=1,
-            write=False, verbose=False):
+            return_reparameterised=False, first_step=1,
+            verbose=False):
         """
         Newton-Raphson.
 
@@ -514,17 +514,13 @@ class SparseLaplaceOrdinalGP(LaplaceOrdinalGP):
             iteration += 1
             (error, weight, posterior_mean, containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
-                first_step=first_step, write=write)
-            plt.scatter(self.X_train, posterior_mean)
-            plt.show()
+                first_step=first_step, write=False)
             if verbose:
                 print("({}), error={}".format(iteration, error))
         (weight, precision,
         w1, w2, g1, g2, v1, v2, q1, q2,
         L_cov, cov, Z) = self.compute_weights(
             posterior_mean)
-        if write:
-            (posterior_means, approximate_marginal_likelihoods) = containers
         fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
         if self.kernel._general and self.kernel._ARD:
             gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
@@ -538,13 +534,15 @@ class SparseLaplaceOrdinalGP(LaplaceOrdinalGP):
                 "varphi={}\nfunction_eval={}".format(
                     self.cutpoints, self.noise_variance,
                     self.kernel.varphi, fx))
-        if calculate_posterior_cov == 0:
+        if return_reparameterised is True:
+            return fx, gx, weight, (
+                cov, True)
+        elif return_reparameterised is False:
             return fx, gx, posterior_mean, (
-                self.noise_variance * self.K @ cov, False)
-        elif calculate_posterior_cov == 2:
-            return fx, gx, weight, (cov, True)
-        elif calculate_posterior_cov is None:
+                self.noise_variance * self.posterior_cov_div_var, False)
+        elif return_reparameterised is None:
             return fx, gx
+ 
 
     def approximate(
             self, steps, posterior_mean_0=None, first_step=1, write=False):
@@ -583,8 +581,6 @@ class SparseLaplaceOrdinalGP(LaplaceOrdinalGP):
         (posterior_mean, containers, error) = self._approximate_initiate(
             posterior_mean_0)
         (posterior_means, posterior_precisions) = containers
-        plt.scatter(self.X_train, posterior_mean)
-        plt.show()
         for _ in trange(first_step, first_step + steps,
                         desc="Laplace GP priors Approximator Progress",
                         unit="iterations", disable=True):
