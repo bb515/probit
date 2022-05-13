@@ -11,7 +11,7 @@ Features
 --------
 - Exact inference with MCMC (Gibbs sampler or Elliptical slice sampler)
 - Approximate inference with Variational Bayes, Laplace approximation or Expectation Propagation
-- Sparse approximate inference with the Nystr\"{o}m approximation applied to Variational Bayes and Laplace approximation.
+- Sparse approximate inference with the Nyström approximation applied to Variational Bayes and Laplace approximation.
 - Sparse approximate inference with sparse Expectation Propagation.
 - Gaussian, ARD, linear and polynomial kernel functions
 - Fully Bayesian pseudo-marginal inference
