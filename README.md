@@ -3,7 +3,7 @@ probit
 
 Please do not distribute this private repository.
 
-probit, by Ben Boys (2021), is a lightweight, open-source and high-performance python package for solving ordinal regression problems with Gaussian Processes. It is implemented in [Python](https://www.python.org/) and the performance critical parts will be implemented in [Cython](https://cython.org/). The plan is that the numpy code will be converted to JAX code.
+probit, by Ben Boys (2021), is a lightweight, open-source and high-performance python package for solving ordinal regression problems with Gaussian Processes. It is implemented in [Python](https://www.python.org/).
 
 probit allows users to write their code in pure Python. Simulations are then executed seamlessly using high performance and numerically stable code.
 
@@ -18,7 +18,7 @@ Features
 
 Planned Features
 --------
-- TensorFlow backend
+- numpy linear alegbra operations will be converted to TensorFlow code
 
 
 Get started (preferred)
