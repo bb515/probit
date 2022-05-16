@@ -120,6 +120,7 @@ class Approximator(ABC):
                     "t must contain only integer values (got {})".format(
                         t_train.dtype))
             else:
+                t_train = t_train.astype(int)
                 self.t_train = t_train
             self._update_prior()
         else:
