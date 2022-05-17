@@ -120,6 +120,7 @@ class Approximator(ABC):
                     "t must contain only integer values (got {})".format(
                         t_train.dtype))
             else:
+                t_train = t_train.astype(int)
                 self.t_train = t_train
             self._update_prior()
         else:
@@ -381,8 +382,8 @@ class Approximator(ABC):
         """
         if cutpoints is not None:
             self.cutpoints = self._check_cutpoints(cutpoints)
-            self.cutpoints_ts = cutpoints[self.t_train]
-            self.cutpoints_tplus1s = cutpoints[self.t_train + 1]
+            self.cutpoints_ts = self.cutpoints[self.t_train]
+            self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
         if varphi is not None or variance is not None:
             self.kernel.update_hyperparameter(
                 varphi=varphi, variance=variance)
