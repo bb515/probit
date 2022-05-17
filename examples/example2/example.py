@@ -19,6 +19,7 @@ from pstats import Stats, SortKey
 import pathlib
 from probit.plot import train, outer_loops, outer_loop_problem_size, grid, test
 from probit.approximators import VBOrdinalGP, EPOrdinalGP, LaplaceOrdinalGP
+from probit.sparse import SparseVBOrdinalGP, SparseLaplaceOrdinalGP
 from probit.data.utilities_nplan import datasets, load_data
 import numpy as np
 
@@ -89,6 +90,12 @@ def main():
         elif approximation == "LA":
             steps = np.max([2, N_train//1000])
             Approximator = LaplaceOrdinalGP
+        elif approximation == "SLA":
+            steps = np.max([2, N_train//1000])
+            Approximator == SparseLaplaceOrdinalGP
+        elif approximation == "SVB":
+            steps = np.max([100, N_train//10])
+            Approximator == SparseVBOrdinalGP
         if 0:
             # test_0 = t_tests[0]
             # on_time = len(test_0[test_0==5]) / len(test_0)
@@ -104,10 +111,20 @@ def main():
             # Initiate kernel
             kernel = Kernel(
                 varphi=varphi_0, variance=signal_variance_0)
-            # Initiate the classifier with the training data
-            classifier = Approximator(
-                cutpoints_0, noise_variance_0, kernel,
-                J, (X_trains[0], t_trains[0]))
+            if approximation in ["EP, VB, LA"]:
+                # Initiate the classifier with the training data
+                classifier = Approximator(
+                    cutpoints_0, noise_variance_0, kernel,
+                    J, (X_trains[0], t_trains[0]))
+            else:
+                # Initiate the sparse classifier with the training data
+                M = 1000  # number of inducing points
+                classifier = Approximator(
+                    M=M, cutpoints=cutpoints_0,
+                    noise_variance=noise_variance_0, kernel=kernel,
+                    J=J, data=(X_trains[0], t_trains[0])
+                )
+
             posterior_inv_cov, posterior_mean, *_ = test(
                 classifier, X_tests[0], t_tests[0], y_tests[0], steps)
 
