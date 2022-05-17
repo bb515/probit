@@ -756,8 +756,6 @@ class VBOrdinalGP(Approximator):
 
     def _update_posterior(self):
         """Update posterior covariances."""
-        # TODO: Is this really the best cholesky to take. What are the eigenvalues?
-        # are they bounded?
         # Note that this scipy implementation returns an upper triangular matrix
         # whereas numpy, tf, scipy.cholesky return a lower triangular,
         # then the position of the matrix transpose in the code would change.
@@ -856,13 +854,13 @@ class VBOrdinalGP(Approximator):
             self, steps, posterior_mean_0=None, first_step=1,
             write=False):
         """
-        Estimating the posterior means are a 3 step iteration over posterior_mean,
-        varphi and psi Eq.(8), (9), (10), respectively or,
+        Estimating the posterior means are a 3 step iteration over
+        posterior_mean, varphi and psi Eq.(8), (9), (10), respectively or,
         optionally, just an iteration over posterior_mean.
 
         :arg int steps: The number of iterations the Approximator takes.
-        :arg posterior_mean_0: The initial state of the approximate posterior mean
-            (N,). If `None` then initialised to zeros, default `None`.
+        :arg posterior_mean_0: The initial state of the approximate posterior
+            mean (N,). If `None` then initialised to zeros, default `None`.
         :type posterior_mean_0: :class:`numpy.ndarray`
         :arg int first_step: The first step. Useful for burn in algorithms.
         :arg bool write: Boolean variable to store and write arrays of
@@ -875,7 +873,8 @@ class VBOrdinalGP(Approximator):
             posterior means, other statistics and tuple of lists of per-step
             evolution of those statistics.
         """
-        posterior_mean, containers = self._approximate_initiate(posterior_mean_0)
+        posterior_mean, containers = self._approximate_initiate(
+            posterior_mean_0)
         ms, ys, varphis, psis, fxs = containers
         for _ in trange(first_step, first_step + steps,
                         desc="VB GP approximator progress", unit="samples",
@@ -899,8 +898,6 @@ class VBOrdinalGP(Approximator):
                 self.hyperparameters_update(
                     varphi=varphi,
                     varphi_hyperparameters=varphi_hyperparameters)
-                print("varphi = ", self.kernel.varphi)
-                print("varphihyper = ", self.kernel.varphi_hyperparameters)
             if write:
                 Z, *_ = truncated_norm_normalising_constant(
                     self.cutpoints_ts, self.cutpoints_tplus1s,
@@ -921,15 +918,13 @@ class VBOrdinalGP(Approximator):
 
     def _varphi_hyperparameters(self, varphi):
         """
-        Return the approximate posterior mean of the hyperhyperparameters psi.
+        Return the approximate posterior mean of the kernel
+        varphi hyperparameters.
 
         Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial
         Probit Regression with Gaussian Process Priors," in Neural Computation,
         vol. 18, no. 8, pp. 1790-1817, Aug. 2006,
         doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(10).
-
-        This is the same for all categorical approximators, and so can live in the
-        Abstract Base Class.
 
         :arg varphi: Posterior mean approximate of varphi.
         :type varphi: :class:`numpy.ndarray`
@@ -944,7 +939,7 @@ class VBOrdinalGP(Approximator):
             self, posterior_mean, varphi_hyperparameters, n_samples=10,
             vectorised=False):
         """
-        Return the w values of the sample
+        Return the weights of the importance sampler for varphi.
 
         Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial
         Probit Regression with Gaussian Process Priors," in Neural Computation,
