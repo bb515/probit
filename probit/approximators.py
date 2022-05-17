@@ -2062,19 +2062,18 @@ class EPOrdinalGP(Approximator):
                 if verbose:
                     print("({}), error={}".format(iteration, error))
             print("{}/{}".format(i + 1, len(Phi_new)))
-            (weights, precision_EP,
-                    Lambda_cholesky, Lambda) = self.compute_weights(
+            weight, precision_EP, L_cov, cov = self.compute_weights(
                 precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
             t1, t2, t3, t4, t5 = self.compute_integrals_vector(
                 np.diag(posterior_cov), posterior_mean, self.noise_variance)
             fx = self.objective(
                 precision_EP, posterior_mean,
-                t1, Lambda_cholesky, Lambda, weights)
+                t1, L_cov, cov, weight)
             fxs[i] = fx
             gx = self.objective_gradient(
                 gx_0.copy(), intervals, self.kernel.varphi,
                 self.noise_variance,
-                t2, t3, t4, t5, Lambda, weights, indices)
+                t2, t3, t4, t5, cov, weight, indices)
             gxs[i] = gx[indices_where]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
@@ -2253,7 +2252,7 @@ class EPOrdinalGP(Approximator):
         )
 
     def objective(
-            self, precision_EP, posterior_mean, t1, Lambda_cholesky, Lambda,
+            self, precision_EP, posterior_mean, t1, L_cov, cov,
             weights):
         """
         Calculate fx, the variational lower bound of the log marginal
@@ -2272,10 +2271,10 @@ class EPOrdinalGP(Approximator):
         :type posterior_mean:
         :arg t1:
         :type t1:
-        :arg Lambda_cholesky:
-        :type Lambda_cholesky:
-        :arg Lambda:
-        :type Lambda:
+        :arg L_cov:
+        :type L_cov:
+        :arg cov:
+        :type cov:
         :arg weights:
         :type weights:
         :returns: fx
@@ -2283,12 +2282,12 @@ class EPOrdinalGP(Approximator):
         """
         # Fill possible zeros in with machine precision
         precision_EP[precision_EP == 0.0] = self.EPS * self.EPS
-        fx = -np.sum(np.log(np.diag(Lambda_cholesky)))  # log det Lambda
+        fx = -np.sum(np.log(np.diag(L_cov)))  # log det cov
         fx -= 0.5 * posterior_mean.T @ weights
         fx -= 0.5 * np.sum(np.log(precision_EP))
-        # Lambda = L^{-1} L^{-T}  # requires a backsolve with the identity
+        # cov = L^{-1} L^{-T}  # requires a backsolve with the identity
         # TODO: check if there is a simpler calculation that can be done
-        fx -= 0.5 * np.sum(np.divide(np.diag(Lambda), precision_EP))
+        fx -= 0.5 * np.sum(np.divide(np.diag(cov), precision_EP))
         fx += np.sum(t1)
         # Regularisation - penalise large varphi (overfitting)
         # fx -= 0.1 * self.kernel.varphi
@@ -2296,7 +2295,7 @@ class EPOrdinalGP(Approximator):
 
     def objective_gradient(
             self, gx, intervals, varphi, noise_variance,
-            t2, t3, t4, t5, Lambda, weights, indices):
+            t2, t3, t4, t5, cov, weights, indices):
         """
         Calculate gx, the jacobian of the variational lower bound of the
         log marginal likelihood at the EP equilibrium.
@@ -2323,8 +2322,8 @@ class EPOrdinalGP(Approximator):
         :type t4:
         :arg t5:
         :type t5:
-        :arg Lambda:
-        :type Lambda:
+        :arg cov:
+        :type cov:
         :arg weights:
         :type weights:
         :return: gx
@@ -2358,8 +2357,8 @@ class EPOrdinalGP(Approximator):
                     self.X_train, self.X_train)
                 # VC * VC * a' * partial_K_varphi * a / 2
                 gx[self.J] = varphi * 0.5 * weights.T @ partial_K_s @ weights  # That's wrong. not the same calculation.
-                # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_K_varphi)
-                gx[self.J] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_K_s))
+                # equivalent to -= varphi * 0.5 * np.trace(cov @ partial_K_varphi)
+                gx[self.J] -= varphi * 0.5 * np.sum(np.multiply(cov, partial_K_s))
                 # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
                 # gx[self.J] -= 0.1 * varphi
                 gx[self.J] *= 2.0  # since varphi = kappa / 2
@@ -2382,8 +2381,8 @@ class EPOrdinalGP(Approximator):
                 else:
                     # VC * VC * a' * partial_K_varphi * a / 2
                     gx[self.J + 1] = varphi * 0.5 * weights.T @ partial_K_varphi @ weights  # That's wrong. not the same calculation.
-                    # equivalent to -= varphi * 0.5 * np.trace(Lambda @ partial_K_varphi)
-                    gx[self.J + 1] -= varphi * 0.5 * np.sum(np.multiply(Lambda, partial_K_varphi))
+                    # equivalent to -= varphi * 0.5 * np.trace(cov @ partial_K_varphi)
+                    gx[self.J + 1] -= varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
                     # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
                     # gx[self.J] -= 0.1 * varphi
         return -gx
