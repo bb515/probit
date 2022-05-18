@@ -2864,7 +2864,6 @@ class LaplaceOrdinalGP(Approximator):
         precision  = weight**2 + (
             z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
             ) / Z / noise_variance
-        print(precision)
         m = - self.K @ weight + posterior_mean
         L_cov, _ = cho_factor(self.K + np.diag(1. / precision))
         L_covT_inv = solve_triangular(
