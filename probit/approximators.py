@@ -2094,9 +2094,6 @@ class EPOrdinalGP(Approximator):
         """
         Optimisation routine for hyperparameters.
 
-        TODO: Need to watch out that I am not using incorrect posterior_mean
-        (h instead of m) to calculate predictive posterior.
-
         :arg theta: (log-)hyperparameters to be optimised.
         :type theta:
         :arg indices:
