@@ -3,7 +3,6 @@ Sparse GPs
 
 TODO: Laplace currently doesn't work.
 """
-from sympy import numer
 from probit.approximators import VBOrdinalGP, EPOrdinalGP, LaplaceOrdinalGP
 #import enum
 #from .kernels import Kernel, InvalidKernel

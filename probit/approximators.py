@@ -2862,6 +2862,9 @@ class LaplaceOrdinalGP(Approximator):
             z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
             ) / Z / noise_variance
         m = - self.K @ weight + posterior_mean
+        # TODO: temp
+        print(1./precision)
+        print("precision norm", np.linalg.norm(1./precision, ord=1) / self.N)
         L_cov, _ = cho_factor(self.K + np.diag(1. / precision))
         L_covT_inv = solve_triangular(
             L_cov.T, np.eye(self.N), lower=True)
