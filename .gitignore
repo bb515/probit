@@ -146,6 +146,7 @@ dmypy.json
 refactoring.txt
 post_processing/
 .vscode/
+probit/data/SEIso/sparse52/
 probit/data/client*
 probit/data/tf_parse.py
 probit/data/tf_parseSS.py

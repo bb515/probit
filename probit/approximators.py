@@ -128,11 +128,7 @@ class Approximator(ABC):
             try:
                 self.X_train = read_array(self.read_path, "X_train")
                 self.t_train = read_array(self.read_path, "t_train")
-                self.K = read_array(self.read_path, "K")
-                self.partial_K_varphi = read_array(
-                    self.read_path, "partial_K_varphi")
-                self.partial_K_variance = read_array(
-                    self.read_path, "partial_K_variance")
+                self._load_cached_prior()
             except KeyError:
                 # The array does not exist in the model file
                 raise
@@ -668,6 +664,16 @@ class Approximator(ABC):
                 noise_variance=noise_variance_update,
                 variance=variance_update,
                 varphi=varphi_update)
+
+    def _load_cached_prior(self):
+        """
+        Load cached prior covariances.
+        """
+        self.K = read_array(self.read_path, "K")
+        self.partial_K_varphi = read_array(
+            self.read_path, "partial_K_varphi")
+        self.partial_K_variance = read_array(
+            self.read_path, "partial_K_variance")
 
     def _update_prior(self):
         """Update prior covariances."""
@@ -3036,35 +3042,3 @@ class InvalidApproximator(Exception):
         )
 
         super().__init__(message)
-
-
-class ApproximatorLoader(enum.Enum):
-    """Factory enum to load approximators.
-    """
-    LA = LaplaceOrdinalGP
-    EP = EPOrdinalGP
-    VB = VBOrdinalGP
-
-
-def load_approximator(
-    approximator_string,
-    **kwargs):
-    """
-    Returns a brand new instance of the classifier manager for training.
-    Observe that this instance is of no use until it has been trained.
-    Input:
-        approximator_string (str):       type of model to be loaded. Our interface can currently provide
-                                trainable instances for: 'keras'
-        model_metadata (str):   absolute path to the file where the model's metadata is going to be
-                                saved. This metadata file will contain all the information required
-                                to re-load the model later.
-        model_kwargs (kwargs):  hyperparameters required to initialise the classification model. For
-                                details look at the desired model's constructor.
-    Output:
-        classifier (ClassifierManager): an instance of a classifier with a standard interface to
-                                        be used in our pipeline.
-    Raises:
-        ValueError: if the classifier type provided is not supported by the interface.
-    """
-    return ApproximatorLoader[approximator_string].value(
-        **kwargs)

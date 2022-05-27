@@ -123,10 +123,12 @@ def main():
             steps = np.max([2, N_train//1000])
             Approximator = LaplaceOrdinalGP
         elif approximation == "SLA":
-            steps = np.max([2, N_train//1000])
+            M = 30  # Number of inducing points. Is there a problem when this is small?
+            steps = np.max([2, M//10])
             Approximator = SparseLaplaceOrdinalGP
         elif approximation == "SVB":
-            steps = np.max([2, N_train//10])
+            M = 30  # Number of inducing points. Is there a problem when this is small?
+            steps = np.max([10, M])
             Approximator = SparseVBOrdinalGP
         else:
             raise ValueError(
@@ -140,7 +142,6 @@ def main():
             J=J, data=(X, t))
         else:
             # Initiate sparse classifier
-            M = 10  # Number of inducing points. Is there a problem when this is small?
             classifier = Approximator(
                 M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
                 J=J, data=(X, t))

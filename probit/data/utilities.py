@@ -1,7 +1,8 @@
 """Utility functions for data."""
 # Make sure to limit CPU usage
 import os
-nthreads = "1"
+from statistics import variance
+nthreads = "6"
 os.environ["OMP_NUM_THREADS"] = nthreads # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = nthreads # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = nthreads # export MKL_NUM_THREADS=6
@@ -14,7 +15,7 @@ import matplotlib as mpl
 import importlib.resources as pkg_resources
 # from scipy.stats import gamma
 from probit.kernels import KernelLoader
-from probit.approximators import ApproximatorLoader
+from probit.load_approximators import ApproximatorLoader
 from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ, LabSharpenedCosine
 
 # For plotting
@@ -400,7 +401,7 @@ def generate_prior_data_paper(
         t_js.append(j * np.ones(N_per_class, dtype=int))
 
     for j in range(1, J):
-        # Find the cutpoints and set it equal to 0.0
+        # Find the cutpoints
         cutpoint_j_min = Y_js[j - 1][-1]
         cutpoint_j_max = Y_js[j][0]
         cutpoints[j] = np.average([cutpoint_j_max, cutpoint_j_min])
@@ -659,7 +660,7 @@ def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
     N_total = int(J * N_per_class)
     # Sample from the real line, uniformly
     # X = np.random.uniform(0, 12, N_total)
-    X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
+    X = np.linspace(0., 1., N_total)  # N_total points evenly spaced over [0,1]
     X = X[:, None]  # reshape X to make it n*D
     mu = np.zeros((N_total))  # vector of the means
     K = kernel.kernel_matrix(X, X)
@@ -725,6 +726,7 @@ def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
 
 def generate_synthetic_data(N_per_class, J, D, kernel, noise_variance):
     """
+    TODO: SS
     Generate synthetic data for this model.
 
     This function will generate data such that the ground truth of the first cutpoint is at zero.
@@ -1503,7 +1505,7 @@ def generate_synthetic_data_paper(
     Generate synthetic dataset from the unit hypercube for Table 1.
     """
     # Initiate kernel
-    kernel = SEIso(varphi=varphi, scale=scale)
+    kernel = SEIso(varphi=varphi, variance=scale)
     # Generate data
     (N_show, N, X_js, Y_js, X, Y, t, cutpoints,
         X_trains, Y_trains, t_trains,
@@ -1512,9 +1514,9 @@ def generate_synthetic_data_paper(
         K0_show, X_show, Z_show, colors) = generate_prior_data_paper(
         N_train_per_class=N_train_per_class, N_test_per_class=N_test_per_class,
         N_validate_per_class=N_validate_per_class, splits=splits, J=J, D=D, kernel=kernel,
-        noise_variance=noise_variance, colors=colors, cmap=cmap, N_show=100, plot=True, seed=517)
+        noise_variance=noise_variance, colors=colors, cmap=cmap, N_show=100, plot=plot, seed=seed)
     # Save data
-    np.savez('tertile_SEIso_scale={}_noisevar={}_lengthscale={}.npz'.format(scale, noise_variance, varphi),
+    np.savez('J={}_kernel_string={}_scale={}_noisevar={}_lengthscale={}.npz'.format(J, repr(kernel), scale, noise_variance, varphi),
         N_show=N_show, N=N, J=J, D=D,
         X_js=X_js, Y_js=Y_js,
         X=X, Y=Y, t=t,
@@ -1678,6 +1680,39 @@ def load_data_synthetic(dataset, J, plot=False):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
+        elif J==52:
+            from probit.data.SEIso import sparse52
+            with pkg_resources.path(
+                sparse52,
+                'J=52_kernel_string=SEIso_scale=1.0_noisevar=0.1_lengthscale=30.0.npz') as path:
+                data = np.load(path)
+            N = 10000
+            idx = np.random.choice(
+                data["X"].shape[0], size=N, replace=False)
+            X_show = data["X_show"]
+            Z_show = data["Z_show"]
+            X_j = data["X_js"]  # Contains (13, 45) array of binned x values. Note, old variable name of 'k'.
+            Y_true_j = data["Y_js"]  # Contains (13, 45) array of binned y values
+            X = data["X"][idx]  # Contains (585,) array of x values
+            t = data["t"][idx]  # Contains (585,) array of ordinal response variables, corresponding to Xs values
+            Y_true = data["Y"][idx]  # Contains (585,) array of y values, corresponding to Xs values (not in order)
+            colors = data["colors"]
+            X_true = X
+            hyperparameters = {
+                "init": (
+                    data["cutpoints"],
+                    data["varphi"],
+                    0.001,
+                    data["scale"]
+                ),
+                "true": (
+                    data["cutpoints"],
+                    data["varphi"],
+                    data["noise_variance"],
+                    data["scale"],
+                ),
+            }
+            cutpoints_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["init"]
     elif dataset == "Linear":
         D = 1
         Kernel = Linear
@@ -2054,7 +2089,7 @@ def plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=None):
 
 
 if __name__ == "__main__":
-    J = 13
+    J = 52
     cmap = plt.cm.get_cmap('viridis', J)    # J discrete colors
     colors = []
     for j in range(J):
@@ -2063,9 +2098,13 @@ if __name__ == "__main__":
     # varphi = gamma.rvs(a=1.0, scale=np.sqrt(D))
     # noise_variance = gamma.rvs(a=1.2, scale=1./0.2)
     generate_synthetic_data_paper(
-        varphi=30.0, noise_variance=0.1, scale=1.0, N_train_per_class=100,
+        varphi=30.0, noise_variance=0.1, scale=1.0, N_train_per_class=960,
         N_test_per_class=0, N_validate_per_class=0, N_show=100,
-        splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)
+        splits=1, J=J, D=1, colors=colors, cmap=cmap, plot=True, seed=517)
+    # generate_synthetic_data_paper(
+    #     varphi=30.0, noise_variance=0.1, scale=1.0, N_train_per_class=100,
+    #     N_test_per_class=0, N_validate_per_class=0, N_show=100,
+    #     splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)
     # SS TODO: delete
     # generate_synthetic_data_new(
     #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)

@@ -965,7 +965,7 @@ def plot_synthetic(
                         origin='lower',extent=(-4.0,6.0,-4.0,6.0)) 
                 plt.show()
                 plt.close()
-        elif classifier.J == 13:
+        else:
             x_lims = (-0.5, 1.5)
             N = 1000
             x = np.linspace(x_lims[0], x_lims[1], N)
@@ -980,23 +980,26 @@ def plot_synthetic(
             plt.ylim(0.0, 1.0)
             plt.xlabel(r"$x$", fontsize=16)
             plt.ylabel(r"$p(\omega_{*}={}|x, X, \omega)$", fontsize=16)
-            plt.stackplot(x, Z.T,
-                            labels=(
-                            r"$p(\omega_{*}=0|x, X, \omega)$",
-                            r"$p(\omega_{*}=1|x, X, \omega)$",
-                            r"$p(\omega_{*}=2|x, X, \omega)$",
-                            r"$p(\omega_{*}=3|x, X, \omega)$",
-                            r"$p(\omega_{*}=4|x, X, \omega)$",
-                            r"$p(\omega_{*}=5|x, X, \omega)$",
-                            r"$p(\omega_{*}=6|x, X, \omega)$",
-                            r"$p(\omega_{*}=7|x, X, \omega)$",
-                            r"$p(\omega_{*}=8|x, X, \omega)$",
-                            r"$p(\omega_{*}=9|x, X, \omega)$",
-                            r"$p(\omega_{*}=10|x, X, \omega)$",
-                            r"$p(\omega_{*}=11|x, X, \omega)$",
-                            r"$p(\omega_{*}=12|x, X, \omega)$"),
-                        colors=colors
-                        )
+            if classifier.J == 13:
+                plt.stackplot(x, Z.T,
+                                labels=(
+                                r"$p(\omega_{*}=0|x, X, \omega)$",
+                                r"$p(\omega_{*}=1|x, X, \omega)$",
+                                r"$p(\omega_{*}=2|x, X, \omega)$",
+                                r"$p(\omega_{*}=3|x, X, \omega)$",
+                                r"$p(\omega_{*}=4|x, X, \omega)$",
+                                r"$p(\omega_{*}=5|x, X, \omega)$",
+                                r"$p(\omega_{*}=6|x, X, \omega)$",
+                                r"$p(\omega_{*}=7|x, X, \omega)$",
+                                r"$p(\omega_{*}=8|x, X, \omega)$",
+                                r"$p(\omega_{*}=9|x, X, \omega)$",
+                                r"$p(\omega_{*}=10|x, X, \omega)$",
+                                r"$p(\omega_{*}=11|x, X, \omega)$",
+                                r"$p(\omega_{*}=12|x, X, \omega)$"),
+                            colors=colors
+                            )
+            else:
+                plt.stackplot(x, Z.T, colors=colors)
             val = 0.5  # where the data lies on the y-axis.
             for j in range(classifier.J):
                 plt.scatter(
@@ -1013,7 +1016,7 @@ def plot_synthetic(
             plt.show()
             plt.close()
             np.savez(
-                "thirteen.npz",
+                "{}.npz".format(classifier.J),
                 x=X_new, y=posterior_predictive_m, s=posterior_std)
             plt.plot(X_new, posterior_predictive_m, 'r')
             plt.fill_between(

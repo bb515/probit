@@ -14,7 +14,8 @@ import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 from .utilities import (
-    #read_array,
+    read_array,
+    read_scalar,
     #norm_z_pdf, norm_cdf,
     truncated_norm_normalising_constant,
     p)  # , dp)
@@ -22,7 +23,6 @@ from .utilities import (
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
 #     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
-from scipy.stats import norm
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 #from .utilities import (
 #    sample_varphis,
@@ -64,6 +64,16 @@ class SparseVBOrdinalGP(VBOrdinalGP):
         # self.EPS = 1e-8
         # self.EPS_2 = self.EPS**2
         # self.jitter = 1e-10
+
+    def _load_cached_prior(self):
+        """
+        Load cached prior covariances with Nyström approximation.
+        """
+        self.M = read_scalar(self.read_path, "M")
+        self.Z = read_array(self.read_path, "Z")
+        self.Kdiag = read_array(self.read_path, "Kdiag")
+        self.Kuu = read_array(self.read_path, "Kuu")
+        self.Kuf = read_array(self.read_path, "Kuf")
 
     def _update_prior(self):
         """
@@ -367,6 +377,16 @@ class SparseLaplaceOrdinalGP(LaplaceOrdinalGP):
         # self.EPS = 1e-8
         # self.EPS_2 = self.EPS**2
         # self.jitter = 1e-10
+
+    def _load_cached_prior(self):
+        """
+        Load cached prior covariances with Nyström approximation.
+        """
+        self.M = read_scalar(self.read_path, "M")
+        self.Z = read_array(self.read_path, "Z")
+        self.Kdiag = read_array(self.read_path, "Kdiag")
+        self.Kuu = read_array(self.read_path, "Kuu")
+        self.Kuf = read_array(self.read_path, "Kuf")
 
     def _update_prior(self):
         """
