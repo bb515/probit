@@ -16,7 +16,8 @@ import numpy as np
 from .utilities import (
     read_array,
     read_scalar,
-    #norm_z_pdf, norm_cdf,
+    #norm_z_pdf,
+    norm_cdf,
     truncated_norm_normalising_constant,
     p)  # , dp)
 # NOTE Usually the numba implementation is not faster
@@ -173,7 +174,7 @@ class SparseVBOrdinalGP(VBOrdinalGP):
                 self.noise_std, self.EPS, self.upper_bound, self.upper_bound2)
             y = self._y(
                 p_, posterior_mean, self.noise_std)
-            posterior_mean, nu = self._posterior_mean(
+            posterior_mean, weight = self._posterior_mean(
                     y, self.posterior_cov_div_var, self.noise_variance)
             if self.kernel.varphi_hyperhyperparameters is not None:
                 # Posterior mean update for kernel hyperparameters
@@ -194,7 +195,7 @@ class SparseVBOrdinalGP(VBOrdinalGP):
                     self.cutpoints_ts, self.cutpoints_tplus1s,
                     self.noise_std, posterior_mean, self.EPS)
                 fx = self.objective(
-                    self.N, posterior_mean, nu, self.trace_cov,
+                    self.N, posterior_mean, weight, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
                     self.noise_variance,
                     self.log_det_cov)
@@ -205,76 +206,139 @@ class SparseVBOrdinalGP(VBOrdinalGP):
                     psis.append(self.kernel.varphi_hyperparameters)
                 fxs.append(fx)
         containers = (ms, ys, varphis, psis, fxs)
-        return posterior_mean, nu, y, p, containers
+        return posterior_mean, weight, y, p, containers
 
     def _posterior_mean(self, y, posterior_cov_div_var, noise_variance):
         # TODO: should be able to calculate this with a solve instead using LB and A.
         posterior_mean = posterior_cov_div_var @ y
-        nu = 1./noise_variance  * (y - posterior_mean)
-        return posterior_mean, nu
+        weight = 1./noise_variance  * (y - posterior_mean)
+        return posterior_mean, weight
+
+    def _predict_subset_regressors(
+            self, Kus, Kss, intermediate_vectors):
+        """
+        Predict using the predictive variance from the subset regressors
+        approximate method.
+        """
+        return Kss - np.einsum('ij, ij -> j', Kus, intermediate_vectors)
+
+    def _predict_projected_process(
+            self, Kus, Kss, intermediate_vectors, cutpoints):
+        """
+        Predict using the predictive variance from the projected process
+        approximate method.
+
+        This follows the GPFlow predictive distribution.
+        """
+
+        if numerically_stable:
+            # Seems to be necessary to take this cho factor
+            (L, lower) = cho_factor(
+                self.Kuu + self.jitter * np.eye(self.M), lower=True)
+            A = solve_triangular(L, self.Kuf, lower=True) / self.noise_std
+            B = A @ A.T + np.eye(self.M)
+            (LB, lower) = cho_factor(B, lower=True)
+
+        err = self.noise_variance * weight  # TODO: i think this is meant to be prior error! not posterior_mean error
+        Aerr = A @ err
+        c = solve_triangular(LB, Aerr, lower=True)
+        tmp1 = solve_triangular(L, Kus, lower=True)
+        tmp2 = solve_triangular(LB, tmp1, lower=True)
+        posterior_pred_mean = tmp2.T @ c
+        posterior_var = self.kernel.kernel_prior_diagonal(X_test)\
+                + np.sum(tmp2**2, axis=0) - np.sum(tmp1**2, axis=0)
+        posterior_pred_var = posterior_var + noise_variance
+ 
+        posterior_std = np.sqrt(posterior_var)
+        posterior_pred_std = np.sqrt(posterior_pred_var)
+        predictive_distributions = np.empty((N_test, self.J))
+        for j in range(self.J):
+            Z1 = np.divide(np.subtract(
+                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
+            Z2 = np.divide(
+                np.subtract(cutpoints[j],
+                posterior_pred_mean), posterior_pred_std)
+            predictive_distributions[:, j] = norm_cdf(Z1) - norm_cdf(Z2)
+        return predictive_distributions, posterior_pred_mean, posterior_std
+
+    def _predict(
+            self, X_test, cov, weight, cutpoints, noise_variance,
+            projected_process=True):
+        """
+        Predict using the predictive variance from the subset of regressors
+        algorithm.
+        """
+        N_test = np.shape(X_test)[0]
+        Kss = self.kernel.kernel_prior_diagonal(X_test)
+        # Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
+        Kus = self.kernel.kernel_matrix(self.Z, X_test)  # (M, N_test)
+
+        intermediate_vectors = cov @ Kus
+
+        if projected_process:
+            posterior_variance = self._predict_projected_process(
+                Kus, Kss, intermediate_vectors)
+        else:
+            posterior_variance = self._predict_subset_regressors(
+                Kus, Kss, intermediate_vectors)
+
+        posterior_std = np.sqrt(posterior_variance)
+        posterior_pred_mean = Kus.T @ weight
+        posterior_pred_variance = posterior_variance + noise_variance
+        posterior_pred_std = np.sqrt(posterior_pred_variance)
+
+        return (
+            self._ordinal_predictive_distributions(
+                posterior_pred_mean, posterior_pred_std, N_test, cutpoints),
+                posterior_pred_mean, posterior_std)
+
+    def predict(
+            self, X_test, cov, f, reparametrised=True, whitened=False,
+            projected_process=True):
+        """
+        Return the posterior predictive distribution over classes.
+
+        :arg X_test: The new data points, array like (N_test, D).
+        :type X_test: :class:`numpy.ndarray`.
+        :arg cov: The approximate
+            covariance-posterior-inverse-covariance matrix. Array like (N, N).
+        :type cov: :class:`numpy.ndarray`.
+        :arg f: Array like (N,).
+        :type f: :class:`numpy.ndarray`.
+        :arg bool reparametrised: Boolean variable that is `True` if f is
+            reparameterised, and `False` if not.
+        :arg bool whitened: Boolean variable that is `True` if f is whitened,
+            and `False` if not.
+        :return: The ordinal class probabilities.
+        """
+        if self.kernel._ARD:
+            # This is the general case where there are hyper-parameters
+            # varphi (J, D) for all dimensions and classes.
+            raise ValueError(
+                "For the ordinal likelihood approximator,the kernel "
+                "must not be _ARD type (kernel._ARD=1), but"
+                " ISO type (kernel._ARD=0). (got {}, expected)".format(
+                    self.kernel._ARD, 0))
+        else:
+            if whitened is True:
+                raise NotImplementedError("Not implemented.")
+            elif reparametrised is True:
+                return self._predict(
+                    X_test, cov, weight=f,
+                    cutpoints=self.cutpoints,
+                    noise_variance=self.noise_variance,
+                    projected_process=projected_process)
+            else:
+                raise NotImplementedError("Not implemented.")
 
     # def objective_gradient(
     #         self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, varphi,
     #         noise_variance, noise_std,
-    #         m, nu, posterior_cov_div_var, trace_posterior_cov_div_var,
+    #         m, weight, posterior_cov_div_var, trace_posterior_cov_div_var,
     #         trace_cov, N, Z, norm_pdf_z1s, norm_pdf_z2s, indices,
     #         numerical_stability=True, verbose=False):
     #     """TODO"""
     #     return gx
-
-    # def _predict_vector(
-    #         self, X_test, cov, nu, cutpoints,
-    #         noise_variance, numerically_stable=False):
-    #     """
-    #     Make posterior prediction over ordinal classes of X_test.
-
-    #     :arg cutpoints: (J + 1, ) array of the cutpoints.
-    #     :type cutpoints: :class:`numpy.ndarray`.
-    #     :arg cov: A covariance matrix used in calculation of posterior
-    #         predictions. (\sigma^2I + K)^{-1} Array like (N, N).
-    #     :type cov: :class:`numpy.ndarray`
-    #     :arg posterior_mean: The posterior mean. Array like (N,).
-    #     :type posterior_mean: :class:`numpy.ndarray`
-    #     :arg varphi: The kernel hyper-parameters.
-    #     :type varphi: :class:`numpy.ndarray` or float.
-    #     :arg float noise_variance: The noise variance.
-    #     :arg X_test: The new data points, array like (N_test, D).
-    #     :return: A Monte Carlo estimate of the class probabilities.
-    #     :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-    #     """
-    #     N_test = np.shape(X_test)[0]
-    #     Kss = self.kernel.kernel_prior_diagonal(X_test)
-    #     Kus = self.kernel.kernel_matrix(self.Z, X_test)  # (M, N_test)
-
-    #     if numerically_stable:
-    #         # Seems to be necessary to take this cho factor
-    #         (L, lower) = cho_factor(
-    #             self.Kuu + self.jitter * np.eye(self.M), lower=True)
-    #         A = solve_triangular(L, self.Kuf, lower=True) / self.noise_std
-    #         B = A @ A.T + np.eye(self.M)
-    #         (LB, lower) = cho_factor(B, lower=True)
-
-    #     err = self.noise_variance * nu  # TODO: i think this is meant to be prior error! not posterior_mean error
-    #     Aerr = A @ err
-    #     c = solve_triangular(LB, Aerr, lower=True)
-    #     tmp1 = solve_triangular(L, Kus, lower=True)
-    #     tmp2 = solve_triangular(LB, tmp1, lower=True)
-    #     posterior_pred_mean = tmp2.T @ c
-    #     posterior_var = self.kernel.kernel_prior_diagonal(X_test)\
-    #             + np.sum(tmp2**2, axis=0) - np.sum(tmp1**2, axis=0)
-    #     posterior_pred_var = posterior_var + noise_variance
- 
-    #     posterior_std = np.sqrt(posterior_var)
-    #     posterior_pred_std = np.sqrt(posterior_pred_var)
-    #     predictive_distributions = np.empty((N_test, self.J))
-    #     for j in range(self.J):
-    #         Z1 = np.divide(np.subtract(
-    #             cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
-    #         Z2 = np.divide(
-    #             np.subtract(cutpoints[j],
-    #             posterior_pred_mean), posterior_pred_std)
-    #         predictive_distributions[:, j] = norm.cdf(Z1) - norm.cdf(Z2)
-    #     return predictive_distributions, posterior_pred_mean, posterior_std
 
     def approximate_posterior(
             self, theta, indices, steps=None, first_step=1, max_iter=2,

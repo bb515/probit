@@ -161,7 +161,7 @@ class Approximator(ABC):
         """
 
     def predict(
-            self, X_test, cov, f, reparametrised=True, whitened=False):
+            self, X_test, cov, f, reparameterised=True, whitened=False):
         """
         Return the posterior predictive distribution over classes.
 
@@ -171,7 +171,11 @@ class Approximator(ABC):
             covariance-posterior-inverse-covariance matrix. Array like (N, N).
         :type cov: :class:`numpy.ndarray`.
         :arg f: Array like (N,).
-        :type weights: :class:`numpy.ndarray`.
+        :type f: :class:`numpy.ndarray`.
+        :arg bool reparametrised: Boolean variable that is `True` if f is
+            reparameterised, and `False` if not.
+        :arg bool whitened: Boolean variable that is `True` if f is whitened,
+            and `False` if not.
         :return: The ordinal class probabilities.
         """
         if self.kernel._ARD:
@@ -185,22 +189,34 @@ class Approximator(ABC):
         else:
             if whitened is True:
                 raise NotImplementedError("Not implemented.")
-            elif reparametrised is True:
-                return self._predict_vector(
+            elif reparameterised is True:
+                return self._predict(
                     X_test, cov, weight=f,
                     cutpoints=self.cutpoints,
                     noise_variance=self.noise_variance)
             else:
                 raise NotImplementedError("Not implemented.")
 
-    def _predict_vector(
+    def _ordinal_predictive_distributions(
+        self, posterior_pred_mean, posterior_pred_std, N_test, cutpoints
+    ):
+        """
+        Return predictive distributions for the ordinal likelihood.
+        """
+        predictive_distributions = np.empty((N_test, self.J))
+        for j in range(self.J):
+            Z1 = np.divide(np.subtract(
+                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
+            Z2 = np.divide(
+                np.subtract(cutpoints[j],
+                posterior_pred_mean), posterior_pred_std)
+            predictive_distributions[:, j] = norm_cdf(Z1) - norm_cdf(Z2)
+        return predictive_distributions 
+
+    def _predict(
             self, X_test, cov, weight, cutpoints, noise_variance):
         """
         Make posterior prediction over ordinal classes of X_test.
-
-
-
-        weights is (K + \sigma^{2}I)^{-1} y = \weight = K^{-1} @ posterior_mean 
 
         :arg X_test: The new data points, array like (N_test, D).
         :arg cov: A covariance matrix used in calculation of posterior
@@ -232,16 +248,10 @@ class Approximator(ABC):
         posterior_pred_mean = Kfs.T @ weight
         posterior_pred_variance = posterior_variance + noise_variance
         posterior_pred_std = np.sqrt(posterior_pred_variance)
-
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            Z1 = np.divide(np.subtract(
-                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
-            Z2 = np.divide(
-                np.subtract(cutpoints[j],
-                posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, j] = norm_cdf(Z1) - norm_cdf(Z2)
-        return predictive_distributions, posterior_pred_mean, posterior_std
+        return (
+            self._ordinal_predictive_distributions(
+            posterior_pred_mean, posterior_pred_std, N_test, cutpoints),
+            posterior_pred_mean, posterior_std)
 
     def get_log_likelihood(self, m):
         """
@@ -2145,6 +2155,8 @@ class EPOrdinalGP(Approximator):
             if verbose:
                 pass
                 # print("({}), error={}".format(iteration, error))
+        # TODO: this part requires an inverse, could it be sparsified
+        # by putting q(f) = p(f_m) R(f_n)
         (weight, precision_EP, L_cov, cov) = self.compute_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         # Try optimisation routine
