@@ -234,6 +234,59 @@ def run_adam(classifier, iterations):
     return logf
 
 
+def plot(classifier, X_test, title=""):
+    """Plot from GPFlow documentation for ordinal regression."""
+    fig = plt.figure(figsize=(14, 6))
+    plt.imshow(
+        classifier.predict(X_test),
+        interpolation="nearest",
+        extent=[X_test.min(), X_test.max(), -0.5, classifier.J + 0.5],
+        origin="lower",
+        aspect="auto",
+        cmap=plt.cm.viridis,
+    )
+    plt.colorbar()
+    plt.plot(
+        classifier.X_train, classifier.t_train, "kx",
+        mew=2, scalex=False, scaley=False)
+    plt.savefig("test")
+    plt.show()
+    plt.close()
+
+    # Predictive density for a single input x=0.5
+    x_new = 0.5
+    Y_new = np.arange(np.max(Y + 1)).reshape([-1, 1])
+    X_new = np.full_like(Y_new, x_new)
+    # for predict_log_density x and y need to have the same number of rows
+    dens_new = np.exp(m.predict_log_density((X_new, Y_new)))
+    fig = plt.figure(figsize=(8, 4))
+    plt.bar(x=Y_new.flatten(), height=dens_new.flatten())
+    plt.savefig("test2")
+    plt.show()
+    plt.close()
+
+    plt.figure(figsize=(12, 4))
+    plt.title(title)
+    pY, pYv = classifier._model.predict_y(X_test)  # Predict Y values at test locations
+    plt.plot(classifier.X_train, classifier.t_train, "x", label="Training points", alpha=0.2)
+    (line,) = plt.plot(X_test, pY, lw=1.5, label="Mean of predictive posterior")
+    col = line.get_color()
+    plt.fill_between(
+        X_test[:, 0],
+        (pY - 2 * pYv ** 0.5)[:, 0],
+        (pY + 2 * pYv ** 0.5)[:, 0],
+        color=col,
+        alpha=0.6,
+        lw=1.5,
+    )
+    Z = classifier._model.inducing_variable.Z.numpy()
+    plt.plot(Z, np.zeros_like(Z), "k|", mew=2, label="Inducing locations")
+    plt.legend(loc="lower right")
+    plt.show()
+    plt.savefig("test3")
+    plt.close()
+
+
 def train(classifier, method, indices, verbose=True, steps=None, max_sec=5000):
     """
     Hyperparameter training via gradient descent of the objective function, a

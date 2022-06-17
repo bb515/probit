@@ -138,18 +138,25 @@ def main():
             steps = np.max([10, M])
             Approximator = SparseVBGP
         elif approximation == "V":
-            steps = None
+            steps = 100
             Approximator = VGP
             # Initiate kernel
+            # kernel = gpflow.kernels.SquaredExponential(
+            #     lengthscales=varphi_0, variance=signal_variance_0)
             kernel = gpflow.kernels.SquaredExponential(
-                lengthscales=varphi_0, variance=signal_variance_0)
+                lengthscales=1./np.sqrt(2 * varphi_0),
+                variance=signal_variance_0
+            )
         elif approximation == "SV":
             M = 30  # Number of inducing points.
-            steps = None
-            Approximator = OrginalSVGP
+            steps = 10000
+            Approximator = SVGP
             # Initiate kernel
+            # kernel = gpflow.kernels.SquaredExponential()
             kernel = gpflow.kernels.SquaredExponential(
-                lengthscales=varphi_0, variance=signal_variance_0)
+                lengthscales=1./np.sqrt(2 * varphi_0),
+                variance=signal_variance_0
+            )
         else:
             raise ValueError(
                 "Approximator not found "

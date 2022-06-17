@@ -110,7 +110,7 @@ class Approximator(ABC):
         if data is not None:
             X_train, t_train = data
             self.X_train = X_train
-            if t_train.dtype != int:
+            if t_train.dtype not in [int, np.int32]:
                 raise TypeError(
                     "t must contain only integer values (got {})".format(
                         t_train.dtype))
