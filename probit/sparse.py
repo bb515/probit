@@ -3,7 +3,7 @@ Sparse GPs
 
 TODO: Laplace currently doesn't work.
 """
-from probit.approximators import VBOrdinalGP, EPOrdinalGP, LaplaceOrdinalGP
+from probit.approximators import VBGP, EPGP, LaplaceGP
 #import enum
 #from .kernels import Kernel, InvalidKernel
 #import pathlib
@@ -31,12 +31,12 @@ from scipy.linalg import cho_solve, cho_factor, solve_triangular
 #    fromb_t5_vector)
 
 
-class SparseVBOrdinalGP(VBOrdinalGP):
+class SparseVBGP(VBGP):
     """
     A sparse GP classifier for ordinal likelihood using the Variational Bayes
     (VB) approximation.
  
-    Inherits the VBOrdinalGP class. This class allows users to define a
+    Inherits the VBGP class. This class allows users to define a
     classification problem, get predictions using approximate Bayesian
     inference and approximate prior using the Nystrom approximation. It is for
     the ordinal likelihood. For this a :class:`probit.kernels.Kernel` is
@@ -47,7 +47,7 @@ class SparseVBOrdinalGP(VBOrdinalGP):
         Return a string representation of this class, used to import the class from
         the string.
         """
-        return "SparseVBOrdinalGP"
+        return "SparseVBGP"
 
     def __init__(
             self, M, *args, **kwargs):
@@ -408,12 +408,12 @@ class SparseVBOrdinalGP(VBOrdinalGP):
             return fx, gx
 
 
-class SparseLaplaceOrdinalGP(LaplaceOrdinalGP):
+class SparseLaplaceGP(LaplaceGP):
     """
     A sparse GP classifier for ordinal likelihood using the Laplace
     approximation.
  
-    Inherits the LaplaceOrdinalGP class. This class allows users to define a
+    Inherits the LaplaceGP class. This class allows users to define a
     classification problem, get predictions using approximate Bayesian
     inference and approximate prior using the Nystrom approximation. It is for
     the ordinal likelihood. For this a :class:`probit.kernels.Kernel` is
@@ -424,7 +424,7 @@ class SparseLaplaceOrdinalGP(LaplaceOrdinalGP):
         Return a string representation of this class, used to import the class from
         the string.
         """
-        return "SparseLaplaceOrdinalGP"
+        return "SparseLaplaceGP"
 
     def __init__(
             self, M, *args, **kwargs):

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import enum
-from .kernels import Kernel, InvalidKernel
+from probit.kernels import Kernel, InvalidKernel
 import pathlib
 import random
 from tqdm import trange
@@ -8,20 +8,19 @@ import warnings
 import math
 import matplotlib.pyplot as plt
 import numpy as np
-from .utilities import (
+from probit.utilities import (
     read_array,
     norm_z_pdf, norm_cdf,
     truncated_norm_normalising_constant,
-    p, dp)
+    p, dp,
+    sample_varphis,
+    fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
+    fromb_t5_vector)
 # NOTE Usually the numba implementation is not faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
 #     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
-from .utilities import (
-    sample_varphis,
-    fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
-    fromb_t5_vector)
 
 
 class Approximator(ABC):
@@ -75,14 +74,10 @@ class Approximator(ABC):
 
         :returns: A :class:`Approximator` object
         """
-        # Model
-        if not (isinstance(kernel, Kernel)):
-            print("kernel", kernel)
-            print("J", J)
-            print("data", data)
-            raise InvalidKernel(kernel)
-        else:
-            self.kernel = kernel
+        # if not (isinstance(kernel, Kernel)):
+        #     raise InvalidKernel(kernel)
+        # else:
+        self.kernel = kernel
         self.J = J
 
         # Read/write
@@ -141,14 +136,6 @@ class Approximator(ABC):
         self.grid = np.ogrid[0:self.N]  # For indexing sets of self.t_train
         self.indices_where_0 = np.where(self.t_train == 0)
         self.indices_where_J_1 = np.where(self.t_train == self.J - 1)
-
-    @abstractmethod
-    def _approximate_initiate(self):
-        """
-        Initialise the Approximator.
-
-        This method should be implemented in every concrete Approximator.
-        """
 
     @abstractmethod
     def approximate_posterior(self):
@@ -489,10 +476,10 @@ class Approximator(ABC):
         self.hyperparameters_update(
             cutpoints=cutpoints, varphi=varphi, variance=variance,
             noise_variance=noise_variance)
-        if self.kernel._general and self.kernel._ARD:
-            gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
-        else:
-            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        # if self.kernel._general and self.kernel._ARD:
+        #     gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
+        # else:
+        gx = np.zeros(1 + self.J - 1 + 1 + 1)
         intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
         error = np.inf
         iteration = 0
@@ -703,7 +690,7 @@ class Approximator(ABC):
         #     # or by a manual function. I have chosen to evaluate manually.
 
 
-class VBOrdinalGP(Approximator):
+class VBGP(Approximator):
     """
     A GP classifier for ordinal likelihood using the Variational Bayes (VB)
     approximation.
@@ -718,7 +705,7 @@ class VBOrdinalGP(Approximator):
         Return a string representation of this class, used to import the class from
         the string.
         """
-        return "VBOrdinalGP"
+        return "VBGP"
 
     def __init__(
             self, cutpoints, noise_variance=1.0, *args, **kwargs):
@@ -1395,7 +1382,7 @@ class VBOrdinalGP(Approximator):
             return fx, gx
 
 
-class EPOrdinalGP(Approximator):
+class EPGP(Approximator):
     """
     A GP classifier for ordinal likelihood using the Expectation Propagation
     (EP) approximation.
@@ -1418,7 +1405,7 @@ class EPOrdinalGP(Approximator):
         Return a string representation of this class, used to import the class
         from the string.
         """
-        return "EPOrdinalGP"
+        return "EPGP"
 
     def __init__(
         self, cutpoints, noise_variance=1.0, *args, **kwargs):
@@ -2467,7 +2454,7 @@ class EPOrdinalGP(Approximator):
         return weight, precision_EP, L_cov, cov
 
 
-class LaplaceOrdinalGP(Approximator):
+class LaplaceGP(Approximator):
     """
     A GP classifier for ordinal likelihood using the Laplace
     approximation.
@@ -2490,13 +2477,13 @@ class LaplaceOrdinalGP(Approximator):
         Return a string representation of this class, used to import the class
         from the string.
         """
-        return "LaplaceOrdinalGP"
+        return "LaplaceGP"
 
     def __init__(
         self, cutpoints, noise_variance=1.0, *args, **kwargs):
         # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
-        Create an :class:`LaplaceOrdinalGP` Approximator object.
+        Create an :class:`LaplaceGP` Approximator object.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.

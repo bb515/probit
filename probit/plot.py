@@ -208,6 +208,32 @@ def test(
     return calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
 
 
+def run_adam(classifier, iterations):
+    """
+    Utility function running the Adam optimizer
+
+    :param classifier: GPflow model
+    :param interations: number of iterations
+    """
+    import tensorflow as tf
+    # Create an Adam Optimizer action
+    logf = []
+    train_iter = iter(train_dataset.batch(minibatch_size))
+    training_loss = model.training_loss_closure(train_iter, compile=True)
+    optimizer = tf.optimizers.Adam()
+
+    @tf.function
+    def optimization_step():
+        optimizer.minimize(training_loss, model.trainable_variables)
+
+    for step in range(iterations):
+        optimization_step()
+        if step % 10 == 0:
+            elbo = -training_loss().numpy()
+            logf.append(elbo)
+    return logf
+
+
 def train(classifier, method, indices, verbose=True, steps=None, max_sec=5000):
     """
     Hyperparameter training via gradient descent of the objective function, a
