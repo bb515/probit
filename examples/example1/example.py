@@ -83,8 +83,7 @@ def main():
             steps = np.max([2, N_train//1000])
             Approximator = SparseVBGP
         elif approximation == "SVGP":
-            Approximator = OrginalSVGP
-
+            Approximator = SVGP
         outer_loops(
             Approximator, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
             cutpoints_0, varphi_0, noise_variance_0, signal_variance_0, J, D)
@@ -166,13 +165,13 @@ def main():
         if approximation in ["EP", "VB", "LA", "V"]:
             # Initiate classifier
             classifier = Approximator(
-            cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
-            J=J, data=(X, t))
+            cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+            kernel=kernel, J=J, data=(X, t))
         else:
             # Initiate sparse classifier
             classifier = Approximator(
-                M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
-                J=J, data=(X, t))
+                M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                kernel=kernel, J=J, data=(X, t))
  
         indices = np.ones(J + 2)
         # Fix noise variance

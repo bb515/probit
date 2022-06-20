@@ -70,7 +70,10 @@ def main():
             # Set varphi hyperparameters
             varphi_hyperparameters = np.array([1.0, 30.0])  # [shape, scale] of a cutpoints on varphi
             # Initiate kernel
-            kernel = Kernel(varphi=varphi_0, scale=scale_0, varphi_hyperparameters=varphi_hyperparameters)
+            kernel = Kernel(
+                varphi=varphi_0,
+                variance=scale_0,
+                varphi_hyperparameters=varphi_hyperparameters)
             indices = np.ones(J + 2)
             # Fix noise_variance
             indices[0] = 0
@@ -84,7 +87,7 @@ def main():
             burn_steps = 500  # 5000
             steps = 1000  # 10000
             m_0 = Y.flatten()
-            # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, X, t, J)
+            # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
             noise_std_hyperparameters = None
             cutpoints_hyperparameters = None
             # Define the proposal covariance
@@ -93,7 +96,7 @@ def main():
                 sampler = EllipticalSliceGP(
                     cutpoints_0, noise_variance_0,
                     noise_std_hyperparameters,
-                    cutpoints_hyperparameters, kernel, X, t, J)
+                    cutpoints_hyperparameters, kernel, J, (X, t))
                 theta = sampler.get_theta(indices)
                 # MPI parallel across chains
                 if approach == "AA":  # Ancilliary Augmentation approach
@@ -116,15 +119,15 @@ def main():
                 if approximation == "VB":
                     approximator = VBGP(  # VB approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
                 elif approximation == "LA":
                     approximator = LaplaceGP(  # Laplace MAP approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
                 elif approximation == "EP":
                     approximator = EPGP(  # EP approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
 
                 # Initiate hyper-parameter sampler
                 hyper_sampler = PseudoMarginal(approximator)

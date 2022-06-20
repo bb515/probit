@@ -77,10 +77,11 @@ def main():
         #     t_tests, burn_steps, steps,
         #     cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
         # Initiate kernel
-        kernel = Kernel(varphi=varphi_0, scale=scale_0)
+        kernel = Kernel(
+            varphi=varphi_0, variance=scale_0)
         # Initiate classifier
         sampler = GibbsGP(
-            cutpoints_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
+            cutpoints_0, noise_variance_0, kernel, J, (X_trains[2], t_trains[2]))
         plot(sampler, m_0, y_0, cutpoints_0, burn_steps, steps, J, D)
     elif dataset in datasets["synthetic"]:
         (X, t,
@@ -90,20 +91,22 @@ def main():
         # Set varphi hyperparameters
         varphi_hyperparameters = np.array([3.4, 2.0])  # [loc, scale] of a normal on np.exp(varphi)
         # Initiate kernel
-        kernel = Kernel(varphi=varphi_0, scale=scale_0, varphi_hyperparameters=varphi_hyperparameters)
+        kernel = Kernel(
+            varphi=varphi_0,
+            variance=scale_0, varphi_hyperparameters=varphi_hyperparameters)
         # Initiate classifier
         # TODO: temporary, since we know the true latent variables here
         burn_steps = 500
         steps = 1000
         m_0 = y_true.flatten()
         y_0 = y_true.flatten()
-        # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, X, t, J)
+        # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
         noise_std_hyperparameters = None
         cutpoints_hyperparameters = None
         sampler = EllipticalSliceGP(
             cutpoints_0, noise_variance_0,
             noise_std_hyperparameters,
-            cutpoints_hyperparameters, kernel, X, t, J)
+            cutpoints_hyperparameters, kernel, J, (X, t))
         nu_true = sampler.cov @ y_true.flatten()
         m_true = sampler.K @ nu_true
         # plt.scatter(sampler.X_train, m_true)
@@ -170,7 +173,7 @@ def main():
         # Pseudo Marginal approach - EP
         approximator = EPGP(
             cutpoints_0, noise_variance_0,
-            kernel, X, t, J)
+            kernel, J, (X, t))
         hyper_sampler = PseudoMarginal(approximator)
         log_p_pseudo_marginalss = []
         for i, varphi in enumerate(varphis):

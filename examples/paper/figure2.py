@@ -19,6 +19,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.approximators import EPGP, LaplaceGP, VBGP
+from probit.gpflow import VGP, SVGP
 from probit.samplers import PseudoMarginal
 from probit.plot import figure2
 import pathlib
@@ -42,7 +43,7 @@ def main():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "approximation", help="LA, VB or EP")
+        "approximation", help="LA, VB, EP or V")
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
@@ -70,7 +71,9 @@ def main():
         varphi_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate] of an cutpoints on varphi
 
         # Initiate kernel
-        kernel = Kernel(varphi=varphi_0, scale=scale_0, varphi_hyperparameters=varphi_hyperparameters)
+        kernel = Kernel(
+            varphi=varphi_0,
+            variance=scale_0, varphi_hyperparameters=varphi_hyperparameters)
 
         indices = np.ones(J + 2)
         # Fix noise_variance
@@ -97,15 +100,23 @@ def main():
                 if approximation == "VB":
                     approximator = VBGP(  # VB approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
                 elif approximation == "LA":
                     approximator = LaplaceGP(  # Laplace MAP approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
                 elif approximation == "EP":
                     approximator = EPGP(  # EP approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
+                elif approximation == "V":
+                    import gpflow
+                    kernel = gpflow.kernels.SquaredExponential(
+                        lengthscales=1./np.sqrt(2 * varphi_0),
+                        variance=scale_0)
+                    approximator = VGP(
+                        cutpoints_0, noise_variance_0,
+                        kernel, J, (X, t))
 
                 # Initiate hyper-parameter sampler
                 hyper_sampler = PseudoMarginal(approximator)

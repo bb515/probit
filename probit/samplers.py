@@ -37,7 +37,7 @@ class Sampler(ABC):
     """
 
     @abstractmethod
-    def __init__(self, kernel, X_train, t_train, J, write_path=None):
+    def __init__(self, kernel, J, data, write_path=None):
         """
         Create an :class:`Sampler` object.
 
@@ -61,6 +61,7 @@ class Sampler(ABC):
             self.write_path = None
         else:
             self.write_path = pathlib.Path(write_path)
+        (X_train, t_train) = data
         self.N = np.shape(X_train)[0]
         self.D = np.shape(X_train)[1]
         self.X_train = X_train
