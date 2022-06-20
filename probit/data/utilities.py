@@ -2085,6 +2085,7 @@ def plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=None):
         fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
         plt.savefig("surface.png")
         plt.show()
+        plt.close()
 
 
 

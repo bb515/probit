@@ -157,6 +157,7 @@ examples/example2/
 examples/example2/example.py
 examples/example8/
 pipeline/
+scipy/
 dataset_manager/
 examples/paper/theta_*
 probit/scratch.py

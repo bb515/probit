@@ -74,7 +74,7 @@ def main():
         elif approximation == "LA":
             steps = np.max([2, N_train//1000])
             Approximator = LaplaceGP
-        elif approximation == "VGP":
+        elif approximation == "V":
             Approximator = VGP
         elif approximation == "SLA":
             steps = np.max([2, N_train//1000])
@@ -82,7 +82,7 @@ def main():
         elif approximation == "SVB":
             steps = np.max([2, N_train//1000])
             Approximator = SparseVBGP
-        elif approximation == "SVGP":
+        elif approximation == "SV":
             Approximator = SVGP
         outer_loops(
             Approximator, Kernel, X_trains, t_trains, X_tests, t_tests, steps,

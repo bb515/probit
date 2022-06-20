@@ -285,7 +285,7 @@ class Approximator(ABC):
             if indices[j]:
                 theta.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
         if indices[self.J]:
-            theta.append(np.log(np.sqrt(self.kernel.scale)))
+            theta.append(np.log(np.sqrt(self.kernel.variance)))
         # TODO: replace this with kernel number of hyperparameters.
         if indices[self.J + 1]:
             theta.append(np.log(self.kernel.varphi))
@@ -1377,7 +1377,7 @@ class VBGP(Approximator):
             return fx, gx, weight, (self.cov, False)
         elif return_reparameterised is False:
             return fx, gx, posterior_mean, (
-                self.noise_variance * self.K @ self.cov, True)
+                self.noise_variance * self.K @ self.cov, False)
         elif return_reparameterised is None:
             return fx, gx
 
@@ -2514,7 +2514,7 @@ class LaplaceGP(Approximator):
         #         " but simple type (kernel._general=0). "
         #         "(got {}, expected)".format(self.kernel._general, 0))
         # self.EPS = 0.001  # Acts as a machine tolerance
-        #self.EPS = 1e-4
+        # self.EPS = 1e-4
         self.EPS = 1e-2
         # self.EPS = 1e-6
         self.EPS_2 = self.EPS**2

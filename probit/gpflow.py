@@ -33,33 +33,39 @@ class VGP(Approximator):
         Return a string representation of this class, used to import the class
         from the string.
         """
-        return "OrdinalVGP"
+        return "VGP"
 
     def __init__(
             self, cutpoints, noise_variance=1.0, *args, **kwargs):
             #cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
-        Create an :class:`OrdinalVGP` Approximator object.
+        Create an :class:`VGP` Approximator object.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
             then initialised to one, default `None`.
 
-        :returns: A :class:`OrdinalVGP` object.
+        :returns: A :class:`VGP` object.
         """
         super().__init__(*args, **kwargs)
         # Tends to work well in practice - should it be made smaller?
         # Just keep it consistent
-        #self.jitter = 1e-6
-        self.jitter = 1e-10
+        self.jitter = 1e-6
+        # self.jitter = 1e-10  # may be too small for samples
+        self.EPS = 1e-4  # perhaps not low enough.
+        # self.EPS = 1e-8
+        #self.EPS_2 = 1e-7
+        self.EPS_2 = self.EPS**2
         # Initiate hyperparameters
         self._model_initiate(cutpoints)
         self.hyperparameters_update(
             cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _update_prior(self):
-        pass
+        """Only need to do this if using a sampling algorithm."""
+        # TODO: tidy
+        self.K = self.kernel.K(self.X_train, self.X_train).numpy()
 
     def _model_initiate(self, cutpoints):
         """Update prior covariances."""
@@ -103,6 +109,34 @@ class VGP(Approximator):
             MonitorTaskGroup(image_task, period=5)
         )
 
+    def get_theta(self, indices):
+        """
+        Get the parameters (theta) for unconstrained optimization.
+
+        :arg indices: Indicator array of the hyperparameters to optimize over.
+            TODO: it is not clear, unless reading the code from this method,
+            that indices[0] means noise_variance, etc. so need to change the
+            interface to expect a dictionary with keys the hyperparameter
+            names and values a bool that they are fixed?
+        :type indices: :class:`numpy.ndarray`
+        :returns: The unconstrained parameters to optimize over, theta.
+        :rtype: :class:`numpy.array`
+        """
+        theta = []
+        if indices[0]:
+            theta.append(np.log(np.sqrt(self.noise_variance)))
+        if indices[1]:
+            theta.append(self.cutpoints[1])
+        for j in range(2, self.J):
+            if indices[j]:
+                theta.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
+        if indices[self.J]:
+            theta.append(np.log(np.sqrt(self.kernel.variance)))
+        # TODO: replace this with kernel number of hyperparameters.
+        if indices[self.J + 1]:
+            theta.append(np.log(1./(2 * self.kernel.lengthscales.numpy()**2)))
+        return np.array(theta)
+
     def hyperparameters_update(
         self, cutpoints=None, varphi=None, variance=None, noise_variance=None,
         varphi_hyperparameters=None):
@@ -126,8 +160,9 @@ class VGP(Approximator):
             self.cutpoints_ts = self.cutpoints[self.t_train]
             self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
             # self._model.likelihood.bin_edges = self.cutpoints[1:-1]
-        if varphi is not None or variance is not None:
+        if varphi is not None:
             self._model.kernel.lengthscales.assign(1./np.sqrt(2. * varphi))
+        if variance is not None:
             self._model.kernel.variance.assign(variance)
         if noise_variance is not None:
             self.noise_variance = noise_variance
@@ -241,9 +276,9 @@ class VGP(Approximator):
             return fx, gx, posterior.q_mu, (posterior.q_sqrt, False)
         elif return_reparameterised is False:
             posterior_mean, posterior_covariance = posterior.predict_f(
-                self.X_train)
-            return fx, gx, posterior_mean, (
-                posterior_covariance, True)
+                self.X_train, full_cov=True)
+            return fx, gx, posterior_mean.numpy().flatten(), (
+                posterior_covariance.numpy()[0], False)
         elif return_reparameterised is None:
             return fx, gx
 

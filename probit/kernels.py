@@ -12,7 +12,6 @@ from abc import ABC, abstractmethod
 # from mlkernels import EQ
 
 
-
 class Kernel(ABC):
     """
     Base class for kernels.
@@ -76,6 +75,8 @@ class Kernel(ABC):
             if varphi_hyperhyperparameters is not None:
                 self.varphi_hyperhyperparameters = self._initialise_hyperparameter(
                     self.varphi_hyperparameters, varphi_hyperhyperparameters)
+            else:
+                self.varphi_hyperhyperparameters = None
         else:
             self.varphi_hyperparameters = None
             self.varphi_hyperhyperparameters = None

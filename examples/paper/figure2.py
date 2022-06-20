@@ -19,7 +19,9 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.approximators import EPGP, LaplaceGP, VBGP
+from probit.sparse import SparseLaplaceGP, SparseVBGP
 from probit.gpflow import VGP, SVGP
+from probit.kernels_gpflow import SquaredExponential
 from probit.samplers import PseudoMarginal
 from probit.plot import figure2
 import pathlib
@@ -98,23 +100,43 @@ def main():
             t = t[:N]
             for i, Nimp in enumerate(num_importance_samples):
                 if approximation == "VB":
-                    approximator = VBGP(  # VB approximation
-                        cutpoints_0, noise_variance_0,
-                        kernel, J, (X, t))
+                    steps = np.max([100, N//10])
+                    Approximator = VBGP  # VB approximation
                 elif approximation == "LA":
-                    approximator = LaplaceGP(  # Laplace MAP approximation
-                        cutpoints_0, noise_variance_0,
-                        kernel, J, (X, t))
+                    steps = np.max([2, N//1000])
+                    Approximator = LaplaceGP  # Laplace MAP approximation
                 elif approximation == "EP":
-                    approximator = EPGP(  # EP approximation
-                        cutpoints_0, noise_variance_0,
-                        kernel, J, (X, t))
+                    steps = np.max([10, N//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
+                    Approximator = EPGP  # EP approximation
                 elif approximation == "V":
-                    import gpflow
-                    kernel = gpflow.kernels.SquaredExponential(
+                    steps = np.max([100, N//10])
+                    kernel = SquaredExponential(
                         lengthscales=1./np.sqrt(2 * varphi_0),
-                        variance=scale_0)
-                    approximator = VGP(
+                        variance=scale_0,
+                        varphi_hyperparameters=varphi_hyperparameters)
+                    Approximator = VGP
+                elif approximation == "SV":
+                    steps = np.max([4000, N//10])
+                    kernel = SquaredExponential(
+                        lengthscales=1./np.sqrt(2 * varphi_0),
+                        variance=scale_0,
+                        varphi_hyperparameters=varphi_hyperparameters)
+                    Approximator = SVGP
+                elif approximation == "SLA":
+                    steps = np.max([2, N//1000])
+                    Approximator = SparseLaplaceGP
+                elif approximation == "SVB":
+                    Approximator = SparseVBGP
+                    steps = np.max([2, N//1000])
+
+                if "S" in approximation:
+                    M = np.max(10, N//1000)
+                    approximator = Approximator(
+                        M,
+                        cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                        kernel=kernel, J=J, data=(X, t))
+                else:
+                    approximator = Approximator(
                         cutpoints_0, noise_variance_0,
                         kernel, J, (X, t))
 
@@ -122,12 +144,15 @@ def main():
                 hyper_sampler = PseudoMarginal(approximator)
 
                 # plot figures
-                (Phi_new, p_pseudo_marginals_mean, p_pseudo_marginals_lo, p_pseudo_marginals_hi, p_priors) = figure2(
+                (Phi_new, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
+                        p_pseudo_marginals_hi, p_priors) = figure2(
                     hyper_sampler, approximator, domain, res, indices,
-                    num_importance_samples=Nimp, reparameterised=False, show=True, write=True)
+                    num_importance_samples=Nimp, steps=steps,
+                    reparameterised=False, show=True, write=True)
                 if i==0:
                     plt.plot(Phi_new, p_pseudo_marginals_mean)
-                    plt.plot(Phi_new, p_pseudo_marginals_lo, '--b', label="Nimp={}".format(Nimp))
+                    plt.plot(Phi_new, p_pseudo_marginals_lo, '--b',
+                        label="Nimp={}".format(Nimp))
                     plt.plot(Phi_new, p_pseudo_marginals_hi, '--b')
                     plt.plot(Phi_new, p_priors, 'r')
                     axes = plt.gca()
@@ -135,8 +160,11 @@ def main():
                     plt.xlabel("length-scale")
                     plt.ylabel("pseudo marginal")
                     plt.title("N = {}, {}".format(N, approximation))
+                    # plt.savefig("test.png")
+                    # plt.close()
                 else:
-                    plt.plot(Phi_new, p_pseudo_marginals_lo, '--g', label="Nimp={}".format(Nimp))
+                    plt.plot(Phi_new, p_pseudo_marginals_lo, '--g',
+                        label="Nimp={}".format(Nimp))
                     plt.plot(Phi_new, p_pseudo_marginals_hi, '--g')
                     y_min, y_max = axes.get_ylim()
                     y_min = np.min([y_min, y_min_0])
@@ -144,8 +172,9 @@ def main():
                     plt.ylim(y_min, y_max)
             plt.vlines(varphi_0, 0.0, 0.010, colors='k')
             plt.legend()
-            plt.savefig(write_path / "fig2_{}_N={}.png".format(approximation, N))
             plt.show()
+            plt.savefig(
+                write_path / "fig2_{}_N={}.png".format(approximation, N))
             plt.close()
 
     if args.profile:

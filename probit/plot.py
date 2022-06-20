@@ -1119,7 +1119,8 @@ def plot_synthetic(
 
 
 def figure2(
-        hyper_sampler, approximator, domain, res, indices, num_importance_samples, steps=None,
+        hyper_sampler, approximator, domain, res, indices,
+        num_importance_samples, steps=None,
         reparameterised=False, verbose=False, show=False, write=True):
     """
     Return meshgrid values of fx and directions of gx over hyperparameter
@@ -1156,7 +1157,8 @@ def figure2(
 
     for i, phi in enumerate(Phi_new):
         # Need to update sampler hyperparameters
-        approximator._grid_over_hyperparameters_update(phi, indices, approximator.cutpoints)
+        approximator._grid_over_hyperparameters_update(
+            phi, indices, approximator.cutpoints)
         theta = approximator.get_theta(indices)
         log_p_pseudo_marginals, log_p_prior = hyper_sampler.tmp_compute_marginal(
                 theta, indices, steps=steps, reparameterised=reparameterised,
@@ -1164,10 +1166,12 @@ def figure2(
         log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
         log_p_priors.append(log_p_prior)
         if verbose:
-            print("log_p_pseudo_marginal {}, log_p_prior {}".format(np.mean(log_p_pseudo_marginals), log_p_prior))
+            print("log_p_pseudo_marginal {}, log_p_prior {}".format(
+                np.mean(log_p_pseudo_marginals), log_p_prior))
             print(
-                "cutpoints={}, varphi={}, noise_variance={}, variance={}, ".format(
-                approximator.cutpoints, approximator.kernel.varphi, approximator.noise_variance,
+                "cutpoints={}, varphi={}, noise_variance={},"
+                " variance={}".format(approximator.cutpoints,
+                approximator.kernel.varphi, approximator.noise_variance,
                 approximator.kernel.variance))
     if x2s is not None:
         raise ValueError("Multivariate plots are TODO")
@@ -1241,44 +1245,50 @@ def figure2(
 
 def _potential_scale_reduction(
         state, independent_chain_ndims=1, split_chains=False):
-    """Gelman and Rubin (1992)'s potential scale reduction for chain convergence.
+    """
+    Gelman and Rubin (1992)'s potential scale reduction for chain convergence.
     Given `N > 1` states from each of `C > 1` independent chains, the potential
-    scale reduction factor, commonly referred to as R-hat, measures convergence of
-    the chains (to the same target) by testing for equality of means.
+    scale reduction factor, commonly referred to as R-hat, measures convergence
+    of the chains (to the same target) by testing for equality of means.
     Specifically, R-hat measures the degree to which variance (of the means)
     between chains exceeds what one would expect if the chains were identically
-    distributed. See [Gelman and Rubin (1992)][1]; [Brooks and Gelman (1998)][2].
+    distributed. See [Gelman and Rubin (1992)][1];
+    [Brooks and Gelman (1998)][2].
     Some guidelines:
     * The initial state of the chains should be drawn from a distribution
     overdispersed with respect to the target. (TODO: what about burn-in?)
-    * If all chains converge to the target, then as `N --> infinity`, R-hat --> 1.
-    Before that, R-hat > 1 (except in pathological cases, e.g. if the chain
-    paths were identical).
+    * If all chains converge to the target, then as `N --> infinity`,
+    R-hat --> 1. Before that, R-hat > 1 (except in pathological cases, e.g. if
+    the chain paths were identical).
     * The above holds for any number of chains `C > 1`.  Increasing `C` does
     improve effectiveness of the diagnostic.
-    * Sometimes, R-hat < 1.2 is used to indicate approximate convergence, but of
-    course this is problem-dependent. See [Brooks and Gelman (1998)][2].
+    * Sometimes, R-hat < 1.2 is used to indicate approximate convergence, but
+    of course this is problem-dependent. See [Brooks and Gelman (1998)][2].
     * R-hat only measures non-convergence of the mean. If higher moments, or
     other statistics are desired, a different diagnostic should be used. See
     [Brooks and Gelman (1998)][2].
 
     :arg state: (n_samples, n_chains, n_parameters)
 
-    :arg split_chains: Python `bool`. If `True`, divide samples from each chain into
-    first and second halves, treating these as separate chains.  This makes
-    R-hat more robust to non-stationary chains, and is recommended in [3].
+    :arg split_chains: Python `bool`. If `True`, divide samples from each chain
+    into first and second halves, treating these as separate chains.  This
+    makes R-hat more robust to non-stationary chains, and is recommended in
+    [3].
  
-    :returns: `numpy.ndarray` structure parallel to `chains_states` representing the
-    R-hat statistic for the state(s). Shape equal to `chains_state.shape[2:]`.
+    :returns: `numpy.ndarray` structure parallel to `chains_states`
+    representing the R-hat statistic for the state(s). Shape equal to
+    `chains_state.shape[2:]`.
 
-    To see why R-hat is reasonable, let `X` be a random variable drawn uniformly
-    from the combined states (combined over all chains).  Then, in the limit
-    `N, C --> infinity`, with `E`, `Var` denoting expectation and variance,
+    To see why R-hat is reasonable, let `X` be a random variable drawn
+    uniformly from the combined states (combined over all chains).  Then, in
+    the limit `N, C --> infinity`, with `E`, `Var` denoting expectation and
+    variance,
     ```R-hat = ( E[Var[X | chain]] + Var[E[X | chain]] ) / E[Var[X | chain]].```
-    Using the law of total variance, the numerator is the variance of the combined
-    states, and the denominator is the total variance minus the variance of the
-    the individual chain means.  If the chains are all drawing from the same
-    distribution, they will have the same mean, and thus the ratio should be one.
+    Using the law of total variance, the numerator is the variance of the
+    combined states, and the denominator is the total variance minus the
+    variance of the individual chain means.  If the chains are all drawing from
+    the same distribution, they will have the same mean, and thus the ratio
+    should be one.
 
     #### References
     [1]: Stephen P. Brooks and Andrew Gelman. General Methods for Monitoring
@@ -1286,10 +1296,10 @@ def _potential_scale_reduction(
         Graphical Statistics_, 7(4), 1998.
     [2]: Andrew Gelman and Donald B. Rubin. Inference from Iterative Simulation
         Using Multiple Sequences. _Statistical Science_, 7(4):457-472, 1992.
-    [3]: Aki Vehtari, Andrew Gelman, Daniel Simpson, Bob Carpenter, Paul-Christian
-        Burkner. Rank-normalization, folding, and localization: An improved R-hat
-        for assessing convergence of MCMC, 2019. Retrieved from
-        http://arxiv.org/abs/1903.08008
+    [3]: Aki Vehtari, Andrew Gelman, Daniel Simpson, Bob Carpenter,
+        Paul-Christian Burkner. Rank-normalization, folding, and localization:
+        An improved R-hat for assessing convergence of MCMC, 2019. Retrieved
+        from http://arxiv.org/abs/1903.08008
     """
     if split_chains:
         # Split the sample dimension in half, doubling the number of

@@ -19,6 +19,7 @@ from probit.approximators import EPGP, LaplaceGP, VBGP
 from probit.samplers import (
     EllipticalSliceGP,
     SufficientAugmentation, AncilliaryAugmentation, PseudoMarginal)
+from probit.kernels_gpflow import SquaredExponential
 from probit.plot import table1, draw_mixing
 import pathlib
 from probit.data.utilities import datasets, load_data_paper
@@ -128,6 +129,15 @@ def main():
                     approximator = EPGP(  # EP approximation
                         cutpoints_0, noise_variance_0,
                         kernel, J, (X, t))
+                elif approximation == "V":
+                    kernel = SquaredExponential(
+                        lengthscales=1./np.sqrt(2 * varphi_0),
+                        variance=scale_0,
+                        varphi_hyperparameters=varphi_hyperparameters)
+                    approximator = VGP(
+                        cutpoints_0, noise_variance_0,
+                        kernel, J, (X, t)
+                    )
 
                 # Initiate hyper-parameter sampler
                 hyper_sampler = PseudoMarginal(approximator)
