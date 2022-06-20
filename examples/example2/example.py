@@ -1,5 +1,6 @@
 """
-nPlan data, ordinal regression. Approximate inference: VB or EP or LA.
+nPlan data, ordinal regression.
+Approximate inference: V, SV, VB, SVB, EP, LA or SLA.
 """
 # Make sure to limit CPU usage
 import os
@@ -18,8 +19,9 @@ from io import StringIO
 from pstats import Stats, SortKey
 import pathlib
 from probit.plot import train, outer_loops, outer_loop_problem_size, grid, test
-from probit.approximators import VBOrdinalGP, EPOrdinalGP, LaplaceOrdinalGP
-from probit.sparse import SparseVBOrdinalGP, SparseLaplaceOrdinalGP
+from probit.approximators import VBGP, EPGP, LaplaceGP
+from probit.sparse import SparseVBGP, SparseLaplaceGP
+from probit.gpflow import VGP, SVGP
 from probit.data.utilities_nplan import datasets, load_data
 import numpy as np
 
@@ -83,19 +85,36 @@ def main():
         #     real_valued_only=real_valued)
         if approximation == "EP":
             steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
-            Approximator = EPOrdinalGP
+            Approximator = EPGP
         elif approximation == "VB":
             steps = np.max([100, N_train//10])
-            Approximator = VBOrdinalGP
+            Approximator = VBGP
         elif approximation == "LA":
             steps = np.max([2, N_train//1000])
-            Approximator = LaplaceOrdinalGP
+            Approximator = LaplaceGP
         elif approximation == "SLA":
             steps = np.max([2, N_train//1000])
-            Approximator == SparseLaplaceOrdinalGP
+            Approximator == SparseLaplaceGP
         elif approximation == "SVB":
             steps = np.max([100, N_train//10])
-            Approximator == SparseVBOrdinalGP
+            Approximator == SparseVBGP
+        elif approximation == "V":
+            steps = np.max([100, N_train//10])
+            import gpflow
+            Approximator = VGP
+            kernel = gpflow.kernels.SquaredExponential(
+                lengthscales=1./np.sqrt(2 * varphi_0),
+                variance=signal_variance_0
+            )
+        elif approximation == "SV":
+            import gpflow
+            steps = np.max([100, N_train//10])
+            Approximator = SVGP
+            kernel = gpflow.kernels.SquaredExponential(
+                lengthscales=1./np.sqrt(2 * varphi_0),
+                variance=signal_variance_0
+            )
+
         if 0:
             # test_0 = t_tests[0]
             # on_time = len(test_0[test_0==5]) / len(test_0)
