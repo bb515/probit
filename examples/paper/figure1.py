@@ -23,9 +23,9 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from scipy.stats import multivariate_normal
-from probit.approximators import EPOrdinalGP
+from probit.approximators import EPGP
 from probit.samplers import (
-    GibbsOrdinalGP, EllipticalSliceOrdinalGP,
+    GibbsGP, EllipticalSliceGP,
     SufficientAugmentation, AncilliaryAugmentation, PseudoMarginal)
 from probit.plot import outer_loops, grid_synthetic
 from probit.Gibbs import plot
@@ -73,13 +73,13 @@ def main():
         m_0 = np.zeros(len(X_tests))
         y_0 = m_0.copy()
         # outer_loops(
-        #     test, GibsOrdinalGP, Kernel, X_trains, t_trains, X_tests,
+        #     test, GibsGP, Kernel, X_trains, t_trains, X_tests,
         #     t_tests, burn_steps, steps,
         #     cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
         # Initiate kernel
         kernel = Kernel(varphi=varphi_0, scale=scale_0)
         # Initiate classifier
-        sampler = GibbsOrdinalGP(
+        sampler = GibbsGP(
             cutpoints_0, noise_variance_0, kernel, X_trains[2], t_trains[2], J)
         plot(sampler, m_0, y_0, cutpoints_0, burn_steps, steps, J, D)
     elif dataset in datasets["synthetic"]:
@@ -97,10 +97,10 @@ def main():
         steps = 1000
         m_0 = y_true.flatten()
         y_0 = y_true.flatten()
-        # sampler = GibbsOrdinalGP(cutpoints_0, noise_variance_0, kernel, X, t, J)
+        # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, X, t, J)
         noise_std_hyperparameters = None
         cutpoints_hyperparameters = None
-        sampler = EllipticalSliceOrdinalGP(
+        sampler = EllipticalSliceGP(
             cutpoints_0, noise_variance_0,
             noise_std_hyperparameters,
             cutpoints_hyperparameters, kernel, X, t, J)
@@ -168,7 +168,7 @@ def main():
         # plt.show()
 
         # Pseudo Marginal approach - EP
-        approximator = EPOrdinalGP(
+        approximator = EPGP(
             cutpoints_0, noise_variance_0,
             kernel, X, t, J)
         hyper_sampler = PseudoMarginal(approximator)

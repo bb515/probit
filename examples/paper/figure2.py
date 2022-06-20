@@ -18,7 +18,7 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
-from probit.approximators import EPOrdinalGP, LaplaceOrdinalGP, VBOrdinalGP
+from probit.approximators import EPGP, LaplaceGP, VBGP
 from probit.samplers import PseudoMarginal
 from probit.plot import figure2
 import pathlib
@@ -95,15 +95,15 @@ def main():
             t = t[:N]
             for i, Nimp in enumerate(num_importance_samples):
                 if approximation == "VB":
-                    approximator = VBOrdinalGP(  # VB approximation
+                    approximator = VBGP(  # VB approximation
                         cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
                 elif approximation == "LA":
-                    approximator = LaplaceOrdinalGP(  # Laplace MAP approximation
+                    approximator = LaplaceGP(  # Laplace MAP approximation
                         cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
                 elif approximation == "EP":
-                    approximator = EPOrdinalGP(  # EP approximation
+                    approximator = EPGP(  # EP approximation
                         cutpoints_0, noise_variance_0,
                         kernel, X, t, J)
 

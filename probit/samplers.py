@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 from numpy import False_
-from probit.approximators import Approximator, InvalidApproximator, EPOrdinalGP
+from probit.approximators import Approximator, InvalidApproximator, EPGP
 from probit.priors import prior, prior_reparameterised
 from probit.proposals import proposal, proposal_reparameterised, proposal_initiate
 from .kernels import Kernel, InvalidKernel
@@ -700,16 +700,16 @@ class Sampler(ABC):
         return 0
 
 
-class GibbsOrdinalGP(Sampler):
+class GibbsGP(Sampler):
     """
     Gibbs sampler for ordinal GP regression. Inherits the sampler ABC.
     """
 
     def __init__(self, cutpoints, noise_variance=1.0, *args, **kwargs):
         """
-        Create an :class:`GibbsOrdinalGP` sampler object.
+        Create an :class:`GibbsGP` sampler object.
 
-        :returns: An :class:`GibbsOrdinalGP` object.
+        :returns: An :class:`GibbsGP` object.
         """
         super().__init__(*args, **kwargs)
         if self.kernel._ARD:
@@ -930,7 +930,7 @@ class GibbsOrdinalGP(Sampler):
         return np.array(m_samples), np.array(y_samples), np.array(cutpoints_samples)
 
 
-class EllipticalSliceOrdinalGP(Sampler):
+class EllipticalSliceGP(Sampler):
     """
     Elliptical Slice sampling of the latent variables.
     """
@@ -939,9 +939,9 @@ class EllipticalSliceOrdinalGP(Sampler):
             cutpoints_hyperparameters=None, noise_std_hyperparameters=None,
             *args, **kwargs):
         """
-        Create an :class:`EllipticalSliceOrdinalGP` sampler object.
+        Create an :class:`EllipticalSliceGP` sampler object.
 
-        :returns: An :class:`EllipticalSliceOrdinalGP` object.
+        :returns: An :class:`EllipticalSliceGP` object.
         """
         super().__init__(*args, **kwargs)
         if cutpoints_hyperparameters is not None:
