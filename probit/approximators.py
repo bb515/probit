@@ -456,21 +456,21 @@ class Approximator(ABC):
                 variance = std_dev**2
                 index += 1
             if indices[self.J + 1]:
-                if self.kernel._general and self.kernel._ARD:
-                    # In this case, then there is a variance parameter, the first
-                    # cutpoint, the interval parameters,
-                    # and lengthscales parameter for each dimension and class
-                    varphi = np.exp(
-                        np.reshape(
-                            theta[self.J:self.J + self.J * self.D],
-                            (self.J, self.D)))
-                    index += self.J * self.D
-                else:
-                    # In this case, then there is a variance parameter, the first
-                    # cutpoint, the interval parameters,
-                    # and a single, shared lengthscale parameter
-                    varphi = np.exp(theta[index])
-                    index += 1
+                # if self.kernel._general and self.kernel._ARD:
+                #     # In this case, then there is a variance parameter, the first
+                #     # cutpoint, the interval parameters,
+                #     # and lengthscales parameter for each dimension and class
+                #     varphi = np.exp(
+                #         np.reshape(
+                #             theta[self.J:self.J + self.J * self.D],
+                #             (self.J, self.D)))
+                #     index += self.J * self.D
+                # else:
+                # In this case, then there is a variance parameter, the first
+                # cutpoint, the interval parameters,
+                # and a single, shared lengthscale parameter
+                varphi = np.exp(theta[index])
+                index += 1
         # Update prior and posterior covariance
         # TODO: this should include an argument as to whether derivatives need to be calculated. Perhaps this is given by indices.
         self.hyperparameters_update(
@@ -547,26 +547,25 @@ class Approximator(ABC):
             space.append(
                 np.logspace(domain[index][0], domain[index][1], res[index]))
             index += 1
-        if self.kernel._general and self.kernel._ARD:
-            gx_0 = np.empty(1 + self.J - 1 + 1 + self.J * self.D)
-            # In this case, then there is a scale parameter,
-            #  the first cutpoint, the interval parameters,
-            # and lengthvariances parameter for each dimension and class
-            for j in range(self.J * self.D):
-                if indices[self.J + 1 + j]:
-                    # grid over this particular hyperparameter
-                    raise ValueError("TODO")
-                    index += 1
-        else:
-            gx_0 = np.empty(1 + self.J - 1 + 1 + 1)
-            if indices[self.J + 1]:
-                # Grid over only kernel hyperparameter, varphi
-                label.append(r"$\varphi$")
-                axis_scale.append("log")
-                space.append(
-                    np.logspace(
-                        domain[index][0], domain[index][1], res[index]))
-                index +=1
+        # TODO: 
+        # gx_0 = np.empty(1 + self.J - 1 + 1 + self.J * self.D)
+        # # In this case, then there is a scale parameter,
+        # #  the first cutpoint, the interval parameters,
+        # # and lengthvariances parameter for each dimension and class
+        # for j in range(self.J * self.D):
+        #     if indices[self.J + 1 + j]:
+        #         # grid over this particular hyperparameter
+        #         raise ValueError("TODO")
+        #         index += 1
+        gx_0 = np.empty(1 + self.J - 1 + 1 + 1)
+        if indices[self.J + 1]:
+            # Grid over only kernel hyperparameter, varphi
+            label.append(r"$\varphi$")
+            axis_scale.append("log")
+            space.append(
+                np.logspace(
+                    domain[index][0], domain[index][1], res[index]))
+            index +=1
         if index == 2:
             meshgrid = np.meshgrid(space[0], space[1])
             Phi_new = np.dstack(meshgrid)
@@ -731,17 +730,18 @@ class VBGP(Approximator):
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
         # else:
         #     self.noise_std_hyperparameters = None
-        if self.kernel._ARD:
-            raise ValueError(
-                "The kernel must not be ARD type (kernel._ARD=1),"
-                " but ISO type (kernel._ARD=0). (got {}, expected)".format(
-                    self.kernel._ARD, 0))
-        if self.kernel._general:
-            raise ValueError(
-                "The kernel must not be general "
-                "type (kernel._general=1), but simple type "
-                "(kernel._general=0). (got {}, expected)".format(
-                    self.kernel._general, 0))
+        # TODO: SS
+        # if self.kernel._ARD:
+        #     raise ValueError(
+        #         "The kernel must not be ARD type (kernel._ARD=1),"
+        #         " but ISO type (kernel._ARD=0). (got {}, expected)".format(
+        #             self.kernel._ARD, 0))
+        # if self.kernel._general:
+        #     raise ValueError(
+        #         "The kernel must not be general "
+        #         "type (kernel._general=1), but simple type "
+        #         "(kernel._general=0). (got {}, expected)".format(
+        #             self.kernel._general, 0))
         #self.EPS = 0.000001  # Acts as a machine tolerance, controls error
         #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
         self.EPS = 1e-4  # perhaps not low enough.
@@ -1208,25 +1208,25 @@ class VBGP(Approximator):
                 raise ValueError("TODO")
             # For kernel parameters
             if indices[self.J + 1]:
-                if self.kernel._general and self.kernel._ARD:
-                    raise ValueError("TODO")
-                else:
-                    if numerical_stability is True:
-                        # Update gx[-1], the partial derivative of the lower bound
-                        # wrt the lengthscale. Using matrix inversion Lemma
-                        one = (varphi / 2) * weight.T @ partial_K_varphi @ weight
-                        # TODO: slower but what about @jit compile CPU or GPU?
-                        # D = solve_triangular(
-                        #     L_cov.T, partial_K_varphi, lower=True)
-                        # D_inv = solve_triangular(L_cov, D, lower=False)
-                        # two = - (varphi / 2) * np.trace(D_inv)
-                        two = - (varphi / 2) * np.einsum(
-                            'ij, ji ->', partial_K_varphi, cov)
-                        gx[self.J + 1] = one + two
-                        if verbose:
-                            print("one", one)
-                            print("two", two)
-                            print("gx = {}".format(gx[self.J + 1]))
+                # if self.kernel._general and self.kernel._ARD:
+                #     raise ValueError("TODO")
+                # else:
+                if numerical_stability is True:
+                    # Update gx[-1], the partial derivative of the lower bound
+                    # wrt the lengthscale. Using matrix inversion Lemma
+                    one = (varphi / 2) * weight.T @ partial_K_varphi @ weight
+                    # TODO: slower but what about @jit compile CPU or GPU?
+                    # D = solve_triangular(
+                    #     L_cov.T, partial_K_varphi, lower=True)
+                    # D_inv = solve_triangular(L_cov, D, lower=False)
+                    # two = - (varphi / 2) * np.trace(D_inv)
+                    two = - (varphi / 2) * np.einsum(
+                        'ij, ji ->', partial_K_varphi, cov)
+                    gx[self.J + 1] = one + two
+                    if verbose:
+                        print("one", one)
+                        print("two", two)
+                        print("gx = {}".format(gx[self.J + 1]))
         return -gx
 
     def grid_over_hyperparameters(
@@ -1431,16 +1431,16 @@ class EPGP(Approximator):
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
         # else:
         #     self.noise_std_hyperparameters = None
-        if self.kernel._ARD:
-            raise ValueError(
-                "The kernel must not be _ARD type (kernel._ARD=1),"
-                " but ISO type (kernel._ARD=0). (got {}, expected)".format(
-                self.kernel._ARD, 0))
-        if self.kernel._general:
-            raise ValueError(
-                "The kernel must not be general type (kernel._general=1),"
-                " but simple type (kernel._general=0). "
-                "(got {}, expected)".format(self.kernel._general, 0))
+        # if self.kernel._ARD:
+        #     raise ValueError(
+        #         "The kernel must not be _ARD type (kernel._ARD=1),"
+        #         " but ISO type (kernel._ARD=0). (got {}, expected)".format(
+        #         self.kernel._ARD, 0))
+        # if self.kernel._general:
+        #     raise ValueError(
+        #         "The kernel must not be general type (kernel._general=1),"
+        #         " but simple type (kernel._general=0). "
+        #         "(got {}, expected)".format(self.kernel._general, 0))
         self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
@@ -2151,10 +2151,10 @@ class EPGP(Approximator):
             np.diag(posterior_cov), posterior_mean, self.noise_variance)
         fx = self.objective(precision_EP, posterior_mean, t1,
             L_cov, cov, weight)
-        if self.kernel._general and self.kernel._ARD:
-            gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
-        else:
-            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        # if self.kernel._general and self.kernel._ARD:
+        #     gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
+        # else:
+        gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
             gx, intervals, self.kernel.varphi, self.noise_variance,
             t2, t3, t4, t5, cov, weight, indices)
@@ -2368,12 +2368,12 @@ class EPGP(Approximator):
             if indices[self.J + 1]:
                 partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
                     self.X_train, self.X_train)
-                if self.kernel._general and self.kernel._ARD:
-                    raise ValueError("TODO")
+                # if self.kernel._general and self.kernel._ARD:
+                #     raise ValueError("TODO")
                 # elif 1:
                 #     gx[self.J + 1] = varphi * 0.5 * weights.T @ partial_K_varphi @ weights
                 # TODO: This needs fixing/ checking vs original code
-                elif 0:
+                if 0:
                     for l in range(self.kernel.L):
                         K = self.kernel.num_hyperparameters[l]
                         KK = 0
@@ -2503,16 +2503,16 @@ class LaplaceGP(Approximator):
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
         # else:
         #     self.noise_std_hyperparameters = None
-        if self.kernel._ARD:
-            raise ValueError(
-                "The kernel must not be _ARD type (kernel._ARD=1),"
-                " but ISO type (kernel._ARD=0). (got {}, expected)".format(
-                self.kernel._ARD, 0))
-        if self.kernel._general:
-            raise ValueError(
-                "The kernel must not be general type (kernel._general=1),"
-                " but simple type (kernel._general=0). "
-                "(got {}, expected)".format(self.kernel._general, 0))
+        # if self.kernel._ARD:
+        #     raise ValueError(
+        #         "The kernel must not be _ARD type (kernel._ARD=1),"
+        #         " but ISO type (kernel._ARD=0). (got {}, expected)".format(
+        #         self.kernel._ARD, 0))
+        # if self.kernel._general:
+        #     raise ValueError(
+        #         "The kernel must not be general type (kernel._general=1),"
+        #         " but simple type (kernel._general=0). "
+        #         "(got {}, expected)".format(self.kernel._general, 0))
         # self.EPS = 0.001  # Acts as a machine tolerance
         #self.EPS = 1e-4
         self.EPS = 1e-2
@@ -2817,16 +2817,16 @@ class LaplaceGP(Approximator):
             if indices[J + 1]:
                 partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
                     X_train, X_train)
-                if self.kernel._general and self.kernel._ARD:
-                    raise ValueError("TODO")
-                else:
-                    dmat = partial_K_varphi @ cov
-                    t2 = (dmat @ weight) / precision
-                    gx[J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
-                    gx[J + 1] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
-                    gx[J + 1] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
-                    # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
-                    # gx[J] -= 0.1 * varphi
+                # if self.kernel._general and self.kernel._ARD:
+                #     raise ValueError("TODO")
+                # else:
+                dmat = partial_K_varphi @ cov
+                t2 = (dmat @ weight) / precision
+                gx[J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
+                gx[J + 1] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
+                gx[J + 1] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
+                # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
+                # gx[J] -= 0.1 * varphi
         return gx
 
     def _approximate_initiate(
@@ -2968,10 +2968,10 @@ class LaplaceGP(Approximator):
         L_cov, cov, Z) = self.compute_weights(
             posterior_mean)
         fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
-        if self.kernel._general and self.kernel._ARD:
-            gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
-        else:
-            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        # if self.kernel._general and self.kernel._ARD:
+        #     gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
+        # else:
+        gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
             gx, (self.X_train, self.t_train), self.grid,
             self.J, intervals, self.kernel.varphi, self.noise_variance,
