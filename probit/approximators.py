@@ -845,12 +845,12 @@ class VBGP(Approximator):
         if posterior_mean_0 is None:
             # posterior_mean_0 = np.random.rand(self.N)  # TODO: justification for this?
             posterior_mean_0 = np.zeros(self.N)
-        ys = []
+        gs = []
         posterior_means = []
         varphis = []
         psis = []
         fxs = []
-        containers = (posterior_means, ys, varphis, psis, fxs)
+        containers = (posterior_means, gs, varphis, psis, fxs)
         return posterior_mean_0, containers
 
     def approximate(
@@ -878,17 +878,17 @@ class VBGP(Approximator):
         """
         posterior_mean, containers = self._approximate_initiate(
             posterior_mean_0)
-        ms, ys, varphis, psis, fxs = containers
+        posterior_means, gs, varphis, psis, fxs = containers
         for _ in trange(first_step, first_step + steps,
                         desc="VB GP approximator progress", unit="samples",
                         disable=True):
             p_ = p(
                 posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
                 self.noise_std, self.EPS, self.upper_bound, self.upper_bound2)
-            y = self._y(
+            g = self._g(
                 p_, posterior_mean, self.noise_std)
             posterior_mean, weight = self._posterior_mean(
-                y, self.cov, self.K)
+                g, self.cov, self.K)
             if self.kernel.varphi_hyperhyperparameters is not None:
                 # Posterior mean update for kernel hyperparameters
                 # Kernel hyperparameters are variables here
@@ -910,14 +910,14 @@ class VBGP(Approximator):
                     self.trace_posterior_cov_div_var, Z,
                     self.noise_variance,
                     self.log_det_cov)
-                ms.append(posterior_mean)
-                ys.append(y)
+                posterior_means.append(posterior_mean)
+                gs.append(g)
                 if self.kernel.varphi_hyperparameters is not None:
                     varphis.append(self.kernel.varphi)
                     psis.append(self.kernel.varphi_hyperparameters)
                 fxs.append(fx)
-        containers = (ms, ys, varphis, psis, fxs)
-        return posterior_mean, weight, y, p, containers
+        containers = (posterior_means, gs, varphis, psis, fxs)
+        return posterior_mean, weight, g, p, containers
 
     def _varphi_hyperparameters(self, varphi):
         """
@@ -2442,8 +2442,8 @@ class EPGP(Approximator):
             # This is 3-4 times slower on CPU,
             # what about with jit compiled CPU or GPU?
             # Is this ever more stable than a matmul by the inverse?
-            y = cho_solve((L_cov, False), mean_EP)
-            weight = cho_solve((L_cov.T, True), y)
+            g = cho_solve((L_cov, False), mean_EP)
+            weight = cho_solve((L_cov.T, True), g)
         else:
             weight = cov @ mean_EP
         if np.any(

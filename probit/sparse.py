@@ -127,6 +127,8 @@ class SparseVBGP(VBGP):
         LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)  # not sure if this is correct
         Binv = solve_triangular(LB, LBTinv, lower=False)  # not sure if this is correct
 
+        L @ B_inv @ A 
+
         self.posterior_cov_div_var = A.T @ Binv @ A
         self.trace_posterior_cov_div_var = np.trace(
             self.posterior_cov_div_var)
@@ -164,18 +166,19 @@ class SparseVBGP(VBGP):
             posterior means, other statistics and tuple of lists of per-step
             evolution of those statistics.
         """
-        posterior_mean, containers = self._approximate_initiate(posterior_mean_0)
-        ms, ys, varphis, psis, fxs = containers
+        posterior_mean, containers = self._approximate_initiate(
+            posterior_mean_0)
+        posterior_means, gs, varphis, psis, fxs = containers
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples",
                         disable=True):
             p_ = p(
                 posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
                 self.noise_std, self.EPS, self.upper_bound, self.upper_bound2)
-            y = self._y(
+            g = self._g(
                 p_, posterior_mean, self.noise_std)
             posterior_mean, weight = self._posterior_mean(
-                    y, self.posterior_cov_div_var, self.noise_variance)
+                    g, self.posterior_cov_div_var, self.noise_variance)
             if self.kernel.varphi_hyperhyperparameters is not None:
                 # Posterior mean update for kernel hyperparameters
                 # Kernel hyperparameters are variables here
@@ -199,19 +202,19 @@ class SparseVBGP(VBGP):
                     self.trace_posterior_cov_div_var, Z,
                     self.noise_variance,
                     self.log_det_cov)
-                ms.append(posterior_mean)
-                ys.append(y)
+                posterior_means.append(posterior_mean)
+                gs.append(g)
                 if self.kernel.varphi_hyperparameters is not None:
                     varphis.append(self.kernel.varphi)
                     psis.append(self.kernel.varphi_hyperparameters)
                 fxs.append(fx)
-        containers = (ms, ys, varphis, psis, fxs)
-        return posterior_mean, weight, y, p, containers
+        containers = (posterior_means, gs, varphis, psis, fxs)
+        return posterior_mean, weight, g, p, containers
 
-    def _posterior_mean(self, y, posterior_cov_div_var, noise_variance):
+    def _posterior_mean(self, g, posterior_cov_div_var, noise_variance):
         # TODO: should be able to calculate this with a solve instead using LB and A.
-        posterior_mean = posterior_cov_div_var @ y
-        weight = 1./noise_variance  * (y - posterior_mean)
+        posterior_mean = posterior_cov_div_var @ g
+        weight = 1./noise_variance  * (g - posterior_mean)
         return posterior_mean, weight
 
     def _predict_subset_regressors(
