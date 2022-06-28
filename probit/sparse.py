@@ -74,14 +74,11 @@ class SparseVBGP(VBGP):
         self.Z = read_array(self.read_path, "Z")
         self.Kdiag = read_array(self.read_path, "Kdiag")
         self.Kuu = read_array(self.read_path, "Kuu")
-        self.Kuf = read_array(self.read_path, "Kuf")
+        self.Kfu = read_array(self.read_path, "Kfu")
 
     def _update_prior(self):
         """
-        Update prior covariances with Nyström approximation.
-
-        :arg M: Number of inducing inputs.
-
+        Update prior covariances with inducing points.
         """
         inducing_idx = np.random.choice(
             self.X_train.shape[0], size=self.M, replace=False)
@@ -90,7 +87,7 @@ class SparseVBGP(VBGP):
             "Updating prior covariance with Nyström approximation")
         self.Kdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         self.Kuu = self.kernel.kernel_matrix(self.Z, self.Z)
-        self.Kuf = self.kernel.kernel_matrix(self.Z, self.X_train)
+        self.Kfu = self.kernel.kernel_matrix(self.X_train, self.Z)
         warnings.warn(
             "Done updating prior covariance with Nyström approximation")
 
@@ -114,34 +111,36 @@ class SparseVBGP(VBGP):
         # Seems to be necessary to take this cho factor
         (L, lower) = cho_factor(
             self.Kuu + self.jitter * np.eye(self.M), lower=True)
-        A = solve_triangular(L, self.Kuf, lower=True) / self.noise_std
+        Linv = solve_triangular(L, np.eye(self.M), lower=True)
+        LinvT = Linv.T
+        A = solve_triangular(L, self.Kfu.T, lower=True) / self.noise_std
         AAT = A @ A.T
         B = AAT + np.eye(self.M)  # cache qinv
-
-        # This is not correct.
-        # (LB, lower) = cho_factor(B, lower=True)
-        # LBTinv = solve_triangular(LB, np.eye(self.M), lower=True)  # not sure if this is correct
-        # Binv = solve_triangular(LB, LBTinv, lower=True)  # not sure if this is correct
-
         (LB, lower) = cho_factor(B)
-        LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)  # not sure if this is correct
-        Binv = solve_triangular(LB, LBTinv, lower=False)  # not sure if this is correct
+        LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)
+        Binv = solve_triangular(LB, LBTinv, lower=False)
+        tmp = np.eye(self.M) - Binv
+        # For prediction, will need a matrix, call it cov
+        self.cov = LinvT @ tmp @ Linv
+        self.cov2 = LinvT @ Binv @ A / self.noise_std
+        # cov2 = solve_triangular(L.T, Binv, lower=True)
+        # self.cov2 = cov2 @ A / self.noise_std
 
-        L @ B_inv @ A 
+        # SS
+        # self.posterior_cov_div_var = A.T @ Binv @ A
+        # self.trace_posterior_cov_div_var = np.trace(
+        #     self.posterior_cov_div_var)
+        # self.trace_cov = 1./self.noise_variance * (
+        #     self.N + self.trace_posterior_cov_div_var)
 
-        self.posterior_cov_div_var = A.T @ Binv @ A
-        self.trace_posterior_cov_div_var = np.trace(
-            self.posterior_cov_div_var)
-        self.trace_cov = 1./self.noise_variance * (
-            self.N + self.trace_posterior_cov_div_var)
+        # If keeping track of the weights only is the goal, then it is maybe better to store something other than posterior_cov_div_var.
+        # trace_k = np.sum(self.Kdiag) / self.noise_variance
+        # trace_q = np.trace(AAT)
+        # trace = trace_k - trace_q
+        # half_logdet_b = np.sum(np.log(np.diag(LB)))
+        # log_noise_variance = self.N * np.log(self.noise_variance)
 
-        trace_k = np.sum(self.Kdiag) / self.noise_variance
-        trace_q = np.trace(AAT)
-        trace = trace_k - trace_q
-        half_logdet_b = np.sum(np.log(np.diag(LB)))
-        log_noise_variance = self.N * np.log(self.noise_variance)
-
-        self.log_det_cov = -half_logdet_b + 0.5 * log_noise_variance + 0.5 * trace
+        # self.log_det_cov = -half_logdet_b + 0.5 * log_noise_variance + 0.5 * trace
 
     def approximate(
             self, steps, posterior_mean_0=None, first_step=1,
@@ -178,7 +177,7 @@ class SparseVBGP(VBGP):
             g = self._g(
                 p_, posterior_mean, self.noise_std)
             posterior_mean, weight = self._posterior_mean(
-                    g, self.posterior_cov_div_var, self.noise_variance)
+                    g, self.cov2, self.Kfu)
             if self.kernel.varphi_hyperhyperparameters is not None:
                 # Posterior mean update for kernel hyperparameters
                 # Kernel hyperparameters are variables here
@@ -191,14 +190,12 @@ class SparseVBGP(VBGP):
                 self.hyperparameters_update(
                     varphi=varphi,
                     varphi_hyperparameters=varphi_hyperparameters)
-                print("varphi = ", self.kernel.varphi)
-                print("varphihyper = ", self.kernel.varphi_hyperparameters)
             if write:
                 Z, *_ = truncated_norm_normalising_constant(
                     self.cutpoints_ts, self.cutpoints_tplus1s,
                     self.noise_std, posterior_mean, self.EPS)
                 fx = self.objective(
-                    self.N, posterior_mean, weight, self.trace_cov,
+                    self.N, posterior_mean, g, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
                     self.noise_variance,
                     self.log_det_cov)
@@ -211,62 +208,40 @@ class SparseVBGP(VBGP):
         containers = (posterior_means, gs, varphis, psis, fxs)
         return posterior_mean, weight, g, p, containers
 
-    def _posterior_mean(self, g, posterior_cov_div_var, noise_variance):
-        # TODO: should be able to calculate this with a solve instead using LB and A.
-        posterior_mean = posterior_cov_div_var @ g
-        weight = 1./noise_variance  * (g - posterior_mean)
-        return posterior_mean, weight
+    def _posterior_mean(self, g, cov, Kfu):
+        weight = cov @ g
+        return Kfu @ weight, weight
 
-    def _predict_subset_regressors(
-            self, Kus, Kss, intermediate_vectors):
+    def _subset_regressors(
+            self, Kus):
         """
         Predict using the predictive variance from the subset regressors
         approximate method.
         """
-        return Kss - np.einsum('ij, ij -> j', Kus, intermediate_vectors)
+        (L, lower) = cho_factor(
+            self.Kuu + self.jitter * np.eye(self.M), lower=True)
+        Linv = solve_triangular(L, np.eye(self.M), lower=True)
+        A = solve_triangular(L, self.Kfu.T, lower=True) / self.noise_std
+        AAT = A @ A.T
+        B = AAT + np.eye(self.M)  # cache qinv
+        (LB, lower) = cho_factor(B)
+        LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)
+        Binv = solve_triangular(LB, LBTinv, lower=False)
+        return np.einsum('ij, ij -> j', Kus, Linv.T @ Binv @ Linv @ Kus)
 
-    def _predict_projected_process(
-            self, Kus, Kss, intermediate_vectors, cutpoints):
+    def _projected_process(
+            self, Kus, Kss, temp):
         """
         Predict using the predictive variance from the projected process
         approximate method.
 
         This follows the GPFlow predictive distribution.
         """
-
-        if numerically_stable:
-            # Seems to be necessary to take this cho factor
-            (L, lower) = cho_factor(
-                self.Kuu + self.jitter * np.eye(self.M), lower=True)
-            A = solve_triangular(L, self.Kuf, lower=True) / self.noise_std
-            B = A @ A.T + np.eye(self.M)
-            (LB, lower) = cho_factor(B, lower=True)
-
-        err = self.noise_variance * weight  # TODO: i think this is meant to be prior error! not posterior_mean error
-        Aerr = A @ err
-        c = solve_triangular(LB, Aerr, lower=True)
-        tmp1 = solve_triangular(L, Kus, lower=True)
-        tmp2 = solve_triangular(LB, tmp1, lower=True)
-        posterior_pred_mean = tmp2.T @ c
-        posterior_var = self.kernel.kernel_prior_diagonal(X_test)\
-                + np.sum(tmp2**2, axis=0) - np.sum(tmp1**2, axis=0)
-        posterior_pred_var = posterior_var + noise_variance
- 
-        posterior_std = np.sqrt(posterior_var)
-        posterior_pred_std = np.sqrt(posterior_pred_var)
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            Z1 = np.divide(np.subtract(
-                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
-            Z2 = np.divide(
-                np.subtract(cutpoints[j],
-                posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, j] = norm_cdf(Z1) - norm_cdf(Z2)
-        return predictive_distributions, posterior_pred_mean, posterior_std
+        return Kss - np.einsum('ij, ij -> j', Kus, temp)
 
     def _predict(
             self, X_test, cov, weight, cutpoints, noise_variance,
-            projected_process=True):
+            projected_process):
         """
         Predict using the predictive variance from the subset of regressors
         algorithm.
@@ -275,21 +250,17 @@ class SparseVBGP(VBGP):
         Kss = self.kernel.kernel_prior_diagonal(X_test)
         # Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
         Kus = self.kernel.kernel_matrix(self.Z, X_test)  # (M, N_test)
-
-        intermediate_vectors = cov @ Kus
-
+        temp = cov @ Kus
         if projected_process:
-            posterior_variance = self._predict_projected_process(
-                Kus, Kss, intermediate_vectors)
+            posterior_variance = self._projected_process(
+                Kus, Kss, temp)
         else:
-            posterior_variance = self._predict_subset_regressors(
-                Kus, Kss, intermediate_vectors)
-
+            posterior_variance = self._subset_regressors(
+                Kus)
         posterior_std = np.sqrt(posterior_variance)
         posterior_pred_mean = Kus.T @ weight
         posterior_pred_variance = posterior_variance + noise_variance
         posterior_pred_std = np.sqrt(posterior_pred_variance)
-
         return (
             self._ordinal_predictive_distributions(
                 posterior_pred_mean, posterior_pred_std, N_test, cutpoints),
@@ -334,6 +305,9 @@ class SparseVBGP(VBGP):
             else:
                 raise NotImplementedError("Not implemented.")
 
+    def objective(self, K, weight, Z):
+        return - weight.T @ K @ weight / 2 + np.sum(Z)
+
     # def objective_gradient(
     #         self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, varphi,
     #         noise_variance, noise_std,
@@ -375,23 +349,26 @@ class SparseVBGP(VBGP):
             *_ )= truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean, self.EPS)
-            fx = self.objective(
-                self.N, posterior_mean, weight, self.trace_cov,
-                self.trace_posterior_cov_div_var, Z,
-                self.noise_variance, self.log_det_cov)
+            if self.kernel.varphi_hyperhyperparameters is not None:
+                fx = self.objective(
+                    self.Kuu, weight, Z)
+            else:
+                # Only terms in f matter
+                fx = -0.5 * weight.T @ self.Kuu @ weight + np.sum(Z)
             error = np.abs(fx_old - fx)
             fx_old = fx
             if verbose:
                 print("({}), error={}".format(iteration, error))
-        gx = self.objective_gradient(
-                gx.copy(), intervals, self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                self.kernel.varphi, self.noise_variance, self.noise_std,
-                posterior_mean, weight, self.posterior_cov_div_var,
-                self.trace_posterior_cov_div_var, self.trace_cov,
-                self.N, Z, norm_pdf_z1s, norm_pdf_z2s, indices,
-                numerical_stability=True, verbose=False)
-        gx = gx[indices_where]
+        gx = 0
+        # gx = self.objective_gradient(
+        #         gx.copy(), intervals, self.cutpoints_ts,
+        #         self.cutpoints_tplus1s,
+        #         self.kernel.varphi, self.noise_variance, self.noise_std,
+        #         posterior_mean, weight, self.posterior_cov_div_var,
+        #         self.trace_posterior_cov_div_var, self.trace_cov,
+        #         self.N, Z, norm_pdf_z1s, norm_pdf_z2s, indices,
+        #         numerical_stability=True, verbose=False)
+        # gx = gx[indices_where]
         if verbose:
             print(
                 "cutpoints={}, noise_variance={}, "
@@ -402,11 +379,10 @@ class SparseVBGP(VBGP):
                     fx))
         if return_reparameterised is True:
             return fx, gx, weight, (
-                1./self.noise_variance * np.eye(np.shape(self.X_train)[0])
-                - 1./self.noise_variance * self.posterior_cov_div_var, True)
+                self.cov, False)
         elif return_reparameterised is False:
-            return fx, gx, posterior_mean, (
-                self.noise_variance * self.posterior_cov_div_var, False)
+            raise ValueError(
+                "Not implemented because this is a sparse implementation")
         elif return_reparameterised is None:
             return fx, gx
 
@@ -453,7 +429,7 @@ class SparseLaplaceGP(LaplaceGP):
         self.Z = read_array(self.read_path, "Z")
         self.Kdiag = read_array(self.read_path, "Kdiag")
         self.Kuu = read_array(self.read_path, "Kuu")
-        self.Kuf = read_array(self.read_path, "Kuf")
+        self.Kfu = read_array(self.read_path, "Kfu")
 
     def _update_prior(self):
         """
@@ -469,7 +445,7 @@ class SparseLaplaceGP(LaplaceGP):
             "Updating prior covariance with Nyström approximation")
         self.Kdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         self.Kuu = self.kernel.kernel_matrix(self.Z, self.Z)
-        self.Kuf = self.kernel.kernel_matrix(self.Z, self.X_train)
+        self.Kfu = self.kernel.kernel_matrix(self.X_train, self.Z)
         warnings.warn(
             "Done updating prior covariance with Nyström approximation")
 
@@ -484,7 +460,7 @@ class SparseLaplaceGP(LaplaceGP):
         # Seems to be necessary to take this cho factor
         (L, lower) = cho_factor(
             self.Kuu + self.jitter * np.eye(self.M), lower=True)
-        A = solve_triangular(L, self.Kuf, lower=True)
+        A = solve_triangular(L, self.Kfu.T, lower=True)  # TODO can this be done by not transposing.
         ALambdaAT = A @ np.diag(precision) @ A.T
         B = ALambdaAT + np.eye(self.M)  # cache qinv
         (LB, lower) = cho_factor(B)
@@ -559,7 +535,7 @@ class SparseLaplaceGP(LaplaceGP):
         # Seems to be necessary to take this cho factor
         (L, lower) = cho_factor(
             self.Kuu + self.jitter * np.eye(self.M), lower=True)
-        A = solve_triangular(L, self.Kuf, lower=True)
+        A = solve_triangular(L, self.Kfu.T, lower=True)
         ALambdaAT = A @ np.diag(precision) @ A.T
         B = ALambdaAT + np.eye(self.M)  # cache qinv
         (LB, lower) = cho_factor(B)
@@ -628,7 +604,6 @@ class SparseLaplaceGP(LaplaceGP):
                 self.noise_variance * self.posterior_cov_div_var, False)
         elif return_reparameterised is None:
             return fx, gx
- 
 
     def approximate(
             self, steps, posterior_mean_0=None, first_step=1, write=False):

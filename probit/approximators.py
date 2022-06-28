@@ -227,9 +227,9 @@ class Approximator(ABC):
         Kss = self.kernel.kernel_prior_diagonal(X_test)
         Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
 
-        intermediate_vectors = cov @ Kfs
+        temp = cov @ Kfs
         posterior_variance = Kss - np.einsum(
-        'ij, ij -> j', Kfs, intermediate_vectors)
+        'ij, ij -> j', Kfs, temp)
 
         posterior_std = np.sqrt(posterior_variance)
         posterior_pred_mean = Kfs.T @ weight
@@ -998,7 +998,7 @@ class VBGP(Approximator):
         element_prod = np.exp(element_prod)
         return np.sum(element_prod, axis=0)
 
-    def _posterior_mean(self, y, cov, K):
+    def _posterior_mean(self, g, cov, K):
         """
         Return the approximate posterior mean of m.
 
@@ -1011,12 +1011,12 @@ class VBGP(Approximator):
         :arg K:
         :type K:
         """
-        weight = cov @ y
+        weight = cov @ g
         ## TODO: This is 3-4 times slower on CPU, what about with jit compiled CPU or GPU?
         # weight = cho_solve((self.L_cov, self.lower), y)
         return K @ weight, weight  # (N,), (N,)
 
-    def _y(self, p, posterior_mean, noise_std):
+    def _g(self, p, posterior_mean, noise_std):
         """
         Calculate y elements 2021 Page Eq.().
 
@@ -1029,8 +1029,8 @@ class VBGP(Approximator):
         return np.add(posterior_mean, noise_std * p)
 
     def objective(
-        self, N, m, weight, trace_cov, trace_posterior_cov_div_var, Z,
-        noise_variance,
+        self, N, posterior_mean, weight, trace_cov,
+        trace_posterior_cov_div_var, Z, noise_variance,
         log_det_cov, verbose=False):
         """
         # TODO: tidy
@@ -1063,7 +1063,7 @@ class VBGP(Approximator):
         trace_K_inv_posterior_cov = noise_variance * trace_cov
         one = - trace_posterior_cov_div_var / 2
         three = - trace_K_inv_posterior_cov / 2
-        four = - m.T @ weight / 2
+        four = - posterior_mean.T @ weight / 2
         five = (N * np.log(noise_variance) + log_det_cov) / 2
         six = N / 2
         seven = np.sum(Z)
@@ -1079,7 +1079,7 @@ class VBGP(Approximator):
         return -fx
 
     def objectiveSS(
-            self, N, m, weight, trace_cov, trace_posterior_cov_div_var, Z,
+            self, N, posterior_mean, weight, trace_cov, trace_posterior_cov_div_var, Z,
             noise_variance,
             log_det_K, log_det_cov, verbose=False):
         """
@@ -1116,7 +1116,7 @@ class VBGP(Approximator):
         one = - trace_posterior_cov_div_var / 2
         two = - log_det_K / 2
         three = - trace_K_inv_posterior_cov / 2
-        four = - m.T @ weight / 2
+        four = - posterior_mean.T @ weight / 2
         five = log_det_posterior_cov / 2
         six = N / 2
         seven = np.sum(Z)
@@ -1189,14 +1189,14 @@ class VBGP(Approximator):
             # For gx[1] -- \b_1
             if np.any(indices[1:self.J]):  # TODO: analytic and numeric gradients do not match
                 # TODO: treat these with numerical stability, or fix them
-                intermediate_vector_1s = np.divide(norm_pdf_z1s, Z)
-                intermediate_vector_2s = np.divide(norm_pdf_z2s, Z)
+                temp_1s = np.divide(norm_pdf_z1s, Z)
+                temp_2s = np.divide(norm_pdf_z2s, Z)
                 idx = np.where(self.t_train == 0)  # TODO factor out
-                gx[1] += np.sum(intermediate_vector_1s[idx])
+                gx[1] += np.sum(temp_1s[idx])
                 for j in range(2, self.J):
                     idx = np.where(self.t_train == j - 1)  # TODO: factor it out seems inefficient. Is there a better way?
-                    gx[j - 1] -= np.sum(intermediate_vector_2s[idx])
-                    gx[j] += np.sum(intermediate_vector_1s[idx])
+                    gx[j - 1] -= np.sum(temp_2s[idx])
+                    gx[j] += np.sum(temp_1s[idx])
                 # gx[self.J] -= 0  # Since J is number of classes
                 gx[1:self.J] /= noise_std
                 # For gx[2:self.J] -- ln\Delta^r
@@ -1343,14 +1343,22 @@ class VBGP(Approximator):
                     *_ )= truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean, self.EPS)
-            fx = self.objective(
-                self.N, posterior_mean, weight, self.trace_cov,
-                self.trace_posterior_cov_div_var, Z,
-                self.noise_variance, self.log_det_cov)
+            if self.kernel.varphi_hyperhyperparameters is not None:
+                fx = self.objective(
+                    self.N, posterior_mean, weight, self.trace_cov,
+                    self.trace_posterior_cov_div_var, Z,
+                    self.noise_variance, self.log_det_cov)
+            else:
+                # Only terms in f matter
+                fx = -0.5 * posterior_mean.T @ weight - np.sum(Z)
             error = np.abs(fx_old - fx)
             fx_old = fx
             if verbose:
                 print("({}), error={}".format(iteration, error))
+        fx = self.objective(
+                    self.N, posterior_mean, weight, self.trace_cov,
+                    self.trace_posterior_cov_div_var, Z,
+                    self.noise_variance, self.log_det_cov)
         gx = self.objective_gradient(
                 gx.copy(), intervals, self.cutpoints_ts,
                 self.cutpoints_tplus1s,
@@ -1990,9 +1998,9 @@ class EPGP(Approximator):
         precision_matrix = np.diag(precision_EP)
         inverse_precision_matrix = 1. / precision_matrix  # Since it is a diagonal, this is the inverse.
         log_amplitude_EP = np.log(amplitude_EP)
-        intermediate_vector = np.multiply(mean_EP, precision_EP)
-        B = intermediate_vector.T @ posterior_cov @ intermediate_vector\
-                - intermediate_vector.T @ mean_EP
+        temp = np.multiply(mean_EP, precision_EP)
+        B = temp.T @ posterior_cov @ temp\
+                - temp.T @ mean_EP
         if numerical_stability is True:
             approximate_marginal_likelihood = np.add(
                 log_amplitude_EP, 0.5 * np.trace(
@@ -2396,9 +2404,9 @@ class EPGP(Approximator):
 
         :return:
         """
-        intermediate_vector = np.multiply(mean_EP, precision_EP)
-        B = intermediate_vector.T @ posterior_cov @ intermediate_vector - np.multiply(
-            intermediate_vector, mean_EP)
+        temp = np.multiply(mean_EP, precision_EP)
+        B = temp.T @ posterior_cov @ temp - np.multiply(
+            temp, mean_EP)
         Pi_inv = np.diag(1. / precision_EP)
         return (
             np.prod(
@@ -2541,8 +2549,8 @@ class LaplaceGP(Approximator):
         precision_matrix = np.diag(precision_EP)
         inverse_precision_matrix = 1. / precision_matrix  # Since it is a diagonal, this is the inverse.
         log_amplitude_EP = np.log(amplitude_EP)
-        intermediate_vector = np.multiply(mean_EP, precision_EP)
-        B = intermediate_vector.T @ posterior_cov @ intermediate_vector - intermediate_vector.T @ mean_EP
+        temp = np.multiply(mean_EP, precision_EP)
+        B = temp.T @ posterior_cov @ temp - temp.T @ mean_EP
         if numerical_stability is True:
             approximate_marginal_likelihood = np.add(log_amplitude_EP, 0.5 * np.trace(np.log(inverse_precision_matrix)))
             approximate_marginal_likelihood = np.add(approximate_marginal_likelihood, B/2)
