@@ -154,6 +154,7 @@ probit/data/tfrecord/
 probit/data/utilities_nplan.py
 probit/data/utils_nplan.py
 examples/example2/
+examples/example3/
 examples/example8/
 pipeline/
 dataset_manager/
