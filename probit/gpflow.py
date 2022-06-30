@@ -1,7 +1,5 @@
 """GPFlow models. Probably no need to inherit Approximator here."""
 from probit.approximators import Approximator
-import enum
-import pathlib
 from tqdm import trange
 import warnings
 import matplotlib.pyplot as plt
@@ -84,9 +82,9 @@ class VGP(Approximator):
             ax.plot(Xnew.flatten(), np.squeeze(Ypred).T, "C1", alpha=0.2)
             ax.plot(self.X_train, self.t_train, "o")
         warnings.warn("Done initiating model using gpflow.")
-        # Fix hyperparameters
-        # gpflow.set_trainable(self._model.kernel.lengthscales, False)
-        # gpflow.set_trainable(self._model.kernel.variance, False)
+        # Fix hyperparameters - difficult to do without letting user do it
+        #gpflow.set_trainable(self._model.kernel.lengthscales, False)
+        #gpflow.set_trainable(self._model.kernel.variance, False)
         # bin_edges are not trainable in GPFlow!
         # gpflow.set_trainable(self._model.likelihood.bin_edges, False)
         # gpflow.set_trainable(self._model.likelihood.sigma, False)
@@ -134,12 +132,12 @@ class VGP(Approximator):
             theta.append(np.log(np.sqrt(self.kernel.variance)))
         # TODO: replace this with kernel number of hyperparameters.
         if indices[self.J + 1]:
-            theta.append(np.log(1./(2 * self.kernel.lengthscales.numpy()**2)))
+            theta.append(np.log(2./(self.kernel.lengthscales.numpy()**2)))
         return np.array(theta)
 
     def hyperparameters_update(
-        self, cutpoints=None, varphi=None, variance=None, noise_variance=None,
-        varphi_hyperparameters=None):
+            self, cutpoints=None, varphi=None, variance=None,
+            noise_variance=None, varphi_hyperparameters=None):
         """
         Reset kernel hyperparameters, generating new prior and posterior
         covariances. 
@@ -161,7 +159,10 @@ class VGP(Approximator):
             self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
             # self._model.likelihood.bin_edges = self.cutpoints[1:-1]
         if varphi is not None:
-            self._model.kernel.lengthscales.assign(1./np.sqrt(2. * varphi))
+            print(np.sqrt(2./varphi))
+            self._model.kernel.lengthscales.assign(np.sqrt(2./varphi))
+            print(self._model.kernel.lengthscales.numpy())
+            assert 0
         if variance is not None:
             self._model.kernel.variance.assign(variance)
         if noise_variance is not None:
@@ -267,11 +268,10 @@ class VGP(Approximator):
         (intervals, steps, error, iteration, indices_where,
         gx) = self._hyperparameter_training_step_initialise(
             theta, indices, steps)
-        self.approximate(steps=steps, write=True)
+        self.approximate(steps=steps, write=False)
         fx = self._training_loss().numpy()
         gx = 0
         posterior = self._model.posterior()
-        # gpflow.set_trainable(self._model.inducing_variable, False)
         if return_reparameterised is True:
             return fx, gx, posterior.q_mu, (posterior.q_sqrt, False)
         elif return_reparameterised is False:
@@ -379,16 +379,16 @@ class SVGP(VGP):
         # Fix inducing variables
         gpflow.set_trainable(self._model.inducing_variable, False)
         # Fix hyperparameters
-        gpflow.set_trainable(self._model.kernel.lengthscales, False)
-        gpflow.set_trainable(self._model.kernel.variance, False)
+        # gpflow.set_trainable(self._model.kernel.lengthscales, False)
+        # gpflow.set_trainable(self._model.kernel.variance, False)
         # bin_edges are not trainable in GPFlow!
         # gpflow.set_trainable(self._model.likelihood.bin_edges, False)
-        gpflow.set_trainable(self._model.likelihood.sigma, False)
+        # gpflow.set_trainable(self._model.likelihood.sigma, False)
         log_dir_scipy = "scipy"
         model_task = ModelToTensorBoard(
             log_dir_scipy, self._model)
         lml_task = ScalarToTensorBoard(
-            log_dir_scipy, lambda: self._model.training_loss(),
+            log_dir_scipy, lambda: self._training_loss,
             "training_objective")
         image_task = ImageToTensorBoard(
             log_dir_scipy, plot_prediction, "image_samples")

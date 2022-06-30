@@ -1458,9 +1458,9 @@ def generate_synthetic_data_polynomial(N_per_class, J, D, noise_variance=1.0, sc
 
 def generate_synthetic_data_linear(
         N_per_class, N_test, splits, J, D,
-        constant_variance=1.0, c=1.0, noise_variance=1.0, scale=1.0):
+        constant_variance=1.0, offset=1.0, noise_variance=1.0, scale=1.0):
     """Generate synthetic dataset."""
-    kernel = Linear(constant_variance=constant_variance, c=c, scale=1.0)
+    kernel = Linear(constant_variance=constant_variance, offset=offset, scale=1.0)
     (X_j, Y_true_j, X, Y, t, cutpoints,
     X_tests, Y_tests, t_tests,
     X_trains, Y_trains, t_trains,
@@ -2112,10 +2112,10 @@ if __name__ == "__main__":
     # generate_synthetic_data_linear(
     #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=1.0, noise_variance=1.0, scale=1.0)
     # generate_prior_samples(
-    #     kernel=Linear(constant_variance=0.1, c=1.0, scale=1.0), noise_variance=0.01, N_samples=9, N_show=2000, plot=True)
+    #     kernel=Linear(constant_variance=0.1, offset=1.0, scale=1.0), noise_variance=0.01, N_samples=9, N_show=2000, plot=True)
     # generate_synthetic_data_linear(
     #     N_per_class=45, N_test=15*3, splits=20, J=3, D=1,
-    #     constant_variance=0.1, c=1.0, noise_variance=0.01, scale=1.0)
+    #     constant_variance=0.1, offset=1.0, noise_variance=0.01, scale=1.0)
     # generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
     # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
     # kernel = Linear(varphi=0.0, scale=1.0, sigma=10e-6, tau=10e-6)

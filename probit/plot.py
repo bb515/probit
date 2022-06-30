@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from probit.data.utilities import colors, datasets
-from probit.data.utilities import calculate_metrics
+from probit.data.utilities_nplan import calculate_metrics
 import warnings
 import time
 from scipy.optimize import minimize

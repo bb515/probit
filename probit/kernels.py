@@ -265,7 +265,7 @@ class Linear(Kernel):
                 "Hyperparameters `varphi = [constant_variance, c]` must be "
                 "provided for the Linear kernel class (got {})".format(None))
         self.constant_variance = varphi[0]
-        self.c = varphi[1]
+        self.offset = varphi[1]
         if self.constant_variance is None:
             self.constant_variance = 0.0
         elif not ((type(self.constant_variance) is float) or
@@ -281,19 +281,19 @@ class Linear(Kernel):
                     "Type of constant_variance type "
                     "(expected float, got {})".format(
                         type(self.constant_variance)))
-        if self.c is None:
-            self.c = 0.0
+        if self.offset is None:
+            self.offset= 0.0
         elif not (
             (type(self.c) is float) or
-            (type(self.c) is np.float64) or
-            (type(self.c) is list) or 
-            (type(self.c) is np.ndarray)):
+            (type(self.offset) is np.float64) or
+            (type(self.offset) is list) or 
+            (type(self.offset) is np.ndarray)):
             raise TypeError(
                 "Type of c not supported "
                 "(expected array or float, got {})".format(
-                    type(self.c)))
+                    type(self.offset)))
         self.num_hyperparameters = np.size(
-            self.constant_variance) + np.size(self.c)
+            self.constant_variance) + np.size(self.offset)
 
     def _initialise_varphi(self, varphi):
         """
@@ -496,243 +496,6 @@ class Linear(Kernel):
         """
         return np.einsum(
             'ik, jk -> ij', X1 - self.c, X2 - self.c)
-
-
-class Polynomial(Kernel):
-    r"""
-    A polynomial kernel class.
-
-    .. math::
-        K(x_i, x_j) = s * (x_{i}^{T} x_{j} + c)^d,
-
-    where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
-    the data point, :math:`x_{j}` is another data point, :math:`d` is the
-    order, :math:`s` is the variance and
-    :math:`c` is the intercept.
-
-    TODO: kernel has been designed to be easy to differentiate analytically.
-    This will be changed for interpretability once autograd is in place.
-    """
-    def __repr__(self):
-        """
-        Return a string representation of this class, used to import the class from
-        the string.
-        """
-        return "Polynomial"
-
-    def __init__(self, varphi, *args, **kwargs):
-        """
-        Create an :class:`Polynomial` kernel object.
-
-        :arg float intercept: Intercept of the polynomial kernel. When
-            intercept=0.0, the kernel is called homogeneous. Default 0.0.
-        :arg float order: Order of the polynomial kernel. When order=2, the
-            kernel is a quadratic kernel. Default 2.
-        :returns: An :class:`Polynomial` object
-        """
-        super().__init__(*args, **kwargs)
-        # For this kernel, the shared and single kernel for each class
-        # (i.e. non general) and single lengthscale across
-        # all data dims (i.e. non-ARD) is assumed.
-        if varphi is not None:
-            varphi, self.L = self._initialise(varphi)
-            assert self.L == 3  # 2 hyperparameters for the linear kernel
-        else:
-            raise ValueError(
-                "Hyperparameter `varphi = [constant_variance, c, order]` must "
-                "be provided for the Polynomial kernel class (got {})".format(
-                    None))
-        self.constant_variance = varphi[0]
-        self.c = varphi[1]
-        self.order = varphi[2]
-        if self.constant_variance is None:
-            self.constant_variance = 0.0
-        elif not ((type(self.constant_variance) is float) or
-                (type(self.constant_variance) is np.float64)):
-            raise TypeError(
-                "Type of constant_variance is not supported "
-                "(expected float, got {})".format(
-                    type(self.constant_variance)))
-        if self.c is None:
-            self.c = 0.0
-        elif not (
-            (type(self.c) is float) or
-            (type(self.c) is np.float64) or
-            (type(self.c) is list) or 
-            (type(self.c) is np.ndarray)):
-            raise TypeError(
-                "Type of c is not supported "
-                "(expected array or float, got {})".format(
-                    type(self.c)))
-        self.num_hyperparameters = np.size(
-            self.constant_variance) + np.size(self.c)
-        if self.order is None:
-            self.order = 0.0
-        elif not ((type(self.order) is float) or
-                (type(self.order) is np.float64)):
-            raise TypeError(
-                "Type of constant_variance is not supported "
-                "(expected float, got {})".format(
-                    type(self.order)))
-
-    def _initialise_varphi(self, varphi):
-        """
-        Initialise as Matern type kernel
-        (loosely defined here as a kernel with a lengthscale) 
-        """
-        if type(varphi) is list:
-            L = np.len(varphi)
-        elif type(varphi) is np.ndarray:
-            L = np.shape(varphi)[0]
-        elif ((type(varphi) is float) or
-                (type(varphi) is np.float64)):
-            L = 1
-            varphi = np.float64(varphi)
-        else:
-            raise TypeError(
-                "Type of varphi is not supported "
-                "(expected {} or {}, got {})".format(
-                    float, np.ndarray, type(varphi)))
-        return varphi, L
-
-    @property
-    def _ARD(self):
-        return False
-
-    @property
-    def _stationary(self):
-        return False
-
-    @property
-    def _Matern(self):
-        return False
-
-    @property
-    def _general(self):
-        return False
-
-    def kernel(self, X_i, X_j):
-        """
-        Get the ij'th element of the Gram matrix, given the data (X_i and X_j),
-            and hyper-parameters.
-
-        :arg X_i: (D, ) data point.
-        :type X_i: :class:`numpy.ndarray`
-        :arg X_j: (D, ) data point.
-        :type X_j: :class:`numpy.ndarray`
-        :returns: ij'th element of the Gram matrix.
-        :rtype: float
-        """
-        return (self.variance * ((X_i - self.c).T @ (X_j - self.c)
-            + self.constant_variance) ** self.order)
-
-    def kernel_vector(self, x_new, X):
-        """
-        Get the kernel vector given an input vector (x_new) input matrix (X).
-
-        :arg x_new: The new (1, D) point drawn from the data space.
-        :type x_new: :class:`numpy.ndarray`
-        :arg X: (N, D) data matrix.
-        :type X: class:`numpy.ndarray`
-        :return: the (N,) covariance vector.
-        :rtype: class:`numpy.ndarray`
-        """
-        return self.variance * (
-            np.einsum('ij, j -> i', X - self.c, x_new[0] - self.c)
-            + self.constant_variance)**self.order
-
-    def kernel_diagonal(self, X1, X2):
-        """
-        Get Gram diagonal efficiently using scipy's distance matrix function.
-        TODO: test
-
-        :arg X1: (N, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :return: (N,) Gram diagonal.
-        :rtype: class:`numpy.ndarray`
-        """
-        return self.variance * (
-            np.einsum('ij, ij -> i', X1 - self.c, X2 - self.c)
-            + self.constant_variance)**self.order
-
-    def kernel_prior_diagonal(self, X):
-        """
-        Get the kernel vector given an input matrix (X).
-
-        :arg x_new: The new (1, D) point drawn from the data space.
-        :type x_new: :class:`numpy.ndarray`
-        :arg X: (N, D) data matrix.
-        :type X: class:`numpy.ndarray`
-        :return: the (N,) covariance vector.
-        :rtype: class:`numpy.ndarray`
-        """
-        return self.kernel_diagonal(X, X)
-
-    def kernel_matrix(self, X1, X2):
-        """
-        Get Gram matrix efficiently using numpy's einsum function.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :return: (N1, N2) Gram matrix.
-        :rtype: class:`numpy.ndarray`
-        """
-        return self.variance * (
-            np.einsum('ik, jk -> ij', X1 - self.c, X2 - self.c)
-            + self.constant_variance) ** self.order
-
-    def kernel_partial_derivative_c(self, X1, X2):
-        """
-        Get partial derivative with respect to offset hyperparameters as a
-        numpy array.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :returns partial_C: A (N1, N2) array of the partial derivative of the
-            covariance matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        raise ValueError("TODO")
-
-    def kernel_partial_derivative_variance(self, X1, X2):
-        """
-        Get partial derivative with respect to lengthscale hyperparameters as
-        a numpy array.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :returns partial_C: A (N1, N2) array of the partial derivative of the
-            covariance matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        return (
-            np.einsum('ik, jk -> ij', X1 + self.c, X2 + self.c)
-            + self.constant_variance) ** self.order
-
-    def kernel_partial_derivative_constant_variance(self, X1, X2):
-        """
-        Get partial derivative with respect to lengthscale hyperparameters as
-        a numpy array.
-
-        :arg X1: (N1, D) data matrix.
-        :type X1: class:`numpy.ndarray`
-        :arg X2: (N2, D) data matrix. Can be the same as X1.
-        :type X2: class:`numpy.ndarray`
-        :returns partial_C: A (N1, N2) array of the partial derivative of the
-            covariance matrices.
-        :rtype: class:`numpy.ndarray`
-        """
-        return self.variance * self.order * (
-            np.einsum('ik, jk -> ij', X1 + self.c, X2 + self.c)
-            + self.constant_variance) ** (self.order - 1)
 
 
 class LabEQ(Kernel):
@@ -1963,7 +1726,6 @@ class KernelLoader(enum.Enum):
     """Factory enum to load kernels.
     """
     linear = Linear
-    polynomial = Polynomial
     lab_eq = LabEQ
     lab_sharpened_cosine = LabSharpenedCosine
     se_iso = SEIso
