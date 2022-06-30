@@ -1,16 +1,12 @@
-"""
-Ordinal regression concrete examples. Approximate inference.
-"""
+"""Ordinal regression concrete examples. Approximate inference."""
 # Make sure to limit CPU usage
 import os
-
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
 os.environ["VECLIB_MAXIMUM_THREADS"] = "6" # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = "6" # export NUMEXPR_NUM_THREADS=6
 os.environ["NUMBA_NUM_THREADS"] = "6"
-
 from numba import set_num_threads
 set_num_threads(6)
 
@@ -20,18 +16,74 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 import pathlib
-from probit.approximators import EPGP, VBGP, LaplaceGP
-from probit.sparse import SparseLaplaceGP, SparseVBGP
-from probit.gpflow import SVGP, VGP
 from probit.plot import outer_loops, grid_synthetic, grid, plot_synthetic, plot, train, test
 from probit.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 import sys
 import time
 
-import gpflow
 
 now = time.ctime()
 write_path = pathlib.Path()
+
+
+def get_approximator(
+        approximation, Kernel, varphi_0, signal_variance_0, N_train):
+    # Initiate kernel
+    kernel = Kernel(
+        varphi=varphi_0, variance=signal_variance_0)
+    M = None
+    if approximation == "EP":
+        from probit.approximators import EPGP
+        steps = np.max([100, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
+        Approximator = EPGP
+    elif approximation == "VB":
+        from probit.approximators import VBGP
+        steps = np.max([10, N_train//10])
+        Approximator = VBGP
+    elif approximation == "LA":
+        from probit.approximators import LaplaceGP
+        steps = np.max([2, N_train//1000])
+        Approximator = LaplaceGP
+    elif approximation == "SLA":
+        from probit.sparse import SparseLaplaceGP
+        M = 30  # Number of inducing points. Is there a problem when this is small?
+        steps = np.max([2, M//10])
+        Approximator = SparseLaplaceGP
+    elif approximation == "SVB":
+        from probit.sparse import SparseVBGP
+        M = 30  # Number of inducing points. Is there a problem when this is small?
+        steps = np.max([10, M])
+        Approximator = SparseVBGP
+    # elif approximation == "V":
+    #     from probit.gpflow import VGP
+    #     import gpflow
+    #     steps = 100
+    #     Approximator = VGP
+    #     # Initiate kernel
+    #     # kernel = gpflow.kernels.SquaredExponential(
+    #     #     lengthscales=varphi_0, variance=signal_variance_0)
+    #     kernel = gpflow.kernels.SquaredExponential(
+    #         lengthscales=1./np.sqrt(2 * varphi_0),
+    #         variance=signal_variance_0
+    #     )
+    # elif approximation == "SV":
+    #     M = 30  # Number of inducing points.
+    #     from probit.gpflow import SVGP
+    #     import gpflow
+    #     steps = 10000
+    #     Approximator = SVGP
+    #     # Initiate kernel
+    #     # kernel = gpflow.kernels.SquaredExponential()
+    #     kernel = gpflow.kernels.SquaredExponential(
+    #         lengthscales=1./np.sqrt(2 * varphi_0),
+    #         variance=signal_variance_0
+    #     )
+    else:
+        raise ValueError(
+            "Approximator not found "
+            "(got {}, expected EP, VB, LA, V, SVB, SLA or SV)".format(
+                approximation))
+    return Approximator, steps, M, kernel
 
 
 def main():
@@ -65,34 +117,21 @@ def main():
         J, D, Kernel) = load_data(
             dataset, bins)
         N_train = np.shape(t_trains[0])
-        if approximation == "EP":
-            steps = np.max([10, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
-            Approximator = EPGP
-        elif approximation == "VB":
-            steps = np.max([100, N_train//10])
-            Approximator = VBGP
-        elif approximation == "LA":
-            steps = np.max([2, N_train//1000])
-            Approximator = LaplaceGP
-        elif approximation == "V":
-            Approximator = VGP
-        elif approximation == "SLA":
-            steps = np.max([2, N_train//1000])
-            Approximator = SparseLaplaceGP
-        elif approximation == "SVB":
-            steps = np.max([2, N_train//1000])
-            Approximator = SparseVBGP
-        elif approximation == "SV":
-            Approximator = SVGP
+        Approximator, steps, M, kernel = get_approximator(
+            approximation, Kernel, varphi_0, signal_variance_0, N_train)
         outer_loops(
             Approximator, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
             cutpoints_0, varphi_0, noise_variance_0, signal_variance_0, J, D)
-        # Initiate kernel
-        kernel = Kernel(varphi=varphi_0, variance=signal_variance_0)
-        # Initiate the classifier with the training data
-        classifier = Approximator(
-            cutpoints=cutpoints_0, noise_variance=noise_variance_0, kernel=kernel,
-            K=J, data=(X_trains[2], t_trains[2]))
+        if "S" in approximation:
+            # Initiate sparse classifier
+            classifier = Approximator(
+                M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                kernel=kernel, J=J, data=(X_trains[2], t_trains[2]))
+        else:
+            # Initiate classifier
+            classifier = Approximator(
+                cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                kernel=kernel, J=J, data=(X_trains[2], t_trains[2]))
         indices = np.ones(5)  # three
         # indices = np.ones(15)  # thirteen
         # Fix noise_variance
@@ -115,64 +154,19 @@ def main():
         X_true, Y_true,
         cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
-        # Initiate kernel
-        kernel = Kernel(
-            varphi=varphi_0, variance=signal_variance_0)
         N_train = np.shape(t)[0]
-        if approximation == "EP":
-            steps = np.max([100, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
-            Approximator = EPGP
-        elif approximation == "VB":
-            steps = np.max([10, N_train//10])
-            Approximator = VBGP
-        elif approximation == "LA":
-            steps = np.max([2, N_train//1000])
-            Approximator = LaplaceGP
-        elif approximation == "SLA":
-            M = 30  # Number of inducing points. Is there a problem when this is small?
-            steps = np.max([2, M//10])
-            Approximator = SparseLaplaceGP
-        elif approximation == "SVB":
-            M = 30  # Number of inducing points. Is there a problem when this is small?
-            steps = np.max([10, M])
-            Approximator = SparseVBGP
-        elif approximation == "V":
-            steps = 100
-            Approximator = VGP
-            # Initiate kernel
-            # kernel = gpflow.kernels.SquaredExponential(
-            #     lengthscales=varphi_0, variance=signal_variance_0)
-            kernel = gpflow.kernels.SquaredExponential(
-                lengthscales=1./np.sqrt(2 * varphi_0),
-                variance=signal_variance_0
-            )
-        elif approximation == "SV":
-            M = 30  # Number of inducing points.
-            steps = 10000
-            Approximator = SVGP
-            # Initiate kernel
-            # kernel = gpflow.kernels.SquaredExponential()
-            kernel = gpflow.kernels.SquaredExponential(
-                lengthscales=1./np.sqrt(2 * varphi_0),
-                variance=signal_variance_0
-            )
-        else:
-            raise ValueError(
-                "Approximator not found "
-                "(got {}, expected EP, VB, LA, V, SVB, SLA or SV)".format(
-                    approximation))
-
-        if approximation in ["EP", "VB", "LA", "V"]:
-            # Initiate classifier
-            classifier = Approximator(
-            cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-            kernel=kernel, J=J, data=(X, t))
-        else:
+        Approximator, steps, M, kernel = get_approximator(
+            approximation, Kernel, varphi_0, signal_variance_0, N_train)
+        if "S" in approximation:
             # Initiate sparse classifier
             classifier = Approximator(
                 M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                 kernel=kernel, J=J, data=(X, t))
- 
+        else:
+            # Initiate classifier
+            classifier = Approximator(
+                cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                kernel=kernel, J=J, data=(X, t))
         indices = np.ones(J + 2)
         # Fix noise variance
         indices[0] = 0

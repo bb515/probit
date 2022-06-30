@@ -1382,7 +1382,7 @@ class VBGP(Approximator):
                     self.noise_variance,
                     self.kernel.varphi, fx))
         if return_reparameterised is True:
-            return fx, gx, weight, (self.cov, False)
+            return fx, gx, weight, (self.cov, True)
         elif return_reparameterised is False:
             return fx, gx, posterior_mean, (
                 self.noise_variance * self.K @ self.cov, False)
@@ -2185,7 +2185,7 @@ class EPGP(Approximator):
             #     "varphi={}".format(
             #         self.cutpoints, self.noise_variance, self.kernel.varphi))
         if return_reparameterised is True:
-            return fx, gx, weight, (cov, False)
+            return fx, gx, weight, (cov, True)
         elif return_reparameterised is False:
             return fx, gx, posterior_mean, (posterior_cov, False)
         elif return_reparameterised is None:
@@ -2876,8 +2876,6 @@ class LaplaceGP(Approximator):
             ) / Z / noise_variance
         m = - self.K @ weight + posterior_mean
         # TODO: temp
-        print(1./precision)
-        print("precision norm", np.linalg.norm(1./precision, ord=1) / self.N)
         L_cov, _ = cho_factor(self.K + np.diag(1. / precision))
         L_covT_inv = solve_triangular(
             L_cov.T, np.eye(self.N), lower=True)

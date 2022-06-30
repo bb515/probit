@@ -85,11 +85,11 @@ class VGP(Approximator):
             ax.plot(self.X_train, self.t_train, "o")
         warnings.warn("Done initiating model using gpflow.")
         # Fix hyperparameters
-        gpflow.set_trainable(self._model.kernel.lengthscales, False)
-        gpflow.set_trainable(self._model.kernel.variance, False)
+        # gpflow.set_trainable(self._model.kernel.lengthscales, False)
+        # gpflow.set_trainable(self._model.kernel.variance, False)
         # bin_edges are not trainable in GPFlow!
         # gpflow.set_trainable(self._model.likelihood.bin_edges, False)
-        gpflow.set_trainable(self._model.likelihood.sigma, False)
+        # gpflow.set_trainable(self._model.likelihood.sigma, False)
         # Instantiate optimizer
         self._optimizer = gpflow.optimizers.Scipy()
         self._training_loss = self._model.training_loss
@@ -105,8 +105,8 @@ class VGP(Approximator):
         image_task = ImageToTensorBoard(
             log_dir_scipy, plot_prediction, "image_samples")
         self._monitor = Monitor(
-            MonitorTaskGroup([model_task, lml_task], period=1),
-            MonitorTaskGroup(image_task, period=5)
+            MonitorTaskGroup([model_task, lml_task], period=1)
+            # MonitorTaskGroup(image_task, period=5)
         )
 
     def get_theta(self, indices):
@@ -267,7 +267,7 @@ class VGP(Approximator):
         (intervals, steps, error, iteration, indices_where,
         gx) = self._hyperparameter_training_step_initialise(
             theta, indices, steps)
-        self.approximate(steps=steps)
+        self.approximate(steps=steps, write=True)
         fx = self._training_loss().numpy()
         gx = 0
         posterior = self._model.posterior()
@@ -300,14 +300,18 @@ class VGP(Approximator):
             and `False` if not.
         :return: The ordinal class probabilities.
         """
+        if X_test.ndim == 1:
+            X_test = X_test.reshape(-1, 1)
         posterior = self._model.posterior()
         mu, var = posterior.predict_f(
-            X_test.reshape(-1, 1))
+            X_test)
         posterior_std = np.sqrt(var.numpy()).flatten()
         posterior_pred_mean = mu.numpy().flatten()
+        print(posterior_std)
+        print(posterior_pred_mean)
         predictive_distributions = np.empty((np.shape(X_test)[0], self.J))
         for j in range(self.J):
-            Y_test = np.full_like(X_test, j)
+            Y_test = np.full((np.shape(X_test)[0], 1), j)
             predictive_distributions[:, j] = self._model.predict_log_density(
                 (X_test, Y_test))
         predictive_distributions = np.exp(predictive_distributions)
@@ -398,7 +402,7 @@ class SVGP(VGP):
         # Both groups are passed to the monitor.
         # `slow_tasks` will be run five times less frequently than
         # `fast_tasks`.
-        self._monitor = Monitor(fast_tasks, slow_tasks)
+        self._monitor = Monitor(fast_tasks)
 
     @tf.function
     def optimization_step(self):
