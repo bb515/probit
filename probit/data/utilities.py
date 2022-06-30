@@ -16,7 +16,7 @@ import importlib.resources as pkg_resources
 # from scipy.stats import gamma
 from probit.kernels import KernelLoader
 from probit.load_approximators import ApproximatorLoader
-from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ, LabSharpenedCosine
+from probit.kernels import SEIso, SEARD, Linear, LabEQ, LabSharpenedCosine
 
 # For plotting
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
@@ -1442,20 +1442,6 @@ def generate_synthetic_data_SEARD(N_per_class, J, D, varphi=[30.0, 20.0], noise_
     return X_j, Y_true_j, X, Y_true, t, cutpoints_0
 
 
-def generate_synthetic_data_polynomial(N_per_class, J, D, noise_variance=1.0, scale=1.0,
-        varphi=0.0, order=2.0):
-    """Generate synthetic Polynomial dataset."""
-    # Generate the synethetic data
-    kernel = Polynomial(varphi=varphi, order=order, scale=scale, sigma=10e-6, tau=10e-6)
-    X_j, Y_true_j, X, Y_true, t, cutpoints_0 = generate_prior_data(
-        N_per_class, J, D, kernel, noise_variance=noise_variance)
-    from probit.data import tertile
-    with pkg_resources.path(tertile) as path:
-        np.savez(
-            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, J), X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, cutpoints_0=cutpoints_0)
-    return X_j, Y_true_j, X, Y_true, t, cutpoints_0
-
-
 def generate_synthetic_data_linear(
         N_per_class, N_test, splits, J, D,
         constant_variance=1.0, offset=1.0, noise_variance=1.0, scale=1.0):
@@ -2120,4 +2106,3 @@ if __name__ == "__main__":
     # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
     # kernel = Linear(varphi=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
     # plot_kernel(kernel)
-    # generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
