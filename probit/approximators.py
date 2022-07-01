@@ -165,24 +165,15 @@ class Approximator(ABC):
             and `False` if not.
         :return: The ordinal class probabilities.
         """
-        if self.kernel._ARD:
-            # This is the general case where there are hyper-parameters
-            # varphi (J, D) for all dimensions and classes.
-            raise ValueError(
-                "For the ordinal likelihood approximator,the kernel "
-                "must not be _ARD type (kernel._ARD=1), but"
-                " ISO type (kernel._ARD=0). (got {}, expected)".format(
-                    self.kernel._ARD, 0))
+        if whitened is True:
+            raise NotImplementedError("Not implemented.")
+        elif reparameterised is True:
+            return self._predict(
+                X_test, cov, weight=f,
+                cutpoints=self.cutpoints,
+                noise_variance=self.noise_variance)
         else:
-            if whitened is True:
-                raise NotImplementedError("Not implemented.")
-            elif reparameterised is True:
-                return self._predict(
-                    X_test, cov, weight=f,
-                    cutpoints=self.cutpoints,
-                    noise_variance=self.noise_variance)
-            else:
-                raise NotImplementedError("Not implemented.")
+            raise NotImplementedError("Not implemented.")
 
     def _ordinal_predictive_distributions(
         self, posterior_pred_mean, posterior_pred_std, N_test, cutpoints
@@ -456,19 +447,6 @@ class Approximator(ABC):
                 variance = std_dev**2
                 index += 1
             if indices[self.J + 1]:
-                # if self.kernel._general and self.kernel._ARD:
-                #     # In this case, then there is a variance parameter, the first
-                #     # cutpoint, the interval parameters,
-                #     # and lengthscales parameter for each dimension and class
-                #     varphi = np.exp(
-                #         np.reshape(
-                #             theta[self.J:self.J + self.J * self.D],
-                #             (self.J, self.D)))
-                #     index += self.J * self.D
-                # else:
-                # In this case, then there is a variance parameter, the first
-                # cutpoint, the interval parameters,
-                # and a single, shared lengthscale parameter
                 varphi = np.exp(theta[index])
                 index += 1
         # Update prior and posterior covariance
@@ -476,9 +454,6 @@ class Approximator(ABC):
         self.hyperparameters_update(
             cutpoints=cutpoints, varphi=varphi, variance=variance,
             noise_variance=noise_variance)
-        # if self.kernel._general and self.kernel._ARD:
-        #     gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
-        # else:
         gx = np.zeros(1 + self.J - 1 + 1 + 1)
         intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
         error = np.inf
@@ -730,18 +705,6 @@ class VBGP(Approximator):
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
         # else:
         #     self.noise_std_hyperparameters = None
-        # TODO: SS
-        # if self.kernel._ARD:
-        #     raise ValueError(
-        #         "The kernel must not be ARD type (kernel._ARD=1),"
-        #         " but ISO type (kernel._ARD=0). (got {}, expected)".format(
-        #             self.kernel._ARD, 0))
-        # if self.kernel._general:
-        #     raise ValueError(
-        #         "The kernel must not be general "
-        #         "type (kernel._general=1), but simple type "
-        #         "(kernel._general=0). (got {}, expected)".format(
-        #             self.kernel._general, 0))
         #self.EPS = 0.000001  # Acts as a machine tolerance, controls error
         #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
         self.EPS = 1e-4  # perhaps not low enough.
@@ -955,17 +918,11 @@ class VBGP(Approximator):
         :arg int n_samples: The number of samples for the importance sampling
             estimate, 500 is used in 2005 Page 13.
         """
-        # Vector draw from
-        # (n_samples, J, D) in general and _ARD, (n_samples, ) for single
-        # shared kernel and ISO case. Depends on the
-        # shape of psi.
+        # (n_samples, N, N) for ISO case. Depends on the shape of psi.
         varphis = sample_varphis(
             varphi_hyperparameters, n_samples)  # (n_samples, )
         print(varphis)
         log_varphis = np.log(varphis)
-        # (n_samples, J, N, N) in general and _ARD, (n_samples, N, N) for
-        # single shared kernel and ISO case. Depends on
-        # the shape of psi.
         Ks_samples = self.kernel.kernel_matrices(
             self.X_train, self.X_train, varphis)  # (n_samples, N, N)
         Ks_samples = np.add(Ks_samples, self.jitter * np.eye(self.N))
@@ -1208,9 +1165,6 @@ class VBGP(Approximator):
                 raise ValueError("TODO")
             # For kernel parameters
             if indices[self.J + 1]:
-                # if self.kernel._general and self.kernel._ARD:
-                #     raise ValueError("TODO")
-                # else:
                 if numerical_stability is True:
                     # Update gx[-1], the partial derivative of the lower bound
                     # wrt the lengthscale. Using matrix inversion Lemma
@@ -1369,17 +1323,10 @@ class VBGP(Approximator):
                 numerical_stability=True, verbose=False)
         gx = gx[indices_where]
         if verbose:
-            # print("cutpoints=", repr(self.cutpoints), ", ")
-            # print("varphi=", self.kernel.varphi)
-            # print("noise_variance=", self.noise_variance, ", ")
-            # print("variance=", self.kernel.variance, ", ")
-            # print("\nfunction_eval={}\n jacobian_eval={}".format(
-            #     fx, gx))
             print(
-                "cutpoints={}, noise_variance={}, "
+                "\ncutpoints={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(
-                    self.cutpoints,
-                    self.noise_variance,
+                    self.cutpoints, self.noise_variance,
                     self.kernel.varphi, fx))
         if return_reparameterised is True:
             return fx, gx, weight, (self.cov, True)
@@ -1439,16 +1386,6 @@ class EPGP(Approximator):
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
         # else:
         #     self.noise_std_hyperparameters = None
-        # if self.kernel._ARD:
-        #     raise ValueError(
-        #         "The kernel must not be _ARD type (kernel._ARD=1),"
-        #         " but ISO type (kernel._ARD=0). (got {}, expected)".format(
-        #         self.kernel._ARD, 0))
-        # if self.kernel._general:
-        #     raise ValueError(
-        #         "The kernel must not be general type (kernel._general=1),"
-        #         " but simple type (kernel._general=0). "
-        #         "(got {}, expected)".format(self.kernel._general, 0))
         self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
@@ -1657,8 +1594,7 @@ class EPGP(Approximator):
         if random_selection:
             return random.randint(0, self.N-1)
         else:
-            # There is an issue here. If steps < N, then some points never
-            # get updated at all.
+            # If steps < N, then some points never get updated (becomes ADF)
             return step % self.N
 
     def _remove(
@@ -1936,27 +1872,18 @@ class EPGP(Approximator):
         :returns: The updated approximate posterior mean and covariance.
         :rtype: tuple (`numpy.ndarray`, `numpy.ndarray`)
         """
-        # rho = diff/(1+diff*Aii);
         rho = diff / (1 + diff * posterior_variance_n)
-		# eta = (alpha+epinvvar*(postmean-epmean))/(1.0-Aii*epinvvar) ;
         eta = (
             grad_Z_wrt_cavity_mean_n
             + precision_EP_n_old * (posterior_mean_n - mean_EP_n_old)) / (
                 1.0 - posterior_variance_n * precision_EP_n_old)
-        # ai[i] = Retrieve_Posterior_Covariance (i, index, settings) ;
         a_n = posterior_cov[:, index]  # The index'th column of posterior_cov
-        ##a_n = posterior_cov[index, :]]
-        #
-        # postcov[j]-=rho*ai[i]*ai[j] ;
-        #posterior_cov -= (rho * np.outer(a_n, a_n))
-        # Delta = - rho * np.outer(a_n, a_n)
         posterior_cov = posterior_cov - rho * np.outer(a_n, a_n)
-        # posterior_cov = posterior_cov - rho * np.outer(a_n, a_n)
-        # postmean+=eta*ai[i];
         posterior_mean += eta * a_n
         if numerically_stable is True:
+            # TODO is this inequality meant to be the other way around?
             # TODO is hnew meant to be the EP weights, grad_Z_wrt_cavity_mean_n
-            # assert(fabs((settings->alpha+index)->pair->postmean-alpha->hnew)<EPS)
+            # assert(fabs((settings->alpha+index)->postcov[index]-alpha->cnew)<EPS)
             if np.abs(
                     posterior_covariance_n_new
                     - posterior_cov[index, index]) > self.EPS:
@@ -1967,7 +1894,7 @@ class EPGP(Approximator):
                     "{})".format(
                     posterior_covariance_n_new, posterior_cov[index, index],
                     posterior_covariance_n_new - posterior_cov[index, index]))
-            # assert(fabs((settings->alpha+index)->postcov[index]-alpha->cnew)<EPS)
+            # assert(fabs((settings->alpha+index)->pair->postmean-alpha->hnew)<EPS)
             if np.abs(posterior_mean_n_new - posterior_mean[index]) > self.EPS:
                 raise ValueError(
                     "np.abs(posterior_mean_n_new - posterior_mean[index]) must"
@@ -1982,7 +1909,7 @@ class EPGP(Approximator):
             numerical_stability):
         """
         Calculate the approximate log marginal likelihood.
-        TODO: need to finish this.
+        TODO: need to finish this. Probably not useful if using EP.
 
         :arg posterior_cov: The approximate posterior covariance.
         :type posterior_cov:
@@ -2147,11 +2074,8 @@ class EPGP(Approximator):
                 precision_EP_0=precision_EP,
                 amplitude_EP_0=amplitude_EP,
                 first_step=first_step, write=False)
-            if verbose:
-                pass
-                # print("({}), error={}".format(iteration, error))
         # TODO: this part requires an inverse, could it be sparsified
-        # by putting q(f) = p(f_m) R(f_n)
+        # by putting q(f) = p(f_m) R(f_n). This is probably how FITC works
         (weight, precision_EP, L_cov, cov) = self.compute_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         # Try optimisation routine
@@ -2159,31 +2083,17 @@ class EPGP(Approximator):
             np.diag(posterior_cov), posterior_mean, self.noise_variance)
         fx = self.objective(precision_EP, posterior_mean, t1,
             L_cov, cov, weight)
-        # if self.kernel._general and self.kernel._ARD:
-        #     gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
-        # else:
         gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
             gx, intervals, self.kernel.varphi, self.noise_variance,
             t2, t3, t4, t5, cov, weight, indices)
         gx = gx[np.where(indices != 0)]
         if verbose:
-            # print("cutpoints=", repr(self.cutpoints), ", ")
-            # print("varphi=", self.kernel.varphi, ", ")
-            # # print("varphi=", self.kernel.constant_variance, ", ")
-            # print("noise_variance=", self.noise_variance, ", ")
-            # print("variance=", self.kernel.variance, ", ")
-            print("____")
-            print(gx)
-            print(self.cutpoints)
-            print(fx)
-            print("____")
-            # print("\nfunction_eval={}\n jacobian_eval={}".format(
-            #     fx, gx))
-            # print(
-            #     "\ncutpoints={}, noise_variance={}, "
-            #     "varphi={}".format(
-            #         self.cutpoints, self.noise_variance, self.kernel.varphi))
+            print(
+                "\ncutpoints={}, noise_variance={}, "
+                "varphi={}\nfunction_eval={}".format(
+                    self.cutpoints, self.noise_variance,
+                    self.kernel.varphi, fx))
         if return_reparameterised is True:
             return fx, gx, weight, (cov, True)
         elif return_reparameterised is False:
@@ -2253,13 +2163,7 @@ class EPGP(Approximator):
                 self.cutpoints_tplus1s,
                 noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
         t5[self.indices_where_0] = 0.0
-        return (
-            t1,
-            t2,
-            t3,
-            t4,
-            t5
-        )
+        return t1, t2, t3, t4, t5
 
     def objective(
             self, precision_EP, posterior_mean, t1, L_cov, cov,
@@ -2376,8 +2280,6 @@ class EPGP(Approximator):
             if indices[self.J + 1]:
                 partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
                     self.X_train, self.X_train)
-                # if self.kernel._general and self.kernel._ARD:
-                #     raise ValueError("TODO")
                 # elif 1:
                 #     gx[self.J + 1] = varphi * 0.5 * weights.T @ partial_K_varphi @ weights
                 # TODO: This needs fixing/ checking vs original code
@@ -2511,16 +2413,6 @@ class LaplaceGP(Approximator):
         #     self.noise_std_hyperparameters = noise_std_hyperparameters
         # else:
         #     self.noise_std_hyperparameters = None
-        # if self.kernel._ARD:
-        #     raise ValueError(
-        #         "The kernel must not be _ARD type (kernel._ARD=1),"
-        #         " but ISO type (kernel._ARD=0). (got {}, expected)".format(
-        #         self.kernel._ARD, 0))
-        # if self.kernel._general:
-        #     raise ValueError(
-        #         "The kernel must not be general type (kernel._general=1),"
-        #         " but simple type (kernel._general=0). "
-        #         "(got {}, expected)".format(self.kernel._general, 0))
         # self.EPS = 0.001  # Acts as a machine tolerance
         # self.EPS = 1e-4
         self.EPS = 1e-2
@@ -2825,9 +2717,6 @@ class LaplaceGP(Approximator):
             if indices[J + 1]:
                 partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
                     X_train, X_train)
-                # if self.kernel._general and self.kernel._ARD:
-                #     raise ValueError("TODO")
-                # else:
                 dmat = partial_K_varphi @ cov
                 t2 = (dmat @ weight) / precision
                 gx[J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
@@ -2974,9 +2863,6 @@ class LaplaceGP(Approximator):
         L_cov, cov, Z) = self.compute_weights(
             posterior_mean)
         fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
-        # if self.kernel._general and self.kernel._ARD:
-        #     gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
-        # else:
         gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
             gx, (self.X_train, self.t_train), self.grid,
@@ -2986,13 +2872,6 @@ class LaplaceGP(Approximator):
             self.N, self.K, precision, indices)
         gx = gx[np.nonzero(indices)]
         if verbose:
-            # print("cutpoints=", repr(self.cutpoints), ", ")
-            # print("varphi=", self.kernel.varphi, ", ")
-            # # print("varphi=", self.kernel.constant_variance, ", ")
-            # print("noise_variance=", self.noise_variance, ", ")
-            # print("variance=", self.kernel.variance, ", ")
-            # print("\nfunction_eval={}\n jacobian_eval={}".format(
-            #     fx, gx))
             print(
                 "\ncutpoints={}, noise_variance={}, "
                 "varphi={}\nfunction_eval={}".format(

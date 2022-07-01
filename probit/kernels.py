@@ -1003,6 +1003,168 @@ class SEIso(Kernel):
         return np.exp(-1. * self.varphi * self.distance_mat(X1, X2)**2)
 
 
+class Polynomial(Kernel):
+    r"""
+    Uses BLab by WesselB, which is an generic interface for linear algebra
+    backends.
+
+    An isometric radial basis function (a.k.a. exponentiated quadratic,
+    a.k.a squared exponential) kernel class.
+
+    .. math::
+        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+
+    where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
+    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
+    """
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class from
+        the string.
+        """
+        return "SumPolynomialSEIso"
+
+    def __init__(self, *args, **kwargs):
+        """
+        Create an :class:`SEIso` kernel object.
+
+        :arg varphi: The kernel lengthscale hyperparameter.
+        :type varphi: float or NoneType
+        :arg varphi_hyperparameters:
+        :type varphi_hyperparameters: :class:`numpy.ndarray` or float
+
+        :returns: An :class:`SEIso` object
+        """
+        super().__init__(*args, **kwargs)
+        if self.L != 1:
+            raise ValueError(
+                "L wrong for SumPolynomialSEIso kernel (expected {}, got {})".format(
+                    1, self.L))
+        if self.M != 2:
+            raise ValueError(
+                "M wrong for SumPolynomialSEIso (expected {}, got {})".format(
+                    2, self.M))
+        if self.variance is None:
+            raise ValueError(
+                "You must supply a variance for SumPolynomialSEIso kernel "
+                "(expected {} type, got {})".format(float, self.variance))
+        self.num_hyperparameters = np.size(self.varphi)
+
+    @property
+    def _ARD(self):
+        return False
+
+    @property
+    def _stationary(self):
+        return True
+
+    @property
+    def _Matern(self):
+        return True
+
+    @property
+    def _general(self):
+        return False
+
+    def kernel(self, X_i, X_j):
+        """
+        Get the ij'th element of the Gram matrix, given the data (X_i and X_j),
+        and hyper-parameters.
+
+        :arg X_i: (D, ) data point.
+        :type X_i: :class:`numpy.ndarray`
+        :arg X_j: (D, ) data point.
+        :type X_j: :class:`numpy.ndarray`
+        :returns: ij'th element of the Gram matrix.
+        :rtype: float
+        """
+        return (
+            (self.variance * B.matmul(X_i, X_j, tr_a=True)
+                + self.varphi[0])**self.varphi[1]
+        )
+
+    def kernel_vector(self, x_new, X):
+        """
+        Get the kernel vector given an input vector (x_new) input matrix (X).
+
+        :arg x_new: The new (1, D) point drawn from the data space.
+        :type x_new: :class:`numpy.ndarray`
+        :arg X: (N, D) data matrix.
+        :type X: class:`numpy.ndarray`
+        :return: the (N,) covariance vector.
+        :rtype: class:`numpy.ndarray`
+        """
+        return (
+            (self.variance * B.einsum('k, ik -> i', x_new, X)
+                + self.varphi[0])**self.varphi[1]
+        )
+
+    def kernel_prior_diagonal(self, X):
+        return (
+            (self.variance * B.einsum('ik, ik -> i', X, X)
+                + self.varphi[0])**self.varphi[1]
+            )
+
+    def kernel_diagonal(self, X1, X2):
+        """
+        Get Gram diagonal efficiently using scipy's distance matrix function.
+
+        :arg X1: (N, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N,) Gram diagonal.
+        :rtype: class:`numpy.ndarray`
+        """
+        return (
+            (self.variance * B.einsum('ik, ik -> i', X1, X2) + self.varphi[0])**self.varphi[1]
+            )
+
+    def kernel_matrix(self, X1, X2):
+        """
+        Get Gram matrix efficiently using MLKernels.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return(
+            (self.variance * B.matmul(X1, X2, tr_b=True) + self.varphi[0])**self.varphi[1]
+        )
+
+    def kernel_partial_derivative_varphi(self, X1, X2):
+        """
+        Get partial derivative with respect to lengthscale hyperparameters as
+        a numpy array.
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :returns partial_C: A (N1, N2) array of the partial derivative of the
+            covariance matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return np.zeros((len(X1), len(X1)))
+
+    def kernel_partial_derivative_variance(self, X1, X2):
+        """
+        # TODO: needs checking/implementing
+
+        :arg X1: (N1, D) data matrix.
+        :type X1: class:`numpy.ndarray`
+        :arg X2: (N2, D) data matrix. Can be the same as X1.
+        :type X2: class:`numpy.ndarray`
+        :return: (N1, N2) Gram matrix.
+        :rtype: class:`numpy.ndarray`
+        """
+        return np.zeros((len(X1), len(X2)))
+
+
 class SumPolynomialSEIso(Kernel):
     r"""
     Uses BLab by WesselB, which is an generic interface for linear algebra
@@ -1039,15 +1201,15 @@ class SumPolynomialSEIso(Kernel):
         super().__init__(*args, **kwargs)
         if self.L != 1:
             raise ValueError(
-                "L wrong for sharpened cosine kernel (expected {}, got {})".format(
+                "L wrong for SumPolynomialSEIso kernel (expected {}, got {})".format(
                     1, self.L))
-        if self.M != 2:
+        if self.M != 3:
             raise ValueError(
-                "M wrong for sharpened cosine kernel (expected {}, got {})".format(
-                    2, self.M))
+                "M wrong for SumPolynomialSEIso (expected {}, got {})".format(
+                    3, self.M))
         if self.variance is None:
             raise ValueError(
-                "You must supply a variance for the sharpened cosine kernel "
+                "You must supply a variance for SumPolynomialSEIso kernel "
                 "(expected {} type, got {})".format(float, self.variance))
         self.num_hyperparameters = np.size(self.varphi)
 
@@ -1079,12 +1241,15 @@ class SumPolynomialSEIso(Kernel):
         :returns: ij'th element of the Gram matrix.
         :rtype: float
         """
-        # TODO: may need to reshape
         return (
-            self.variance[0] * B.matmul(X_i, X_j, tr_a=True)**self.varphi[0]
+            (self.variance[0] * B.matmul(X_i, X_j, tr_a=True)
+                + self.varphi[0])**self.varphi[1]
             + self.variance[1] * B.exp(
-                -self.varphi[1] * B.ew_dists2(
-                    X_i.reshape(1, -1), X_j.reshape(1, -1)))[0, 0])
+                -B.ew_dists2(
+                    X_i.reshape(1, -1), X_j.reshape(1, -1))/
+                    (2. * self.varphi[2]**2)
+                    )[0, 0] 
+        )
 
     def kernel_vector(self, x_new, X):
         """
@@ -1097,11 +1262,22 @@ class SumPolynomialSEIso(Kernel):
         :return: the (N,) covariance vector.
         :rtype: class:`numpy.ndarray`
         """
-        return self.variance[0] * B.einsum('k, ik -> i', x_new, X)**self.varphi[0] + self.variance[0] * B.exp(-self.varphi[1] * B.ew_dists2(
-            X, x_new.reshape(1, -1)))
+        return (
+            (self.variance[0] * B.einsum('k, ik -> i', x_new, X)
+                + self.varphi[0])**self.varphi[1]
+            + self.variance[1] * B.exp(
+                -B.ew_dists2(
+                    X, x_new.reshape(1, -1)) /
+                (2. * self.varphi[2]**2)
+                )
+        )
 
     def kernel_prior_diagonal(self, X):
-        return self.variance[0] * np.ones(np.shape(X)[0]) + self.variance[1] * np.ones(np.shape(X)[0])
+        return (
+            (self.variance[0] * B.einsum('ik, ik -> i', X, X)
+                + self.varphi[0])**self.varphi[1]
+            + self.variance[1] * np.ones(np.shape(X)[0])
+            )
 
     def kernel_diagonal(self, X1, X2):
         """
@@ -1114,7 +1290,12 @@ class SumPolynomialSEIso(Kernel):
         :return: (N,) Gram diagonal.
         :rtype: class:`numpy.ndarray`
         """
-        return self.variance[0] * B.einsum('ik, ik -> i', X1, X2)**self.varphi[0] + self.variance[1] * B.exp(-self.varphi[1] * B.ew_dists2(X1, X2))
+        return (
+            (self.variance[0] * B.einsum('ik, ik -> i', X1, X2) + self.varphi[0])**self.varphi[1]
+            + self.variance[1] * B.exp(-B.eq_dists2(X1, X2) /
+            (2. * self.varphi[2]**2)
+            )
+        )
 
     def kernel_matrix(self, X1, X2):
         """
@@ -1127,7 +1308,11 @@ class SumPolynomialSEIso(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return self.variance[0] * B.matmul(X1, X2, tr_b=True)**self.varphi[0] + self.variance[1] * B.exp(-self.varphi[1] * B.pw_dists2(X1, X2))
+        return(
+            (self.variance[0] * B.matmul(X1, X2, tr_b=True) + self.varphi[0])**self.varphi[1]
+            + self.variance[1] * B.exp(-B.pw_dists2(X1, X2) /
+            (2. * self.varphi[2]**2))
+        )
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         """
@@ -1155,7 +1340,7 @@ class SumPolynomialSEIso(Kernel):
         :return: (N1, N2) Gram matrix.
         :rtype: class:`numpy.ndarray`
         """
-        return np.array([B.einsum('ik, jk -> ij', X1, X2)**self.varphi[0],  B.exp(-self.varphi[1] * B.pw_dists2(X1, X2))])
+        return np.zeros((len(X1), len(X2)))
 
 
 class SSSEARDMultinomial(Kernel):
