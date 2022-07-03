@@ -1,9 +1,10 @@
 """
-Figure 2
+Ordinal regression, pseudo-marginal (PM) inference.
 
-Ordinal regression concrete examples. Pseudomarginal inference: comparing the posterior approximation used:
-
-EP vs VB vs MAP Laplace
+Fig. 1. Comparison of the posterior distribution $p(\theta|\mathbf{y})$ with
+the posterior $p(\theta|\mathbf{f})$ in the SA parameterization, the posterior
+$p(\theta|\mathbf{y}, \boldsymbol{\nu})$ in the AA parameterization, and the
+parameterization used in the SURR method.
 """
 # Make sure to limit CPU usage
 import os
@@ -32,7 +33,8 @@ from probit.Gibbs import plot
 from probit.kernels import SEIso
 from probit.proposals import proposal_initiate
 import pathlib
-from probit.data.utilities import datasets, load_data, load_data_synthetic
+from probit.data.utilities import (
+    datasets, load_data, load_data_synthetic, load_data_paper)
 import time
 import matplotlib.pyplot as plt
 
@@ -47,14 +49,14 @@ def main():
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
     parser.add_argument(
-        "bins", help="quantile or decile")
+        "bins", help="3, 13 or 52")
     parser.add_argument(
         "method", help="SA or AA")  # TODO: Surrogate
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
-    bins = args.bins
+    bins = int(args.bins)
     method = args.method
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
@@ -64,14 +66,14 @@ def main():
     if dataset in datasets["benchmark"]:
         (X_trains, t_trains,
         X_tests, t_tests,
-        X_true, y_tests,
+        X_true, g_tests,
         cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, D, Kernel) = load_data(
             dataset, bins)
         burn_steps = 2000
         steps = 1000
-        m_0 = np.zeros(len(X_tests))
-        y_0 = m_0.copy()
+        f_0 = np.zeros(len(X_tests))
+        g_0 = f_0.copy()
         # outer_loops(
         #     test, GibsGP, Kernel, X_trains, t_trains, X_tests,
         #     t_tests, burn_steps, steps,
@@ -82,24 +84,30 @@ def main():
         # Initiate classifier
         sampler = GibbsGP(
             cutpoints_0, noise_variance_0, kernel, J, (X_trains[2], t_trains[2]))
-        plot(sampler, m_0, y_0, cutpoints_0, burn_steps, steps, J, D)
-    elif dataset in datasets["synthetic"]:
-        (X, t,
-        X_true, y_true,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0,
-        J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+        plot(sampler, f_0, g_0, cutpoints_0, burn_steps, steps, J, D)
+    elif dataset in datasets["paper"] or dataset in datasets["synthetic"]:
+        if dataset in datasets["paper"]:
+            (X, g_true, t,
+                cutpoints_0, varphi_0, noise_variance_0, scale_0,
+                J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
+        else:
+            (X, t,
+            X_true, g_true,
+            cutpoints_0, varphi_0, noise_variance_0, scale_0,
+            J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+
         # Set varphi hyperparameters
         varphi_hyperparameters = np.array([3.4, 2.0])  # [loc, scale] of a normal on np.exp(varphi)
         # Initiate kernel
         kernel = Kernel(
             varphi=varphi_0,
-            variance=scale_0, varphi_hyperparameters=varphi_hyperparameters)
+            variance=scale_0,
+            varphi_hyperparameters=varphi_hyperparameters)
         # Initiate classifier
-        # TODO: temporary, since we know the true latent variables here
         burn_steps = 500
         steps = 1000
-        m_0 = y_true.flatten()
-        y_0 = y_true.flatten()
+        f_0 = g_true.flatten()
+        g_0 = g_true.flatten()
         # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
         noise_std_hyperparameters = None
         cutpoints_hyperparameters = None
@@ -107,7 +115,7 @@ def main():
             cutpoints_0, noise_variance_0,
             noise_std_hyperparameters,
             cutpoints_hyperparameters, kernel, J, (X, t))
-        nu_true = sampler.cov @ y_true.flatten()
+        nu_true = sampler.cov @ g_true.flatten()
         m_true = sampler.K @ nu_true
         # plt.scatter(sampler.X_train, m_true)
         # plt.show()
@@ -181,7 +189,8 @@ def main():
             approximator.hyperparameters_update(varphi=varphi)
             theta=sampler.get_theta(indices)
             log_p_pseudo_marginals, log_p_priors = hyper_sampler.tmp_compute_marginal(
-                    theta, indices, reparameterised=True)
+                    theta, indices, steps=np.max([100, len(t)//100]),
+                    reparameterised=True)
             log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
         log_p_pseudo_marginalss = np.array(log_p_pseudo_marginalss)
         print(np.shape(log_p_pseudo_marginalss))
@@ -189,8 +198,10 @@ def main():
         log_p_pseudo_marginals_std = np.std(log_p_pseudo_marginalss, axis=1)
         plt.plot(varphis, log_p_pseudo_marginals_ms, 'k')
         plt.plot(varphis, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
-        plt.plot(varphis, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b') 
+        plt.plot(varphis, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b')
+        plt.savefig("fig2a.png")
         plt.show()
+        plt.close() 
 
         max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginals_ms)
         log_sum_exp = max_log_p_pseudo_marginals + np.log(np.sum(np.exp(log_p_pseudo_marginals_ms - max_log_p_pseudo_marginals)))
@@ -199,7 +210,9 @@ def main():
         plt.plot(varphis, p_pseudo_marginals)
         # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
         # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r') 
+        plt.savefig("fig2b.png")
         plt.show()
+        plt.close()
 
         max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginalss, axis=0)
         print(np.shape(max_log_p_pseudo_marginals))
@@ -212,13 +225,15 @@ def main():
         plt.plot(varphis, p_pseudo_marginals_mean)
         plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
         plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r') 
+        plt.savefig("fig2c.png")
         plt.show()
+        plt.close() 
 
         # plt.plot(varphis, p_pseudo_marginals, label="PM")
         # plt.plot(varphis, p_theta_giv_ms, label="SA")
         # plt.plot(varphis, p_theta_giv_y_nus, label="AA")
 
-        # plot(sampler, m_0, cutpoints_0, burn_steps, steps, J, D)
+        # plot(sampler, f_0, cutpoints_0, burn_steps, steps, J, D)
 
     if args.profile:
         profile.disable()
@@ -234,17 +249,17 @@ if __name__ == "__main__":
 
 
 # # Burn in
-# m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample(m_0, y_0, cutpoints_0, steps_burn)
-# #m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, cutpoints_0, 0.5, steps_burn)
-# m_0_burned = m_samples[-1]
-# y_0_burned = y_samples[-1]
+# f_samples, g_samples, cutpoints_samples = gibbs_classifier.sample(f_0, g_0, cutpoints_0, steps_burn)
+# #f_samples, g_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(f_0, g_0, cutpoints_0, 0.5, steps_burn)
+# f_0_burned = f_samples[-1]
+# g_0_burned = g_samples[-1]
 # cutpoints_0_burned = cutpoints_samples[-1]
 
 # # Sample
-# m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample(m_0_burned, y_0_burned, cutpoints_0_burned, steps)
-# #m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, cutpoints_0, 0.5, steps)
-# m_tilde = np.mean(m_samples, axis=0)
-# y_tilde = np.mean(y_samples, axis=0)
+# f_samples, g_samples, cutpoints_samples = gibbs_classifier.sample(f_0_burned, g_0_burned, cutpoints_0_burned, steps)
+# #f_samples, g_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(f_0, g_0, cutpoints_0, 0.5, steps)
+# f_tilde = np.mean(f_samples, axis=0)
+# g_tilde = np.mean(g_samples, axis=0)
 # cutpoints_tilde = np.mean(cutpoints_samples, axis=0)
 
 # if argument == "diabetes_quantile":
@@ -288,37 +303,37 @@ if __name__ == "__main__":
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-#     m_star = -1. * np.ones(3)
-#     n0, m00, patches = ax[0].hist(m_samples[:, 0], 20, density="probability", histtype='stepfilled')
-#     n1, m01, patches = ax[1].hist(m_samples[:, 1], 20, density="probability", histtype='stepfilled')
-#     n2, m20, patches = ax[2].hist(m_samples[:, 2], 20, density="probability", histtype='stepfilled')
-#     m_star[0] = m00[np.argmax(n0)]
-#     m_star[1] = m01[np.argmax(n1)]
-#     m_star[2] = m20[np.argmax(n2)]
-#     ax[0].axvline(m_star[0], color='k', label=r"Maximum $m_0$")
-#     ax[1].axvline(m_star[1], color='k', label=r"Maximum $m_1$")
-#     ax[2].axvline(m_star[2], color='k', label=r"Maximum $m_2$")
-#     ax[0].set_xlabel(r"$m_0$", fontsize=16)
+#     f_star = -1. * np.ones(3)
+#     n0, m00, patches = ax[0].hist(f_samples[:, 0], 20, density="probability", histtype='stepfilled')
+#     n1, m01, patches = ax[1].hist(f_samples[:, 1], 20, density="probability", histtype='stepfilled')
+#     n2, m20, patches = ax[2].hist(f_samples[:, 2], 20, density="probability", histtype='stepfilled')
+#     f_star[0] = m00[np.argmax(n0)]
+#     f_star[1] = m01[np.argmax(n1)]
+#     f_star[2] = m20[np.argmax(n2)]
+#     ax[0].axvline(f_star[0], color='k', label=r"Maximum $f_0$")
+#     ax[1].axvline(f_star[1], color='k', label=r"Maximum $m_1$")
+#     ax[2].axvline(f_star[2], color='k', label=r"Maximum $m_2$")
+#     ax[0].set_xlabel(r"$f_0$", fontsize=16)
 #     ax[1].set_xlabel(r"$m_1$", fontsize=16)
 #     ax[2].set_xlabel(r"$m_2$", fontsize=16)
 #     ax[0].legend()
 #     ax[1].legend()
 #     ax[2].legend()
-#     plt.title(r"$m$ posterior samples")
+#     plt.title(r"$f$ posterior samples")
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-#     y_star = -1. * np.ones(3)
-#     n0, y00, patches = ax[0].hist(y_samples[:, 0], 20, density="probability", histtype='stepfilled')
-#     n1, y01, patches = ax[1].hist(y_samples[:, 1], 20, density="probability", histtype='stepfilled')
-#     n2, y20, patches = ax[2].hist(y_samples[:, 2], 20, density="probability", histtype='stepfilled')
-#     y_star[0] = y00[np.argmax(n0)]
-#     y_star[1] = y01[np.argmax(n1)]
-#     y_star[2] = y20[np.argmax(n2)]
-#     ax[0].axvline(y_star[0], color='k', label=r"Maximum $y_0$")
-#     ax[1].axvline(y_star[1], color='k', label=r"Maximum $y_1$")
-#     ax[2].axvline(y_star[2], color='k', label=r"Maximum $y_2$")
-#     ax[0].set_xlabel(r"$y_0$", fontsize=16)
+#     g_star = -1. * np.ones(3)
+#     n0, y00, patches = ax[0].hist(g_samples[:, 0], 20, density="probability", histtype='stepfilled')
+#     n1, y01, patches = ax[1].hist(g_samples[:, 1], 20, density="probability", histtype='stepfilled')
+#     n2, y20, patches = ax[2].hist(g_samples[:, 2], 20, density="probability", histtype='stepfilled')
+#     g_star[0] = y00[np.argmax(n0)]
+#     g_star[1] = y01[np.argmax(n1)]
+#     g_star[2] = y20[np.argmax(n2)]
+#     ax[0].axvline(g_star[0], color='k', label=r"Maximum $g_0$")
+#     ax[1].axvline(g_star[1], color='k', label=r"Maximum $y_1$")
+#     ax[2].axvline(g_star[2], color='k', label=r"Maximum $y_2$")
+#     ax[0].set_xlabel(r"$g_0$", fontsize=16)
 #     ax[1].set_xlabel(r"$y_1$", fontsize=16)
 #     ax[2].set_xlabel(r"$y_2$", fontsize=16)
 #     ax[0].legend()
@@ -331,7 +346,7 @@ if __name__ == "__main__":
 #     # plt.scatter(X[np.where(t == 1)], m_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
 #     # plt.scatter(X[np.where(t == 2)], m_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
 #     # plt.xlabel(r"$x$", fontsize=16)
-#     # plt.ylabel(r"$\tilde{m}$", fontsize=16)
+#     # plt.ylabel(r"$\tilde{f}$", fontsize=16)
 #     # plt.title("GP regression posterior sample mean mbar, plotted against x")
 #     # plt.show()
 #     #
@@ -339,7 +354,7 @@ if __name__ == "__main__":
 #     # plt.scatter(X[np.where(t == 1)], y_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
 #     # plt.scatter(X[np.where(t == 2)], y_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
 #     # plt.xlabel(r"$x$", fontsize=16)
-#     # plt.ylabel(r"$\tilde{y}$", fontsize=16)
+#     # plt.ylabel(r"$\tilde{g}$", fontsize=16)
 #     # plt.title("Latent variable posterior sample mean ybar, plotted against x")
 #     # plt.show()
 
@@ -355,7 +370,7 @@ if __name__ == "__main__":
 #     X_new = X_new.reshape((N * N, D))
 
 #     # Test
-#     Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_test, vectorised=True)  # (n_test, K)
+#     Z = gibbs_classifier.predict(g_samples, cutpoints_samples, X_test, vectorised=True)  # (n_test, K)
 
 #     # Mean zero-one error
 #     t_star = np.argmax(Z, axis=1)
@@ -368,7 +383,7 @@ if __name__ == "__main__":
 
 #     # X_new = x.reshape((N, D))
 #     print(np.shape(cutpoints_samples), 'shape cutpoints')
-#     Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
+#     Z = gibbs_classifier.predict(g_samples, cutpoints_samples, X_new, vectorised=True)
 #     Z_new = Z.reshape((N, N, K))
 #     print(np.sum(Z, axis=1), 'sum')
 
@@ -434,17 +449,17 @@ if __name__ == "__main__":
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-#     m_star = -1. * np.ones(3)
-#     n0, m00, patches = ax[0].hist(m_samples[:, 0], 20, density="probability", histtype='stepfilled')
-#     n1, m01, patches = ax[1].hist(m_samples[:, 1], 20, density="probability", histtype='stepfilled')
-#     n2, m20, patches = ax[2].hist(m_samples[:, 2], 20, density="probability", histtype='stepfilled')
-#     m_star[0] = m00[np.argmax(n0)]
-#     m_star[1] = m01[np.argmax(n1)]
-#     m_star[2] = m20[np.argmax(n2)]
-#     ax[0].axvline(m_star[0], color='k', label=r"Maximum $m_0$")
-#     ax[1].axvline(m_star[1], color='k', label=r"Maximum $m_1$")
-#     ax[2].axvline(m_star[2], color='k', label=r"Maximum $m_2$")
-#     ax[0].set_xlabel(r"$m_0$", fontsize=16)
+#     f_star = -1. * np.ones(3)
+#     n0, m00, patches = ax[0].hist(f_samples[:, 0], 20, density="probability", histtype='stepfilled')
+#     n1, m01, patches = ax[1].hist(f_samples[:, 1], 20, density="probability", histtype='stepfilled')
+#     n2, m20, patches = ax[2].hist(f_samples[:, 2], 20, density="probability", histtype='stepfilled')
+#     f_star[0] = m00[np.argmax(n0)]
+#     f_star[1] = m01[np.argmax(n1)]
+#     f_star[2] = m20[np.argmax(n2)]
+#     ax[0].axvline(f_star[0], color='k', label=r"Maximum $f_0$")
+#     ax[1].axvline(f_star[1], color='k', label=r"Maximum $m_1$")
+#     ax[2].axvline(f_star[2], color='k', label=r"Maximum $m_2$")
+#     ax[0].set_xlabel(r"$f_0$", fontsize=16)
 #     ax[1].set_xlabel(r"$m_1$", fontsize=16)
 #     ax[2].set_xlabel(r"$m_2$", fontsize=16)
 #     ax[0].legend()
@@ -454,17 +469,17 @@ if __name__ == "__main__":
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-#     y_star = -1. * np.ones(3)
-#     n0, y00, patches = ax[0].hist(y_samples[:, 0], 20, density="probability", histtype='stepfilled')
-#     n1, y01, patches = ax[1].hist(y_samples[:, 1], 20, density="probability", histtype='stepfilled')
-#     n2, y20, patches = ax[2].hist(y_samples[:, 2], 20, density="probability", histtype='stepfilled')
-#     y_star[0] = y00[np.argmax(n0)]
-#     y_star[1] = y01[np.argmax(n1)]
-#     y_star[2] = y20[np.argmax(n2)]
-#     ax[0].axvline(y_star[0], color='k', label=r"Maximum $y_0$")
-#     ax[1].axvline(y_star[1], color='k', label=r"Maximum $y_1$")
-#     ax[2].axvline(y_star[2], color='k', label=r"Maximum $y_2$")
-#     ax[0].set_xlabel(r"$y_0$", fontsize=16)
+#     g_star = -1. * np.ones(3)
+#     n0, y00, patches = ax[0].hist(g_samples[:, 0], 20, density="probability", histtype='stepfilled')
+#     n1, y01, patches = ax[1].hist(g_samples[:, 1], 20, density="probability", histtype='stepfilled')
+#     n2, y20, patches = ax[2].hist(g_samples[:, 2], 20, density="probability", histtype='stepfilled')
+#     g_star[0] = y00[np.argmax(n0)]
+#     g_star[1] = y01[np.argmax(n1)]
+#     g_star[2] = y20[np.argmax(n2)]
+#     ax[0].axvline(g_star[0], color='k', label=r"Maximum $g_0$")
+#     ax[1].axvline(g_star[1], color='k', label=r"Maximum $y_1$")
+#     ax[2].axvline(g_star[2], color='k', label=r"Maximum $y_2$")
+#     ax[0].set_xlabel(r"$g_0$", fontsize=16)
 #     ax[1].set_xlabel(r"$y_1$", fontsize=16)
 #     ax[2].set_xlabel(r"$y_2$", fontsize=16)
 #     ax[0].legend()
@@ -477,7 +492,7 @@ if __name__ == "__main__":
 #     plt.scatter(X[np.where(t == 1)], m_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
 #     plt.scatter(X[np.where(t == 2)], m_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
 #     plt.xlabel(r"$x$", fontsize=16)
-#     plt.ylabel(r"$\tilde{m}$", fontsize=16)
+#     plt.ylabel(r"$\tilde{f}$", fontsize=16)
 #     plt.title("GP regression posterior sample mean mbar, plotted against x")
 #     plt.show()
 
@@ -485,7 +500,7 @@ if __name__ == "__main__":
 #     plt.scatter(X[np.where(t == 1)], y_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
 #     plt.scatter(X[np.where(t == 2)], y_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
 #     plt.xlabel(r"$x$", fontsize=16)
-#     plt.ylabel(r"$\tilde{y}$", fontsize=16)
+#     plt.ylabel(r"$\tilde{g}$", fontsize=16)
 #     plt.title("Latent variable posterior sample mean ybar, plotted against x")
 #     plt.show()
 
@@ -495,7 +510,7 @@ if __name__ == "__main__":
 #     x = np.linspace(lower_x, upper_x, N)
 #     X_new = x.reshape((N, D))
 #     print(np.shape(cutpoints_samples), 'shape cutpoints')
-#     Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
+#     Z = gibbs_classifier.predict(g_samples, cutpoints_samples, X_new, vectorised=True)
 #     print(np.sum(Z, axis=1), 'sum')
 #     plt.xlim(lower_x, upper_x)
 #     plt.ylim(0.0, 1.0)
@@ -525,7 +540,7 @@ if __name__ == "__main__":
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
 #     for i in range(3):
-#         ax[i].plot(m_samples[:, i])
+#         ax[i].plot(f_samples[:, i])
 #         ax[i].set_ylabel(r"$m{}$".format(i), fontsize=16)
 #     plt.title('Mixing for GP posterior samples $m$')
 #     plt.show()
@@ -542,22 +557,22 @@ if __name__ == "__main__":
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-#     m_star = -1. * np.ones(3)
+#     f_star = -1. * np.ones(3)
 #     for i in range(3):
-#         ni, mi, patches = ax[i].hist(m_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
-#         m_star[i] = mi[np.argmax(ni)]
-#         ax[i].axvline(m_star[i], color='k', label=r"Maximum $m_{}$".format(i + 1))
+#         ni, mi, patches = ax[i].hist(f_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
+#         f_star[i] = mi[np.argmax(ni)]
+#         ax[i].axvline(f_star[i], color='k', label=r"Maximum $m_{}$".format(i + 1))
 #         ax[i].set_xlabel(r"$m_{}$ posterior samples".format(i + 1), fontsize=16)
 #         ax[i].legend()
 #     plt.title(r"$m$ posterior samples")
 #     plt.show()
 
 #     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-#     y_star = -1. * np.ones(3)
+#     g_star = -1. * np.ones(3)
 #     for i in range(3):
-#         ni, yi, patches = ax[i].hist(y_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
-#         y_star[i] = yi[np.argmax(ni)]
-#         ax[i].axvline(y_star[i], color='k', label=r"Maximum $y_{}$".format(i + 1))
+#         ni, yi, patches = ax[i].hist(g_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
+#         g_star[i] = yi[np.argmax(ni)]
+#         ax[i].axvline(g_star[i], color='k', label=r"Maximum $y_{}$".format(i + 1))
 #         ax[i].set_xlabel(r"$y_{}$ posterior samples".format(i + 1), fontsize=16)
 #         ax[i].legend()
 #     plt.title(r"$y$ posterior samples")
@@ -568,7 +583,7 @@ if __name__ == "__main__":
 #     for i in range(7):
 #         plt.scatter(X[np.where(t == i)], m_tilde[np.where(t == i)], color=colors[i], label=r"$t={}$".format(i + 1))
 #     plt.xlabel(r"$x$", fontsize=16)
-#     plt.ylabel(r"$\tilde{m}$", fontsize=16)
+#     plt.ylabel(r"$\tilde{f}$", fontsize=16)
 #     plt.title("GP regression posterior sample mean mbar, plotted against x")
 #     plt.legend()
 #     plt.show()
@@ -576,7 +591,7 @@ if __name__ == "__main__":
 #     for i in range(7):
 #         plt.scatter(X[np.where(t == i)], y_tilde[np.where(t == i)], color=colors[i], label=r"$t={}$".format(i))
 #     plt.xlabel(r"$x$", fontsize=16)
-#     plt.ylabel(r"$\tilde{y}$", fontsize=16)
+#     plt.ylabel(r"$\tilde{g}$", fontsize=16)
 #     plt.title("Latent variable posterior sample mean ybar, plotted against x")
 #     plt.legend()
 #     plt.show()
@@ -587,7 +602,7 @@ if __name__ == "__main__":
 #     x = np.linspace(lower_x, upper_x, N)
 #     X_new = x.reshape((N, D))
 #     print(np.shape(cutpoints_samples), 'shape cutpoints')
-#     Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
+#     Z = gibbs_classifier.predict(g_samples, cutpoints_samples, X_new, vectorised=True)
 #     print(np.sum(Z, axis=1), 'sum')
 #     plt.xlim(lower_x, upper_x)
 #     plt.ylim(0.0, 1.0)

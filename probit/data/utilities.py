@@ -37,11 +37,14 @@ datasets = {
     "synthetic" : [
         "SEIso",
         "Linear",
+        ],
+    "paper" : [
         "figure2",
         "figure2alt",
         "figure2alt2",
-        "13"
-    ]
+        "13",
+        "table1"
+        ],
 }
 
 
@@ -1761,7 +1764,8 @@ def load_data_synthetic(dataset, J, plot=False):
                 "true"]
     if plot:
         plt.scatter(X, Y_true)
-        plt.show()
+        plt.savefig("plot.png")
+        plt.close()
     cutpoints_0 = np.array(cutpoints_0)
     if plot:
         plot_ordinal(X, t, X_j, Y_true_j, J, D)

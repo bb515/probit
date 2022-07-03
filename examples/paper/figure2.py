@@ -1,9 +1,10 @@
 """
-Figure 2
+Ordinal regression, pseudo-marginal (PM) inference. EP, VB, MAP Laplace, V.
 
-Ordinal regression concrete examples. Pseudomarginal inference: comparing the posterior approximation used:
-
-EP vs VB vs MAP Laplace
+Fig. 2. Plot of the PM as a function of the length-scale, \ell; black solid
+lines represent the average over 500 repetitions and dashed lines represent
+2.5th and 97.5th quantiles for $N_{\text{imp}} = 1$ and $N_{\text{imp}} = 64$.
+The solid red line is the prior density.
 """
 # Make sure to limit CPU usage if necessary
 # import os
@@ -36,38 +37,36 @@ write_path = pathlib.Path()
 
 
 def main():
-    """
-    Plot of the PM as a function of the lengthscale \varphi;
-    black solid lines represent the average over 500 repetitions
-    and dashed lines represent 2.5th and 97.5th quantiles for
-    N_imp = 1 and N_imp = 64. The solid red line is the prior
-    density.
-    """
+    """>>> python figure2.py figure 2 3 EP --profile"""
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "dataset_name", help="run example on a given dataset name")
+    parser.add_argument(
+        "bins", help="3, 13 or 52")
     parser.add_argument(
         "approximation", help="LA, VB, EP or V")
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
-    dataset = "figure2"
-    #dataset = "SEIso"
-    #bins = "tertile" 
+    dataset = args.dataset_name
+    bins = int(args.bins)
     approximation = args.approximation
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
         profile = cProfile.Profile()
         profile.enable()
         sys.stdout = open("{}.txt".format(now), "w")
-    if dataset in datasets["synthetic"]:
-        # Load data from file
-        (X, Y, t,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0,
-        J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
-
-        # (X, t,
-        # X_true, y_true,
-        # cutpoints_0, varphi_0, noise_variance_0, scale_0,
-        # J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+    # Load data from file
+    if dataset in datasets["paper"] or dataset in datasets["synthetic"]:
+        if dataset in datasets["paper"]:
+            (X, Y, t,
+                cutpoints_0, varphi_0, noise_variance_0, scale_0,
+                J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
+        else:
+            (X, t,
+            X_true, y_true,
+            cutpoints_0, varphi_0, noise_variance_0, scale_0,
+            J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
 
         # Set varphi hyperparameters
         varphi_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate] of an cutpoints on varphi

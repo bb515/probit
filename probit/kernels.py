@@ -315,26 +315,6 @@ class Linear(Kernel):
                     float, np.ndarray, type(varphi)))
         return varphi, L
 
-    def update_hyperparameter(
-        self, varphi=None, variance=None, sigma=None, tau=None):
-        if varphi is not None:
-            self.varphi, self.L = self._initialise_varphi(varphi)
-        if variance is not None:
-            # Update variance
-            self.variance = variance
-        if sigma is not None:
-            # Update sigma
-            self.sigma = sigma
-        if tau is not None:
-            # Update tau
-            self.tau = tau
-        if bool(self.sigma) != bool(self.tau):
-            raise TypeError(
-                "If a sigma hyperhyperparameter is provided, then a tau "
-                "hyperhyperparameter must be provided"
-                " (expected {}, got {})".format(np.ndarray, type(tau))
-            )
-
     @property
     def _ARD(self):
         return False

@@ -77,14 +77,6 @@ class Sampler(ABC):
         else:
             self.t_train = t_train
         self.J = J
-        if self.kernel._ARD:
-            sigma = np.reshape(self.kernel.sigma, (self.J, 1))
-            tau = np.reshape(self.kernel.tau, (self.J, 1))
-            self.sigma = np.tile(sigma, (1, self.D))  # (J, D)
-            self.tau = np.tile(tau, (1, self.D))  # (J, D)
-        else:
-            self.sigma = self.kernel.sigma
-            self.tau = self.kernel.tau
         # See GPML by Williams et al. for a good explanation of jitter
         self.jitter = 1e-8 
         self.upper_bound = 6.0 # TODO: needed?
@@ -946,12 +938,14 @@ class EllipticalSliceGP(Sampler):
         """
         super().__init__(*args, **kwargs)
         if cutpoints_hyperparameters is not None:
-            warnings.warn("cutpoints_hyperparameters set as {}".format(cutpoints_hyperparameters))
+            warnings.warn("cutpoints_hyperparameters set as {}".format(
+                cutpoints_hyperparameters))
             self.cutpoints_hyperparameters = cutpoints_hyperparameters
         else:
             self.cutpoints_hyperparameters = None
         if noise_std_hyperparameters is not None:
-            warnings.warn("noise_std_hyperparameters set as {}".format(noise_std_hyperparameters))
+            warnings.warn("noise_std_hyperparameters set as {}".format(
+                noise_std_hyperparameters))
             self.noise_std_hyperparameters = noise_std_hyperparameters
         else:
             self.noise_std_hyperparameters = None
@@ -973,7 +967,8 @@ class EllipticalSliceGP(Sampler):
         self.jitter = 1e-6
         self.t_trainplus1 = self.t_train + 1
         # Initiate hyperparameters
-        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
+        self.hyperparameters_update(
+            cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _sample_initiate(self, m_0):
         """Initialise variables for the sample method."""
@@ -1107,12 +1102,12 @@ class SufficientAugmentation(object):
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.sampler.cutpoints)
+                self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.sampler.cutpoints)
+                self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
         nu = solve_triangular(self.sampler.L_K.T, m, lower=True)  # TODO just make sure this is the correct solve.
         log_p_m_giv_theta = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
         log_p_theta_giv_m = log_p_theta[0] + log_p_m_giv_theta
@@ -1310,12 +1305,12 @@ class AncilliaryAugmentation(Sampler):
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.sampler.cutpoints)
+                self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                self.sampler.kernel.scale_hyperparameters, self.sampler.cutpoints)
+                self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
         log_p_y_giv_nu_theta = self.sampler.get_log_likelihood(m)
         log_p_theta_giv_y_nu = log_p_theta[0] + log_p_y_giv_nu_theta
         return log_p_theta_giv_y_nu
@@ -1586,7 +1581,7 @@ class PseudoMarginal(object):
                 theta, indices, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
@@ -1656,7 +1651,7 @@ class PseudoMarginal(object):
                 v, indices, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             u, log_jacobian_u = proposal(u, indices, proposal_L_cov,
@@ -1665,7 +1660,7 @@ class PseudoMarginal(object):
                 u, indices, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         (fx, gx, posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
@@ -1770,7 +1765,7 @@ class PseudoMarginal(object):
                 theta_0, indices, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             theta_0, log_jacobian_theta = proposal(
@@ -1779,7 +1774,7 @@ class PseudoMarginal(object):
                 theta_0, indices, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.scale_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         theta_samples = []
         acceptance_rate = 0.0
