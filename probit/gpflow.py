@@ -1,5 +1,6 @@
 """GPFlow models. Probably no need to inherit Approximator here."""
 from probit.approximators import Approximator
+from probit.utilities import check_cutpoints
 from tqdm import trange
 import warnings
 import matplotlib.pyplot as plt
@@ -83,11 +84,11 @@ class VGP(Approximator):
             ax.plot(self.X_train, self.t_train, "o")
         warnings.warn("Done initiating model using gpflow.")
         # Fix hyperparameters - difficult to do without letting user do it
-        #gpflow.set_trainable(self._model.kernel.lengthscales, False)
-        #gpflow.set_trainable(self._model.kernel.variance, False)
+        gpflow.set_trainable(self._model.kernel.lengthscales, False)
+        gpflow.set_trainable(self._model.kernel.variance, False)
         # bin_edges are not trainable in GPFlow!
         # gpflow.set_trainable(self._model.likelihood.bin_edges, False)
-        # gpflow.set_trainable(self._model.likelihood.sigma, False)
+        gpflow.set_trainable(self._model.likelihood.sigma, False)
         # Instantiate optimizer
         self._optimizer = gpflow.optimizers.Scipy()
         self._training_loss = self._model.training_loss
@@ -107,9 +108,9 @@ class VGP(Approximator):
             # MonitorTaskGroup(image_task, period=5)
         )
 
-    def get_theta(self, indices):
+    def get_phi(self, indices):
         """
-        Get the parameters (theta) for unconstrained optimization.
+        Get the parameters (phi) for unconstrained optimization.
 
         :arg indices: Indicator array of the hyperparameters to optimize over.
             TODO: it is not clear, unless reading the code from this method,
@@ -117,23 +118,23 @@ class VGP(Approximator):
             interface to expect a dictionary with keys the hyperparameter
             names and values a bool that they are fixed?
         :type indices: :class:`numpy.ndarray`
-        :returns: The unconstrained parameters to optimize over, theta.
+        :returns: The unconstrained parameters to optimize over, phi.
         :rtype: :class:`numpy.array`
         """
-        theta = []
+        phi = []
         if indices[0]:
-            theta.append(np.log(np.sqrt(self.noise_variance)))
+            phi.append(np.log(np.sqrt(self.noise_variance)))
         if indices[1]:
-            theta.append(self.cutpoints[1])
+            phi.append(self.cutpoints[1])
         for j in range(2, self.J):
             if indices[j]:
-                theta.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
+                phi.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
         if indices[self.J]:
-            theta.append(np.log(np.sqrt(self.kernel.variance)))
+            phi.append(np.log(np.sqrt(self.kernel.variance)))
         # TODO: replace this with kernel number of hyperparameters.
         if indices[self.J + 1]:
-            theta.append(np.log(2./(self.kernel.lengthscales.numpy()**2)))
-        return np.array(theta)
+            phi.append(np.log(self.kernel.lengthscales.numpy()))
+        return np.array(phi)
 
     def hyperparameters_update(
             self, cutpoints=None, varphi=None, variance=None,
@@ -154,15 +155,12 @@ class VGP(Approximator):
         :type varphi_hyperparameters:
         """
         if cutpoints is not None:
-            self.cutpoints = self._check_cutpoints(cutpoints)
+            self.cutpoints = check_cutpoints(cutpoints, self.J)
             self.cutpoints_ts = self.cutpoints[self.t_train]
             self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
             # self._model.likelihood.bin_edges = self.cutpoints[1:-1]
         if varphi is not None:
-            print(np.sqrt(2./varphi))
-            self._model.kernel.lengthscales.assign(np.sqrt(2./varphi))
-            print(self._model.kernel.lengthscales.numpy())
-            assert 0
+            self._model.kernel.lengthscales.assign(varphi)
         if variance is not None:
             self._model.kernel.variance.assign(variance)
         if noise_variance is not None:
@@ -379,11 +377,11 @@ class SVGP(VGP):
         # Fix inducing variables
         gpflow.set_trainable(self._model.inducing_variable, False)
         # Fix hyperparameters
-        # gpflow.set_trainable(self._model.kernel.lengthscales, False)
-        # gpflow.set_trainable(self._model.kernel.variance, False)
+        gpflow.set_trainable(self._model.kernel.lengthscales, False)
+        gpflow.set_trainable(self._model.kernel.variance, False)
         # bin_edges are not trainable in GPFlow!
         # gpflow.set_trainable(self._model.likelihood.bin_edges, False)
-        # gpflow.set_trainable(self._model.likelihood.sigma, False)
+        gpflow.set_trainable(self._model.likelihood.sigma, False)
         log_dir_scipy = "scipy"
         model_task = ModelToTensorBoard(
             log_dir_scipy, self._model)
