@@ -6,6 +6,65 @@ import warnings
 import h5py
 
 
+def check_cutpoints(cutpoints, J):
+    """
+    Check that the cutpoints are compatible with this class.
+
+    :arg cutpoints: (J + 1, ) array of the cutpoints.
+    :type cutpoints: :class:`numpy.ndarray`.
+    """
+    # Convert cutpoints to numpy array
+    cutpoints = np.array(cutpoints)
+    # Not including -\infty or \infty
+    if np.shape(cutpoints)[0] == J - 1:
+        # Append \infty
+        cutpoints = np.append(cutpoints, np.inf)
+        # Insert -\infty at index 0
+        cutpoints = np.insert(cutpoints, 0, np.NINF)
+        pass  # correct format
+    # Not including one cutpoints
+    elif np.shape(cutpoints)[0] == J:
+        if cutpoints[-1] != np.inf:
+            if cutpoints[0] != np.NINF:
+                raise ValueError(
+                    "Either the largest cutpoint parameter b_J is not "
+                    "positive infinity, or the smallest cutpoint "
+                    "parameter must b_0 is not negative infinity."
+                    "(got {}, expected {})".format(
+                    [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
+            else:  #cutpoints[0] is -\infty
+                cutpoints.append(np.inf)
+                pass  # correct format
+        else:
+            cutpoints = np.insert(cutpoints, 0, np.NINF)
+            pass  # correct format
+    # Including all the cutpoints
+    elif np.shape(cutpoints)[0] == J + 1:
+        if cutpoints[0] != np.NINF:
+            raise ValueError(
+                "The smallest cutpoint parameter b_0 must be negative "
+                "infinity (got {}, expected {})".format(
+                    cutpoints[0], np.NINF))
+        if cutpoints[-1] != np.inf:
+            raise ValueError(
+                "The largest cutpoint parameter b_J must be positive "
+                "infinity (got {}, expected {})".format(
+                    cutpoints[-1], np.inf))
+        pass  # correct format
+    else:
+        raise ValueError(
+            "Could not recognise cutpoints shape. "
+            "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
+    assert cutpoints[0] == np.NINF
+    assert cutpoints[-1] == np.inf
+    assert np.shape(cutpoints)[0] == J + 1
+    if not all(
+            cutpoints[i] <= cutpoints[i + 1]
+            for i in range(J)):
+        raise CutpointValueError(cutpoints)
+    return cutpoints
+
+
 def write_array(write_path, dataset, array):
     """
     Write a :class: numpy.ndarray to a HDF5 file.

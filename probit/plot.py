@@ -1,6 +1,7 @@
 """Useful plot functions for classifiers."""
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import trange
 from probit.data.utilities import colors, datasets
 from probit.data.utilities import calculate_metrics
 import warnings
@@ -1143,7 +1144,7 @@ def figure2(
     xlabel, ylabel,
     xscale, yscale,
     xx, yy,
-    Phi_new,
+    thetas,
     *_) = approximator._grid_over_hyperparameters_initiate(
         res, domain, indices, approximator.cutpoints)
     log_p_pseudo_marginalss = []
@@ -1152,21 +1153,25 @@ def figure2(
         raise ValueError("Multivariate plots are TODO")
     else:
         # if one dimension... find a better way of doing this
-        Phi_step = Phi_new[1:] - Phi_new[:-1]
-        Phi_new = Phi_new[:-1]
-        M = len(Phi_new)
-
-    for i, phi in enumerate(Phi_new):
+        theta_step = thetas[1:] - thetas[:-1]
+        thetas = thetas[:-1]
+        M = len(thetas)
+    for i in trange(0, M,
+                        desc="Posterior density mesh-grid progress",
+                        unit=" mesh-grid points", disable=False):
+        theta = thetas[i]
         # Need to update sampler hyperparameters
         approximator._grid_over_hyperparameters_update(
-            phi, indices, approximator.cutpoints)
-        theta = approximator.get_theta(indices)
-        log_p_pseudo_marginals, log_p_prior = hyper_sampler.tmp_compute_marginal(
-                theta, indices, steps=steps, reparameterised=reparameterised,
-                num_importance_samples=num_importance_samples)
+            theta, indices, approximator.cutpoints)
+        phi = approximator.get_phi(indices)
+        (log_p_pseudo_marginals,
+                log_p_prior) = hyper_sampler.tmp_compute_marginal(
+            phi, indices, steps=steps, reparameterised=reparameterised,
+            num_importance_samples=num_importance_samples)
         log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
         log_p_priors.append(log_p_prior)
         if verbose:
+            print("{}/{}".format(i, len(thetas)))
             print("log_p_pseudo_marginal {}, log_p_prior {}".format(
                 np.mean(log_p_pseudo_marginals), log_p_prior))
             print(
@@ -1181,31 +1186,31 @@ def figure2(
         log_priors = np.array(log_p_priors)
         log_p_pseudo_marginals_ms = np.mean(log_p_pseudo_marginalss, axis=1)
         log_p_pseudo_marginals_std = np.std(log_p_pseudo_marginalss, axis=1)
-        # plt.plot(Phi_new, log_p_pseudo_marginals_ms, 'k')
-        # plt.plot(Phi_new, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
-        # plt.plot(Phi_new, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b')
-        # plt.plot(Phi_new, log_priors, '--g')
+        # plt.plot(thetas, log_p_pseudo_marginals_ms, 'k')
+        # plt.plot(thetas, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
+        # plt.plot(thetas, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b')
+        # plt.plot(thetas, log_priors, '--g')
         # if write: plt.savefig("tmp0.png")
         # if show: plt.show()
         # plt.close()
 
         # Normalize prior distribution - but need to make sure domain is such that approx all posterior mass is covered
-        log_prob = log_p_priors + np.log(Phi_step)
+        log_prob = log_p_priors + np.log(theta_step)
         max_log_prob = np.max(log_prob)
         log_sum_exp = max_log_prob + np.log(np.sum(np.exp(log_prob - max_log_prob)))
         p_priors = np.exp(log_p_priors - log_sum_exp)
 
         # Normalize posterior distribution - but need to make sure domain is such that approx all posterior mass is covered
-        log_prob = log_p_pseudo_marginals_ms + np.log(Phi_step)
+        log_prob = log_p_pseudo_marginals_ms + np.log(theta_step)
         max_log_prob = np.max(log_prob)
         log_sum_exp = max_log_prob + np.log(
             np.sum(np.exp(log_prob - max_log_prob)))
         p_pseudo_marginals = np.exp(log_p_pseudo_marginals_ms - log_sum_exp)
 
-        # plt.plot(Phi_new, p_pseudo_marginals)
+        # plt.plot(thetas, p_pseudo_marginals)
         # # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
         # # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
-        # plt.plot(Phi_new, p_priors, '--g')
+        # plt.plot(thetas, p_priors, '--g')
         # if write: plt.savefig("tmp1.png") 
         # if show: plt.show()
         # plt.close()
@@ -1214,7 +1219,7 @@ def figure2(
         # This numerical integration isn't quite right... need to divide by the correct amount in the sum
         # Also, doesn't it need to be devided by N?
 
-        # log_p_pseudo_marginalss = log_p_pseudo_marginalss + np.log(Phi_step).reshape(-1, 1)
+        # log_p_pseudo_marginalss = log_p_pseudo_marginalss + np.log(theta_step).reshape(-1, 1)
         # max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginalss, axis=0)
         # log_sum_exp = np.tile(max_log_p_pseudo_marginals, (M, 1)) + np.tile(
         #     np.log(np.sum(np.exp(log_p_pseudo_marginalss - max_log_p_pseudo_marginals), axis=0)), (M, 1))
@@ -1227,20 +1232,20 @@ def figure2(
 
         # p_pseudo_marginals_std = np.std(p_pseudo_marginals, axis=1)
 
-        # plt.plot(Phi_new, p_pseudo_marginals_mean)
-        # plt.plot(Phi_new, p_pseudo_marginals_lo, '--b')
-        # plt.plot(Phi_new, p_pseudo_marginals_hi, '--r')
+        # plt.plot(thetas, p_pseudo_marginals_mean)
+        # plt.plot(thetas, p_pseudo_marginals_lo, '--b')
+        # plt.plot(thetas, p_pseudo_marginals_hi, '--r')
 
-        # plt.plot(Phi_new, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
-        # plt.plot(Phi_new, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
-        # plt.plot(Phi_new, p_priors, '--g')
+        # plt.plot(thetas, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
+        # plt.plot(thetas, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
+        # plt.plot(thetas, p_priors, '--g')
         # plt.xlabel("length-scale")
         # plt.ylabel("pseudo marginal")
         # plt.title("N = 50, EP")
         #if write: plt.savefig("tmp2.png")
         #if show: plt.show()
         #plt.close()
-        return Phi_new, p_pseudo_marginals_mean, p_pseudo_marginals_lo, p_pseudo_marginals_hi, p_priors
+        return thetas, p_pseudo_marginals_mean, p_pseudo_marginals_lo, p_pseudo_marginals_hi, p_priors
         #return log_p_pseudo_marginalss, log_p_priors, x1s, None, xlabel, ylabel, xscale, yscale
 
 

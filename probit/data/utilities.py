@@ -310,7 +310,8 @@ def generate_prior_samples(kernel, noise_variance, N_samples=9, N_show=2000, plo
 
 
 def generate_prior_data_paper(
-        N_train_per_class, N_test_per_class, N_validate_per_class, splits, J, D, kernel, noise_variance,
+        N_train_per_class, N_test_per_class, N_validate_per_class, splits,
+        J, D, kernel, noise_variance,
         N_show, colors=None, cmap=None, plot=True, jitter=1e-6, seed=None):
     """
     Generate data from the GP prior, and choose some cutpoints that

@@ -32,6 +32,7 @@ from probit.plot import outer_loops, grid_synthetic
 from probit.Gibbs import plot
 from probit.kernels import SEIso
 from probit.proposals import proposal_initiate
+from probit.plot import figure2
 import pathlib
 from probit.data.utilities import (
     datasets, load_data, load_data_synthetic, load_data_paper)
@@ -108,6 +109,11 @@ def main():
         steps = 1000
         f_0 = g_true.flatten()
         g_0 = g_true.flatten()
+        plt.close()
+        plt.scatter(X, f_0)
+        plt.savefig("tst")
+        plt.close()
+        assert 0
         # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
         noise_std_hyperparameters = None
         cutpoints_hyperparameters = None
@@ -120,11 +126,8 @@ def main():
         # plt.scatter(sampler.X_train, m_true)
         # plt.show()
         M = 100
-        varphis = np.logspace(-2.0, 2.0, M+1)
-        print(varphis)
-        varphis_step = varphis[1:] - varphis[:-1]
-        varphis = varphis[:-1]
-        p_theta_giv_f = np.empty(M)
+        # varphis_step = varphis[1:] - varphis[:-1]
+        # varphis = varphis[:-1]
         indices = np.ones(J + 2)
         # Fix noise_variance
         indices[0] = 0
@@ -135,11 +138,17 @@ def main():
         # Fix cutpoints
         indices[1:J] = 0
         # Just varphi
-        domain = ((-4, 4), None)
-        res = (100, None)
-        theta = sampler.get_theta(indices)
+        domain = ((-1.5, 1.0), None)
+        res = (M + 1, None)
+        theta = sampler.get_phi(indices)
         proposal_cov = 0.05
         proposal_L_cov = proposal_initiate(theta, indices, proposal_cov)
+
+        # Pseudo Marginal approach - EP
+        # Initiate hyper-parameter sampler
+        approximator = EPGP(
+            cutpoints_0, noise_variance_0,
+            kernel, J, (X, t))
 
         # # Ancilliary Augmentation approach
         # hyper_sampler = AncilliaryAugmentation(sampler)
@@ -152,13 +161,17 @@ def main():
         #     log_p_theta_giv_y_nu = hyper_sampler.tmp_compute_marginal(
         #         m_true, theta, indices, proposal_L_cov, reparameterised=True)
         #     log_p_theta_giv_y_nus.append(log_p_theta_giv_y_nu)
-        # plt.plot(log_p_theta_giv_y_nus)
+        # plt.plot(varphis, log_p_theta_giv_y_nus)
+        # plt.savefig("AAa {}.png".format(varphi_0))
         # plt.show()
+        # plt.close()
         # max_log_p_theta_giv_y_nus = np.max(log_p_theta_giv_y_nus)
         # log_sum_exp = max_log_p_theta_giv_y_nus + np.log(np.sum(np.exp(log_p_theta_giv_y_nus - max_log_p_theta_giv_y_nus)))
         # p_theta_giv_y_nus = np.exp(log_p_theta_giv_y_nus - log_sum_exp - np.log(varphis_step))
         # plt.plot(varphis, p_theta_giv_y_nus)
+        # plt.savefig("AAb {}.png".format(varphi_0))
         # plt.show()
+        # plt.close()
 
         # # Sufficient Augmentation approach
         # hyper_sampler = SufficientAugmentation(sampler)
@@ -171,63 +184,65 @@ def main():
         #     log_p_theta_giv_ms.append(hyper_sampler.tmp_compute_marginal(
         #             m_true, theta, indices, proposal_L_cov, reparameterised=True))
         # plt.plot(log_p_theta_giv_ms, 'k')
+        # plt.savefig("SAa.png")
         # plt.show()
+        # plt.close()
         # max_log_p_theta_giv_ms = np.max(log_p_theta_giv_ms)
         # log_sum_exp = max_log_p_theta_giv_ms + np.log(np.sum(np.exp(log_p_theta_giv_ms - max_log_p_theta_giv_ms)))
         # p_theta_giv_ms = np.exp(log_p_theta_giv_ms - log_sum_exp - np.log(varphis_step))
         # plt.plot(varphis, p_theta_giv_ms)
+        # plt.savefig("SAb.png")
         # plt.show()
+        # plt.close()
 
-        # Pseudo Marginal approach - EP
-        approximator = EPGP(
-            cutpoints_0, noise_variance_0,
-            kernel, J, (X, t))
         hyper_sampler = PseudoMarginal(approximator)
-        log_p_pseudo_marginalss = []
-        for i, varphi in enumerate(varphis):
-            # Need to update sampler hyperparameters
-            approximator.hyperparameters_update(varphi=varphi)
-            theta=sampler.get_theta(indices)
-            log_p_pseudo_marginals, log_p_priors = hyper_sampler.tmp_compute_marginal(
-                    theta, indices, steps=np.max([100, len(t)//100]),
-                    reparameterised=True)
-            log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
-        log_p_pseudo_marginalss = np.array(log_p_pseudo_marginalss)
-        print(np.shape(log_p_pseudo_marginalss))
-        log_p_pseudo_marginals_ms = np.mean(log_p_pseudo_marginalss, axis=1)
-        log_p_pseudo_marginals_std = np.std(log_p_pseudo_marginalss, axis=1)
-        plt.plot(varphis, log_p_pseudo_marginals_ms, 'k')
-        plt.plot(varphis, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
-        plt.plot(varphis, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b')
-        plt.savefig("fig2a.png")
-        plt.show()
-        plt.close() 
 
-        max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginals_ms)
-        log_sum_exp = max_log_p_pseudo_marginals + np.log(np.sum(np.exp(log_p_pseudo_marginals_ms - max_log_p_pseudo_marginals)))
-        p_pseudo_marginals = np.exp(log_p_pseudo_marginals_ms - log_sum_exp - np.log(varphis_step))
+        for hyper_sampler, sampler, label, color in [
+            (AncilliaryAugmentation(sampler), sampler, "AA", 'r'),
+            (SufficientAugmentation(sampler), sampler, "SA", 'b'),
+            (PseudoMarginal(approximator), approximator, "PM", 'k')]:
 
-        plt.plot(varphis, p_pseudo_marginals)
-        # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
-        # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r') 
-        plt.savefig("fig2b.png")
-        plt.show()
+            # plot figures
+            (theta, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
+                    p_pseudo_marginals_hi, p_priors) = figure2(
+                hyper_sampler, approximator, domain, res, indices,
+                num_importance_samples=64, steps=steps,
+                reparameterised=False, show=True, write=True, verbose=False)
+            plt.plot(theta, p_pseudo_marginals_mean, color,
+                label=label)
+            # axes = plt.gca()
+            # y_min_0, y_max_0 = axes.get_ylim()
+        plt.xlabel(r"Length-scale, $\ell$")
+        plt.ylabel("Posterior density")
+        plt.title("N = {}".format(len(t)))
+        plt.savefig("fig1.png")
         plt.close()
 
-        max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginalss, axis=0)
-        print(np.shape(max_log_p_pseudo_marginals))
-        log_sum_exp = np.tile(max_log_p_pseudo_marginals, (M, 1)) + np.tile(np.log(np.sum(np.exp(log_p_pseudo_marginalss - max_log_p_pseudo_marginals), axis=0)), (M, 1))
-        p_pseudo_marginals = np.exp(log_p_pseudo_marginalss - log_sum_exp - np.log(varphis_step).reshape(-1, 1))
+        # max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginals_ms)
+        # log_sum_exp = max_log_p_pseudo_marginals + np.log(np.sum(np.exp(log_p_pseudo_marginals_ms - max_log_p_pseudo_marginals)))
+        # p_pseudo_marginals = np.exp(log_p_pseudo_marginals_ms - log_sum_exp - np.log(varphis_step))
 
-        p_pseudo_marginals_mean = np.mean(p_pseudo_marginals, axis=1)
-        p_pseudo_marginals_std = np.std(p_pseudo_marginals, axis=1)
+        # plt.plot(varphis, p_pseudo_marginals)
+        # # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
+        # # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r') 
+        # plt.savefig("fig2b.png")
+        # plt.show()
+        # plt.close()
 
-        plt.plot(varphis, p_pseudo_marginals_mean)
-        plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
-        plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r') 
-        plt.savefig("fig2c.png")
-        plt.show()
-        plt.close() 
+        # max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginalss, axis=0)
+        # print(np.shape(max_log_p_pseudo_marginals))
+        # log_sum_exp = np.tile(max_log_p_pseudo_marginals, (M, 1)) + np.tile(np.log(np.sum(np.exp(log_p_pseudo_marginalss - max_log_p_pseudo_marginals), axis=0)), (M, 1))
+        # p_pseudo_marginals = np.exp(log_p_pseudo_marginalss - log_sum_exp - np.log(varphis_step).reshape(-1, 1))
+
+        # p_pseudo_marginals_mean = np.mean(p_pseudo_marginals, axis=1)
+        # p_pseudo_marginals_std = np.std(p_pseudo_marginals, axis=1)
+
+        # plt.plot(varphis, p_pseudo_marginals_mean)
+        # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
+        # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r') 
+        # plt.savefig("fig2c.png")
+        # plt.show()
+        # plt.close() 
 
         # plt.plot(varphis, p_pseudo_marginals, label="PM")
         # plt.plot(varphis, p_theta_giv_ms, label="SA")

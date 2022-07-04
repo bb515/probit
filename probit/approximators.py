@@ -9,6 +9,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 from probit.utilities import (
+    check_cutpoints,
     read_array,
     norm_z_pdf, norm_cdf,
     truncated_norm_normalising_constant,
@@ -254,9 +255,9 @@ class Approximator(ABC):
         elif np.ndim(m) == 1:
                return np.sum(np.log(Z))  # (1,)
 
-    def get_theta(self, indices):
+    def get_phi(self, indices):
         """
-        Get the parameters (theta) for unconstrained optimization.
+        Get the parameters (phi) for unconstrained optimization.
 
         :arg indices: Indicator array of the hyperparameters to optimize over.
             TODO: it is not clear, unless reading the code from this method,
@@ -264,82 +265,23 @@ class Approximator(ABC):
             interface to expect a dictionary with keys the hyperparameter
             names and values a bool that they are fixed?
         :type indices: :class:`numpy.ndarray`
-        :returns: The unconstrained parameters to optimize over, theta.
+        :returns: The unconstrained parameters to optimize over, phi.
         :rtype: :class:`numpy.array`
         """
-        theta = []
+        phi = []
         if indices[0]:
-            theta.append(np.log(np.sqrt(self.noise_variance)))
+            phi.append(np.log(np.sqrt(self.noise_variance)))
         if indices[1]:
-            theta.append(self.cutpoints[1])
+            phi.append(self.cutpoints[1])
         for j in range(2, self.J):
             if indices[j]:
-                theta.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
+                phi.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
         if indices[self.J]:
-            theta.append(np.log(np.sqrt(self.kernel.variance)))
+            phi.append(np.log(np.sqrt(self.kernel.variance)))
         # TODO: replace this with kernel number of hyperparameters.
         if indices[self.J + 1]:
-            theta.append(np.log(self.kernel.varphi))
-        return np.array(theta)
-
-    def _check_cutpoints(
-        self, cutpoints):
-        """
-        Check that the cutpoints are compatible with this class.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        """
-        # Convert cutpoints to numpy array
-        cutpoints = np.array(cutpoints)
-        # Not including -\infty or \infty
-        if np.shape(cutpoints)[0] == self.J - 1:
-            # Append \infty
-            cutpoints = np.append(cutpoints, np.inf)
-            # Insert -\infty at index 0
-            cutpoints = np.insert(cutpoints, 0, np.NINF)
-            pass  # correct format
-        # Not including one cutpoints
-        elif np.shape(cutpoints)[0] == self.J:
-            if cutpoints[-1] != np.inf:
-                if cutpoints[0] != np.NINF:
-                    raise ValueError(
-                        "Either the largest cutpoint parameter b_J is not "
-                        "positive infinity, or the smallest cutpoint "
-                        "parameter must b_0 is not negative infinity."
-                        "(got {}, expected {})".format(
-                        [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
-                else:  #cutpoints[0] is -\infty
-                    cutpoints.append(np.inf)
-                    pass  # correct format
-            else:
-                cutpoints = np.insert(cutpoints, 0, np.NINF)
-                pass  # correct format
-        # Including all the cutpoints
-        elif np.shape(cutpoints)[0] == self.J + 1:
-            if cutpoints[0] != np.NINF:
-                raise ValueError(
-                    "The smallest cutpoint parameter b_0 must be negative "
-                    "infinity (got {}, expected {})".format(
-                        cutpoints[0], np.NINF))
-            if cutpoints[-1] != np.inf:
-                raise ValueError(
-                    "The largest cutpoint parameter b_J must be positive "
-                    "infinity (got {}, expected {})".format(
-                        cutpoints[-1], np.inf))
-            pass  # correct format
-        else:
-            raise ValueError(
-                "Could not recognise cutpoints shape. "
-                "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
-        assert cutpoints[0] == np.NINF
-        assert cutpoints[-1] == np.inf
-        assert np.shape(cutpoints)[0] == self.J + 1
-        if not all(
-                cutpoints[i] <= cutpoints[i + 1]
-                for i in range(self.J)):
-            raise CutpointValueError(cutpoints)
-        return cutpoints
+            phi.append(np.log(self.kernel.varphi))
+        return np.array(phi)
 
     def _hyperparameters_update(
         self, cutpoints=None, varphi=None, variance=None, noise_variance=None):
@@ -365,7 +307,7 @@ class Approximator(ABC):
         :type varphi: :class:`numpy.ndarray` or float.
         """
         if cutpoints is not None:
-            self.cutpoints = self._check_cutpoints(cutpoints)
+            self.cutpoints = check_cutpoints(cutpoints, self.J)
             self.cutpoints_ts = self.cutpoints[self.t_train]
             self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
         if varphi is not None or variance is not None:
@@ -390,12 +332,12 @@ class Approximator(ABC):
             noise_variance=noise_variance)
 
     def _hyperparameter_training_step_initialise(
-            self, theta, indices, steps):
+            self, phi, indices, steps):
         """
         TODO: this doesn't look correct, for example if only training a subset
         Initialise the hyperparameter training step.
 
-        :arg theta: The set of (log-)hyperparameters
+        :arg phi: The set of (log-)hyperparameters
             .. math::
                 [\log{\sigma} \log{b_{1}} \log{\Delta_{1}}
                 \log{\Delta_{2}} ... \log{\Delta_{J-2}} \log{\varphi}],
@@ -406,7 +348,7 @@ class Approximator(ABC):
             shared lengthscale parameter or vector of parameters in which
             there are in the most general case J * D parameters.
             If `None` then no hyperperameter update is performed.
-        :type theta: :class:`numpy.ndarray`
+        :type phi: :class:`numpy.ndarray`
         :return: (intervals, steps, error, iteration, indices_where, gx)
         :rtype: (6,) tuple
         """
@@ -418,7 +360,7 @@ class Approximator(ABC):
         index = 0
         if indices is not None:
             if indices[0]:
-                noise_std = np.exp(theta[index])
+                noise_std = np.exp(phi[index])
                 noise_variance = noise_std**2
                 if noise_variance < 1.0e-04:
                     warnings.warn(
@@ -435,19 +377,19 @@ class Approximator(ABC):
                 # Get cutpoints from classifier
                 cutpoints = self.cutpoints
             if indices[1]:
-                cutpoints[1] = theta[index]
+                cutpoints[1] = phi[index]
                 index += 1
             for j in range(2, self.J):
                 if indices[j]:
-                    print(np.exp(theta[index]))
-                    cutpoints[j] = cutpoints[j - 1] + np.exp(theta[index])
+                    print(np.exp(phi[index]))
+                    cutpoints[j] = cutpoints[j - 1] + np.exp(phi[index])
                     index += 1
             if indices[self.J]:
-                std_dev = np.exp(theta[index])
+                std_dev = np.exp(phi[index])
                 variance = std_dev**2
                 index += 1
             if indices[self.J + 1]:
-                varphi = np.exp(theta[index])
+                varphi = np.exp(phi[index])
                 index += 1
         # Update prior and posterior covariance
         # TODO: this should include an argument as to whether derivatives need to be calculated. Perhaps this is given by indices.
@@ -462,14 +404,14 @@ class Approximator(ABC):
         return (intervals, steps, error, iteration, indices_where, gx)
 
     def hyperparameter_training_step(
-            self, theta, indices, verbose, steps,
+            self, phi, indices, verbose, steps,
             first_step=1, write=False):
         """
         Optimisation routine for hyperparameters.
         :return: fx, gx
         """
         return self.approximate_posterior(
-            theta, indices, first_step=first_step, steps=steps,
+            phi, indices, first_step=first_step, steps=steps,
             posterior_mean_0=None, return_reparameterised=None,
             verbose=verbose)  # returns (fx, gx)
 
@@ -543,18 +485,18 @@ class Approximator(ABC):
             index +=1
         if index == 2:
             meshgrid = np.meshgrid(space[0], space[1])
-            Phi_new = np.dstack(meshgrid)
-            Phi_new = Phi_new.reshape((len(space[0]) * len(space[1]), 2))
-            fxs = np.empty(len(Phi_new))
-            gxs = np.empty((len(Phi_new), 2))
+            thetas = np.dstack(meshgrid)
+            thetas = thetas.reshape((len(space[0]) * len(space[1]), 2))
+            fxs = np.empty(len(thetas))
+            gxs = np.empty((len(thetas), 2))
         elif index == 1:
             meshgrid = (space[0], None)
             space.append(None)
             axis_scale.append(None)
             label.append(None)
-            Phi_new = space[0]
-            fxs = np.empty(len(Phi_new))
-            gxs = np.empty(len(Phi_new))
+            thetas = space[0]
+            fxs = np.empty(len(thetas))
+            gxs = np.empty(len(thetas))
         else:
             raise ValueError(
                 "Too many independent variables to plot objective over!"
@@ -571,15 +513,15 @@ class Approximator(ABC):
             label[0], label[1],
             axis_scale[0], axis_scale[1],
             meshgrid[0], meshgrid[1],
-            Phi_new, fxs, gxs, gx_0, intervals, indices_where)
+            thetas, fxs, gxs, gx_0, intervals, indices_where)
 
     def _grid_over_hyperparameters_update(
-        self, phi, indices, cutpoints):
+        self, theta, indices, cutpoints):
         """
-        Update the hyperparameters, phi.
+        Update the hyperparameters, theta.
 
-        :arg phi: The updated values of the hyperparameters.
-        :type phi:
+        :arg theta: The updated values of the hyperparameters.
+        :type theta:
         :arg indices:
         :type indices:
         :arg cutpoints: (J + 1, ) array of the cutpoints.
@@ -587,10 +529,10 @@ class Approximator(ABC):
         """
         index = 0
         if indices[0]:
-            if np.isscalar(phi):
-                noise_std = phi
+            if np.isscalar(theta):
+                noise_std = theta
             else:
-                noise_std = phi[index]
+                noise_std = theta[index]
             noise_variance = noise_std**2
             noise_variance_update = noise_variance
             # Update kernel parameters, update prior and posterior covariance
@@ -601,30 +543,30 @@ class Approximator(ABC):
             cutpoints = np.empty((self.J + 1,))
             cutpoints[0] = np.NINF
             cutpoints[-1] = np.inf
-            if np.isscalar(phi):
-                cutpoints[1] = phi
+            if np.isscalar(theta):
+                cutpoints[1] = theta
             else:
-                cutpoints[1] = phi[index]
+                cutpoints[1] = theta[index]
             index += 1
         for j in range(2, self.J):
             if indices[j]:
-                if np.isscalar(phi):
-                    cutpoints[j] = cutpoints[j-1] + phi
+                if np.isscalar(theta):
+                    cutpoints[j] = cutpoints[j-1] + theta
                 else:
-                    cutpoints[j] = cutpoints[j-1] + phi[index]
+                    cutpoints[j] = cutpoints[j-1] + theta[index]
                 index += 1
         if indices[self.J]:
-            std_dev = phi[index]
+            std_dev = theta[index]
             variance = std_dev**2
             index += 1
             variance_update = variance
         else:
             variance_update = None
         if indices[self.J + 1]:  # TODO: replace this with kernel number of hyperparameters.
-            if np.isscalar(phi):
-                varphi = phi
+            if np.isscalar(theta):
+                varphi = theta
             else:
-                varphi = phi[index]
+                varphi = theta[index]
             varphi_update = varphi
             index += 1
         else:
@@ -656,8 +598,8 @@ class Approximator(ABC):
             self.X_train, self.X_train)
         warnings.warn("Done updating prior covariance.")
         # TODO: When it is not necessary to calculate the partial derivatives - when no gradient eval is required.
-        # if theta is not None:
-        #     # If the unconstrained optimization input (theta) is defined then
+        # if phi is not None:
+        #     # If the unconstrained optimization input (phi) is defined then
         #     # we need to calculate some derivatives of the Gram matrix
         #     # with respect to the hyperparameters.
         #     # This can be done via automatic differentiation, here
@@ -995,9 +937,9 @@ class VBGP(Approximator):
         likelihood.
 
         .. math::
-                \mathcal{F(\Phi)} =,
+                \mathcal{F(	heta)} =,
 
-            where :math:`F(\Phi)` is the variational lower bound of the log
+            where :math:`F(\theta)` is the variational lower bound of the log
                 marginal likelihood at the EP equilibrium,
             :math:`h`, :math:`\Pi`, :math:`K`. #TODO
 
@@ -1045,9 +987,9 @@ class VBGP(Approximator):
         likelihood.
 
         .. math::
-                \mathcal{F(\Phi)} =,
+                \mathcal{F(\theta)} =,
 
-            where :math:`F(\Phi)` is the variational lower bound of the log
+            where :math:`F(\theta)` is the variational lower bound of the log
                 marginal likelihood at the EP equilibrium,
             :math:`h`, :math:`\Pi`, :math:`K`. #TODO
 
@@ -1100,11 +1042,11 @@ class VBGP(Approximator):
         marginal likelihood at the VB equilibrium,
 
         .. math::
-                \mathcal{\frac{\partial F(\Phi)}{\partial \Phi}}
+                \mathcal{\frac{\partial F(\theta)}{\partial \theta}}
 
-            where :math:`F(\Phi)` is the variational lower bound of the log
+            where :math:`F(\theta)` is the variational lower bound of the log
             marginal likelihood at the EP equilibrium,
-            :math:`\Phi` is the set of hyperparameters, :math:`h`,
+            :math:`\theta` is the set of hyperparameters, :math:`h`,
             :math:`\Pi`, :math:`K`. #TODO
 
         :arg intervals: The vector of the first cutpoint and the intervals
@@ -1207,15 +1149,15 @@ class VBGP(Approximator):
         xlabel, ylabel,
         xscale, yscale,
         xx, yy,
-        Phi_new,
+        thetas,
         fxs, gxs, gx_0,
         intervals, indices_where) = self._grid_over_hyperparameters_initiate(
             res, domain, indices, self.cutpoints)
         error = np.inf
         fx_old = np.inf
-        for i, phi in enumerate(Phi_new):
+        for i, theta in enumerate(thetas):
             self._grid_over_hyperparameters_update(
-                phi, indices, self.cutpoints)
+                theta, indices, self.cutpoints)
             # Reset error and posterior mean
             iteration = 0
             error = np.inf
@@ -1242,7 +1184,7 @@ class VBGP(Approximator):
                 error = np.abs(fx_old - fx)
                 fx_old = fx
                 print("({}), error={}".format(iteration, error))
-            print("{}/{}".format(i + 1, len(Phi_new)))
+            print("{}/{}".format(i + 1, len(thetas)))
             gx = self.objective_gradient(
                 gx_0.copy(), intervals, self.cutpoints_ts,
                 self.cutpoints_tplus1s, self.kernel.varphi,
@@ -1268,12 +1210,12 @@ class VBGP(Approximator):
             return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
 
     def approximate_posterior(
-            self, theta, indices, steps=None, first_step=1, max_iter=2,
+            self, phi, indices, steps=None, first_step=1, max_iter=2,
             return_reparameterised=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
-        :arg theta: (log-)hyperparameters to be optimised.
+        :arg phi: (log-)hyperparameters to be optimised.
         :arg indices:
         :arg first_step:
         :arg bool write:
@@ -1281,10 +1223,10 @@ class VBGP(Approximator):
         :return: fx, gx
         :rtype: float, `:class:numpy.ndarray`
         """
-        # Update prior covariance and get hyperparameters from theta
+        # Update prior covariance and get hyperparameters from phi
         (intervals, steps, error, iteration, indices_where,
         gx) = self._hyperparameter_training_step_initialise(
-            theta, indices, steps)
+            phi, indices, steps)
         fx_old = np.inf
         posterior_mean = None
         # Convergence is sometimes very fast so this may not be necessary
@@ -1968,11 +1910,11 @@ class EPGP(Approximator):
         xlabel, ylabel,
         xscale, yscale,
         xx, yy,
-        Phi_new, fxs,
+        thetas, fxs,
         gxs, gx_0, intervals,
         indices_where) = self._grid_over_hyperparameters_initiate(
             res, domain, indices, self.cutpoints)
-        for i, phi in enumerate(Phi_new):
+        for i, phi in enumerate(thetas):
             self._grid_over_hyperparameters_update(
                 phi, indices, self.cutpoints)
             if verbose:
@@ -1999,7 +1941,7 @@ class EPGP(Approximator):
                     first_step=first_step, write=False)
                 if verbose:
                     print("({}), error={}".format(iteration, error))
-            print("{}/{}".format(i + 1, len(Phi_new)))
+            print("{}/{}".format(i + 1, len(thetas)))
             weight, precision_EP, L_cov, cov = self.compute_weights(
                 precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
             t1, t2, t3, t4, t5 = self.compute_integrals_vector(
@@ -2024,7 +1966,7 @@ class EPGP(Approximator):
             return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
     def approximate_posterior(
-            self, theta, indices, steps=None,
+            self, phi, indices, steps=None,
             posterior_mean_0=None, return_reparameterised=False,
             posterior_cov_0=None, mean_EP_0=None,
             precision_EP_0=None,
@@ -2032,8 +1974,8 @@ class EPGP(Approximator):
         """
         Optimisation routine for hyperparameters.
 
-        :arg theta: (log-)hyperparameters to be optimised.
-        :type theta:
+        :arg phi: (log-)hyperparameters to be optimised.
+        :type phi:
         :arg indices:
         :type indices:
         :arg steps:
@@ -2055,10 +1997,10 @@ class EPGP(Approximator):
         :arg bool verbose:
         :return: fx the objective and gx the objective gradient
         """
-        # Update prior covariance and get hyperparameters from theta
+        # Update prior covariance and get hyperparameters from phi
         (intervals, steps, error, iteration, indices_where,
         gx) = self._hyperparameter_training_step_initialise(
-            theta, indices, steps)
+            phi, indices, steps)
         posterior_mean = posterior_mean_0
         posterior_cov = posterior_cov_0
         mean_EP = mean_EP_0
@@ -2173,9 +2115,9 @@ class EPGP(Approximator):
         likelihood at the EP equilibrium.
 
         .. math::
-                \mathcal{F(\Phi)} =,
+                \mathcal{F(\theta)} =,
 
-            where :math:`F(\Phi)` is the variational lower bound of the log
+            where :math:`F(\theta)` is the variational lower bound of the log
             marginal likelihood at the EP equilibrium,
             :math:`h`, :math:`\Pi`, :math:`K`. #TODO
 
@@ -2215,11 +2157,11 @@ class EPGP(Approximator):
         log marginal likelihood at the EP equilibrium.
 
         .. math::
-                \mathcal{\frac{\partial F(\Phi)}{\partial \Phi}}
+                \mathcal{\frac{\partial F(\theta)}{\partial \theta}}
 
-            where :math:`F(\Phi)` is the variational lower bound of the 
+            where :math:`F(\theta)` is the variational lower bound of the 
             log marginal likelihood at the EP equilibrium,
-            :math:`\Phi` is the set of hyperparameters,
+            :math:`\theta` is the set of hyperparameters,
             :math:`h`, :math:`\Pi`, :math:`K`.  #TODO
 
         :arg intervals:
@@ -2476,11 +2418,11 @@ class LaplaceGP(Approximator):
         xlabel, ylabel,
         xscale, yscale,
         xx, yy,
-        Phi_new, fxs,
+        thetas, fxs,
         gxs, gx_0, intervals,
         indices_where) = self._grid_over_hyperparameters_initiate(
             res, domain, indices, self.cutpoints)
-        for i, phi in enumerate(Phi_new):
+        for i, phi in enumerate(thetas):
             self._grid_over_hyperparameters_update(
                 phi, indices, self.cutpoints)
             if verbose:
@@ -2500,7 +2442,7 @@ class LaplaceGP(Approximator):
                     first_step=first_step, write=False)
                 if verbose:
                     print("({}), error={}".format(iteration, error))
-            print("{}/{}".format(i + 1, len(Phi_new)))
+            print("{}/{}".format(i + 1, len(thetas)))
             (weight, precision,
             w1, w2, g1, g2, v1, v2, q1, q2,
             L_cov, cov, Z) = self.compute_weights(
@@ -2568,9 +2510,9 @@ class LaplaceGP(Approximator):
         likelihood at the EP equilibrium.
 
         .. math::
-                \mathcal{F(\Phi)} =,
+                \mathcal{F(\theta)} =,
 
-            where :math:`F(\Phi)` is the variational lower bound of the log
+            where :math:`F(\theta)` is the variational lower bound of the log
             marginal likelihood at the EP equilibrium,
             :math:`h`, :math:`\Pi`, :math:`K`. #TODO
 
@@ -2599,11 +2541,11 @@ class LaplaceGP(Approximator):
         log marginal likelihood at the EP equilibrium.
 
         .. math::
-                \mathcal{\frac{\partial F(\Phi)}{\partial \Phi}}
+                \mathcal{\frac{\partial F(\theta)}{\partial \theta}}
 
-            where :math:`F(\Phi)` is the variational lower bound of the 
+            where :math:`F(\theta)` is the variational lower bound of the 
             log marginal likelihood at the EP equilibrium,
-            :math:`\Phi` is the set of hyperparameters,
+            :math:`\theta` is the set of hyperparameters,
             :math:`h`, :math:`\Pi`, :math:`K`.  #TODO
 
         :arg gx: 
@@ -2656,7 +2598,7 @@ class LaplaceGP(Approximator):
             # compute a diagonal
             dsigma = cov @ K
             diag = np.diag(dsigma) / precision
-            # partial lambda / partial theta_b = - partial lambda / partial f (* SIGMA)
+            # partial lambda / partial phi_b = - partial lambda / partial f (* SIGMA)
             t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1) - 2.0 * (w2 - w1)**3 - (v2 - v1)) / noise_variance
             # Update gx
             if indices[0]:
@@ -2675,7 +2617,7 @@ class LaplaceGP(Approximator):
                 gx[0] = - gx[0] / 2.0 * noise_variance
             # For gx[1] -- \b_1
             if indices[1]:
-                # For gx[1], \theta_b^1
+                # For gx[1], \phi_b^1
                 t2 = dsigma @ precision
                 t2 = t2 / precision
                 gx[1] -= np.sum(w2 - w1)
@@ -2825,15 +2767,15 @@ class LaplaceGP(Approximator):
         return error, weight, posterior_mean, containers
 
     def approximate_posterior(
-            self, theta, indices, steps=None,
+            self, phi, indices, steps=None,
             posterior_mean_0=None,
             return_reparameterised=False, first_step=1, verbose=False):
         """
         Newton-Raphson procedure for convex optimization to find MAP point and
         curvature.
 
-        :arg theta: (log-)hyperparameters to be optimised.
-        :type theta:
+        :arg phi: (log-)hyperparameters to be optimised.
+        :type phi:
         :arg indices:
         :type indices:
         :arg steps:
@@ -2845,10 +2787,10 @@ class LaplaceGP(Approximator):
         :arg bool verbose:
         :return:
         """
-        # Update prior covariance and get hyperparameters from theta
+        # Update prior covariance and get hyperparameters from phi
         (intervals, steps, error, iteration, indices_where,
                 gx) = self._hyperparameter_training_step_initialise(
-            theta, indices, steps)
+            phi, indices, steps)
         posterior_mean = posterior_mean_0
         while error / steps > self.EPS_2 and iteration < 10:  # TODO is this overkill?
             iteration += 1

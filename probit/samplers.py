@@ -1,14 +1,13 @@
 from abc import ABC, abstractmethod
 
-from numpy import False_
 from probit.approximators import Approximator, InvalidApproximator, EPGP
 from probit.priors import prior, prior_reparameterised
 from probit.proposals import proposal, proposal_reparameterised, proposal_initiate
-from .kernels import Kernel, InvalidKernel
+from probit.kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
-from .utilities import (
-    norm_z_pdf, norm_cdf, sample_y,
+from probit.utilities import (
+    check_cutpoints, norm_z_pdf, norm_cdf, sample_y,
     truncated_norm_normalising_constant, log_multivariate_normal_pdf,
     log_multivariate_normal_pdf_vectorised)
 import numba_scipy  # Numba overloads for scipy and scipy.special
@@ -416,121 +415,82 @@ class Sampler(ABC):
         # cholesky algorithm and stick to it
         self.L_Sigma = np.linalg.cholesky(Sigma + self.jitter * np.eye(self.N))
 
-    def hyperparameters_update(
-        self, cutpoints=None, varphi=None, scale=None, noise_variance=None,
-        K=None, L_K=None, log_det_K=None):
+    def _hyperparameters_update(
+            self, cutpoints=None, varphi=None, variance=None,
+            noise_variance=None):
         """
+        TODO: Is the below still relevant?
         Reset kernel hyperparameters, generating new prior and posterior
         covariances. Note that hyperparameters are fixed parameters of the
-        estimator, not variables that change during the estimation. The strange
-        thing is that hyperparameters can be absorbed into the set of variables
-        and so the definition of hyperparameters and variables becomes
-        muddled. Since varphi can be a variable or a parameter, then optionally
-        initiate it as a parameter, and then intitate it as a variable within
-        estimate. Problem is, if it changes at estimate time, then a
-        hyperparameter update needs to be called.
+        approximator, not variables that change during the estimation. The
+        strange thing is that hyperparameters can be absorbed into the set of
+        variables and so the definition of hyperparameters and variables
+        becomes muddled. Since varphi can be a variable or a parameter, then
+        optionally initiate it as a parameter, and then intitate it as a
+        variable within :meth:`approximate`. Problem is, if it changes at
+        approximate time, then a hyperparameter update needs to be called.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`np.ndarray`.
-        :arg varphi:
-        :type varphi:
-        :arg scale:
-        :type scale:
-        :arg noise_variance:
-        :type noise_variance:
-        :arg K: Optional argument supplied if K is already known.
-        :arg L_K: Optional argument supplied if L_K is already known.
-        :arg log_det_K: Optional argument supplied if log_det_K is already known.
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
+        :arg variance:
+        :type variance:
+        :arg varphi: The kernel hyper-parameters.
+        :type varphi: :class:`numpy.ndarray` or float.
         """
         if cutpoints is not None:
-            # Convert cutpoints to numpy array
-            cutpoints = np.array(cutpoints)
-            # Not including -\infty or \infty
-            if np.shape(cutpoints)[0] == self.J - 1:
-                cutpoints = np.append(cutpoints, np.inf)  # Append \infty
-                cutpoints = np.insert(cutpoints, np.NINF)  # Insert -\infty at index 0
-                pass  # Correct format
-            # Not including one cutpoints
-            elif np.shape(cutpoints)[0] == self.J: 
-                if cutpoints[-1] != np.inf:
-                    if cutpoints[0] != np.NINF:
-                        raise ValueError(
-                            "The last cutpoint parameter must be numpy.inf, or"
-                            " the first cutpoint parameter must be numpy.NINF "
-                            "(got {}, expected {})".format(
-                            [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
-                    else:  # cutpoints[0] is -\infty
-                        cutpoints.append(np.inf)
-                        pass  # correct format
-                else:
-                    cutpoints = np.insert(cutpoints, np.NINF)
-                    pass  # correct format
-            # Including all the cutpoints
-            elif np.shape(cutpoints)[0] == self.J + 1:
-                if cutpoints[0] != np.NINF:
-                    raise ValueError(
-                        "The cutpoint parameter \cutpoints must be numpy.NINF "
-                        "(got {}, expected {})".format(cutpoints[0], np.NINF))
-                if cutpoints[-1] != np.inf:
-                    raise ValueError(
-                        "The cutpoint parameter \cutpoints_J must be "
-                        "numpy.inf (got {}, expected {})".format(
-                            cutpoints[-1], np.inf))
-                pass  # correct format
-            else:
-                raise ValueError(
-                    "Could not recognise cutpoints shape. "
-                    "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
-            assert cutpoints[0] == np.NINF
-            assert cutpoints[-1] == np.inf
-            assert np.shape(cutpoints)[0] == self.J + 1
-            if not all(
-                    cutpoints[i] <= cutpoints[i + 1]
-                    for i in range(self.J)):
-                raise CutpointValueError(cutpoints)
-            self.cutpoints = cutpoints
-            self.cutpoints_ts = cutpoints[self.t_train]
-            self.cutpoints_tplus1s = cutpoints[self.t_trainplus1]
-        if varphi is not None or scale is not None:
+            self.cutpoints = check_cutpoints(cutpoints, self.J)
+            self.cutpoints_ts = self.cutpoints[self.t_train]
+            self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
+        if varphi is not None or variance is not None:
             self.kernel.update_hyperparameter(
-                varphi=varphi, scale=scale)
+                varphi=varphi, variance=variance)
             # Update prior covariance
             warnings.warn("Updating prior covariance.")
-            self._update_prior(K=K)
-            warnings.warn("Done posterior covariance.")
+            self._update_prior()
+            warnings.warn("Done updating prior covariance")
         # Initalise the noise variance
         if noise_variance is not None:
             self.noise_variance = noise_variance
             self.noise_std = np.sqrt(noise_variance)
-        # Update posterior covariance
-        print("posterior update")
+
+    def hyperparameters_update(
+            self, cutpoints=None, varphi=None, variance=None,
+            noise_variance=None, K=None, L_K=None, log_det_K=None):
+        """
+        Wrapper function for :meth:`_hyperparameters_update`.
+        """
+        self._hyperparameters_update(
+            cutpoints=cutpoints, varphi=varphi, variance=variance,
+            noise_variance=noise_variance)
         warnings.warn("Updating posterior covariance.")
         self._update_posterior(L_K=L_K, log_det_K=log_det_K)
         warnings.warn("Done updating posterior covariance.")
 
-    def get_theta(self, indices):
+    def get_phi(self, indices):
         """
-        Get the parameters (theta) for unconstrained sampling.
+        Get the parameters (phi) for unconstrained sampling.
 
         :arg indices: Indicator array of the hyperparameters to sample over.
         :type indices: :class:`numpy.ndarray`
-        :returns: The unconstrained parameters to optimize over, theta.
+        :returns: The unconstrained parameters to optimize over, phi.
         :rtype: :class:`numpy.array`
         """
-        theta = []
+        phi = []
         if indices[0]:
-            theta.append(np.log(np.sqrt(self.noise_variance)))
+            phi.append(np.log(np.sqrt(self.noise_variance)))
         if indices[1]:
-            theta.append(self.cutpoints[1])
+            phi.append(self.cutpoints[1])
         for j in range(2, self.J):
             if indices[j]:
-                theta.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
+                phi.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
         if indices[self.J]:
-            theta.append(np.log(np.sqrt(self.kernel.scale)))
+            phi.append(np.log(np.sqrt(self.kernel.variance)))
         # TODO: replace this with kernel number of hyperparameters.
         if indices[self.J + 1]:
-            theta.append(np.log(self.kernel.varphi))
-        return np.array(theta)
+            phi.append(np.log(self.kernel.varphi))
+        return np.array(phi)
 
     def _grid_over_hyperparameters_initiate(
             self, res, domain, indices, cutpoints):
@@ -690,7 +650,6 @@ class Sampler(ABC):
                 noise_variance=noise_variance_update,
                 scale=scale_update,
                 varphi=varphi_update)
-        return 0
 
 
 class GibbsGP(Sampler):
@@ -1176,7 +1135,7 @@ class SufficientAugmentation(object):
         """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
         # Get starting point for the Markov Chain
         if theta_0 is None:
-            theta_0 = self.sampler.get_theta(indices)
+            theta_0 = self.sampler.get_phi(indices)
         # Get type of proposal density
         proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
         # Evaluate priors and proposal conditionals
@@ -1277,12 +1236,12 @@ class AncilliaryAugmentation(Sampler):
         else:
             self.sampler = sampler
 
-    def _nu(self, m, K):
+    def _nu(self, f, K):
         """
         Calculate the ancilliary augmentation "whitened" variables.
 
-        :arg m: (N,) array
-        :type m: :class:`np.ndarray`
+        :arg f: (N,) array
+        :type f: :class:`np.ndarray`
         :arg cov:
         :type cov:
         :arg K:
@@ -1297,9 +1256,9 @@ class AncilliaryAugmentation(Sampler):
         # \nu.T @ \nu
         # so m = L\nu
         # so \nu = solve_triangular(m, L)
-        return solve_triangular(m, K)  # Why have I put (m, K)?
+        return solve_triangular(f, K)  # TODO: Why have I put (f, K)? Something to do with existing R implementation?
 
-    def tmp_compute_marginal(self, m, theta, indices, proposal_L_cov, reparameterised=True):
+    def tmp_compute_marginal(self, f, theta, indices, proposal_L_cov, reparameterised=True):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
@@ -1311,7 +1270,7 @@ class AncilliaryAugmentation(Sampler):
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
-        log_p_y_giv_nu_theta = self.sampler.get_log_likelihood(m)
+        log_p_y_giv_nu_theta = self.sampler.get_log_likelihood(f)
         log_p_theta_giv_y_nu = log_p_theta[0] + log_p_y_giv_nu_theta
         return log_p_theta_giv_y_nu
 
@@ -1377,7 +1336,7 @@ class AncilliaryAugmentation(Sampler):
         """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
         # Get starting point for the Markov Chain
         if theta_0 is None:
-            theta_0 = self.sampler.get_theta(indices)
+            theta_0 = self.sampler.get_phi(indices)
         # Get type of proposal density
         proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
         # Evaluate priors and proposal conditionals
@@ -1719,7 +1678,7 @@ class PseudoMarginal(object):
             reparameterised):
         # Get starting point for the Markov Chain
         if theta_0 is None:
-            theta_0 = self.approximator.get_theta(indices)
+            theta_0 = self.approximator.get_phi(indices)
         (fx, gx, posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
             theta_0, indices, first_step=1, verbose=False)
