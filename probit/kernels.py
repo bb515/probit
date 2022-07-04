@@ -221,6 +221,10 @@ class Kernel(ABC):
         # cdist automatically handles the case that D = 1
         return distance.cdist(X1, X2, metric='euclidean')
 
+    @property
+    def _ARD(self):
+        return False
+
 
 class Linear(Kernel):
     r"""
@@ -428,6 +432,70 @@ class LabEQ(Kernel):
         return B.exp(-self.varphi * B.pw_dists2(X1, X2))
 
 
+class SquaredExponential(Kernel):
+    r"""
+    An isometric radial basis function (a.k.a. exponentiated quadratic,
+    a.k.a squared exponential) kernel class.
+
+    .. math::
+        K(x_i, x_j) = s * \exp{- \norm{x_{i} - x_{j}}^2 / (2 * \varphi^{2})},
+
+    where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
+    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
+    """
+
+    def __repr__(self):
+        return "SquaredExponential"
+
+    def __init__(
+            self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # For this kernel, the shared and single kernel for each class
+        # (i.e. non general) and single lengthscale across
+        # all data dims (i.e. non ARD) is assumed.
+        if self.L != 1:
+            raise ValueError(
+                "L wrong for simple kernel (expected {}, got {})".format(
+                    1, self.L))
+        if self.M != 1:
+            raise ValueError(
+                "M wrong for non-ARD kernel (expected {}, got {})".format(
+                    1, self.M))
+        if self.variance is None:
+            raise ValueError(
+                "You must supply a variance for the simple kernel "
+                "(expected {} type, got {})".format(float, self.variance))
+        self.num_hyperparameters = np.size(self.varphi)
+
+    def kernel(self, X_i, X_j):
+        return (
+            self.variance * B.exp(
+                -1./(2 * self.varphi**2) * B.ew_dists2(
+                    X_i.reshape(1, -1), X_j.reshape(1, -1)))[0, 0])
+
+    def kernel_vector(self, x_new, X):
+        return self.variance * B.exp(-1./(2 * self.varphi**2) * B.ew_dists2(
+            X, x_new.reshape(1, -1)))
+
+    def kernel_prior_diagonal(self, X):
+        return self.variance * np.ones(np.shape(X)[0])
+
+    def kernel_diagonal(self, X1, X2):
+        return self.variance * B.exp(-1./(2 * self.varphi**2) * B.ew_dists2(X1, X2))
+
+    def kernel_matrix(self, X1, X2):
+        return self.variance * B.exp(-1./(2 * self.varphi**2) * B.pw_dists2(X1, X2))
+
+    def kernel_partial_derivative_varphi(self, X1, X2):
+        distance_mat_2 = B.pw_dists2(X1, X2)
+        return -B.multiply(
+            distance_mat_2, self.variance * B.exp(-1./(2 * self.varphi**2) * distance_mat_2))
+
+    def kernel_partial_derivative_variance(self, X1, X2):
+        return B.exp(-1./(2 * self.varphi**2) * B.pw_dists2(X1, X2))
+
+
 class LabSharpenedCosine(Kernel):
     r"""
     Uses BLab by WesselB, which is an generic interface for linear algebra
@@ -443,6 +511,7 @@ class LabSharpenedCosine(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
+
     def __repr__(self):
         return "LabSharpenedCosine"
 
@@ -529,6 +598,7 @@ class SEIso(Kernel):
     Note that previous implementations used distance
 
     """
+
     def __repr__(self):
         return "SEIso"
 
@@ -550,22 +620,6 @@ class SEIso(Kernel):
                 "You must supply a variance for the simple kernel "
                 "(expected {} type, got {})".format(float, self.variance))
         self.num_hyperparameters = np.size(self.varphi)
-
-    @property
-    def _ARD(self):
-        return False
-
-    @property
-    def _stationary(self):
-        return True
-
-    @property
-    def _Matern(self):
-        return True
-
-    @property
-    def _general(self):
-        return False
 
     def kernel(self, X_i, X_j):
         return self.variance * np.exp(
@@ -618,6 +672,7 @@ class Polynomial(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
+
     def __repr__(self):
         return "SumPolynomialSEIso"
 
@@ -687,6 +742,7 @@ class SumPolynomialSEIso(Kernel):
     the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
+
     def __repr__(self):
         return "SumPolynomialSEIso"
 
@@ -772,6 +828,10 @@ class SEARD(Kernel):
     :math:`d`th dimension, shared across all classes, and :math:`s` is the
     variance.
     """
+    @property
+    def _ARD(self):
+        return True
+
     def __repr__(self):
         return "SEARD"
 

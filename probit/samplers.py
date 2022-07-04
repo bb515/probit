@@ -355,7 +355,7 @@ class Sampler(ABC):
             scale = scale_std**2
             index += 1
         if indices[self.J + 1]:
-            if self.kernel._general and self.kernel._ARD:
+            if self.kernel._ARD:
                 # In this case, then there is a scale parameter, the first
                 # cutpoint, the interval parameters,
                 # and lengthscales parameter for each dimension and class
@@ -541,7 +541,7 @@ class Sampler(ABC):
             space.append(
                 np.logspace(domain[index][0], domain[index][1], res[index]))
             index += 1
-        if self.kernel._general and self.kernel._ARD:
+        if self.kernel._ARD:
             gx_0 = np.empty(1 + self.J - 1 + 1 + self.J * self.D)
             # In this case, then there is a scale parameter,
             #  the first cutpoint, the interval parameters,
@@ -669,12 +669,6 @@ class GibbsGP(Sampler):
                 "The kernel must not be ARD type (kernel._ARD=1),"
                 " but ISO type (kernel._ARD=0). (got {}, expected)".format(
                     self.kernel._ARD, 0))
-        if self.kernel._general:
-            raise ValueError(
-                "The kernel must not be general "
-                "type (kernel._general=1), but simple type "
-                "(kernel._general=0). (got {}, expected)".format(
-                    self.kernel._general, 0))
         self.EPS = 0.0001
         self.EPS_2 = self.EPS**2 
         self.upper_bound = 6
@@ -913,12 +907,6 @@ class EllipticalSliceGP(Sampler):
                 "The kernel must not be ARD type (kernel._ARD=1),"
                 " but ISO type (kernel._ARD=0). (got {}, expected)".format(
                     self.kernel._ARD, 0))
-        if self.kernel._general:
-            raise ValueError(
-                "The kernel must not be general "
-                "type (kernel._general=1), but simple type "
-                "(kernel._general=0). (got {}, expected)".format(
-                    self.kernel._general, 0))
         self.EPS = 0.0001
         self.EPS_2 = self.EPS**2 
         self.upper_bound = 6
@@ -1055,7 +1043,7 @@ class SufficientAugmentation(object):
         else:
             self.sampler = sampler
 
-    def tmp_compute_marginal(self, m, theta, indices, proposal_L_cov, reparameterised=True):
+    def tmp_compute_marginal(self, f, theta, indices, proposal_L_cov, reparameterised=True):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
@@ -1067,7 +1055,7 @@ class SufficientAugmentation(object):
                 theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
-        nu = solve_triangular(self.sampler.L_K.T, m, lower=True)  # TODO just make sure this is the correct solve.
+        nu = solve_triangular(self.sampler.L_K.T, f, lower=True)  # TODO just make sure this is the correct solve.
         log_p_m_giv_theta = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
         log_p_theta_giv_m = log_p_theta[0] + log_p_m_giv_theta
         return log_p_theta_giv_m

@@ -30,7 +30,6 @@ from probit.samplers import (
     SufficientAugmentation, AncilliaryAugmentation, PseudoMarginal)
 from probit.plot import outer_loops, grid_synthetic
 from probit.Gibbs import plot
-from probit.kernels import SEIso
 from probit.proposals import proposal_initiate
 from probit.plot import figure2
 import pathlib
@@ -88,43 +87,33 @@ def main():
         plot(sampler, f_0, g_0, cutpoints_0, burn_steps, steps, J, D)
     elif dataset in datasets["paper"] or dataset in datasets["synthetic"]:
         if dataset in datasets["paper"]:
-            (X, g_true, t,
-                cutpoints_0, varphi_0, noise_variance_0, scale_0,
+            (X, f_true, g_true, y,
+                cutpoints_0, lengthscale_0, noise_variance_0, variance_0,
                 J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
         else:
-            (X, t,
+            (X, y,
             X_true, g_true,
             cutpoints_0, varphi_0, noise_variance_0, scale_0,
             J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
 
-        # Set varphi hyperparameters
-        varphi_hyperparameters = np.array([3.4, 2.0])  # [loc, scale] of a normal on np.exp(varphi)
+        # Set lengthscale hyperparameters
+        lengthscale_hyperparameters = np.array([3.4, 2.0])  # [loc, scale] of a normal on np.exp(lengthscale)  # TODO check if this is true via the jacobian
+
         # Initiate kernel
         kernel = Kernel(
-            varphi=varphi_0,
-            variance=scale_0,
-            varphi_hyperparameters=varphi_hyperparameters)
+            varphi=lengthscale_0,
+            variance=variance_0,
+            varphi_hyperparameters=lengthscale_hyperparameters)
         # Initiate classifier
         burn_steps = 500
         steps = 1000
-        f_0 = g_true.flatten()
-        g_0 = g_true.flatten()
-        plt.close()
-        plt.scatter(X, f_0)
-        plt.savefig("tst")
-        plt.close()
-        assert 0
         # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
         noise_std_hyperparameters = None
         cutpoints_hyperparameters = None
         sampler = EllipticalSliceGP(
             cutpoints_0, noise_variance_0,
             noise_std_hyperparameters,
-            cutpoints_hyperparameters, kernel, J, (X, t))
-        nu_true = sampler.cov @ g_true.flatten()
-        m_true = sampler.K @ nu_true
-        # plt.scatter(sampler.X_train, m_true)
-        # plt.show()
+            cutpoints_hyperparameters, kernel, J, (X, y))
         M = 100
         # varphis_step = varphis[1:] - varphis[:-1]
         # varphis = varphis[:-1]
@@ -138,8 +127,14 @@ def main():
         # Fix cutpoints
         indices[1:J] = 0
         # Just varphi
-        domain = ((-1.5, 1.0), None)
+        domain = ((-1.5, 0.33), None)
         res = (M + 1, None)
+
+        # SS
+        varphis = np.logspace(domain[0][0], domain[0][1], res[0])
+        varphis_step = varphis[1:] - varphis[:-1]
+        varphis = varphis[1:]
+
         theta = sampler.get_phi(indices)
         proposal_cov = 0.05
         proposal_L_cov = proposal_initiate(theta, indices, proposal_cov)
@@ -148,7 +143,7 @@ def main():
         # Initiate hyper-parameter sampler
         approximator = EPGP(
             cutpoints_0, noise_variance_0,
-            kernel, J, (X, t))
+            kernel, J, (X, y))
 
         # # Ancilliary Augmentation approach
         # hyper_sampler = AncilliaryAugmentation(sampler)
@@ -157,19 +152,19 @@ def main():
         #     print(i)
         #     # Need to update sampler hyperparameters
         #     sampler.hyperparameters_update(varphi=varphi)
-        #     theta=sampler.get_theta(indices)
+        #     theta=sampler.get_phi(indices)
         #     log_p_theta_giv_y_nu = hyper_sampler.tmp_compute_marginal(
-        #         m_true, theta, indices, proposal_L_cov, reparameterised=True)
+        #         f_true, theta, indices, proposal_L_cov, reparameterised=True)
         #     log_p_theta_giv_y_nus.append(log_p_theta_giv_y_nu)
         # plt.plot(varphis, log_p_theta_giv_y_nus)
-        # plt.savefig("AAa {}.png".format(varphi_0))
+        # plt.savefig("AAa {}.png".format(lengthscale_0))
         # plt.show()
         # plt.close()
         # max_log_p_theta_giv_y_nus = np.max(log_p_theta_giv_y_nus)
         # log_sum_exp = max_log_p_theta_giv_y_nus + np.log(np.sum(np.exp(log_p_theta_giv_y_nus - max_log_p_theta_giv_y_nus)))
         # p_theta_giv_y_nus = np.exp(log_p_theta_giv_y_nus - log_sum_exp - np.log(varphis_step))
         # plt.plot(varphis, p_theta_giv_y_nus)
-        # plt.savefig("AAb {}.png".format(varphi_0))
+        # plt.savefig("AAb {}.png".format(lengthscale_0))
         # plt.show()
         # plt.close()
 
@@ -180,9 +175,9 @@ def main():
         #     print(i)
         #     # Need to update sampler hyperparameters
         #     sampler.hyperparameters_update(varphi=varphi)
-        #     theta=sampler.get_theta(indices)
+        #     theta=sampler.get_phi(indices)
         #     log_p_theta_giv_ms.append(hyper_sampler.tmp_compute_marginal(
-        #             m_true, theta, indices, proposal_L_cov, reparameterised=True))
+        #             f_true, theta, indices, proposal_L_cov, reparameterised=True))
         # plt.plot(log_p_theta_giv_ms, 'k')
         # plt.savefig("SAa.png")
         # plt.show()
@@ -198,8 +193,8 @@ def main():
         hyper_sampler = PseudoMarginal(approximator)
 
         for hyper_sampler, sampler, label, color in [
-            (AncilliaryAugmentation(sampler), sampler, "AA", 'r'),
-            (SufficientAugmentation(sampler), sampler, "SA", 'b'),
+            #(AncilliaryAugmentation(sampler), sampler, "AA", 'r'),
+            #(SufficientAugmentation(sampler), sampler, "SA", 'b'),
             (PseudoMarginal(approximator), approximator, "PM", 'k')]:
 
             # plot figures
@@ -214,7 +209,7 @@ def main():
             # y_min_0, y_max_0 = axes.get_ylim()
         plt.xlabel(r"Length-scale, $\ell$")
         plt.ylabel("Posterior density")
-        plt.title("N = {}".format(len(t)))
+        plt.title("N = {}".format(len(y)))
         plt.savefig("fig1.png")
         plt.close()
 

@@ -59,13 +59,13 @@ def main():
     # Load data from file
     if dataset in datasets["paper"] or dataset in datasets["synthetic"]:
         if dataset in datasets["paper"]:
-            (X, Y, t,
-                cutpoints_0, varphi_0, noise_variance_0, scale_0,
+            (X, f, g, y,
+                cutpoints_0, lengthscale_0, noise_variance_0, variance_0,
                 J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
         else:
-            (X, t,
-            X_true, y_true,
-            cutpoints_0, varphi_0, noise_variance_0, scale_0,
+            (X, y,
+            X_true, g_true,
+            cutpoints_0, lengthscale_0, noise_variance_0, variance_0,
             J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
 
         # Set varphi hyperparameters
@@ -73,8 +73,8 @@ def main():
 
         # Initiate kernel
         kernel = Kernel(
-            varphi=varphi_0,
-            variance=scale_0, varphi_hyperparameters=varphi_hyperparameters)
+            varphi=lengthscale_0,
+            variance=variance_0, varphi_hyperparameters=varphi_hyperparameters)
 
         indices = np.ones(J + 2)
         # Fix noise_variance
@@ -87,7 +87,7 @@ def main():
         indices[1:J] = 0
 
         # (log) domain of grid
-        domain = ((-1.5, 1.0), None)
+        domain = ((-1.5, 0.33), None)
         # resolution of grid
         res = (50, None)
 
@@ -96,7 +96,7 @@ def main():
         # To self.EPS or self.jitter. Possible is overflow error in a log sum exp?
         for N in num_data:
             X = X[:N, :]  # X, t have already been shuffled
-            t = t[:N]
+            y = y[:N]
             for i, Nimp in enumerate(num_importance_samples):
                 if approximation == "VB":
                     steps = np.max([100, N//10])
@@ -110,15 +110,15 @@ def main():
                 elif approximation == "V":
                     steps = np.max([100, N//10])
                     kernel = SquaredExponential(
-                        lengthscales=1./np.sqrt(2 * varphi_0),
-                        variance=scale_0,
+                        lengthscales=lengthscale_0,
+                        variance=variance_0,
                         varphi_hyperparameters=varphi_hyperparameters)
                     Approximator = VGP
                 elif approximation == "SV":
                     steps = np.max([4000, N//10])
                     kernel = SquaredExponential(
-                        lengthscales=1./np.sqrt(2 * varphi_0),
-                        variance=scale_0,
+                        lengthscales=lengthscale_0,
+                        variance=variance_0,
                         varphi_hyperparameters=varphi_hyperparameters)
                     Approximator = SVGP
                 elif approximation == "SLA":
@@ -133,27 +133,27 @@ def main():
                     approximator = Approximator(
                         M,
                         cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                        kernel=kernel, J=J, data=(X, t))
+                        kernel=kernel, J=J, data=(X, y))
                 else:
                     approximator = Approximator(
                         cutpoints_0, noise_variance_0,
-                        kernel, J, (X, t))
+                        kernel, J, (X, y))
 
                 # Initiate hyper-parameter sampler
                 hyper_sampler = PseudoMarginal(approximator)
 
                 # plot figures
-                (Phi_new, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
+                (thetas, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
                         p_pseudo_marginals_hi, p_priors) = figure2(
                     hyper_sampler, approximator, domain, res, indices,
                     num_importance_samples=Nimp, steps=steps,
                     reparameterised=False, show=True, write=True)
                 if i==0:
-                    plt.plot(Phi_new, p_pseudo_marginals_mean)
-                    plt.plot(Phi_new, p_pseudo_marginals_lo, '--b',
+                    plt.plot(thetas, p_pseudo_marginals_mean)
+                    plt.plot(thetas, p_pseudo_marginals_lo, '--b',
                         label="Nimp={}".format(Nimp))
-                    plt.plot(Phi_new, p_pseudo_marginals_hi, '--b')
-                    plt.plot(Phi_new, p_priors, 'r')
+                    plt.plot(thetas, p_pseudo_marginals_hi, '--b')
+                    plt.plot(thetas, p_priors, 'r')
                     axes = plt.gca()
                     y_min_0, y_max_0 = axes.get_ylim()
                     plt.xlabel("length-scale")
@@ -162,14 +162,14 @@ def main():
                     # plt.savefig("test.png")
                     # plt.close()
                 else:
-                    plt.plot(Phi_new, p_pseudo_marginals_lo, '--g',
+                    plt.plot(thetas, p_pseudo_marginals_lo, '--g',
                         label="Nimp={}".format(Nimp))
-                    plt.plot(Phi_new, p_pseudo_marginals_hi, '--g')
+                    plt.plot(thetas, p_pseudo_marginals_hi, '--g')
                     y_min, y_max = axes.get_ylim()
                     y_min = np.min([y_min, y_min_0])
                     y_max = np.max([y_max, y_max_0])
                     plt.ylim(y_min, y_max)
-            plt.vlines(varphi_0, 0.0, 0.010, colors='k')
+            plt.vlines(lengthscale_0, 0.0, 0.010, colors='k')
             plt.legend()
             plt.show()
             plt.savefig(
