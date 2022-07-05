@@ -464,6 +464,9 @@ class Sampler(ABC):
         self._hyperparameters_update(
             cutpoints=cutpoints, varphi=varphi, variance=variance,
             noise_variance=noise_variance)
+        # warnings.warn("Updating prior covariance.")
+        # self._update_prior(K=K)
+        # warnings.warn("Done updating prior covariance.")
         warnings.warn("Updating posterior covariance.")
         self._update_posterior(L_K=L_K, log_det_K=log_det_K)
         warnings.warn("Done updating posterior covariance.")

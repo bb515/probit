@@ -145,28 +145,30 @@ def main():
             cutpoints_0, noise_variance_0,
             kernel, J, (X, y))
 
-        # # Ancilliary Augmentation approach
-        # hyper_sampler = AncilliaryAugmentation(sampler)
-        # log_p_theta_giv_y_nus = []
-        # for i, varphi in enumerate(varphis):
-        #     print(i)
-        #     # Need to update sampler hyperparameters
-        #     sampler.hyperparameters_update(varphi=varphi)
-        #     theta=sampler.get_phi(indices)
-        #     log_p_theta_giv_y_nu = hyper_sampler.tmp_compute_marginal(
-        #         f_true, theta, indices, proposal_L_cov, reparameterised=True)
-        #     log_p_theta_giv_y_nus.append(log_p_theta_giv_y_nu)
-        # plt.plot(varphis, log_p_theta_giv_y_nus)
-        # plt.savefig("AAa {}.png".format(lengthscale_0))
-        # plt.show()
-        # plt.close()
-        # max_log_p_theta_giv_y_nus = np.max(log_p_theta_giv_y_nus)
-        # log_sum_exp = max_log_p_theta_giv_y_nus + np.log(np.sum(np.exp(log_p_theta_giv_y_nus - max_log_p_theta_giv_y_nus)))
-        # p_theta_giv_y_nus = np.exp(log_p_theta_giv_y_nus - log_sum_exp - np.log(varphis_step))
-        # plt.plot(varphis, p_theta_giv_y_nus)
-        # plt.savefig("AAb {}.png".format(lengthscale_0))
-        # plt.show()
-        # plt.close()
+        # Ancilliary Augmentation approach
+        hyper_sampler = AncilliaryAugmentation(sampler)
+        log_p_theta_giv_y_nus = []
+        for i, varphi in enumerate(varphis):
+            print(i)
+            # Need to update sampler hyperparameters
+            sampler.hyperparameters_update(varphi=varphi)
+            theta=sampler.get_phi(indices)
+            log_p_theta_giv_y_nu = hyper_sampler.tmp_compute_marginal(
+                f_true, theta, indices, proposal_L_cov, reparameterised=True)
+            log_p_theta_giv_y_nus.append(log_p_theta_giv_y_nu)
+        plt.plot(varphis, log_p_theta_giv_y_nus)
+        plt.savefig("AAa {}.png".format(lengthscale_0))
+        plt.show()
+        plt.close()
+        max_log_p_theta_giv_y_nus = np.max(log_p_theta_giv_y_nus)
+        log_sum_exp = max_log_p_theta_giv_y_nus + np.log(np.sum(np.exp(log_p_theta_giv_y_nus - max_log_p_theta_giv_y_nus)))
+        p_theta_giv_y_nus = np.exp(log_p_theta_giv_y_nus - log_sum_exp - np.log(varphis_step))
+        plt.plot(varphis, p_theta_giv_y_nus)
+        plt.savefig("AAb {}.png".format(lengthscale_0))
+        plt.show()
+        plt.close()
+
+        assert 0
 
         # # Sufficient Augmentation approach
         # hyper_sampler = SufficientAugmentation(sampler)
@@ -190,28 +192,28 @@ def main():
         # plt.show()
         # plt.close()
 
-        hyper_sampler = PseudoMarginal(approximator)
+        # hyper_sampler = PseudoMarginal(approximator)
 
-        for hyper_sampler, sampler, label, color in [
-            #(AncilliaryAugmentation(sampler), sampler, "AA", 'r'),
-            #(SufficientAugmentation(sampler), sampler, "SA", 'b'),
-            (PseudoMarginal(approximator), approximator, "PM", 'k')]:
+        # for hyper_sampler, sampler, label, color in [
+        #     #(AncilliaryAugmentation(sampler), sampler, "AA", 'r'),
+        #     #(SufficientAugmentation(sampler), sampler, "SA", 'b'),
+        #     (PseudoMarginal(approximator), approximator, "PM", 'k')]:
 
-            # plot figures
-            (theta, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
-                    p_pseudo_marginals_hi, p_priors) = figure2(
-                hyper_sampler, approximator, domain, res, indices,
-                num_importance_samples=64, steps=steps,
-                reparameterised=False, show=True, write=True, verbose=False)
-            plt.plot(theta, p_pseudo_marginals_mean, color,
-                label=label)
-            # axes = plt.gca()
-            # y_min_0, y_max_0 = axes.get_ylim()
-        plt.xlabel(r"Length-scale, $\ell$")
-        plt.ylabel("Posterior density")
-        plt.title("N = {}".format(len(y)))
-        plt.savefig("fig1.png")
-        plt.close()
+        #     # plot figures
+        #     (theta, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
+        #             p_pseudo_marginals_hi, p_priors) = figure2(
+        #         hyper_sampler, approximator, domain, res, indices,
+        #         num_importance_samples=64, steps=steps,
+        #         reparameterised=False, show=True, write=True, verbose=False)
+        #     plt.plot(theta, p_pseudo_marginals_mean, color,
+        #         label=label)
+        #     # axes = plt.gca()
+        #     # y_min_0, y_max_0 = axes.get_ylim()
+        # plt.xlabel(r"Length-scale, $\ell$")
+        # plt.ylabel("Posterior density")
+        # plt.title("N = {}".format(len(y)))
+        # plt.savefig("fig1.png")
+        # plt.close()
 
         # max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginals_ms)
         # log_sum_exp = max_log_p_pseudo_marginals + np.log(np.sum(np.exp(log_p_pseudo_marginals_ms - max_log_p_pseudo_marginals)))
