@@ -1464,40 +1464,45 @@ class EPGP(Approximator):
             target = self.t_train[index]
             # Find the mean and variance of the leave-one-out
             # posterior distribution Q^{\backslash i}(\bm{f})
-            (posterior_mean_n, posterior_variance_n, cavity_mean_n,
-            cavity_variance_n, mean_EP_n_old,
-            precision_EP_n_old, amplitude_EP_n_old) = self._remove(
+            # posterior_mean_n = posterior_mean[index]
+            # posterior_variance_n = posterior_cov[index, index]
+            # mean_EP_n_old = mean_EP[index]
+            # precision_EP_n_old = precision_EP[index]
+            # amplitude_EP_n_old = amplitude_EP[index]
+            cavity_mean_n, cavity_variance_n = self._remove(
                 posterior_cov[index, index], posterior_mean[index],
                 mean_EP[index], precision_EP[index], amplitude_EP[index])
             # Tilt/ moment match
             (mean_EP_n, precision_EP_n, amplitude_EP_n, Z_n,
-            grad_Z_wrt_cavity_mean_n, posterior_mean_n_new,
-            posterior_covariance_n_new, z1, z2, nu_n) = self._include(
+            grad_Z_wrt_cavity_mean_n, posterior_covariance_n_new,
+            z1, z2, nu_n) = self._include(
                 target, cavity_mean_n, cavity_variance_n,
                 self.cutpoints[target], self.cutpoints[target + 1],
                 self.noise_variance)
             # Update EP weight (alpha)
             grad_Z_wrt_cavity_mean[index] = grad_Z_wrt_cavity_mean_n
-            #print(grad_Z_wrt_cavity_mean)
-            diff = precision_EP_n - precision_EP_n_old
+            diff = precision_EP_n - precision_EP[index]
             if (np.abs(diff) > self.EPS
                     and Z_n > self.EPS
                     and precision_EP_n > 0.0
                     and posterior_covariance_n_new > 0.0):
+                rho, eta = self._update(
+                    mean_EP[index], posterior_mean[index],
+                    posterior_cov[index, index],
+                    precision_EP[index], grad_Z_wrt_cavity_mean_n,
+                    diff)
                 # Update posterior mean and rank-1 covariance
-                posterior_cov, posterior_mean = self._update(
-                    index, mean_EP_n_old, posterior_cov,
-                    posterior_mean_n, posterior_variance_n,
-                    precision_EP_n_old, grad_Z_wrt_cavity_mean_n,
-                    posterior_mean_n_new, posterior_mean,
-                    posterior_covariance_n_new, diff)
+                posterior_mean = posterior_mean + eta * posterior_cov[:, index]
+                posterior_cov = posterior_cov - rho * np.outer(
+                    posterior_cov[:, index], posterior_cov[:, index])
                 # Update EP parameters
+                error += (diff**2
+                          + (mean_EP_n - mean_EP[index])**2
+                          + (amplitude_EP_n - amplitude_EP[index])**2)
                 precision_EP[index] = precision_EP_n
                 mean_EP[index] = mean_EP_n
                 amplitude_EP[index] = amplitude_EP_n
-                error += (diff**2
-                          + (mean_EP_n - mean_EP_n_old)**2
-                          + (amplitude_EP_n - amplitude_EP_n_old)**2)
+                
                 if write:
                     # approximate_log_marginal_likelihood = \
                     # self._approximate_log_marginal_likelihood(
@@ -1515,15 +1520,12 @@ class EPGP(Approximator):
                         "Skip {} update z1={}, z2={}, nu={} p_new={},"
                         " p_old={}.\n".format(
                         index, z1, z2, nu_n,
-                        precision_EP_n, precision_EP_n_old))
+                        precision_EP_n, precision_EP[index]))
         containers = (posterior_means, posterior_covs, mean_EPs, precision_EPs,
                       amplitude_EPs, approximate_log_marginal_likelihoods)
         return (
             error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov,
             mean_EP, precision_EP, amplitude_EP, containers)
-        # TODO: are there some other inputs missing here?
-        # error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov, mean_EP,
-        #  precision_EP, amplitude_EP, *_
 
     def new_point(self, step, random_selection=True):
         """
@@ -1575,10 +1577,7 @@ class EPGP(Approximator):
             raise ValueError(
                 "posterior_cov_nn must be non-negative (got {})".format(
                     posterior_variance_n))
-        return (
-            posterior_mean_n, posterior_variance_n,
-            cavity_mean_n, cavity_variance_n,
-            mean_EP_n_old, precision_EP_n_old, amplitude_EP_n_old)
+        return cavity_mean_n, cavity_variance_n
 
     def _assert_valid_values(self, nu_n, variance, cavity_mean_n,
             cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1, norm_pdf_z2,
@@ -1757,34 +1756,23 @@ class EPGP(Approximator):
                 z1, z2, Z_n, norm_pdf_z1,
                 norm_pdf_z2, grad_Z_wrt_cavity_variance_n,
                 grad_Z_wrt_cavity_mean_n)
-        # hnew = loomean + loovar * alpha;
-        posterior_mean_n_new = (
-            cavity_mean_n + cavity_variance_n * grad_Z_wrt_cavity_mean_n)
-        # cnew = loovar - loovar * nu * loovar;
+        # posterior_mean_n_new = (  # Not used for anything
+        #     cavity_mean_n + cavity_variance_n * grad_Z_wrt_cavity_mean_n)
         posterior_covariance_n_new = (
             cavity_variance_n - cavity_variance_n**2 * nu_n)
-        # pnew = nu / (1.0 - loovar * nu);
         precision_EP_n = nu_n / (1.0 - cavity_variance_n * nu_n)
-        # print("posterior_mean_n_new", posterior_mean_n_new)
-        # print("nu_n", nu_n)
-        # print("precision_EP_n", precision_EP_n)
-        # mnew = loomean + alpha / nu;
         mean_EP_n = cavity_mean_n + grad_Z_wrt_cavity_mean_n / nu_n
-        # snew = Zi * sqrt(loovar * pnew + 1.0)*exp(0.5 * alpha * alpha / nu);
         amplitude_EP_n = Z_n * np.sqrt(
             cavity_variance_n * precision_EP_n + 1.0) * np.exp(
                 0.5 * grad_Z_wrt_cavity_mean_n_2 / nu_n)
         return (
             mean_EP_n, precision_EP_n, amplitude_EP_n, Z_n,
             grad_Z_wrt_cavity_mean_n,
-            posterior_mean_n_new, posterior_covariance_n_new, z1, z2, nu_n)
+            posterior_covariance_n_new, z1, z2, nu_n)
 
     def _update(
-        self, index, mean_EP_n_old, posterior_cov,
-        posterior_mean_n, posterior_variance_n,
-        precision_EP_n_old,
-        grad_Z_wrt_cavity_mean_n, posterior_mean_n_new, posterior_mean,
-        posterior_covariance_n_new, diff, numerically_stable=False):
+            self, mean_EP_n_old, posterior_mean_n, posterior_variance_n,
+            precision_EP_n_old, grad_Z_wrt_cavity_mean_n, diff):
         """
         Update the posterior mean and covariance.
 
@@ -1821,32 +1809,7 @@ class EPGP(Approximator):
             grad_Z_wrt_cavity_mean_n
             + precision_EP_n_old * (posterior_mean_n - mean_EP_n_old)) / (
                 1.0 - posterior_variance_n * precision_EP_n_old)
-        a_n = posterior_cov[:, index]  # The index'th column of posterior_cov
-        posterior_cov = posterior_cov - rho * np.outer(a_n, a_n)
-        posterior_mean += eta * a_n
-        if numerically_stable is True:
-            # TODO is this inequality meant to be the other way around?
-            # TODO is hnew meant to be the EP weights, grad_Z_wrt_cavity_mean_n
-            # assert(fabs((settings->alpha+index)->postcov[index]-alpha->cnew)<EPS)
-            if np.abs(
-                    posterior_covariance_n_new
-                    - posterior_cov[index, index]) > self.EPS:
-                raise ValueError(
-                    "np.abs(posterior_covariance_n_new - posterior_cov[index, "
-                    "index]) must be less than some tolerance. Got (posterior_"
-                    "covariance_n_new={}, posterior_cov_index_index={}, diff="
-                    "{})".format(
-                    posterior_covariance_n_new, posterior_cov[index, index],
-                    posterior_covariance_n_new - posterior_cov[index, index]))
-            # assert(fabs((settings->alpha+index)->pair->postmean-alpha->hnew)<EPS)
-            if np.abs(posterior_mean_n_new - posterior_mean[index]) > self.EPS:
-                raise ValueError(
-                    "np.abs(posterior_mean_n_new - posterior_mean[index]) must"
-                    " be less than some tolerance. Got (posterior_mean_n_new="
-                    "{}, posterior_mean_index={}, diff={})".format(
-                        posterior_mean_n_new, posterior_mean[index],
-                        posterior_mean_n_new - posterior_mean[index]))
-        return posterior_cov, posterior_mean
+        return rho, eta
 
     def _approximate_log_marginal_likelihood(
             self, posterior_cov, precision_EP, amplitude_EP, mean_EP,
