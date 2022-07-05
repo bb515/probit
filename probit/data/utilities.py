@@ -16,7 +16,7 @@ import importlib.resources as pkg_resources
 # from scipy.stats import gamma
 from probit.kernels import KernelLoader
 from probit.load_approximators import ApproximatorLoader
-from probit.kernels import SEIso, SEARD, Linear, Polynomial, LabEQ, LabSharpenedCosine
+from probit.kernels import SEIso, SEARD, Linear, LabEQ, LabSharpenedCosine, SquaredExponential
 
 # For plotting
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
@@ -37,11 +37,12 @@ datasets = {
     "synthetic" : [
         "SEIso",
         "Linear",
+        ],
+    "paper" : [
         "figure2",
-        "figure2alt",
-        "figure2alt2",
-        "13"
-    ]
+        "13",
+        "table1"
+        ],
 }
 
 
@@ -307,7 +308,8 @@ def generate_prior_samples(kernel, noise_variance, N_samples=9, N_show=2000, plo
 
 
 def generate_prior_data_paper(
-        N_train_per_class, N_test_per_class, N_validate_per_class, splits, J, D, kernel, noise_variance,
+        N_train_per_class, N_test_per_class, N_validate_per_class, splits,
+        J, D, kernel, noise_variance,
         N_show, colors=None, cmap=None, plot=True, jitter=1e-6, seed=None):
     """
     Generate data from the GP prior, and choose some cutpoints that
@@ -353,14 +355,14 @@ def generate_prior_data_paper(
 
     # Generate normal samples for both sets of input data
     if seed: np.random.seed(seed)  # set seed
-    z = np.random.normal(loc=0.0, scale=1.0, size=N_total + N_show**D)
-    Z = L_K @ z
+    nu = np.random.normal(loc=0.0, scale=1.0, size=N_total + N_show**D)
+    f = L_K @ nu
 
-    # Store Z_show
-    Z_data = Z[:N_total]
-    Z_show = Z[N_total:]
+    # Store f_show
+    f_data = f[:N_total]
+    f_show = f[N_total:]
 
-    assert np.shape(Z_show) == (N_show**D,)
+    assert np.shape(f_show) == (N_show**D,)
 
     K0_show = None
     # Also precalculate the cholesky for X_show for storage
@@ -369,41 +371,44 @@ def generate_prior_data_paper(
     # L_K_show = np.linalg.cholesky(K_show)
  
     # Shuffle data
-    Xt = np.c_[Z_data, X_data]
+    Xt = np.c_[f_data, X_data]
     np.random.shuffle(Xt)
-    Z = Xt[:N_total, :1]
+    f = Xt[:N_total, :1]
     X = Xt[:N_total, 1:D + 1]
 
     # Generate the latent variables
     epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
     epsilons = epsilons[:, None]
-    Y = epsilons + Z
-    Y = Y.flatten()
+    g = epsilons + f
+    g = g.flatten()
 
     if plot:
         if D==1:
-            plt.scatter(X, Y, c='b', s=4)
-            plt.plot(X_show, Z_show)
+            plt.scatter(X, g, c='b', s=4)
+            plt.plot(X_show, f_show)
             plt.savefig("Sample from prior GP.png")
             plt.close()
 
-    idx_sorted = np.argsort(Y)
+    idx_sorted = np.argsort(g)
     # Sort the responses
-    Y = Y[idx_sorted]
+    g = g[idx_sorted]
+    f = f[idx_sorted]
     X = X[idx_sorted]
     X_js = []
-    Y_js = []
-    t_js = []
+    g_js = []
+    f_js = []
+    y_js = []
     cutpoints = np.empty(J + 1)
     for j in range(J):
         X_js.append(X[N_per_class * j:N_per_class * (j + 1), :D])
-        Y_js.append(Y[N_per_class * j:N_per_class * (j + 1)])
-        t_js.append(j * np.ones(N_per_class, dtype=int))
+        g_js.append(g[N_per_class * j:N_per_class * (j + 1)])
+        f_js.append(f[N_per_class * j:N_per_class * (j + 1)])
+        y_js.append(j * np.ones(N_per_class, dtype=int))
 
     for j in range(1, J):
         # Find the cutpoints
-        cutpoint_j_min = Y_js[j - 1][-1]
-        cutpoint_j_max = Y_js[j][0]
+        cutpoint_j_min = g_js[j - 1][-1]
+        cutpoint_j_max = g_js[j][0]
         cutpoints[j] = np.average([cutpoint_j_max, cutpoint_j_min])
     cutpoints[0] = -np.inf
     cutpoints[-1] = np.inf
@@ -411,108 +416,111 @@ def generate_prior_data_paper(
     if plot:
         if D==1:
             for j in range(J):
-                plt.scatter(X_js[j], Y_js[j], color=colors[j])
+                plt.scatter(X_js[j], g_js[j], color=colors[j])
                 plt.close()
     X_js = np.array(X_js)
-    Y_js = np.array(Y_js)
-    t_js = np.array(t_js, dtype=int)
+    g_js = np.array(g_js)
+    f_js = np.array(f_js)
+    y_js = np.array(y_js, dtype=int)
     X = X.reshape(-1, X.shape[-1])
-    Y = Y_js.flatten()
-    t = t_js.flatten()
+    g = g_js.flatten()
+    f = f_js.flatten()
+    y = y_js.flatten()
 
     # Prepare data
     X_validates = []
-    t_validates = []
+    y_validates = []
     X_tests = []
-    t_tests = []
-    Y_trains = []
+    y_tests = []
+    g_trains = []
     X_trains = []
-    t_trains = []
+    y_trains = []
     for _ in range(splits):
-        Y_train_js = []
+        g_train_js = []
         X_train_js = []
-        t_train_js = []
+        y_train_js = []
         X_testvalidate_js = []
-        t_testvalidate_js = []
+        y_testvalidate_js = []
         for j in range(J):
-            data = np.c_[Y_js[j], X_js[j], t_js[j]]
+            data = np.c_[g_js[j], X_js[j], y_js[j]]
             np.random.shuffle(data)
-            Y_j = data[:, :1]
+            g_j = data[:, :1]
             X_j = data[:, 1:D + 1]
-            t_j = data[:, -1]
+            y_j = data[:, -1]
             # split train vs test/validate
-            Y_train_j = Y_j[:N_train_per_class]
+            g_train_j = g_j[:N_train_per_class]
             X_train_j = X_j[:N_train_per_class]
-            t_train_j = t_j[:N_train_per_class]
+            y_train_j = y_j[:N_train_per_class]
             X_j = X_j[N_train_per_class:]
-            t_j = t_j[N_train_per_class:]
+            y_j = y_j[N_train_per_class:]
             X_train_js.append(X_train_j)
-            Y_train_js.append(Y_train_j)
-            t_train_js.append(t_train_j)
+            g_train_js.append(g_train_j)
+            y_train_js.append(y_train_j)
             X_testvalidate_js.append(X_j)
-            t_testvalidate_js.append(t_j)
+            y_testvalidate_js.append(y_j)
 
         X_train_js = np.array(X_train_js)
-        Y_train_js = np.array(Y_train_js)
-        t_train_js = np.array(t_train_js, dtype=int)
+        g_train_js = np.array(g_train_js)
+        y_train_js = np.array(y_train_js, dtype=int)
         X_testvalidate_js = np.array(X_testvalidate_js)
-        t_testvalidate_js = np.array(t_testvalidate_js, dtype=int)
+        y_testvalidate_js = np.array(y_testvalidate_js, dtype=int)
 
         X_train = X_train_js.reshape(-1, X_train_js.shape[-1])
-        Y_train = Y_train_js.flatten()
-        t_train = t_train_js.flatten()
+        g_train = g_train_js.flatten()
+        y_train = y_train_js.flatten()
         X_testvalidate = X_testvalidate_js.reshape(-1, X_testvalidate_js.shape[-1])
-        t_testvalidate = t_testvalidate_js.flatten()
+        y_testvalidate = y_testvalidate_js.flatten()
 
-        data = np.c_[Y_train, X_train, t_train]
+        data = np.c_[g_train, X_train, y_train]
         np.random.shuffle(data)
-        Y_train = data[:, :1].flatten()
+        g_train = data[:, :1].flatten()
         X_train = data[:, 1:D + 1]
-        t_train = data[:, -1]
+        y_train = data[:, -1]
 
-        data = np.c_[X_testvalidate, t_testvalidate]
+        data = np.c_[X_testvalidate, y_testvalidate]
         np.random.shuffle(data)
         X_test = data[:N_test, 0:D]
-        t_test = data[:N_test, -1]
+        y_test = data[:N_test, -1]
         X_validate = data[N_test:, 0:D]
-        t_validate = data[N_test:, -1]
+        y_validate = data[N_test:, -1]
 
         X_trains.append(X_train)
-        Y_trains.append(Y_train)
-        t_trains.append(t_train)
+        g_trains.append(g_train)
+        y_trains.append(y_train)
         X_tests.append(X_test)
-        t_tests.append(t_test)
+        y_tests.append(y_test)
         X_validates.append(X_validate)
-        t_validates.append(t_validate)
+        y_validates.append(y_validate)
 
-    Y_trains = np.array(Y_trains)
+    g_trains = np.array(g_trains)
     X_trains = np.array(X_trains)
-    t_trains = np.array(t_trains, dtype=int)
+    y_trains = np.array(y_trains, dtype=int)
     X_tests = np.array(X_tests)
-    t_tests = np.array(t_tests, dtype=int)
+    y_tests = np.array(y_tests, dtype=int)
     X_validates = np.array(X_validates)
-    t_validate = np.array(t_validates, dtype=int)
+    y_validate = np.array(y_validates, dtype=int)
 
     assert np.shape(X_tests) == (splits, N_test, D)
     assert np.shape(X_trains) == (splits, N_train, D)
     assert np.shape(X_validates) == (splits, N_validate, D)
-    assert np.shape(Y_trains) == (splits, N_train)
-    assert np.shape(t_tests) == (splits, N_test)
-    assert np.shape(t_trains) == (splits, N_train)
-    assert np.shape(t_validates) == (splits, N_validate)
+    assert np.shape(g_trains) == (splits, N_train)
+    assert np.shape(y_tests) == (splits, N_test)
+    assert np.shape(y_trains) == (splits, N_train)
+    assert np.shape(y_validates) == (splits, N_validate)
     assert np.shape(X_js) == (J, N_per_class, D)
-    assert np.shape(Y_js) == (J, N_per_class)
+    assert np.shape(g_js) == (J, N_per_class)
     assert np.shape(X) == (N_total, D)
-    assert np.shape(Y) == (N_total,)
-    assert np.shape(t) == (N_total,)
-    if plot:
-        plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=N_show) 
+    assert np.shape(g) == (N_total,)
+    assert np.shape(f) == (N_total,)
+    assert np.shape(y) == (N_total,)
+    if plot: plot_ordinal(
+        X, y, g, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
     return (
-        N_show, N_total, X_js, Y_js, X, Y, t, cutpoints,
-        X_trains, Y_trains, t_trains,
-        X_tests, t_tests,
-        X_validates, t_validates,
-        K0_show, X_show, Z_show, colors)
+        N_show, N_total, X_js, g_js, X, f, g, y, cutpoints,
+        X_trains, g_trains, y_trains,
+        X_tests, y_tests,
+        X_validates, y_validates,
+        K0_show, X_show, f_show, colors)
 
 
 def generate_prior_data_new(
@@ -1442,25 +1450,11 @@ def generate_synthetic_data_SEARD(N_per_class, J, D, varphi=[30.0, 20.0], noise_
     return X_j, Y_true_j, X, Y_true, t, cutpoints_0
 
 
-def generate_synthetic_data_polynomial(N_per_class, J, D, noise_variance=1.0, scale=1.0,
-        varphi=0.0, order=2.0):
-    """Generate synthetic Polynomial dataset."""
-    # Generate the synethetic data
-    kernel = Polynomial(varphi=varphi, order=order, scale=scale, sigma=10e-6, tau=10e-6)
-    X_j, Y_true_j, X, Y_true, t, cutpoints_0 = generate_prior_data(
-        N_per_class, J, D, kernel, noise_variance=noise_variance)
-    from probit.data import tertile
-    with pkg_resources.path(tertile) as path:
-        np.savez(
-            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, J), X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, cutpoints_0=cutpoints_0)
-    return X_j, Y_true_j, X, Y_true, t, cutpoints_0
-
-
 def generate_synthetic_data_linear(
         N_per_class, N_test, splits, J, D,
-        constant_variance=1.0, c=1.0, noise_variance=1.0, scale=1.0):
+        constant_variance=1.0, offset=1.0, noise_variance=1.0, scale=1.0):
     """Generate synthetic dataset."""
-    kernel = Linear(constant_variance=constant_variance, c=c, scale=1.0)
+    kernel = Linear(constant_variance=constant_variance, offset=offset, scale=1.0)
     (X_j, Y_true_j, X, Y, t, cutpoints,
     X_tests, Y_tests, t_tests,
     X_trains, Y_trains, t_trains,
@@ -1499,37 +1493,42 @@ def generate_synthetic_data(N_per_class, J, D, varphi=30.0, noise_variance=1.0, 
 
 
 def generate_synthetic_data_paper(
-        varphi, noise_variance, scale=1.0, N_train_per_class=100, N_test_per_class=0, N_validate_per_class=0, N_show=100,
+        lengthscale, noise_variance, variance=1.0, N_train_per_class=100,
+        N_test_per_class=0, N_validate_per_class=0, N_show=100,
         splits=1, J=3, D=2, colors=None, cmap=None, plot=True, seed=517):
     """
     Generate synthetic dataset from the unit hypercube for Table 1.
     """
     # Initiate kernel
-    kernel = SEIso(varphi=varphi, variance=scale)
+    kernel = SquaredExponential(varphi=lengthscale, variance=variance)
     # Generate data
-    (N_show, N, X_js, Y_js, X, Y, t, cutpoints,
-        X_trains, Y_trains, t_trains,
-        X_tests, t_tests,
-        X_validates, t_validates,
-        K0_show, X_show, Z_show, colors) = generate_prior_data_paper(
+    (N_show, N, X_js, g_js, X, f, g, y, cutpoints,
+        X_trains, g_trains, y_trains,
+        X_tests, y_tests,
+        X_validates, y_validates,
+        K0_show, X_show, f_show, colors) = generate_prior_data_paper(
         N_train_per_class=N_train_per_class, N_test_per_class=N_test_per_class,
-        N_validate_per_class=N_validate_per_class, splits=splits, J=J, D=D, kernel=kernel,
-        noise_variance=noise_variance, colors=colors, cmap=cmap, N_show=100, plot=plot, seed=seed)
+        N_validate_per_class=N_validate_per_class, splits=splits, J=J, D=D,
+        kernel=kernel,
+        noise_variance=noise_variance, colors=colors, cmap=cmap, N_show=100,
+        plot=plot, seed=seed)
     # Save data
-    np.savez('J={}_kernel_string={}_scale={}_noisevar={}_lengthscale={}.npz'.format(J, repr(kernel), scale, noise_variance, varphi),
+    np.savez(
+        'J={}_kernel_string={}_var={}_noisevar={}_lengthscale={}.npz'.format(
+            J, repr(kernel), variance, noise_variance, lengthscale),
         N_show=N_show, N=N, J=J, D=D,
-        X_js=X_js, Y_js=Y_js,
-        X=X, Y=Y, t=t,
+        X_js=X_js, g_js=g_js,
+        X=X, g=g, y=y, f=f,
         # no need for validation and test data.
         #X_validates=X_validates, t_validates=t_validates,
         #X_tests=X_tests, t_tests=t_tests,
         #X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
         #K0_show=K0_show,
         X_show=X_show,
-        Z_show=Z_show,
+        f_show=f_show,
         noise_variance=noise_variance,
-        scale=scale,
-        varphi=varphi,
+        variance=variance,
+        lengthscale=lengthscale,
         cutpoints=cutpoints,
         colors=colors)
     # # Sample from gamma priors for the hyper-parameters
@@ -1538,34 +1537,36 @@ def generate_synthetic_data_paper(
     # # Initiate kernel
     # kernel = SEARD(lengthscales, scale=scale)
     # # Generate data
-    # (X_js, Y_js, X, Y, t, cutpoints,
-    #     X_trains, Y_trains, t_trains,
-    #     X_tests, t_tests,
-    #     X_validates, t_validates,
-    #     K0_show, X_show, Z_show, colors) = generate_prior_data_paper(
+    # (X_js, g_js, X, f, g, y, cutpoints,
+    #     X_trains, g_trains, y_trains,
+    #     X_tests, y_tests,
+    #     X_validates, y_validates,
+    #     K0_show, X_show, f_show, colors) = generate_prior_data_paper(
     #         N_train_per_class=10, N_test_per_class=3, N_validate_per_class=4,
     #         splits=4, J=3, D=1, kernel=kernel,
     #         noise_variance=0.1, N_show=100, plot=True, seed=517)
     # # Save data
-    # np.savez('tertile_SEARD_s=1.0_noisevar={}_lengthscale={}.npz'.format(scale, noise_variance, lengthscales),
-    #     X_js=X_js, Y_js=Y_js,
-    #     X=X, Y=Y, t=t,
+    # np.savez(
+    #     'J={}_kernel_string={}_var={}_noisevar={}_lengthscale={}.npz'.format(
+    #       J, repr(kernel), variance, noise_variance, repr(lengthscales)),
+    #     X_js=X_js, g_js=g_js,
+    #     X=X, f=f, g=g, y=y,
     #     X_validates=X_validates, X_validates=X_validates,
-    #     X_tests=X_tests, t_tests=t_tests,
-    #     X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
+    #     X_tests=X_tests, g_tests=g_tests,
+    #     X_trains=X_trains, g_trains=g_trains, y_trains=y_trains,
     #     K0_show=K0_show,
     #     X_show=X_show,
-    #     Z_show=Z_show,
+    #     f_show=f_show,
     #     noise_variance=noise_variance,
     #     scale=scale,
     #     lengthscales=lengthscales,
     #     cutpoints=cutpoints,
     #     colors=colors)
-    return (X_js, Y_js, X, Y, t, cutpoints,
-        X_trains, Y_trains, t_trains,
-        X_tests, t_tests,
-        X_validates, t_validates,
-        K0_show, X_show, Z_show, colors)
+    return (X_js, g_js, X, f, g, y, cutpoints,
+        X_trains, g_trains, y_trains,
+        X_tests, y_tests,
+        X_validates, y_validates,
+        K0_show, X_show, f_show, colors)
 
 
 def generate_synthetic_data_new(N_per_class, N_test, splits, J, D, varphi=30.0, noise_variance=1.0, scale=1.0):
@@ -1775,7 +1776,8 @@ def load_data_synthetic(dataset, J, plot=False):
                 "true"]
     if plot:
         plt.scatter(X, Y_true)
-        plt.show()
+        plt.savefig("plot.png")
+        plt.close()
     cutpoints_0 = np.array(cutpoints_0)
     if plot:
         plot_ordinal(X, t, X_j, Y_true_j, J, D)
@@ -1789,81 +1791,30 @@ def load_data_synthetic(dataset, J, plot=False):
 def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
     """Load synthetic data."""
     if dataset == "figure2":
-        Kernel = LabEQ
+        Kernel = SquaredExponential
         from probit.data.paper import figure2
-        with pkg_resources.path(figure2, 'tertile_SEIso_scale=1.0_noisevar=0.1_lengthscale=1.4.npz') as path:
+        with pkg_resources.path(figure2, 'J=3_kernel_string=SquaredExponential_var=1.0_noisevar=0.1_lengthscale=0.35.npz') as path:
             data = np.load(path)
         if plot:
             N_show = data["N_show"]
             X_show = data["X_show"]
-            Z_show = data["Z_show"]
+            f_show = data["f_show"]
             X_js = data["X_js"]
-            Y_js = data["Y_js"]
+            g_js = data["g_js"]
         X = data["X"]
-        Y = data["Y"]
-        t = data["t"]
+        g = data["g"]
+        f = data["f"]
+        y = data["y"]
         # N = data["N"]
         colors = data["colors"]
         J = data["J"]
         D = data["D"]
         hyperparameters = {
             "true" : (
-                data["gamma"],
-                data["varphi"],
+                data["cutpoints"],
+                data["lengthscale"],
                 data["noise_variance"],
-                data["scale"]
-            )
-        }
-    elif dataset == "figure2alt":
-        Kernel = LabEQ
-        from probit.data.paper import figure2
-        with pkg_resources.path(figure2, 'tertile_SEIso_scale=1.0_noisevar=0.1_lengthscale=10.0.npz') as path:
-            data = np.load(path)
-        if plot:
-            N_show = data["N_show"]
-            X_show = data["X_show"]
-            Z_show = data["Z_show"]
-            X_js = data["X_js"]
-            Y_js = data["Y_js"]
-        X = data["X"]
-        Y = data["Y"]
-        t = data["t"]
-        # N = data["N"]
-        colors = data["colors"]
-        J = data["J"]
-        D = data["D"]
-        hyperparameters = {
-            "true" : (
-                data["gamma"],
-                data["varphi"],
-                data["noise_variance"],
-                data["scale"]
-            )
-        }
-    elif dataset == "figure2alt2":
-        Kernel = LabEQ
-        from probit.data.paper import figure2
-        with pkg_resources.path(figure2, 'tertile_SEIso_scale=1.0_noisevar=0.1_lengthscale=30.0.npz') as path:
-            data = np.load(path)
-        if plot:
-            N_show = data["N_show"]
-            X_show = data["X_show"]
-            Z_show = data["Z_show"]
-            X_js = data["X_js"]
-            Y_js = data["Y_js"]
-        X = data["X"]
-        Y = data["Y"]
-        t = data["t"]
-        # N = data["N"]
-        colors = data["colors"]
-        J = data["J"]
-        D = data["D"]
-        hyperparameters = {
-            "true" : (
-                data["gamma"],
-                data["varphi"],
-                data["noise_variance"],
-                data["scale"]
+                data["variance"]
             )
         }
     elif dataset == "13":
@@ -1893,6 +1844,7 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
             )
         }
     elif dataset == "table1":
+        # TODO: Superceded, needs to be regenerated
         if D is None:
             raise ValueError(
                 "Please supply the input dimensions argument, D. expected {}, got {}".format("2, 10", None))
@@ -1989,13 +1941,13 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
                     }
                 elif D == 10:
                     assert 0
-    cutpoints_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
+    cutpoints_0, varphi_0, noise_variance_0, variance_0 = hyperparameters["true"]
     if plot:
-        plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, plt.cm.get_cmap('viridis', J), N_show=N_show)
+        plot_ordinal(X, y, g, X_show, f_show, J, D, colors, plt.cm.get_cmap('viridis', J), N_show=N_show)
     cutpoints_0 = np.array(cutpoints_0)
     return (
-        X, Y, t,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0,
+        X, f, g, y,
+        cutpoints_0, varphi_0, noise_variance_0, variance_0,
         J, D, colors, Kernel)
 
 
@@ -2085,11 +2037,12 @@ def plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=None):
         fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
         plt.savefig("surface.png")
         plt.show()
+        plt.close()
 
 
 
 if __name__ == "__main__":
-    J = 52
+    J = 3
     cmap = plt.cm.get_cmap('viridis', J)    # J discrete colors
     colors = []
     for j in range(J):
@@ -2098,25 +2051,21 @@ if __name__ == "__main__":
     # varphi = gamma.rvs(a=1.0, scale=np.sqrt(D))
     # noise_variance = gamma.rvs(a=1.2, scale=1./0.2)
     generate_synthetic_data_paper(
-        varphi=30.0, noise_variance=0.1, scale=1.0, N_train_per_class=960,
-        N_test_per_class=0, N_validate_per_class=0, N_show=100,
-        splits=1, J=J, D=1, colors=colors, cmap=cmap, plot=True, seed=517)
-    # generate_synthetic_data_paper(
-    #     varphi=30.0, noise_variance=0.1, scale=1.0, N_train_per_class=100,
-    #     N_test_per_class=0, N_validate_per_class=0, N_show=100,
-    #     splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)
+        lengthscale=0.35, noise_variance=0.1, variance=1.0,
+        N_train_per_class=100, N_test_per_class=0, N_validate_per_class=0,
+        N_show=100,
+        splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)
     # SS TODO: delete
     # generate_synthetic_data_new(
     #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
     # generate_synthetic_data_linear(
     #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=1.0, noise_variance=1.0, scale=1.0)
     # generate_prior_samples(
-    #     kernel=Linear(constant_variance=0.1, c=1.0, scale=1.0), noise_variance=0.01, N_samples=9, N_show=2000, plot=True)
+    #     kernel=Linear(constant_variance=0.1, offset=1.0, scale=1.0), noise_variance=0.01, N_samples=9, N_show=2000, plot=True)
     # generate_synthetic_data_linear(
     #     N_per_class=45, N_test=15*3, splits=20, J=3, D=1,
-    #     constant_variance=0.1, c=1.0, noise_variance=0.01, scale=1.0)
+    #     constant_variance=0.1, offset=1.0, noise_variance=0.01, scale=1.0)
     # generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
     # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
     # kernel = Linear(varphi=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
     # plot_kernel(kernel)
-    # generate_synthetic_data_polynomial(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)

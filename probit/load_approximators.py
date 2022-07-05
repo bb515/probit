@@ -1,16 +1,19 @@
-from probit.approximators import LaplaceOrdinalGP, EPOrdinalGP, VBOrdinalGP
-from probit.sparse import SparseLaplaceOrdinalGP, SparseVBOrdinalGP
+from probit.approximators import LaplaceGP, EPGP, VBGP
+from probit.sparse import SparseLaplaceGP, SparseVBGP
+from probit.gpflow import SVGP, VGP
 import enum
 
 
 class ApproximatorLoader(enum.Enum):
     """Factory enum to load approximators.
     """
-    LA = LaplaceOrdinalGP
-    EP = EPOrdinalGP
-    VB = VBOrdinalGP
-    SLA = SparseLaplaceOrdinalGP
-    SVB = SparseVBOrdinalGP
+    LA = LaplaceGP
+    EP = EPGP
+    VB = VBGP
+    SLA = SparseLaplaceGP
+    SVB = SparseVBGP
+    V = VGP
+    SV = SVGP
 
 
 def load_approximator(
@@ -35,11 +38,13 @@ def load_approximator(
     Raises:
         ValueError: if the classifier type provided is not supported by the interface.
     """
-    if approximator_string in ["LA", "EP", "VB"]:
+    if approximator_string in ["LA", "EP", "VB", "V"]:
         return ApproximatorLoader[approximator_string].value(
             **kwargs)
-    elif approximator_string in ["SLA", "SVB"]:
+    elif approximator_string in ["SLA", "SVB", "SVGP"]:
         return ApproximatorLoader[approximator_string].value(
             M=M, **kwargs)
     else:
-        raise ValueError("Approximator not found. (got {}, expected {})".format(approximator_string, "LA, EP, VB, SLA or SVB"))
+        raise ValueError(
+            "Approximator not found. (got {}, expected {})".format(
+            approximator_string, "LA, EP, VB, V, SLA, SVB or SV"))

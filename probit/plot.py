@@ -1,6 +1,7 @@
 """Useful plot functions for classifiers."""
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import trange
 from probit.data.utilities import colors, datasets
 from probit.data.utilities import calculate_metrics
 import warnings
@@ -198,14 +199,94 @@ def plot_contour(
         plt.close()
 
 
-def test(
-        classifier, X_test, t_test, y_test,
-        weights, cov):
-    (Z,
-    posterior_predictive_m,
-    posterior_std) = classifier.predict(
+def test(classifier, X_test, t_test, y_test, steps):
+    (fx, gx,
+        weights, (cov, is_reparameterised)
+        ) = classifier.approximate_posterior(
+                None, None, steps=steps, first_step=1,
+                return_reparameterised=True, verbose=True)
+    (Z, posterior_predictive_m, posterior_std) = classifier.predict(
         X_test, cov, weights)
     return calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
+
+
+def run_adam(classifier, iterations):
+    """
+    Utility function running the Adam optimizer
+
+    :param classifier: GPflow model
+    :param interations: number of iterations
+    """
+    import tensorflow as tf
+    # Create an Adam Optimizer action
+    logf = []
+    train_iter = iter(train_dataset.batch(minibatch_size))
+    training_loss = model.training_loss_closure(train_iter, compile=True)
+    optimizer = tf.optimizers.Adam()
+
+    @tf.function
+    def optimization_step():
+        optimizer.minimize(training_loss, model.trainable_variables)
+
+    for step in range(iterations):
+        optimization_step()
+        if step % 10 == 0:
+            elbo = -training_loss().numpy()
+            logf.append(elbo)
+    return logf
+
+
+def plot(classifier, X_test, title=""):
+    """Plot from GPFlow documentation for ordinal regression."""
+    fig = plt.figure(figsize=(14, 6))
+    plt.imshow(
+        classifier.predict(X_test),
+        interpolation="nearest",
+        extent=[X_test.min(), X_test.max(), -0.5, classifier.J + 0.5],
+        origin="lower",
+        aspect="auto",
+        cmap=plt.cm.viridis,
+    )
+    plt.colorbar()
+    plt.plot(
+        classifier.X_train, classifier.t_train, "kx",
+        mew=2, scalex=False, scaley=False)
+    plt.savefig("test")
+    plt.show()
+    plt.close()
+
+    # Predictive density for a single input x=0.5
+    x_new = 0.5
+    Y_new = np.arange(np.max(Y + 1)).reshape([-1, 1])
+    X_new = np.full_like(Y_new, x_new)
+    # for predict_log_density x and y need to have the same number of rows
+    dens_new = np.exp(m.predict_log_density((X_new, Y_new)))
+    fig = plt.figure(figsize=(8, 4))
+    plt.bar(x=Y_new.flatten(), height=dens_new.flatten())
+    plt.savefig("test2")
+    plt.show()
+    plt.close()
+
+    plt.figure(figsize=(12, 4))
+    plt.title(title)
+    pY, pYv = classifier._model.predict_y(X_test)  # Predict Y values at test locations
+    plt.plot(classifier.X_train, classifier.t_train, "x", label="Training points", alpha=0.2)
+    (line,) = plt.plot(X_test, pY, lw=1.5, label="Mean of predictive posterior")
+    col = line.get_color()
+    plt.fill_between(
+        X_test[:, 0],
+        (pY - 2 * pYv ** 0.5)[:, 0],
+        (pY + 2 * pYv ** 0.5)[:, 0],
+        color=col,
+        alpha=0.6,
+        lw=1.5,
+    )
+    Z = classifier._model.inducing_variable.Z.numpy()
+    plt.plot(Z, np.zeros_like(Z), "k|", mew=2, label="Inducing locations")
+    plt.legend(loc="lower right")
+    plt.show()
+    plt.savefig("test3")
+    plt.close()
 
 
 def train(classifier, method, indices, verbose=True, steps=None, max_sec=5000):
@@ -1040,7 +1121,8 @@ def plot_synthetic(
 
 
 def figure2(
-        hyper_sampler, approximator, domain, res, indices, num_importance_samples, steps=None,
+        hyper_sampler, approximator, domain, res, indices,
+        num_importance_samples, steps=None,
         reparameterised=False, verbose=False, show=False, write=True):
     """
     Return meshgrid values of fx and directions of gx over hyperparameter
@@ -1062,7 +1144,7 @@ def figure2(
     xlabel, ylabel,
     xscale, yscale,
     xx, yy,
-    Phi_new,
+    thetas,
     *_) = approximator._grid_over_hyperparameters_initiate(
         res, domain, indices, approximator.cutpoints)
     log_p_pseudo_marginalss = []
@@ -1071,24 +1153,31 @@ def figure2(
         raise ValueError("Multivariate plots are TODO")
     else:
         # if one dimension... find a better way of doing this
-        Phi_step = Phi_new[1:] - Phi_new[:-1]
-        Phi_new = Phi_new[:-1]
-        M = len(Phi_new)
-
-    for i, phi in enumerate(Phi_new):
+        theta_step = thetas[1:] - thetas[:-1]
+        thetas = thetas[:-1]
+        M = len(thetas)
+    for i in trange(0, M,
+                        desc="Posterior density mesh-grid progress",
+                        unit=" mesh-grid points", disable=False):
+        theta = thetas[i]
         # Need to update sampler hyperparameters
-        approximator._grid_over_hyperparameters_update(phi, indices, approximator.cutpoints)
-        theta = approximator.get_theta(indices)
-        log_p_pseudo_marginals, log_p_prior = hyper_sampler.tmp_compute_marginal(
-                theta, indices, steps=steps, reparameterised=reparameterised,
-                num_importance_samples=num_importance_samples)
+        approximator._grid_over_hyperparameters_update(
+            theta, indices, approximator.cutpoints)
+        phi = approximator.get_phi(indices)
+        (log_p_pseudo_marginals,
+                log_p_prior) = hyper_sampler.tmp_compute_marginal(
+            phi, indices, steps=steps, reparameterised=reparameterised,
+            num_importance_samples=num_importance_samples)
         log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
         log_p_priors.append(log_p_prior)
         if verbose:
-            print("log_p_pseudo_marginal {}, log_p_prior {}".format(np.mean(log_p_pseudo_marginals), log_p_prior))
+            print("{}/{}".format(i, len(thetas)))
+            print("log_p_pseudo_marginal {}, log_p_prior {}".format(
+                np.mean(log_p_pseudo_marginals), log_p_prior))
             print(
-                "cutpoints={}, varphi={}, noise_variance={}, variance={}, ".format(
-                approximator.cutpoints, approximator.kernel.varphi, approximator.noise_variance,
+                "cutpoints={}, varphi={}, noise_variance={},"
+                " variance={}".format(approximator.cutpoints,
+                approximator.kernel.varphi, approximator.noise_variance,
                 approximator.kernel.variance))
     if x2s is not None:
         raise ValueError("Multivariate plots are TODO")
@@ -1097,31 +1186,31 @@ def figure2(
         log_priors = np.array(log_p_priors)
         log_p_pseudo_marginals_ms = np.mean(log_p_pseudo_marginalss, axis=1)
         log_p_pseudo_marginals_std = np.std(log_p_pseudo_marginalss, axis=1)
-        # plt.plot(Phi_new, log_p_pseudo_marginals_ms, 'k')
-        # plt.plot(Phi_new, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
-        # plt.plot(Phi_new, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b')
-        # plt.plot(Phi_new, log_priors, '--g')
+        # plt.plot(thetas, log_p_pseudo_marginals_ms, 'k')
+        # plt.plot(thetas, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
+        # plt.plot(thetas, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b')
+        # plt.plot(thetas, log_priors, '--g')
         # if write: plt.savefig("tmp0.png")
         # if show: plt.show()
         # plt.close()
 
         # Normalize prior distribution - but need to make sure domain is such that approx all posterior mass is covered
-        log_prob = log_p_priors + np.log(Phi_step)
+        log_prob = log_p_priors + np.log(theta_step)
         max_log_prob = np.max(log_prob)
         log_sum_exp = max_log_prob + np.log(np.sum(np.exp(log_prob - max_log_prob)))
         p_priors = np.exp(log_p_priors - log_sum_exp)
 
         # Normalize posterior distribution - but need to make sure domain is such that approx all posterior mass is covered
-        log_prob = log_p_pseudo_marginals_ms + np.log(Phi_step)
+        log_prob = log_p_pseudo_marginals_ms + np.log(theta_step)
         max_log_prob = np.max(log_prob)
         log_sum_exp = max_log_prob + np.log(
             np.sum(np.exp(log_prob - max_log_prob)))
         p_pseudo_marginals = np.exp(log_p_pseudo_marginals_ms - log_sum_exp)
 
-        # plt.plot(Phi_new, p_pseudo_marginals)
+        # plt.plot(thetas, p_pseudo_marginals)
         # # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
         # # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
-        # plt.plot(Phi_new, p_priors, '--g')
+        # plt.plot(thetas, p_priors, '--g')
         # if write: plt.savefig("tmp1.png") 
         # if show: plt.show()
         # plt.close()
@@ -1130,7 +1219,7 @@ def figure2(
         # This numerical integration isn't quite right... need to divide by the correct amount in the sum
         # Also, doesn't it need to be devided by N?
 
-        # log_p_pseudo_marginalss = log_p_pseudo_marginalss + np.log(Phi_step).reshape(-1, 1)
+        # log_p_pseudo_marginalss = log_p_pseudo_marginalss + np.log(theta_step).reshape(-1, 1)
         # max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginalss, axis=0)
         # log_sum_exp = np.tile(max_log_p_pseudo_marginals, (M, 1)) + np.tile(
         #     np.log(np.sum(np.exp(log_p_pseudo_marginalss - max_log_p_pseudo_marginals), axis=0)), (M, 1))
@@ -1143,63 +1232,69 @@ def figure2(
 
         # p_pseudo_marginals_std = np.std(p_pseudo_marginals, axis=1)
 
-        # plt.plot(Phi_new, p_pseudo_marginals_mean)
-        # plt.plot(Phi_new, p_pseudo_marginals_lo, '--b')
-        # plt.plot(Phi_new, p_pseudo_marginals_hi, '--r')
+        # plt.plot(thetas, p_pseudo_marginals_mean)
+        # plt.plot(thetas, p_pseudo_marginals_lo, '--b')
+        # plt.plot(thetas, p_pseudo_marginals_hi, '--r')
 
-        # plt.plot(Phi_new, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
-        # plt.plot(Phi_new, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
-        # plt.plot(Phi_new, p_priors, '--g')
+        # plt.plot(thetas, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
+        # plt.plot(thetas, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
+        # plt.plot(thetas, p_priors, '--g')
         # plt.xlabel("length-scale")
         # plt.ylabel("pseudo marginal")
         # plt.title("N = 50, EP")
         #if write: plt.savefig("tmp2.png")
         #if show: plt.show()
         #plt.close()
-        return Phi_new, p_pseudo_marginals_mean, p_pseudo_marginals_lo, p_pseudo_marginals_hi, p_priors
+        return thetas, p_pseudo_marginals_mean, p_pseudo_marginals_lo, p_pseudo_marginals_hi, p_priors
         #return log_p_pseudo_marginalss, log_p_priors, x1s, None, xlabel, ylabel, xscale, yscale
 
 
 def _potential_scale_reduction(
         state, independent_chain_ndims=1, split_chains=False):
-    """Gelman and Rubin (1992)'s potential scale reduction for chain convergence.
+    """
+    Gelman and Rubin (1992)'s potential scale reduction for chain convergence.
     Given `N > 1` states from each of `C > 1` independent chains, the potential
-    scale reduction factor, commonly referred to as R-hat, measures convergence of
-    the chains (to the same target) by testing for equality of means.
+    scale reduction factor, commonly referred to as R-hat, measures convergence
+    of the chains (to the same target) by testing for equality of means.
     Specifically, R-hat measures the degree to which variance (of the means)
     between chains exceeds what one would expect if the chains were identically
-    distributed. See [Gelman and Rubin (1992)][1]; [Brooks and Gelman (1998)][2].
+    distributed. See [Gelman and Rubin (1992)][1];
+    [Brooks and Gelman (1998)][2].
     Some guidelines:
     * The initial state of the chains should be drawn from a distribution
     overdispersed with respect to the target. (TODO: what about burn-in?)
-    * If all chains converge to the target, then as `N --> infinity`, R-hat --> 1.
-    Before that, R-hat > 1 (except in pathological cases, e.g. if the chain
-    paths were identical).
+    * If all chains converge to the target, then as `N --> infinity`,
+    R-hat --> 1. Before that, R-hat > 1 (except in pathological cases, e.g. if
+    the chain paths were identical).
     * The above holds for any number of chains `C > 1`.  Increasing `C` does
     improve effectiveness of the diagnostic.
-    * Sometimes, R-hat < 1.2 is used to indicate approximate convergence, but of
-    course this is problem-dependent. See [Brooks and Gelman (1998)][2].
+    * Sometimes, R-hat < 1.2 is used to indicate approximate convergence, but
+    of course this is problem-dependent. See [Brooks and Gelman (1998)][2].
     * R-hat only measures non-convergence of the mean. If higher moments, or
     other statistics are desired, a different diagnostic should be used. See
     [Brooks and Gelman (1998)][2].
 
     :arg state: (n_samples, n_chains, n_parameters)
 
-    :arg split_chains: Python `bool`. If `True`, divide samples from each chain into
-    first and second halves, treating these as separate chains.  This makes
-    R-hat more robust to non-stationary chains, and is recommended in [3].
+    :arg split_chains: Python `bool`. If `True`, divide samples from each chain
+    into first and second halves, treating these as separate chains.  This
+    makes R-hat more robust to non-stationary chains, and is recommended in
+    [3].
  
-    :returns: `numpy.ndarray` structure parallel to `chains_states` representing the
-    R-hat statistic for the state(s). Shape equal to `chains_state.shape[2:]`.
+    :returns: `numpy.ndarray` structure parallel to `chains_states`
+    representing the R-hat statistic for the state(s). Shape equal to
+    `chains_state.shape[2:]`.
 
-    To see why R-hat is reasonable, let `X` be a random variable drawn uniformly
-    from the combined states (combined over all chains).  Then, in the limit
-    `N, C --> infinity`, with `E`, `Var` denoting expectation and variance,
+    To see why R-hat is reasonable, let `X` be a random variable drawn
+    uniformly from the combined states (combined over all chains).  Then, in
+    the limit `N, C --> infinity`, with `E`, `Var` denoting expectation and
+    variance,
     ```R-hat = ( E[Var[X | chain]] + Var[E[X | chain]] ) / E[Var[X | chain]].```
-    Using the law of total variance, the numerator is the variance of the combined
-    states, and the denominator is the total variance minus the variance of the
-    the individual chain means.  If the chains are all drawing from the same
-    distribution, they will have the same mean, and thus the ratio should be one.
+    Using the law of total variance, the numerator is the variance of the
+    combined states, and the denominator is the total variance minus the
+    variance of the individual chain means.  If the chains are all drawing from
+    the same distribution, they will have the same mean, and thus the ratio
+    should be one.
 
     #### References
     [1]: Stephen P. Brooks and Andrew Gelman. General Methods for Monitoring
@@ -1207,10 +1302,10 @@ def _potential_scale_reduction(
         Graphical Statistics_, 7(4), 1998.
     [2]: Andrew Gelman and Donald B. Rubin. Inference from Iterative Simulation
         Using Multiple Sequences. _Statistical Science_, 7(4):457-472, 1992.
-    [3]: Aki Vehtari, Andrew Gelman, Daniel Simpson, Bob Carpenter, Paul-Christian
-        Burkner. Rank-normalization, folding, and localization: An improved R-hat
-        for assessing convergence of MCMC, 2019. Retrieved from
-        http://arxiv.org/abs/1903.08008
+    [3]: Aki Vehtari, Andrew Gelman, Daniel Simpson, Bob Carpenter,
+        Paul-Christian Burkner. Rank-normalization, folding, and localization:
+        An improved R-hat for assessing convergence of MCMC, 2019. Retrieved
+        from http://arxiv.org/abs/1903.08008
     """
     if split_chains:
         # Split the sample dimension in half, doubling the number of

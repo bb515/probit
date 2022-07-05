@@ -15,10 +15,11 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
-from probit.approximators import EPOrdinalGP, LaplaceOrdinalGP, VBOrdinalGP
+from probit.approximators import EPGP, LaplaceGP, VBGP
 from probit.samplers import (
-    EllipticalSliceOrdinalGP,
+    EllipticalSliceGP,
     SufficientAugmentation, AncilliaryAugmentation, PseudoMarginal)
+from probit.kernels_gpflow import SquaredExponential
 from probit.plot import table1, draw_mixing
 import pathlib
 from probit.data.utilities import datasets, load_data_paper
@@ -70,7 +71,10 @@ def main():
             # Set varphi hyperparameters
             varphi_hyperparameters = np.array([1.0, 30.0])  # [shape, scale] of a cutpoints on varphi
             # Initiate kernel
-            kernel = Kernel(varphi=varphi_0, scale=scale_0, varphi_hyperparameters=varphi_hyperparameters)
+            kernel = Kernel(
+                varphi=varphi_0,
+                variance=scale_0,
+                varphi_hyperparameters=varphi_hyperparameters)
             indices = np.ones(J + 2)
             # Fix noise_variance
             indices[0] = 0
@@ -84,16 +88,16 @@ def main():
             burn_steps = 500  # 5000
             steps = 1000  # 10000
             m_0 = Y.flatten()
-            # sampler = GibbsOrdinalGP(cutpoints_0, noise_variance_0, kernel, X, t, J)
+            # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
             noise_std_hyperparameters = None
             cutpoints_hyperparameters = None
             # Define the proposal covariance
             proposal_cov = 1.0
             if approach in ["AA", "SA"]:
-                sampler = EllipticalSliceOrdinalGP(
+                sampler = EllipticalSliceGP(
                     cutpoints_0, noise_variance_0,
                     noise_std_hyperparameters,
-                    cutpoints_hyperparameters, kernel, X, t, J)
+                    cutpoints_hyperparameters, kernel, J, (X, t))
                 theta = sampler.get_theta(indices)
                 # MPI parallel across chains
                 if approach == "AA":  # Ancilliary Augmentation approach
@@ -114,17 +118,26 @@ def main():
                     acceptance_rate=acceptance_rate)
             elif approach == "PM":  # Pseudo Marginal approach
                 if approximation == "VB":
-                    approximator = VBOrdinalGP(  # VB approximation
+                    approximator = VBGP(  # VB approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
                 elif approximation == "LA":
-                    approximator = LaplaceOrdinalGP(  # Laplace MAP approximation
+                    approximator = LaplaceGP(  # Laplace MAP approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
                 elif approximation == "EP":
-                    approximator = EPOrdinalGP(  # EP approximation
+                    approximator = EPGP(  # EP approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, X, t, J)
+                        kernel, J, (X, t))
+                elif approximation == "V":
+                    kernel = SquaredExponential(
+                        lengthscales=1./np.sqrt(2 * varphi_0),
+                        variance=scale_0,
+                        varphi_hyperparameters=varphi_hyperparameters)
+                    approximator = VGP(
+                        cutpoints_0, noise_variance_0,
+                        kernel, J, (X, t)
+                    )
 
                 # Initiate hyper-parameter sampler
                 hyper_sampler = PseudoMarginal(approximator)
