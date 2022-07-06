@@ -1405,7 +1405,7 @@ class EPGP(Approximator):
     def approximate(
             self, steps, posterior_mean_0=None, posterior_cov_0=None,
             mean_EP_0=None, precision_EP_0=None, amplitude_EP_0=None,
-            first_step=1, write=False):
+            first_step=0, write=False):
         """
         Estimating the posterior means and posterior covariance (and marginal
         likelihood) via Expectation propagation iteration as written in
@@ -1928,7 +1928,7 @@ class EPGP(Approximator):
             posterior_mean_0=None, return_reparameterised=False,
             posterior_cov_0=None, mean_EP_0=None,
             precision_EP_0=None,
-            amplitude_EP_0=None, first_step=1, verbose=True):
+            amplitude_EP_0=None, first_step=0, verbose=True):
         """
         Optimisation routine for hyperparameters.
 

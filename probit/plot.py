@@ -203,7 +203,7 @@ def test(classifier, X_test, t_test, y_test, steps):
     (fx, gx,
         weights, (cov, is_reparameterised)
         ) = classifier.approximate_posterior(
-                None, None, steps=steps, first_step=1,
+                None, None, steps=steps, first_step=0,
                 return_reparameterised=True, verbose=True)
     (Z, posterior_predictive_m, posterior_std) = classifier.predict(
         X_test, cov, weights)
