@@ -1462,13 +1462,6 @@ class EPGP(Approximator):
                         unit="iterations", disable=True):
             index = permutation[step]
             target = self.t_train[index]
-            # Find the mean and variance of the leave-one-out
-            # posterior distribution Q^{\backslash i}(\bm{f})
-            # posterior_mean_n = posterior_mean[index]
-            # posterior_variance_n = posterior_cov[index, index]
-            # mean_EP_n_old = mean_EP[index]
-            # precision_EP_n_old = precision_EP[index]
-            # amplitude_EP_n_old = amplitude_EP[index]
             cavity_mean_n, cavity_variance_n = self._remove(
                 posterior_cov[index, index], posterior_mean[index],
                 mean_EP[index], precision_EP[index], amplitude_EP[index])
@@ -1502,18 +1495,18 @@ class EPGP(Approximator):
                 precision_EP[index] = precision_EP_n
                 mean_EP[index] = mean_EP_n
                 amplitude_EP[index] = amplitude_EP_n
-                
                 if write:
                     # approximate_log_marginal_likelihood = \
                     # self._approximate_log_marginal_likelihood(
                     # posterior_cov, precision_EP, mean_EP)
-                    posterior_means.append(posterior_mean)
-                    posterior_covs.append(posterior_cov)
-                    mean_EPs.append(mean_EP)
-                    precision_EPs.append(precision_EP)
-                    amplitude_EPs.append(amplitude_EP)
+                    # posterior_means.append(posterior_mean)
+                    # posterior_covs.append(posterior_cov)
+                    # mean_EPs.append(mean_EP)
+                    # precision_EPs.append(precision_EP)
+                    # amplitude_EPs.append(amplitude_EP)
                     # approximate_log_marginal_likelihood.append(
                     #   approximate_marginal_log_likelihood)
+                    pass
             else:
                 if precision_EP_n < 0.0 or posterior_covariance_n_new < 0.0:
                     print(
