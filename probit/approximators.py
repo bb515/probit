@@ -1485,9 +1485,10 @@ class EPGP(Approximator):
                     precision_EP[index], grad_Z_wrt_cavity_mean_n,
                     diff)
                 # Update posterior mean and rank-1 covariance
-                posterior_mean = posterior_mean + eta * posterior_cov[:, index]
+                a_n = posterior_cov[:, index]
+                posterior_mean = posterior_mean + eta * a_n
                 posterior_cov = posterior_cov - rho * np.outer(
-                    posterior_cov[:, index], posterior_cov[:, index])
+                    a_n, a_n)
                 # Update EP parameters
                 error += (diff**2
                           + (mean_EP_n - mean_EP[index])**2
