@@ -113,28 +113,28 @@ def main():
         profile.enable()
     #sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets["benchmark"]:
-        (X_trains, t_trains,
-        X_tests, t_tests,
-        X_true, y_tests,
+        (X_trains, y_trains,
+        X_tests, y_tests,
+        X_true, g_tests,
         cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
         J, D, Kernel) = load_data(
             dataset, bins)
-        N_train = np.shape(t_trains[0])
+        N_train = np.shape(y_trains[0])
         Approximator, steps, M, kernel = get_approximator(
             approximation, Kernel, varphi_0, signal_variance_0, N_train)
         outer_loops(
-            Approximator, Kernel, X_trains, t_trains, X_tests, t_tests, steps,
+            Approximator, Kernel, X_trains, y_trains, X_tests, y_tests, steps,
             cutpoints_0, varphi_0, noise_variance_0, signal_variance_0, J, D)
         if "S" in approximation:
             # Initiate sparse classifier
             classifier = Approximator(
                 M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                kernel=kernel, J=J, data=(X_trains[2], t_trains[2]))
+                kernel=kernel, J=J, data=(X_trains[2], y_trains[2]))
         else:
             # Initiate classifier
             classifier = Approximator(
                 cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                kernel=kernel, J=J, data=(X_trains[2], t_trains[2]))
+                kernel=kernel, J=J, data=(X_trains[2], y_trains[2]))
         trainables = np.ones(5)  # three
         # trainables = np.ones(15)  # thirteen
         # Fix noise_variance
@@ -148,28 +148,28 @@ def main():
         classifier = train(
             classifier, method, trainables)
         fx, metrics = test(
-            classifier, X_tests[2], t_tests[2], y_tests[2], steps)
+            classifier, X_tests[2], y_tests[2], g_tests[2], steps)
     elif dataset in datasets["synthetic"]:
-        # (X, Y, t,
+        # (X, g, y,
         # cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
         # J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
-        (X, t,
-        X_true, Y_true,
+        (X, y,
+        X_true, g_true,
         cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
-        N_train = np.shape(t)[0]
+        N_train = np.shape(y)[0]
         Approximator, steps, M, kernel = get_approximator(
             approximation, Kernel, varphi_0, signal_variance_0, N_train)
         if "S" in approximation:
             # Initiate sparse classifier
             classifier = Approximator(
                 M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                kernel=kernel, J=J, data=(X, t))
+                kernel=kernel, J=J, data=(X, y))
         else:
             # Initiate classifier
             classifier = Approximator(
                 cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                kernel=kernel, J=J, data=(X, t))
+                kernel=kernel, J=J, data=(X, y))
         trainables = np.ones(J + 2)
         # Fix noise variance
         trainables[0] = 0
@@ -199,10 +199,10 @@ def main():
         # classifier = train(classifier, method, trainables)
         # classifier = train(
         #     classifier, method, trainables, verbose=True, steps=steps)
-        # test(classifier, X, t, Y_true, steps)
+        # test(classifier, X, y, g_true, steps)
         # grid_synthetic(classifier, domain, res, steps, trainables, show=True)
         plot_synthetic(
-            classifier, dataset, X_true, Y_true, steps, colors=colors)
+            classifier, dataset, X_true, g_true, steps, colors=colors)
         #plot_synthetic(classifier, dataset, X, Y, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
