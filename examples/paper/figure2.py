@@ -76,15 +76,15 @@ def main():
             varphi=lengthscale_0,
             variance=variance_0, varphi_hyperparameters=varphi_hyperparameters)
 
-        indices = np.ones(J + 2)
+        trainables = np.ones(J + 2)
         # Fix noise_variance
-        indices[0] = 0
+        trainables[0] = 0
         # Fix scale
-        indices[J] = 0
+        trainables[J] = 0
         # Fix varphi
-        #indices[-1] = 0
+        #trainables[-1] = 0
         # Fix cutpoints
-        indices[1:J] = 0
+        trainables[1:J] = 0
 
         # (log) domain of grid
         domain = ((-1.5, 0.33), None)
@@ -145,7 +145,7 @@ def main():
                 # plot figures
                 (thetas, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
                         p_pseudo_marginals_hi, p_priors) = figure2(
-                    hyper_sampler, approximator, domain, res, indices,
+                    hyper_sampler, approximator, domain, res, trainables,
                     num_importance_samples=Nimp, steps=steps,
                     reparameterised=False, show=True, write=True)
                 if i==0:

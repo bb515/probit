@@ -11,7 +11,7 @@ import matplotlib.colors as mcolors
 from matplotlib import rc
 
 
-def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
+def grid(classifier, X_trains, t_trains, domain, res, now, trainables=None):
     """
     Grid of (optimised and converged) variational lower bound across the chosen
     hyperparameters.
@@ -37,8 +37,8 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
     :type noise_variance: float or None
     :arg variance:
     :type variance: float or None:
-    :arg indices:
-    :type indices: :class:`numpy.ndarray`
+    :arg trainables:
+    :type trainables: :class:`numpy.ndarray`
     """
     Z_av = []
     grad_av = []
@@ -53,7 +53,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, indices=None):
         x, y,
         xlabel, ylabel,
         xscale, yscale) = classifier.grid_over_hyperparameters(
-            domain, res, indices=indices, verbose=True, steps=1000)
+            domain, res, trainables=trainables, verbose=True, steps=1000)
         Z_av.append(Z)
         grad_av.append(grad)
         if ylabel is None:
@@ -289,7 +289,7 @@ def plot(classifier, X_test, title=""):
     plt.close()
 
 
-def train(classifier, method, indices, verbose=True, steps=None, max_sec=5000):
+def train(classifier, method, trainables, verbose=True, steps=None, max_sec=5000):
     """
     Hyperparameter training via gradient descent of the objective function, a
     negative log marginal likelihood (or bound thereof).
@@ -298,9 +298,9 @@ def train(classifier, method, indices, verbose=True, steps=None, max_sec=5000):
     :type classifier: :class:`probit.estimators.Approximator`
         or :class:`probit.samplers.Sampler`
     :arg str method: "CG" or "L-BFGS-B" seem to be widely used and work well.
-    :arg indices: Binary array or list of indices indicating which
+    :arg trainables: Binary array or list of trainables indicating which
         hyperparameters to fix, and which to optimize.
-    :type indices: :class:`numpy.ndarray` or list
+    :type trainables: :class:`numpy.ndarray` or list
     :arg bool verbose: Verbosity bool, default True
     :arg int steps: The number of steps to run the algorithm on the inner loop.
     :arg float max_sec: The max time to do optimization for, in seconds.
@@ -310,8 +310,8 @@ def train(classifier, method, indices, verbose=True, steps=None, max_sec=5000):
         :class:`numpy.ndarray`, float or :class:`numpy.ndarray`, float, float)
     """
     minimize_stopper = MinimizeStopper(max_sec=max_sec)
-    theta = classifier.get_theta(indices)
-    args = (indices, verbose, steps)
+    theta = classifier.get_theta(trainables)
+    args = (trainables, verbose, steps)
     res = minimize(
         classifier.hyperparameter_training_step, theta,
         args, method=method, jac=True,
@@ -749,13 +749,13 @@ def outer_loops_Rogers(
 
 
 def grid_synthetic(
-    classifier, domain, res, indices, show=False):
+    classifier, domain, res, trainables, show=False):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     (Z, grad,
     x, y,
     xlabel, ylabel,
     xscale, yscale) = classifier.grid_over_hyperparameters(
-        domain=domain, res=res, indices=indices)
+        domain=domain, res=res, trainables=trainables)
     print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         plt.plot(x, Z)
@@ -1121,7 +1121,7 @@ def plot_synthetic(
 
 
 def figure2(
-        hyper_sampler, approximator, domain, res, indices,
+        hyper_sampler, approximator, domain, res, trainables,
         num_importance_samples, steps=None,
         reparameterised=False, verbose=False, show=False, write=True):
     """
@@ -1146,7 +1146,7 @@ def figure2(
     xx, yy,
     thetas,
     *_) = approximator._grid_over_hyperparameters_initiate(
-        res, domain, indices, approximator.cutpoints)
+        res, domain, trainables, approximator.cutpoints)
     log_p_pseudo_marginalss = []
     log_p_priors = []
     if x2s is not None:
@@ -1162,11 +1162,11 @@ def figure2(
         theta = thetas[i]
         # Need to update sampler hyperparameters
         approximator._grid_over_hyperparameters_update(
-            theta, indices, approximator.cutpoints)
-        phi = approximator.get_phi(indices)
+            theta, trainables, approximator.cutpoints)
+        phi = approximator.get_phi(trainables)
         (log_p_pseudo_marginals,
                 log_p_prior) = hyper_sampler.tmp_compute_marginal(
-            phi, indices, steps=steps, reparameterised=reparameterised,
+            phi, trainables, steps=steps, reparameterised=reparameterised,
             num_importance_samples=num_importance_samples)
         log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
         log_p_priors.append(log_p_prior)

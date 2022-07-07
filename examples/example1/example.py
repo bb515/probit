@@ -132,18 +132,18 @@ def main():
             classifier = Approximator(
                 cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                 kernel=kernel, J=J, data=(X_trains[2], t_trains[2]))
-        indices = np.ones(5)  # three
-        # indices = np.ones(15)  # thirteen
+        trainables = np.ones(5)  # three
+        # trainables = np.ones(15)  # thirteen
         # Fix noise_variance
-        indices[0] = 0
+        trainables[0] = 0
         # Fix cutpoints
-        indices[1:J] = 0
+        trainables[1:J] = 0
         # Fix signal variance
-        indices[J] = 0
+        trainables[J] = 0
         # Fix varphi
-        indices[-1] = 0
+        trainables[-1] = 0
         classifier = train(
-            classifier, method, indices)
+            classifier, method, trainables)
         fx, metrics = test(
             classifier, X_tests[2], t_tests[2], y_tests[2], steps)
     elif dataset in datasets["synthetic"]:
@@ -167,15 +167,15 @@ def main():
             classifier = Approximator(
                 cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                 kernel=kernel, J=J, data=(X, t))
-        indices = np.ones(J + 2)
+        trainables = np.ones(J + 2)
         # Fix noise variance
-        indices[0] = 0
+        trainables[0] = 0
         # Fix signal variance
-        indices[J] = 0
+        trainables[J] = 0
         # Fix varphi
-        indices[-1] = 0
+        trainables[-1] = 0
         # Fix cutpoints
-        indices[1] = 0
+        trainables[1] = 0
         # Just varphi
         domain = ((-0.0, 0.3), None)
         res = (100, None)
@@ -191,13 +191,13 @@ def main():
         # # cutpoints b_1 and b_2 - b_1
         # domain = ((-0.75, -0.5), (-1.0, 1.0))
         # res = (14, 14)
-        # grid_synthetic(classifier, domain, res, indices, show=False)
+        # grid_synthetic(classifier, domain, res, trainables, show=False)
         # plot(classifier, domain=None)
-        # classifier = train(classifier, method, indices)
+        # classifier = train(classifier, method, trainables)
         # classifier = train(
-        #     classifier, method, indices, verbose=True, steps=steps)
+        #     classifier, method, trainables, verbose=True, steps=steps)
         # test(classifier, X, t, Y_true, steps)
-        # grid_synthetic(classifier, domain, res, indices, show=True)
+        # grid_synthetic(classifier, domain, res, trainables, show=True)
         plot_synthetic(
             classifier, dataset, X_true, Y_true, steps, colors=colors)
         #plot_synthetic(classifier, dataset, X, Y, colors=colors)

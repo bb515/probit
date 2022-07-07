@@ -117,15 +117,15 @@ def main():
         M = 100
         # varphis_step = varphis[1:] - varphis[:-1]
         # varphis = varphis[:-1]
-        indices = np.ones(J + 2)
+        trainables = np.ones(J + 2)
         # Fix noise_variance
-        indices[0] = 0
+        trainables[0] = 0
         # Fix scale
-        indices[J] = 0
+        trainables[J] = 0
         # Fix varphi
-        #indices[-1] = 0
+        #trainables[-1] = 0
         # Fix cutpoints
-        indices[1:J] = 0
+        trainables[1:J] = 0
         # Just varphi
         domain = ((-1.5, 0.33), None)
         res = (M + 1, None)
@@ -135,9 +135,9 @@ def main():
         varphis_step = varphis[1:] - varphis[:-1]
         varphis = varphis[1:]
 
-        theta = sampler.get_phi(indices)
+        theta = sampler.get_phi(trainables)
         proposal_cov = 0.05
-        proposal_L_cov = proposal_initiate(theta, indices, proposal_cov)
+        proposal_L_cov = proposal_initiate(theta, trainables, proposal_cov)
 
         # Pseudo Marginal approach - EP
         # Initiate hyper-parameter sampler
@@ -152,9 +152,9 @@ def main():
             print(i)
             # Need to update sampler hyperparameters
             sampler.hyperparameters_update(varphi=varphi)
-            theta=sampler.get_phi(indices)
+            theta=sampler.get_phi(trainables)
             log_p_theta_giv_y_nu = hyper_sampler.tmp_compute_marginal(
-                f_true, theta, indices, proposal_L_cov, reparameterised=True)
+                f_true, theta, trainables, proposal_L_cov, reparameterised=True)
             log_p_theta_giv_y_nus.append(log_p_theta_giv_y_nu)
         plt.plot(varphis, log_p_theta_giv_y_nus)
         plt.savefig("AAa {}.png".format(lengthscale_0))
@@ -177,9 +177,9 @@ def main():
         #     print(i)
         #     # Need to update sampler hyperparameters
         #     sampler.hyperparameters_update(varphi=varphi)
-        #     theta=sampler.get_phi(indices)
+        #     theta=sampler.get_phi(trainables)
         #     log_p_theta_giv_ms.append(hyper_sampler.tmp_compute_marginal(
-        #             f_true, theta, indices, proposal_L_cov, reparameterised=True))
+        #             f_true, theta, trainables, proposal_L_cov, reparameterised=True))
         # plt.plot(log_p_theta_giv_ms, 'k')
         # plt.savefig("SAa.png")
         # plt.show()
@@ -202,7 +202,7 @@ def main():
         #     # plot figures
         #     (theta, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
         #             p_pseudo_marginals_hi, p_priors) = figure2(
-        #         hyper_sampler, approximator, domain, res, indices,
+        #         hyper_sampler, approximator, domain, res, trainables,
         #         num_importance_samples=64, steps=steps,
         #         reparameterised=False, show=True, write=True, verbose=False)
         #     plt.plot(theta, p_pseudo_marginals_mean, color,

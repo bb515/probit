@@ -2325,7 +2325,7 @@ class PEPGP(EPGP):
 
     def approximate(self, steps, posterior_mean_0, posterior_cov_0=None,
             first_step=0, write=False):
-
+        pass
 
     def approximate(
             self, steps, posterior_mean_0=None, posterior_cov_0=None,
