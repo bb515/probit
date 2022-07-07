@@ -11,7 +11,8 @@ import matplotlib.colors as mcolors
 from matplotlib import rc
 
 
-def grid(classifier, X_trains, t_trains, domain, res, now, trainables=None):
+def grid(classifier, X_trains, t_trains,
+        domain, res, steps, now, trainables=None):
     """
     Grid of (optimised and converged) variational lower bound across the chosen
     hyperparameters.
@@ -27,6 +28,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, trainables=None):
     :type domain: (tuple, tuple) or (tuple, None)
     :arg res:
     :type res: (tuple, tuple) or (tuple, None)
+    :arg int steps:
     :arg string now: A string for plots, can be e.g., a time stamp, and is
         to distinguish between plots.
     :arg cutpoints:
@@ -53,7 +55,7 @@ def grid(classifier, X_trains, t_trains, domain, res, now, trainables=None):
         x, y,
         xlabel, ylabel,
         xscale, yscale) = classifier.grid_over_hyperparameters(
-            domain, res, trainables=trainables, verbose=True, steps=1000)
+            domain, res, steps, trainables=trainables, verbose=True)
         Z_av.append(Z)
         grad_av.append(grad)
         if ylabel is None:
@@ -203,7 +205,7 @@ def test(classifier, X_test, t_test, y_test, steps):
     (fx, gx,
         weights, (cov, is_reparameterised)
         ) = classifier.approximate_posterior(
-                None, None, steps=steps, first_step=0,
+                None, None, steps, first_step=0,
                 return_reparameterised=True, verbose=True)
     (Z, posterior_predictive_m, posterior_std) = classifier.predict(
         X_test, cov, weights)
@@ -334,7 +336,7 @@ def save_model(
     (fx, gx,
         posterior_mean, (posterior_inv_cov, is_reparametrised)
         ) = classifier.approximate_posterior(
-                None, None, steps=steps, first_step=1,
+                None, None, steps, first_step=1,
                 return_reparameterised=True, verbose=True)
     np.savez(
         model_file, fx=fx, gx=gx, posterior_mean=posterior_mean,
@@ -367,7 +369,7 @@ def save_model(
 #         (fx, gx,
 #         posterior_mean, (posterior_inv_cov, is_reparametrised)
 #         ) = classifier.approximate_posterior(
-#                 None, None, steps=steps, first_step=1,
+#                 None, None, steps, first_step=1,
 #                 return_reparameterised=True, verbose=True)
 #         # Test
 #         (Z,
@@ -749,13 +751,13 @@ def outer_loops_Rogers(
 
 
 def grid_synthetic(
-    classifier, domain, res, trainables, show=False):
+    classifier, domain, res, steps, trainables, show=False):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
     (Z, grad,
     x, y,
     xlabel, ylabel,
     xscale, yscale) = classifier.grid_over_hyperparameters(
-        domain=domain, res=res, trainables=trainables)
+        domain=domain, res=res, steps=steps, trainables=trainables)
     print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         plt.plot(x, Z)
@@ -865,7 +867,7 @@ def plot(classifier, steps, domain=None):
     (fx, gx,
     weights, (cov, is_reparametrised)
     ) = classifier.approximate_posterior(
-            None, None, steps=steps, first_step=1, return_reparameterised=True,
+            None, None, steps, first_step=1, return_reparameterised=True,
             verbose=True)
     if domain is not None:
         (xlims, ylims) = domain
@@ -911,7 +913,7 @@ def plot_synthetic(
     (fx, gx,
     weights, (cov, is_reparametrised)
     ) = classifier.approximate_posterior(
-            None, None, steps=steps, first_step=1,
+            None, None, steps, first_step=1,
             return_reparameterised=True, verbose=True)
 
     if dataset in datasets["synthetic"]:
@@ -1166,7 +1168,7 @@ def figure2(
         phi = approximator.get_phi(trainables)
         (log_p_pseudo_marginals,
                 log_p_prior) = hyper_sampler.tmp_compute_marginal(
-            phi, trainables, steps=steps, reparameterised=reparameterised,
+            phi, trainables, steps, reparameterised=reparameterised,
             num_importance_samples=num_importance_samples)
         log_p_pseudo_marginalss.append(log_p_pseudo_marginals)
         log_p_priors.append(log_p_prior)

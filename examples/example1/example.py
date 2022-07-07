@@ -191,13 +191,13 @@ def main():
         # # cutpoints b_1 and b_2 - b_1
         # domain = ((-0.75, -0.5), (-1.0, 1.0))
         # res = (14, 14)
-        # grid_synthetic(classifier, domain, res, trainables, show=False)
+        # grid_synthetic(classifier, domain, res, steps, trainables, show=False)
         # plot(classifier, domain=None)
         # classifier = train(classifier, method, trainables)
         # classifier = train(
         #     classifier, method, trainables, verbose=True, steps=steps)
         # test(classifier, X, t, Y_true, steps)
-        # grid_synthetic(classifier, domain, res, trainables, show=True)
+        # grid_synthetic(classifier, domain, res, steps, trainables, show=True)
         plot_synthetic(
             classifier, dataset, X_true, Y_true, steps, colors=colors)
         #plot_synthetic(classifier, dataset, X, Y, colors=colors)

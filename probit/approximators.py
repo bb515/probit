@@ -333,7 +333,7 @@ class Approximator(ABC):
             noise_variance=noise_variance)
 
     def _hyperparameter_training_step_initialise(
-            self, phi, trainables, steps):
+            self, phi, trainables):
         """
         TODO: this doesn't look correct, for example if only training a subset
         Initialise the hyperparameter training step.
@@ -402,7 +402,7 @@ class Approximator(ABC):
         error = np.inf
         iteration = 0
         trainables_where = np.where(trainables!=0)
-        return (intervals, steps, error, iteration, trainables_where, gx)
+        return (intervals, error, iteration, trainables_where, gx)
 
     def hyperparameter_training_step(
             self, phi, trainables, verbose, steps,
@@ -412,7 +412,7 @@ class Approximator(ABC):
         :return: fx, gx
         """
         return self.approximate_posterior(
-            phi, trainables, first_step=first_step, steps=steps,
+            phi, trainables, steps, first_step=first_step,
             posterior_mean_0=None, return_reparameterised=None,
             verbose=verbose)  # returns (fx, gx)
 
@@ -1127,8 +1127,8 @@ class VBGP(Approximator):
         return -gx
 
     def grid_over_hyperparameters(
-            self, domain, res, trainables=None, posterior_mean_0=None,
-            verbose=False, steps=100):
+            self, domain, res, steps, trainables=None, posterior_mean_0=None,
+            verbose=False):
         """
         TODO: Can this be moved to a plot.py
         Return meshgrid values of fx and directions of gx over hyperparameter
@@ -1211,7 +1211,7 @@ class VBGP(Approximator):
             return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
 
     def approximate_posterior(
-            self, phi, trainables, steps=None, first_step=0, max_iter=2,
+            self, phi, trainables, steps, first_step=0, max_iter=2,
             return_reparameterised=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
@@ -1225,9 +1225,9 @@ class VBGP(Approximator):
         :rtype: float, `:class:numpy.ndarray`
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, steps, error, iteration, trainables_where,
+        (intervals, error, iteration, trainables_where,
         gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables, steps)
+            phi, trainables)
         fx_old = np.inf
         posterior_mean = None
         # Convergence is sometimes very fast so this may not be necessary
@@ -1395,16 +1395,14 @@ class EPGP(Approximator):
         amplitude_EPs = []
         precision_EPs = []
         approximate_marginal_likelihoods = []
-        # random ints
-        permutation = np.random.choice(self.N, self.N, replace=False)
         containers = (posterior_means, posterior_covs, mean_EPs, precision_EPs,
                       amplitude_EPs, approximate_marginal_likelihoods)
         return (posterior_mean_0, posterior_cov_0, mean_EP_0,
                 precision_EP_0, amplitude_EP_0, grad_Z_wrt_cavity_mean_0,
-                permutation, containers, error)
+                containers, error)
 
     def approximate(
-            self, trainables, posterior_mean_0=None, posterior_cov_0=None,
+            self, indices, posterior_mean_0=None, posterior_cov_0=None,
             mean_EP_0=None, precision_EP_0=None, amplitude_EP_0=None,
             write=False):
         """
@@ -1453,12 +1451,12 @@ class EPGP(Approximator):
         """
         (posterior_mean, posterior_cov, mean_EP, precision_EP,
                 amplitude_EP, grad_Z_wrt_cavity_mean,
-                permutation, containers, error) = self._approximate_initiate(
+                containers, error) = self._approximate_initiate(
             posterior_mean_0, posterior_cov_0, mean_EP_0, precision_EP_0,
             amplitude_EP_0)
         (posterior_means, posterior_covs, mean_EPs, precision_EPs,
             amplitude_EPs, approximate_log_marginal_likelihoods) = containers
-        for index in trainables:
+        for index in indices:
             target = self.t_train[index]
             (cavity_mean_n, cavity_variance_n,
             posterior_variance_n, posterior_mean_n,
@@ -1913,11 +1911,11 @@ class EPGP(Approximator):
             return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
     def approximate_posterior(
-            self, phi, trainables, steps=None,
+            self, phi, trainables, steps,
             posterior_mean_0=None, return_reparameterised=False,
             posterior_cov_0=None, mean_EP_0=None,
             precision_EP_0=None,
-            amplitude_EP_0=None, first_step=0, verbose=True):
+            amplitude_EP_0=None, verbose=True):
         """
         Optimisation routine for hyperparameters.
 
@@ -1945,24 +1943,26 @@ class EPGP(Approximator):
         :return: fx the objective and gx the objective gradient
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, steps, error, iteration, trainables_where,
+        (intervals, error, iteration, trainables_where,
         gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables, steps)
+            phi, trainables)
         posterior_mean = posterior_mean_0
         posterior_cov = posterior_cov_0
         mean_EP = mean_EP_0
         precision_EP = precision_EP_0
         amplitude_EP = amplitude_EP_0
         while error / steps > self.EPS**2:
+            # random permutation of data
+            indices = np.random.choice(self.N, self.N, replace=False)
             iteration += 1
             (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov,
             mean_EP, precision_EP, amplitude_EP,
             containers) = self.approximate(
-                steps, posterior_mean_0=posterior_mean,
+                indices, posterior_mean_0=posterior_mean,
                 posterior_cov_0=posterior_cov, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP,
                 amplitude_EP_0=amplitude_EP,
-                first_step=first_step, write=False)
+                write=False)
         # TODO: this part requires an inverse, could it be sparsified
         # by putting q(f) = p(f_m) R(f_n). This is probably how FITC works
         (weight, precision_EP, L_cov, cov) = self.compute_weights(
@@ -2878,7 +2878,7 @@ class PEPGP(EPGP):
             return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
     def approximate_posterior(
-            self, phi, trainables, steps=None,
+            self, phi, trainables, steps,
             posterior_mean_0=None, return_reparameterised=False,
             posterior_cov_0=None, mean_EP_0=None,
             precision_EP_0=None,
@@ -2910,9 +2910,9 @@ class PEPGP(EPGP):
         :return: fx the objective and gx the objective gradient
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, steps, error, iteration, trainables_where,
+        (intervals, error, iteration, trainables_where,
         gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables, steps)
+            phi, trainables)
         posterior_mean = posterior_mean_0
         posterior_cov = posterior_cov_0
         mean_EP = mean_EP_0
@@ -3679,7 +3679,7 @@ class LaplaceGP(Approximator):
         return error, weight, posterior_mean, containers
 
     def approximate_posterior(
-            self, phi, trainables, steps=None,
+            self, phi, trainables, steps,
             posterior_mean_0=None,
             return_reparameterised=False, first_step=0, verbose=False):
         """
@@ -3700,9 +3700,9 @@ class LaplaceGP(Approximator):
         :return:
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, steps, error, iteration, trainables_where,
+        (intervals, error, iteration, trainables_where,
                 gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables, steps)
+            phi, trainables)
         posterior_mean = posterior_mean_0
         while error / steps > self.EPS_2 and iteration < 10:  # TODO is this overkill?
             iteration += 1
