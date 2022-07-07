@@ -301,7 +301,7 @@ class Sampler(ABC):
             else:
                 return self._predict_scalar(y_samples, cutpoints_samples, X_test)
 
-    def _hyperparameter_initialise(self, theta, indices):
+    def _hyperparameter_initialise(self, theta, trainables):
         """
         Initialise the hyperparameters.
 
@@ -325,7 +325,7 @@ class Sampler(ABC):
         scale = None
         varphi = None
         index = 0
-        if indices[0]:
+        if trainables[0]:
             noise_std = np.exp(theta[0])
             noise_variance = noise_std**2
             if noise_variance < 1.0e-04:
@@ -340,21 +340,21 @@ class Sampler(ABC):
                 "(noise_variance={}).".format(noise_variance))
             index += 1
         for j in range(1, self.J):
-            if cutpoints is None and indices[j]:
+            if cutpoints is None and trainables[j]:
                 # Get cutpoints from classifier
                 cutpoints = self.cutpoints
-        if indices[1]:
+        if trainables[1]:
             cutpoints[1] = theta[1]
             index += 1
         for j in range(2, self.J):
-            if indices[j]:
+            if trainables[j]:
                 cutpoints[j] = cutpoints[j - 1] + np.exp(theta[j])
                 index += 1
-        if indices[self.J]:
+        if trainables[self.J]:
             scale_std = np.exp(theta[self.J])
             scale = scale_std**2
             index += 1
-        if indices[self.J + 1]:
+        if trainables[self.J + 1]:
             if self.kernel._ARD:
                 # In this case, then there is a scale parameter, the first
                 # cutpoint, the interval parameters,
@@ -471,32 +471,32 @@ class Sampler(ABC):
         self._update_posterior(L_K=L_K, log_det_K=log_det_K)
         warnings.warn("Done updating posterior covariance.")
 
-    def get_phi(self, indices):
+    def get_phi(self, trainables):
         """
         Get the parameters (phi) for unconstrained sampling.
 
-        :arg indices: Indicator array of the hyperparameters to sample over.
-        :type indices: :class:`numpy.ndarray`
+        :arg trainables: Indicator array of the hyperparameters to sample over.
+        :type trainables: :class:`numpy.ndarray`
         :returns: The unconstrained parameters to optimize over, phi.
         :rtype: :class:`numpy.array`
         """
         phi = []
-        if indices[0]:
+        if trainables[0]:
             phi.append(np.log(np.sqrt(self.noise_variance)))
-        if indices[1]:
+        if trainables[1]:
             phi.append(self.cutpoints[1])
         for j in range(2, self.J):
-            if indices[j]:
+            if trainables[j]:
                 phi.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
-        if indices[self.J]:
+        if trainables[self.J]:
             phi.append(np.log(np.sqrt(self.kernel.variance)))
         # TODO: replace this with kernel number of hyperparameters.
-        if indices[self.J + 1]:
+        if trainables[self.J + 1]:
             phi.append(np.log(self.kernel.varphi))
         return np.array(phi)
 
     def _grid_over_hyperparameters_initiate(
-            self, res, domain, indices, cutpoints):
+            self, res, domain, trainables, cutpoints):
         """
         Initiate metadata and hyperparameters for plotting the objective
         function surface over hyperparameters.
@@ -514,14 +514,14 @@ class Sampler(ABC):
         label = []
         axis_scale = []
         space = []
-        if indices[0]:
+        if trainables[0]:
             # Grid over noise_std
             label.append(r"$\sigma$")
             axis_scale.append("log")
             space.append(
                 np.logspace(domain[index][0], domain[index][1], res[index]))
             index += 1
-        if indices[1]:
+        if trainables[1]:
             # Grid over the first cutpoint b_1
             label.append(r"$\b_{1}$")
             axis_scale.append("linear")
@@ -529,7 +529,7 @@ class Sampler(ABC):
                 np.linspace(domain[index][0], domain[index][1], res[index]))
             index += 1
         for j in range(2, self.J):
-            if indices[j]:
+            if trainables[j]:
                 # Grid over b_j - b_{j-1}
                 label.append(r"$b_{} - b_{}$".format(j, j-1))
                 axis_scale.append("log")
@@ -537,7 +537,7 @@ class Sampler(ABC):
                     np.logspace(
                         domain[index][0], domain[index][1], res[index]))
                 index += 1
-        if indices[self.J]:
+        if trainables[self.J]:
             # Grid over scale
             label.append("$scale$")
             axis_scale.append("log")
@@ -550,13 +550,13 @@ class Sampler(ABC):
             #  the first cutpoint, the interval parameters,
             # and lengthscales parameter for each dimension and class
             for j in range(self.J * self.D):
-                if indices[self.J + 1 + j]:
+                if trainables[self.J + 1 + j]:
                     # grid over this particular hyperparameter
                     raise ValueError("TODO")
                     index += 1
         else:
             gx_0 = np.empty(1 + self.J - 1 + 1 + 1)
-            if indices[self.J + 1]:
+            if trainables[self.J + 1]:
                 # Grid over only kernel hyperparameter, varphi
                 label.append(r"$\varphi$")
                 axis_scale.append("log")
@@ -588,16 +588,16 @@ class Sampler(ABC):
         assert len(space) ==  2
         assert len(label) == 2
         intervals = cutpoints[2:self.J] - cutpoints[1:self.J - 1]
-        indices_where = np.where(indices != 0)
+        trainables_where = np.where(trainables != 0)
         return (
             space[0], space[1],
             label[0], label[1],
             axis_scale[0], axis_scale[1],
             meshgrid[0], meshgrid[1],
-            Phi_new, fxs, gxs, gx_0, intervals, indices_where)
+            Phi_new, fxs, gxs, gx_0, intervals, trainables_where)
 
     def _grid_over_hyperparameters_update(
-        self, phi, indices, cutpoints):
+        self, phi, trainables, cutpoints):
         """
         Update the hyperparameters, phi.
 
@@ -607,7 +607,7 @@ class Sampler(ABC):
         :type phi:
         """
         index = 0
-        if indices[0]:
+        if trainables[0]:
             if np.isscalar(phi):
                 noise_std = phi
             else:
@@ -618,27 +618,27 @@ class Sampler(ABC):
             index += 1
         else:
             noise_variance_update = None
-        if indices[1]:
+        if trainables[1]:
             cutpoints = np.empty((self.J + 1,))
             cutpoints[0] = np.NINF
             cutpoints[-1] = np.inf
             cutpoints[1] = phi[index]
             index += 1
         for j in range(2, self.J):
-            if indices[j]:
+            if trainables[j]:
                 if np.isscalar(phi):
                     cutpoints[j] = cutpoints[j-1] + phi
                 else:
                     cutpoints[j] = cutpoints[j-1] + phi[index]
                 index += 1
-        if indices[self.J]:
+        if trainables[self.J]:
             scale_std = phi[index]
             scale = scale_std**2
             index += 1
             scale_update = scale
         else:
             scale_update = None
-        if indices[self.J + 1]:  # TODO: replace this with kernel number of hyperparameters.
+        if trainables[self.J + 1]:  # TODO: replace this with kernel number of hyperparameters.
             if np.isscalar(phi):
                 varphi = phi
             else:
@@ -698,7 +698,7 @@ class GibbsGP(Sampler):
         nu = cov @ y
         return K @ nu, nu  # (N, J), (N, )
 
-    def sample_gibbs(self, m_0, steps, first_step=1):
+    def sample_gibbs(self, m_0, steps, first_step=0):
         """
         Sample from the posterior.
 
@@ -742,7 +742,7 @@ class GibbsGP(Sampler):
         cutpoints_0_prev_j = cutpoints_0[self.t_train]
         return m_0, cutpoints_0, cutpoints_0_prev_jplus1, cutpoints_0_prev_j, m_samples, y_samples, cutpoints_samples
 
-    def sample_metropolis_within_gibbs(self, indices, m_0, cutpoints_0, sigma_cutpoints, steps, first_step=1):
+    def sample_metropolis_within_gibbs(self, trainables, m_0, cutpoints_0, sigma_cutpoints, steps, first_step=0):
         """
         Sample from the posterior.
 
@@ -778,7 +778,7 @@ class GibbsGP(Sampler):
             cutpoints[-1] = np.inf
             for j in range(1, self.J):
                 cutpoints_proposal = -np.inf
-                if indices[j]:
+                if trainables[j]:
                     while cutpoints_proposal <= cutpoints[j - 1] or cutpoints_proposal > cutpoints_prev[j + 1]:
                         cutpoints_proposal = norm.rvs(loc=cutpoints_prev[j], scale=sigma_cutpoints)
                 else:
@@ -823,15 +823,15 @@ class GibbsGP(Sampler):
         return np.array(m_samples), np.array(y_samples), np.array(cutpoints_samples)
 
     def _sample_initiate(self, m_0, cutpoints_0):
-        self.indices = []
+        self.trainables = []
         for j in range(0, self.J -1):
-            self.indices.append(np.where(self.t_train == j))
+            self.trainables.append(np.where(self.t_train == j))
         m_samples = []
         y_samples = []
         cutpoints_samples = []
         return m_0, cutpoints_0, m_samples, y_samples, cutpoints_samples
 
-    def sample(self, m_0, cutpoints_0, steps, first_step=1):
+    def sample(self, m_0, cutpoints_0, steps, first_step=0):
         """
         Sample from the posterior.
 
@@ -859,8 +859,8 @@ class GibbsGP(Sampler):
             uppers = -1. * np.ones(self.J - 2)
             locs = -1. * np.ones(self.J - 2)
             for j in range(self.J - 2):  # TODO change the index to the class.
-                if self.indices[j+1]:
-                    uppers[j] = np.min(np.append(y[self.indices[j + 1]], cutpoints_prev[j + 2]))
+                if self.trainables[j+1]:
+                    uppers[j] = np.min(np.append(y[self.trainables[j + 1]], cutpoints_prev[j + 2]))
                 else:
                     uppers[j] = cutpoints_prev[j + 2]
                 if self.indeces[j]:
@@ -927,7 +927,7 @@ class EllipticalSliceGP(Sampler):
         log_likelihood = self.get_log_likelihood(m_0)
         return m_0, log_likelihood, m_samples, log_likelihood_samples
 
-    def sample(self, m_0, steps, first_step=1):
+    def sample(self, m_0, steps, first_step=0):
         """
         Sample from the latent variables posterior.
 
@@ -1046,16 +1046,16 @@ class SufficientAugmentation(object):
         else:
             self.sampler = sampler
 
-    def tmp_compute_marginal(self, f, theta, indices, proposal_L_cov, reparameterised=True):
+    def tmp_compute_marginal(self, f, theta, trainables, proposal_L_cov, reparameterised=True):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
-                theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                theta, trainables, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
-                theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                theta, trainables, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
         nu = solve_triangular(self.sampler.L_K.T, f, lower=True)  # TODO just make sure this is the correct solve.
@@ -1065,7 +1065,7 @@ class SufficientAugmentation(object):
 
     def transition_operator(
             self, u, log_prior_u, log_jacobian_u,
-            indices, proposal_L_cov, nu, log_p_y_given_m, reparameterised):
+            trainables, proposal_L_cov, nu, log_p_y_given_m, reparameterised):
         """
         Transition operator for the metropolis step.
 
@@ -1089,13 +1089,13 @@ class SufficientAugmentation(object):
         L_Sigma = self.sampler.L_Sigma.copy()
         # Evaluate priors and proposal conditionals
         if reparameterised:
-            v, log_jacobian_v = proposal_reparameterised(u, indices, proposal_L_cov)
-            log_prior_v = prior_reparameterised(v, indices)
+            v, log_jacobian_v = proposal_reparameterised(u, trainables, proposal_L_cov)
+            log_prior_v = prior_reparameterised(v, trainables)
         else:
-            v, log_jacobian_v = proposal(u, indices, proposal_L_cov)
-            log_prior_v = prior(v, indices)
+            v, log_jacobian_v = proposal(u, trainables, proposal_L_cov)
+            log_prior_v = prior(v, trainables)
         # Initialise proposed hyperparameters, and update prior and posterior covariances
-        self.sampler._hyperparameter_initialise(v, indices)
+        self.sampler._hyperparameter_initialise(v, trainables)
         log_p_m_given_v = - 0.5 * self.sampler.log_det_K - self.sampler.N / 2 - 0.5 * nu.T @ nu
         log_p_v_given_m = log_p_m_given_v + log_prior_v
         print(log_p_v_given_m)
@@ -1122,22 +1122,22 @@ class SufficientAugmentation(object):
             joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
             return (u, log_prior_u, log_jacobian_u, joint_log_likelihood, 0)
 
-    def _sample_initiate(self, theta_0, indices, proposal_cov, reparameterised):
+    def _sample_initiate(self, theta_0, trainables, proposal_cov, reparameterised):
         """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
         # Get starting point for the Markov Chain
         if theta_0 is None:
-            theta_0 = self.sampler.get_phi(indices)
+            theta_0 = self.sampler.get_phi(trainables)
         # Get type of proposal density
-        proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
+        proposal_L_cov = proposal_initiate(theta_0, trainables, proposal_cov)
         # Evaluate priors and proposal conditionals
         if reparameterised:
-            theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, indices, proposal_L_cov)
-            log_prior_theta = prior_reparameterised(theta_0, indices)
+            theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, trainables, proposal_L_cov)
+            log_prior_theta = prior_reparameterised(theta_0, trainables)
         else:
-            theta_0, log_jacobian_theta = proposal(theta_0, indices, proposal_L_cov)
-            log_prior_theta = prior(theta_0, indices)
+            theta_0, log_jacobian_theta = proposal(theta_0, trainables, proposal_L_cov)
+            log_prior_theta = prior(theta_0, trainables)
         # Initialise hyperparameters, and update prior and posterior covariances
-        self.sampler._hyperparameter_initialise(theta_0, indices)
+        self.sampler._hyperparameter_initialise(theta_0, trainables)
         # Initiate containers for samples
         theta_samples = []
         m_samples = []
@@ -1147,7 +1147,7 @@ class SufficientAugmentation(object):
             log_jacobian_theta, proposal_L_cov,
             m_samples, joint_log_likelihood_samples, 0)
 
-    def sample(self, m_0, indices, proposal_cov, steps, first_step=1,
+    def sample(self, m_0, trainables, proposal_cov, steps, first_step=0,
             theta_0=None, reparameterised=True):
         """
         Sample from the posterior.
@@ -1163,7 +1163,7 @@ class SufficientAugmentation(object):
         (theta, theta_samples, log_prior_theta,
         log_jacobian_theta, log_marginal_likelihood_theta,
         proposal_L_cov, joint_log_likelihood_samples, naccepted) = self._sample_initiate(
-            theta_0, indices, proposal_cov, reparameterised)
+            theta_0, trainables, proposal_cov, reparameterised)
         (m, log_likelihood, m_samples, log_likelihood_samples) = self.sampler._sample_initiate(m_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
@@ -1184,7 +1184,7 @@ class SufficientAugmentation(object):
             joint_log_likelihood,
             bool) = self.transition_operator(
                 theta, log_prior_theta, log_jacobian_theta,
-                indices, proposal_L_cov, nu, reparameterised)
+                trainables, proposal_L_cov, nu, reparameterised)
             naccepted += bool
             # Update hyperparameters from theta.
             # plt.scatter(self.sampler.X_train, m)
@@ -1249,16 +1249,16 @@ class AncilliaryAugmentation(Sampler):
         # so \nu = solve_triangular(m, L)
         return solve_triangular(f, K)  # TODO: Why have I put (f, K)? Something to do with existing R implementation?
 
-    def tmp_compute_marginal(self, f, theta, indices, proposal_L_cov, reparameterised=True):
+    def tmp_compute_marginal(self, f, theta, trainables, proposal_L_cov, reparameterised=True):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
-                theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                theta, trainables, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
-                theta, indices, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                theta, trainables, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
         log_p_y_giv_nu_theta = self.sampler.get_log_likelihood(f)
@@ -1267,7 +1267,7 @@ class AncilliaryAugmentation(Sampler):
 
     def transition_operator(
             self, u, log_prior_u, log_jacobian_u,
-            indices, proposal_L_cov, nu, log_p_y_given_m, reparameterised):
+            trainables, proposal_L_cov, nu, log_p_y_given_m, reparameterised):
         """
         Transition operator for the metropolis step.
 
@@ -1290,13 +1290,13 @@ class AncilliaryAugmentation(Sampler):
         L_Sigma = self.sampler.L_Sigma.copy()
         # Evaluate priors and proposal conditionals
         if reparameterised:
-            v, log_jacobian_v = proposal_reparameterised(u, indices, proposal_L_cov)
-            log_prior_v = prior_reparameterised(v, indices)
+            v, log_jacobian_v = proposal_reparameterised(u, trainables, proposal_L_cov)
+            log_prior_v = prior_reparameterised(v, trainables)
         else:
-            v, log_jacobian_v = proposal(u, indices, proposal_L_cov)
-            log_prior_v = prior(v, indices)
+            v, log_jacobian_v = proposal(u, trainables, proposal_L_cov)
+            log_prior_v = prior(v, trainables)
         # Initialise proposed hyperparameters, and update prior and posterior covariances
-        self.sampler._hyperparameter_initialise(v, indices)
+        self.sampler._hyperparameter_initialise(v, trainables)
         log_p_m_given_v = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
         log_p_v_given_m = log_p_m_given_v + log_prior_v
         print(log_p_v_given_m)
@@ -1323,22 +1323,22 @@ class AncilliaryAugmentation(Sampler):
             joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
             return (u, log_prior_u, log_jacobian_u, 0)
 
-    def _sample_initiate(self, theta_0, indices, proposal_cov, reparameterised):
+    def _sample_initiate(self, theta_0, trainables, proposal_cov, reparameterised):
         """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
         # Get starting point for the Markov Chain
         if theta_0 is None:
-            theta_0 = self.sampler.get_phi(indices)
+            theta_0 = self.sampler.get_phi(trainables)
         # Get type of proposal density
-        proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
+        proposal_L_cov = proposal_initiate(theta_0, trainables, proposal_cov)
         # Evaluate priors and proposal conditionals
         if reparameterised:
-            theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, indices, proposal_L_cov)
-            log_prior_theta = prior_reparameterised(theta_0, indices)
+            theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, trainables, proposal_L_cov)
+            log_prior_theta = prior_reparameterised(theta_0, trainables)
         else:
-            theta_0, log_jacobian_theta = proposal(theta_0, indices, proposal_L_cov)
-            log_prior_theta = prior(theta_0, indices)
+            theta_0, log_jacobian_theta = proposal(theta_0, trainables, proposal_L_cov)
+            log_prior_theta = prior(theta_0, trainables)
         # Initialise hyperparameters, and update prior and posterior covariances
-        self.sampler._hyperparameter_initialise(theta_0, indices)
+        self.sampler._hyperparameter_initialise(theta_0, trainables)
         # Initiate containers for samples
         theta_samples = []
         m_samples = []
@@ -1348,7 +1348,7 @@ class AncilliaryAugmentation(Sampler):
             log_jacobian_theta, proposal_L_cov,
             m_samples, joint_log_likelihood_samples, 0)
 
-    def sample(self, m_0, indices, proposal_cov, steps, first_step=1,
+    def sample(self, m_0, trainables, proposal_cov, steps, first_step=0,
             theta_0=None, reparameterised=True):
         """
         Sample from the posterior.
@@ -1364,7 +1364,7 @@ class AncilliaryAugmentation(Sampler):
         (theta, theta_samples, log_prior_theta,
         log_jacobian_theta, log_marginal_likelihood_theta,
         proposal_L_cov, joint_log_likelihood_samples, naccepted) = self._sample_initiate(
-            theta_0, indices, proposal_cov, reparameterised)
+            theta_0, trainables, proposal_cov, reparameterised)
         (m, log_likelihood, m_samples, log_likelihood_samples) = self.sampler._sample_initiate(m_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
@@ -1384,7 +1384,7 @@ class AncilliaryAugmentation(Sampler):
             log_jacobian_theta,
             bool) = self.transition_operator(
                 theta, log_prior_theta, log_jacobian_theta,
-                indices, proposal_L_cov, nu, reparameterised)
+                trainables, proposal_L_cov, nu, reparameterised)
             naccepted += bool
             # Update hyperparameters from theta.
             # plt.scatter(self.sampler.X_train, m)
@@ -1429,7 +1429,7 @@ class PseudoMarginal(object):
         else:
             self.approximator = approximator
 
-    def _prior(self, theta, indices):
+    def _prior(self, theta, trainables):
         """
         A priors defined over their usual domains, and so a transformation of
         random variables is used for sampling from proposal distrubutions
@@ -1437,7 +1437,7 @@ class PseudoMarginal(object):
         independent assumption so take the product of prior pdfs.
         """
         (cutpoints, varphi, scale, noise_variance,
-            log_prior_theta) = prior(theta, indices)
+            log_prior_theta) = prior(theta, trainables)
         # Update prior covariance
         self.approximator.hyperparameters_update(
             cutpoints=cutpoints, varphi=varphi, scale=scale,
@@ -1522,27 +1522,27 @@ class PseudoMarginal(object):
         return log_sum_exp - np.log(num_importance_samples)
 
     def tmp_compute_marginal(
-            self, theta, indices, steps=None, num_importance_samples=64,
+            self, theta, trainables, steps, num_importance_samples=64,
             reparameterised=False):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             (cutpoints, varphi, scale, noise_variance,
                     log_p_theta) = prior_reparameterised(
-                theta, indices, self.approximator.J,
+                theta, trainables, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
                 self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
-                theta, indices, self.approximator.J,
+                theta, trainables, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
                 self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         (fx, gx, posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
-            theta, indices, steps=steps, first_step=1, verbose=False,
+            theta, trainables, steps, verbose=False,
             return_reparameterised=False)
         # TODO: check but there may be no need to take this chol
         prior_L_cov = np.linalg.cholesky(
@@ -1589,32 +1589,32 @@ class PseudoMarginal(object):
 
     def _transition_operator(
             self, u, log_p_u, log_jacobian_u, log_p_pseudo_marginal_u,
-            indices, proposal_L_cov, num_importance_samples, reparameterised,
-            verbose=False):
+            trainables, steps, proposal_L_cov, num_importance_samples,
+            reparameterised, verbose=False):
         "Transition operator for the metropolis step."
         # Evaluate priors and proposal conditionals
         if reparameterised:
             v, log_jacobian_v = proposal_reparameterised(
-                u, indices, proposal_L_cov)
+                u, trainables, proposal_L_cov)
             (cutpoints, varphi, scale, noise_variance,
                     log_p_v) = prior_reparameterised(
-                v, indices, self.approximator.J,
+                v, trainables, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
                 self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
-            u, log_jacobian_u = proposal(u, indices, proposal_L_cov,
+            u, log_jacobian_u = proposal(u, trainables, proposal_L_cov,
                 self.approximator.J)
             cutpoints, varphi, scale, noise_variance, log_p_u = prior(
-                u, indices, self.approximator.J,
+                u, trainables, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
                 self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         (fx, gx, posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
-            v, indices, first_step=1, verbose=False)
+            v, trainables, steps, verbose=False)
         prior_L_cov = np.linalg.cholesky(self.approximator.K
             + self.approximator.jitter * np.eye(self.approximator.N))
         half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
@@ -1665,14 +1665,14 @@ class PseudoMarginal(object):
             return (u, log_p_u, log_jacobian_u, log_p_pseudo_marginal_u, 0.0)
 
     def _sample_initiate(
-            self, theta_0, indices, proposal_cov, num_importance_samples,
+            self, theta_0, trainables, proposal_cov, num_importance_samples,
             reparameterised):
         # Get starting point for the Markov Chain
         if theta_0 is None:
-            theta_0 = self.approximator.get_phi(indices)
+            theta_0 = self.approximator.get_phi(trainables)
         (fx, gx, posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
-            theta_0, indices, first_step=1, verbose=False)
+            theta_0, trainables, first_step=0, verbose=False)
         prior_L_cov = np.linalg.cholesky(
             self.approximator.K
             + self.approximator.jitter * np.eye(self.approximator.N))
@@ -1706,22 +1706,22 @@ class PseudoMarginal(object):
                 posterior_cholesky)
 
         # Evaluate priors and proposal conditionals
-        proposal_L_cov = proposal_initiate(theta_0, indices, proposal_cov)
+        proposal_L_cov = proposal_initiate(theta_0, trainables, proposal_cov)
         if reparameterised:
             theta_0, log_jacobian_theta = proposal_reparameterised(
-                theta_0, indices, proposal_L_cov)
+                theta_0, trainables, proposal_L_cov)
             (cutpoints, varphi, scale, noise_variance,
                     log_p_theta) = prior_reparameterised(
-                theta_0, indices, self.approximator.J,
+                theta_0, trainables, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
                 self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             theta_0, log_jacobian_theta = proposal(
-                theta_0, indices, proposal_L_cov, self.approximator.J)
+                theta_0, trainables, proposal_L_cov, self.approximator.J)
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
-                theta_0, indices, self.approximator.J,
+                theta_0, trainables, self.approximator.J,
                 self.approximator.kernel.varphi_hyperparameters,
                 None, None,
                 self.approximator.kernel.variance_hyperparameters,
@@ -1734,26 +1734,26 @@ class PseudoMarginal(object):
             acceptance_rate)
 
     def sample(
-            self, indices, proposal_cov, steps, first_step=1,
+            self, trainables, steps, proposal_cov, n_samples, first_sample=0,
             num_importance_samples=80, theta_0=None,
             reparameterised=True, verbose=False):
         (theta, theta_samples, log_prior_theta,
         log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov,
         acceptance_rate) = self._sample_initiate(
-            theta_0, indices, proposal_cov, num_importance_samples,
+            theta_0, trainables, proposal_cov, num_importance_samples,
             reparameterised)
         for _ in trange(
-                first_step, first_step + steps,
+                first_sample, first_sample + n_samples,
                 desc="Pseudo-marginal Sampler Progress", unit="samples"):
             (theta, log_prior_theta, log_jacobian_theta,
             log_marginal_likelihood_theta, accept) = self._transition_operator(
                 theta, log_prior_theta, log_jacobian_theta,
-                log_marginal_likelihood_theta,
-                indices, proposal_L_cov,
+                log_marginal_likelihood_theta, trainables, steps,
+                proposal_L_cov,
                 num_importance_samples, reparameterised, verbose=verbose)
             acceptance_rate += accept
             theta_samples.append(theta)
-        acceptance_rate /= steps
+        acceptance_rate /= n_samples
         return np.array(theta_samples), acceptance_rate
 
 
