@@ -22,6 +22,7 @@ import numpy as np
 from probit.approximators import EPGP, LaplaceGP, VBGP
 from probit.sparse import SparseLaplaceGP, SparseVBGP
 from probit.gpflow import VGP, SVGP
+import gpflow
 from probit.kernels_gpflow import SquaredExponential
 from probit.samplers import PseudoMarginal
 from probit.plot import figure2
@@ -34,6 +35,65 @@ import matplotlib.pyplot as plt
 
 now = time.ctime()
 write_path = pathlib.Path()
+
+
+def get_approximator(
+        approximation, Kernel, lengthscale_0, signal_variance_0,
+        lengthscale_hyperparameters, N_train, D):
+    # Set varphi hyperparameters
+    lengthscale_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate]
+    # Initiate kernel
+    kernel = Kernel(
+        varphi=lengthscale_0,
+        variance=signal_variance_0,
+        varphi_hyperparameters=lengthscale_hyperparameters)
+    M = None
+    if approximation == "EP":
+        # steps is the number of swipes over the data until check convergence
+        steps = 1
+        Approximator = EPGP
+    elif approximation == "VB":
+        # steps is the number of fix point iterations until check convergence
+        steps = np.max([10, N_train//10])
+        Approximator = VBGP
+    elif approximation == "LA":
+        # steps is the number of Newton steps until check convergence
+        steps = np.max([2, N_train//1000])
+        Approximator = LaplaceGP
+    elif approximation == "SLA":
+        M = 30  # Number of inducing points
+        steps = np.max([2, M//10])
+        Approximator = SparseLaplaceGP
+    elif approximation == "SVB":
+        M = 30  # Number of inducing points
+        steps = np.max([10, M])
+        Approximator = SparseVBGP
+    elif approximation == "V":
+        steps = 100
+        Approximator = VGP
+        # Initiate kernel
+        # kernel = gpflow.kernels.SquaredExponential(
+        #     lengthscales=varphi_0, variance=signal_variance_0)
+        kernel = gpflow.kernels.SquaredExponential(
+            lengthscales=lengthscale_0,
+            variance=signal_variance_0
+        )
+    elif approximation == "SV":
+        M = 30  # Number of inducing points.
+        steps = 10000
+        Approximator = SVGP
+        # Initiate kernel
+        # kernel = gpflow.kernels.SquaredExponential()
+        kernel = gpflow.kernels.SquaredExponential(
+            lengthscales=lengthscale_0,
+            variance=signal_variance_0
+        )
+    else:
+        raise ValueError(
+            "Approximator not found "
+            "(got {}, expected EP, VB, LA, V, SVB, SLA or SV)".format(
+                approximation))
+    return Approximator, steps, M, kernel
 
 
 def main():
@@ -68,14 +128,6 @@ def main():
             cutpoints_0, lengthscale_0, noise_variance_0, variance_0,
             J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
 
-        # Set varphi hyperparameters
-        varphi_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate] of an cutpoints on varphi
-
-        # Initiate kernel
-        kernel = Kernel(
-            varphi=lengthscale_0,
-            variance=variance_0, varphi_hyperparameters=varphi_hyperparameters)
-
         trainables = np.ones(J + 2)
         # Fix noise_variance
         trainables[0] = 0
@@ -97,51 +149,23 @@ def main():
         for N in num_data:
             X = X[:N, :]  # X, t have already been shuffled
             y = y[:N]
+            Approximator, steps, M, kernel = get_approximator(
+                approximation, Kernel, lengthscale_0, variance_0,
+                N, D)
+            if "S" in approximation:
+                # Initiate sparse classifier
+                approximator = Approximator(
+                    M=M, cutpoints=cutpoints_0,
+                    noise_variance=noise_variance_0,
+                    kernel=kernel, J=J, data=(X, y))
+            else:
+                # Initiate classifier
+                approximator = Approximator(
+                    cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                    kernel=kernel, J=J, data=(X, y))
             for i, Nimp in enumerate(num_importance_samples):
-                if approximation == "VB":
-                    steps = np.max([100, N//10])
-                    Approximator = VBGP  # VB approximation
-                elif approximation == "LA":
-                    steps = np.max([2, N//1000])
-                    Approximator = LaplaceGP  # Laplace MAP approximation
-                elif approximation == "EP":
-                    steps = np.max([10, N//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
-                    Approximator = EPGP  # EP approximation
-                elif approximation == "V":
-                    steps = np.max([100, N//10])
-                    kernel = SquaredExponential(
-                        lengthscales=lengthscale_0,
-                        variance=variance_0,
-                        varphi_hyperparameters=varphi_hyperparameters)
-                    Approximator = VGP
-                elif approximation == "SV":
-                    steps = np.max([4000, N//10])
-                    kernel = SquaredExponential(
-                        lengthscales=lengthscale_0,
-                        variance=variance_0,
-                        varphi_hyperparameters=varphi_hyperparameters)
-                    Approximator = SVGP
-                elif approximation == "SLA":
-                    steps = np.max([2, N//1000])
-                    Approximator = SparseLaplaceGP
-                elif approximation == "SVB":
-                    Approximator = SparseVBGP
-                    steps = np.max([2, N//1000])
-
-                if "S" in approximation:
-                    M = np.max(10, N//1000)
-                    approximator = Approximator(
-                        M,
-                        cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                        kernel=kernel, J=J, data=(X, y))
-                else:
-                    approximator = Approximator(
-                        cutpoints_0, noise_variance_0,
-                        kernel, J, (X, y))
-
                 # Initiate hyper-parameter sampler
                 hyper_sampler = PseudoMarginal(approximator)
-
                 # plot figures
                 (thetas, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
                         p_pseudo_marginals_hi, p_priors) = figure2(

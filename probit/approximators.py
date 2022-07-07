@@ -1910,6 +1910,23 @@ class EPGP(Approximator):
         else:
             return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
+    def run_ep_sequential(self, indices, n_sweeps,
+            posterior_mean_0=None,
+            posterior_cov_0=None, mean_EP_0=None,
+            precision_EP_0=None,
+            amplitude_EP_0=None):
+        for _ in range(n_sweeps):
+            (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov,
+            mean_EP, precision_EP, amplitude_EP,
+            _) = self.approximate(
+                indices, posterior_mean_0=posterior_mean_0,
+                posterior_cov_0=posterior_cov_0, mean_EP_0=mean_EP_0,
+                precision_EP_0=precision_EP_0,
+                amplitude_EP_0=amplitude_EP_0,
+                write=False)
+        return (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov,
+            mean_EP, precision_EP, amplitude_EP)
+
     def approximate_posterior(
             self, phi, trainables, steps,
             posterior_mean_0=None, return_reparameterised=False,
@@ -1951,20 +1968,16 @@ class EPGP(Approximator):
         mean_EP = mean_EP_0
         precision_EP = precision_EP_0
         amplitude_EP = amplitude_EP_0
-        while error / steps > self.EPS**2:
-            # random permutation of data
-            indices = np.random.choice(self.N, self.N, replace=False)
+        # random permutation of data
+        indices = np.arange(self.N)
+        while error / (steps * self.N) > self.EPS**2:
             iteration += 1
             (error, grad_Z_wrt_cavity_mean, posterior_mean, posterior_cov,
-            mean_EP, precision_EP, amplitude_EP,
-            containers) = self.approximate(
-                indices, posterior_mean_0=posterior_mean,
+            mean_EP, precision_EP, amplitude_EP) = self.run_ep_sequential(
+                indices, steps, posterior_mean_0=posterior_mean,
                 posterior_cov_0=posterior_cov, mean_EP_0=mean_EP,
-                precision_EP_0=precision_EP,
-                amplitude_EP_0=amplitude_EP,
-                write=False)
-        # TODO: this part requires an inverse, could it be sparsified
-        # by putting q(f) = p(f_m) R(f_n). This is probably how FITC works
+                precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP)
+        # Compute gradients of the hyperparameters
         (weight, precision_EP, L_cov, cov) = self.compute_weights(
             precision_EP, mean_EP, grad_Z_wrt_cavity_mean)
         # Try optimisation routine

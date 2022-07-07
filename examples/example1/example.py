@@ -34,24 +34,27 @@ def get_approximator(
     M = None
     if approximation == "EP":
         from probit.approximators import EPGP
-        steps = np.max([100, N_train//100])  # for N=3000, steps is 300 - could be too large since per iteration is slow.
+        # steps is the number of swipes over the data until check convergence
+        steps = 1
         Approximator = EPGP
     elif approximation == "VB":
         from probit.approximators import VBGP
+        # steps is the number of fix point iterations until check convergence
         steps = np.max([10, N_train//10])
         Approximator = VBGP
     elif approximation == "LA":
         from probit.approximators import LaplaceGP
+        # steps is the number of Newton steps until check convergence
         steps = np.max([2, N_train//1000])
         Approximator = LaplaceGP
     elif approximation == "SLA":
         from probit.sparse import SparseLaplaceGP
-        M = 30  # Number of inducing points. Is there a problem when this is small?
+        M = 30  # Number of inducing points
         steps = np.max([2, M//10])
         Approximator = SparseLaplaceGP
     elif approximation == "SVB":
         from probit.sparse import SparseVBGP
-        M = 30  # Number of inducing points. Is there a problem when this is small?
+        M = 30  # Number of inducing points
         steps = np.max([10, M])
         Approximator = SparseVBGP
     # elif approximation == "V":
