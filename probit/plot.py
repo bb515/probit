@@ -11,7 +11,7 @@ import matplotlib.colors as mcolors
 from matplotlib import rc
 
 
-def grid(classifier, X_trains, t_trains,
+def grid(classifier, X_trains, y_trains,
         domain, res, steps, now, trainables=None):
     """
     Grid of (optimised and converged) variational lower bound across the chosen
@@ -22,8 +22,8 @@ def grid(classifier, X_trains, t_trains,
     :type Kernel: :class:`Kernel`
     :arg X_trains:
     :type X_trains: :class:`numpy.ndarray`
-    :arg t_trains:
-    :type t_trains: :class:`numpy.ndarray`
+    :arg y_trains:
+    :type y_trains: :class:`numpy.ndarray`
     :arg domain:
     :type domain: (tuple, tuple) or (tuple, None)
     :arg res:
@@ -50,7 +50,7 @@ def grid(classifier, X_trains, t_trains,
         # as new data requires a new model.
         classifier.__init__(
             classifier.cutpoints, classifier.noise_variance,
-            classifier.kernel, X_trains[split], t_trains[split], classifier.J)
+            classifier.kernel, X_trains[split], y_trains[split], classifier.J)
         (Z, grad,
         x, y,
         xlabel, ylabel,
@@ -183,8 +183,8 @@ def plot_contour(
         fig, axs = plt.subplots(1, figsize=(6, 6))
         plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
         plt.scatter(
-            classifier.X_train[np.where(classifier.t_train == j)][:, 0],
-            classifier.X_train[np.where(classifier.t_train == j)][:, 1],
+            classifier.X_train[np.where(classifier.y_train == j)][:, 0],
+            classifier.X_train[np.where(classifier.y_train == j)][:, 1],
             color='red')
         plt.scatter(
             X_test[np.where(t_test == j)][:, 0],
@@ -205,7 +205,7 @@ def test(classifier, X_test, t_test, y_test, steps):
     (fx, gx,
         weights, (cov, is_reparameterised)
         ) = classifier.approximate_posterior(
-                None, None, steps, first_step=0,
+                None, None, steps,
                 return_reparameterised=True, verbose=True)
     (Z, posterior_predictive_m, posterior_std) = classifier.predict(
         X_test, cov, weights)
@@ -251,7 +251,7 @@ def plot(classifier, X_test, title=""):
     )
     plt.colorbar()
     plt.plot(
-        classifier.X_train, classifier.t_train, "kx",
+        classifier.X_train, classifier.y_train, "kx",
         mew=2, scalex=False, scaley=False)
     plt.savefig("test")
     plt.show()
@@ -272,7 +272,7 @@ def plot(classifier, X_test, title=""):
     plt.figure(figsize=(12, 4))
     plt.title(title)
     pY, pYv = classifier._model.predict_y(X_test)  # Predict Y values at test locations
-    plt.plot(classifier.X_train, classifier.t_train, "x", label="Training points", alpha=0.2)
+    plt.plot(classifier.X_train, classifier.y_train, "x", label="Training points", alpha=0.2)
     (line,) = plt.plot(X_test, pY, lw=1.5, label="Mean of predictive posterior")
     col = line.get_color()
     plt.fill_between(
@@ -336,7 +336,7 @@ def save_model(
     (fx, gx,
         posterior_mean, (posterior_inv_cov, is_reparametrised)
         ) = classifier.approximate_posterior(
-                None, None, steps, first_step=1,
+                None, None, steps,
                 return_reparameterised=True, verbose=True)
     np.savez(
         model_file, fx=fx, gx=gx, posterior_mean=posterior_mean,
@@ -369,7 +369,7 @@ def save_model(
 #         (fx, gx,
 #         posterior_mean, (posterior_inv_cov, is_reparametrised)
 #         ) = classifier.approximate_posterior(
-#                 None, None, steps, first_step=1,
+#                 None, None, steps,
 #                 return_reparameterised=True, verbose=True)
 #         # Test
 #         (Z,
@@ -380,7 +380,7 @@ def save_model(
  
 
 def outer_loop_problem_size(
-        test, Approximator, Kernel, method, X_trains, t_trains, X_tests, t_tests,
+        test, Approximator, Kernel, method, X_trains, y_trains, X_tests, t_tests,
         y_tests, steps,
         cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D, size, num,
         string="VB"):
@@ -398,8 +398,8 @@ def outer_loop_problem_size(
     :type method:
     :arg X_trains:
     :type X_trains:
-    :arg t_trains:
-    :type t_trains:
+    :arg y_trains:
+    :type y_trains:
     :arg X_tests:
     :type X_tests:
     :arg  t_tests:
@@ -435,7 +435,7 @@ def outer_loop_problem_size(
         print("iter {}, N {}".format(iter, N))
         mean_fx, std_fx, mean_metrics, std_metrics= outer_loops(
             test, Approximator, Kernel, method,
-            X_trains[:, :N, :], t_trains[:, :N],
+            X_trains[:, :N, :], y_trains[:, :N],
             X_tests, t_tests, y_tests, steps,
             cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D)
         plot_N.append(N)
@@ -593,7 +593,7 @@ def outer_loop_problem_size(
 
 
 def outer_loops(
-        test, Approximator, Kernel, method, X_trains, t_trains, X_tests, t_tests,
+        test, Approximator, Kernel, method, X_trains, y_trains, X_tests, t_tests,
         y_tests, steps, cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D):
     moments_fx = []
     #moments_varphi = []
@@ -606,7 +606,7 @@ def outer_loops(
         # Build the classifier with the new training data
         classifier = Approximator(
             cutpoints_0, noise_variance_0, kernel, J,
-            (X_trains[split, :, :], t_trains[split, :]))
+            (X_trains[split, :, :], y_trains[split, :]))
         fx, metrics = test(
             classifier,
             X_tests[split, :, :], t_tests[split, :],
@@ -627,7 +627,7 @@ def outer_loops(
 
 
 def outer_loops_Rogers(
-        test, Approximator, Kernel, X_trains, t_trains, X_tests, t_tests,
+        test, Approximator, Kernel, X_trains, y_trains, X_tests, t_tests,
         y_tests,
         cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D, plot=False):
     steps = 50
@@ -650,7 +650,7 @@ def outer_loops_Rogers(
         # Build the classifier with the new training data
         classifier = Approximator(
             cutpoints_0, noise_variance_0, kernel, J,
-            (X_trains[split, :, :], t_trains[split, :, :]))
+            (X_trains[split, :, :], y_trains[split, :, :]))
         X_test = X_tests[split, :, :]
         t_test = t_tests[split, :]
         y_test = y_tests[split, :]
@@ -867,7 +867,7 @@ def plot(classifier, steps, domain=None):
     (fx, gx,
     weights, (cov, is_reparametrised)
     ) = classifier.approximate_posterior(
-            None, None, steps, first_step=1, return_reparameterised=True,
+            None, None, steps, return_reparameterised=True,
             verbose=True)
     if domain is not None:
         (xlims, ylims) = domain
@@ -888,14 +888,14 @@ def plot(classifier, steps, domain=None):
             fig, axs = plt.subplots(1, figsize=(6, 6))
             plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
             plt.scatter(classifier.X_train[np.where(
-                classifier.t_train == j)][:, 0],
+                classifier.y_train == j)][:, 0],
                 classifier.X_train[np.where(
-                    classifier.t_train == j)][:, 1], color='red')
+                    classifier.y_train == j)][:, 1], color='red')
             plt.scatter(
                 classifier.X_train[np.where(
-                    classifier.t_train == j + 1)][:, 0],
+                    classifier.y_train == j + 1)][:, 0],
                 classifier.X_train[np.where(
-                    classifier.t_train == j + 1)][:, 1], color='blue')
+                    classifier.y_train == j + 1)][:, 1], color='blue')
             plt.xlabel(r"$x_1$", fontsize=16)
             plt.ylabel(r"$x_2$", fontsize=16)
             plt.savefig("contour_{}.png".format(j))
@@ -913,7 +913,7 @@ def plot_synthetic(
     (fx, gx,
     weights, (cov, is_reparametrised)
     ) = classifier.approximate_posterior(
-            None, None, steps, first_step=1,
+            None, None, steps,
             return_reparameterised=True, verbose=True)
 
     if dataset in datasets["synthetic"]:
@@ -944,9 +944,9 @@ def plot_synthetic(
                 val = 0.5  # where the data lies on the y-axis.
                 for j in range(classifier.J):
                     plt.scatter(
-                        classifier.X_train[np.where(classifier.t_train == j)],
+                        classifier.X_train[np.where(classifier.y_train == j)],
                         np.zeros_like(classifier.X_train[np.where(
-                            classifier.t_train == j)]) + val,
+                            classifier.y_train == j)]) + val,
                         s=15, facecolors=colors[j], edgecolors='white')
                 plt.savefig(
                     "Cumulative distribution plot of ordinal class "
@@ -967,9 +967,9 @@ def plot_synthetic(
                 plt.xlim(-0.5, 1.5)
                 for j in range(classifier.J):
                     plt.scatter(
-                        classifier.X_train[np.where(classifier.t_train == j)],
+                        classifier.X_train[np.where(classifier.y_train == j)],
                         np.zeros_like(classifier.X_train[
-                            np.where(classifier.t_train == j)]),
+                            np.where(classifier.y_train == j)]),
                         s=15, facecolors=colors[j], edgecolors='white')
                 plt.savefig(
                     "Scatter plot of data compared to posterior mean.png")
@@ -1011,10 +1011,10 @@ def plot_synthetic(
                 fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
                 for j in range(classifier.J):
                     ax.scatter3D(
-                        classifier.X_train[np.where(classifier.t_train == j), 0],
-                        classifier.X_train[np.where(classifier.t_train == j), 1],
+                        classifier.X_train[np.where(classifier.y_train == j), 0],
+                        classifier.X_train[np.where(classifier.y_train == j), 1],
                         Y_true[np.where(
-                            classifier.t_train == j)],
+                            classifier.y_train == j)],
                         s=15, facecolors=colors[j], edgecolors='white')
                 plt.savefig("surface.png")
                 plt.show()
@@ -1086,10 +1086,10 @@ def plot_synthetic(
             val = 0.5  # where the data lies on the y-axis.
             for j in range(classifier.J):
                 plt.scatter(
-                    classifier.X_train[np.where(classifier.t_train == j)],
+                    classifier.X_train[np.where(classifier.y_train == j)],
                     np.zeros_like(
                         classifier.X_train[np.where(
-                            classifier.t_train == j)]) + val,
+                            classifier.y_train == j)]) + val,
                             s=15, facecolors=colors[j],
                         edgecolors='white')
             plt.savefig(
@@ -1111,8 +1111,8 @@ def plot_synthetic(
             plt.xlim(-0.5, 1.5)
             for j in range(classifier.J):
                 plt.scatter(
-                    classifier.X_train[np.where(classifier.t_train == j)],
-                    np.zeros_like(classifier.X_train[np.where(classifier.t_train == j)]),
+                    classifier.X_train[np.where(classifier.y_train == j)],
+                    np.zeros_like(classifier.X_train[np.where(classifier.y_train == j)]),
                     s=15,
                     facecolors=colors[j],
                     edgecolors='white')

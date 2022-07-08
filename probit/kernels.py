@@ -489,8 +489,9 @@ class SquaredExponential(Kernel):
 
     def kernel_partial_derivative_varphi(self, X1, X2):
         distance_mat_2 = B.pw_dists2(X1, X2)
-        return -B.multiply(
-            distance_mat_2, self.variance * B.exp(-1./(2 * self.varphi**2) * distance_mat_2))
+        return 1. / (self.varphi**3) * B.multiply(
+            distance_mat_2,
+            self.variance * B.exp(-1./(2 * self.varphi**2) * distance_mat_2))
 
     def kernel_partial_derivative_variance(self, X1, X2):
         return B.exp(-1./(2 * self.varphi**2) * B.pw_dists2(X1, X2))

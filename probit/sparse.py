@@ -20,15 +20,7 @@ from .utilities import (
     norm_cdf,
     truncated_norm_normalising_constant,
     p)  # , dp)
-# NOTE Usually the numba implementation is not faster
-# from .numba.utilities import (
-#     fromb_t1_vector, fromb_t2_vector,
-#     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
-#from .utilities import (
-#    sample_varphis,
-#    fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
-#    fromb_t5_vector)
 
 
 class SparseVBGP(VBGP):
@@ -36,6 +28,8 @@ class SparseVBGP(VBGP):
     A sparse GP classifier for ordinal likelihood using the Variational Bayes
     (VB) approximation.
  
+    # TODO: investigate whether VB could inherit SVB rather than the other
+    # way around
     Inherits the VBGP class. This class allows users to define a
     classification problem, get predictions using approximate Bayesian
     inference. It is for the ordinal likelihood. For this a
@@ -713,15 +707,14 @@ class SparsePEPGP(PEPGP):
         self.Z = self.X_train[inducing_idx, :]
         warnings.warn(
             "Updating prior covariance")
-        self.Kdiag = self.kernel.kernel_prior_diagonal(self.X_train)
+        self.Kfdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         self.Kuu = self.kernel.kernel_matrix(self.Z, self.Z)
         self.Kfu = self.kernel.kernel_matrix(self.X_train, self.Z)
-        (L_K, lower) = cho_factor(self.Kuu)
+        (L_K, lower) = cho_factor(self.Kuu + self.jitter * np.eye(self.N))
         L_KT_inv = solve_triangular(
             L_K.T, np.eye(self.N), lower=True)
-        self.Kuu_inv = solve_triangular(L_K, L_KT_inv, lower=False)
+        self.Kuuinv = solve_triangular(L_K, L_KT_inv, lower=False)
+        self.KuuinvKuf = self.Kuuinv @ self.Kfu.T
         warnings.warn(
             "Done updating prior covariance")
 
-    def _KuuinvKuf(self):
-        return self.Kuuinv @ self.Kfu.T

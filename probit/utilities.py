@@ -587,71 +587,83 @@ def fromb_t5_vector(
     return q
 
 
+def probit_dlogZtilted_dsn(y_i, m_si_i, v_si_ii, alpha, deg):
+    return 0
+
+
 def probit_logZtilted(y, m, v, alpha, deg):
+    y_ = y
+    # y_ = 2 * y - 1
     if alpha == 1.0:
-        t = y * m / np.sqrt(1+v)
+        t = y_ * m / np.sqrt(1+v)
         Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
         eps = 1e-16
         return np.log(Z + eps)
     else:
         gh_x, gh_w = np.polynomial.hermite.hermgauss(deg)
         ts = gh_x * np.sqrt(2*v) + m
-        pdfs = 0.5 * (1 + erf(y*ts / np.sqrt(2)))
+        pdfs = 0.5 * (1 + erf(y_*ts / np.sqrt(2)))
         return np.log(np.dot(pdfs**alpha, gh_w) / np.sqrt(np.pi)) 
 
 
 def probit_dlogZtilted_dm(y, m, v, alpha, deg):
+    y_ = y
+    #y_ = 2 * y - 1
     if alpha == 1.0:
-        t = y * m / np.sqrt(1 + v)
+        t = y_ * m / np.sqrt(1 + v)
         Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
         eps = 1e-16
         Zeps = Z + eps
         beta = 1 / Zeps / np.sqrt(1 + v) * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
-        return y*beta
+        return y_*beta
     else:
         gh_x, gh_w = np.polynomial.hermite.hermgauss(deg) 
         eps = 1e-8
         ts = gh_x * np.sqrt(2*v) + m
-        pdfs = 0.5 * (1 + erf(y*ts / np.sqrt(2))) + eps
+        pdfs = 0.5 * (1 + erf(y_*ts / np.sqrt(2))) + eps
         Ztilted = np.dot(pdfs**alpha, gh_w) / np.sqrt(np.pi)
-        dZdm = np.dot(gh_w, pdfs**(alpha-1.0)*np.exp(-ts**2/2)) * y * alpha / np.pi / np.sqrt(2)
+        dZdm = np.dot(gh_w, pdfs**(alpha-1.0)*np.exp(-ts**2/2)) * y_ * alpha / np.pi / np.sqrt(2)
         return dZdm / Ztilted + eps
 
 
-def probit_logZtilted_dm2(y, m, v, alpha, deg):
+def probit_dlogZtilted_dm2(y, m, v, alpha, deg):
+    y_ = y
+    # y_ = 2 * y - 1
     if alpha == 1.0:
-        t = y * m / np.sqrt(1 + v)
+        t = y_ * m / np.sqrt(1 + v)
         Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
         eps = 1e-16
         Zeps = Z + eps
-        return - 0.5 * y * m / Zeps / (1 + v)**1.5 * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
+        return - 0.5 * y_ * m / Zeps / (1 + v)**1.5 * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
     else:
         gh_x, gh_w = np.polynomial.hermite.hermgauss(deg)   
         eps = 1e-8    
         ts = gh_x * np.sqrt(2*v) + m
-        pdfs = 0.5 * (1 + erf(y*ts / np.sqrt(2))) + eps
+        pdfs = 0.5 * (1 + erf(y_*ts / np.sqrt(2))) + eps
         Ztilted = np.dot(pdfs**alpha, gh_w) / np.sqrt(np.pi)
-        dZdv = np.dot(gh_w, pdfs**(alpha-1.0)*np.exp(-ts**2/2) * gh_x) * y * alpha / np.pi / np.sqrt(2) / np.sqrt(2*v)
+        dZdv = np.dot(gh_w, pdfs**(alpha-1.0)*np.exp(-ts**2/2) * gh_x) * y_ * alpha / np.pi / np.sqrt(2) / np.sqrt(2*v)
         return dZdv / Ztilted + eps
 
 
-def probit_logZtilted_dv(y, m, v, alpha, deg):
+def probit_dlogZtilted_dv(y, m, v, alpha, deg):
+    y_ = y
+    #y_ = 2 * y - 1
     if alpha == 1.0:
-        t = y * m / np.sqrt(1 + v)
+        t = y_ * m / np.sqrt(1 + v)
         Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
         eps = 1e-16
         Zeps = Z + eps
         beta = 1 / Zeps / np.sqrt(1 + v) * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
-        return - (beta**2 + m*y*beta/(1+v))
+        return - (beta**2 + m*y_*beta/(1+v))
     else:
         gh_x, gh_w = np.polynomial.hermite.hermgauss(deg)
         eps = 1e-8
         ts = gh_x * np.sqrt(2*v) + m
-        pdfs = 0.5 * (1 + erf(y*ts / np.sqrt(2))) + eps
+        pdfs = 0.5 * (1 + erf(y_*ts / np.sqrt(2))) + eps
         Ztilted = np.dot(pdfs**alpha, gh_w) / np.sqrt(np.pi)
-        dZdm = np.dot(gh_w, pdfs**(alpha-1)*np.exp(-ts**2/2)) * y * alpha / np.pi / np.sqrt(2)
+        dZdm = np.dot(gh_w, pdfs**(alpha-1)*np.exp(-ts**2/2)) * y_ * alpha / np.pi / np.sqrt(2)
         dZdm2 = np.dot(gh_w, (alpha-1)*pdfs**(alpha-2)*np.exp(-ts**2)/np.sqrt(2*np.pi)  
-            - pdfs**(alpha-1) * y * ts * np.exp(-ts**2/2) ) * alpha / np.pi / np.sqrt(2)
+            - pdfs**(alpha-1) * y_ * ts * np.exp(-ts**2/2) ) * alpha / np.pi / np.sqrt(2)
         return -dZdm**2 / Ztilted**2 + dZdm2 / Ztilted + eps
 
 

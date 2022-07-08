@@ -16,6 +16,7 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 from probit.approximators import EPGP, LaplaceGP, VBGP
+from probit.gpflow import VGP
 from probit.samplers import (
     EllipticalSliceGP,
     SufficientAugmentation, AncilliaryAugmentation, PseudoMarginal)
@@ -63,11 +64,11 @@ def main():
     if 0:
         if dataset in datasets["synthetic"]:
             # Load data from file
-            (X, Y, t,
+            (X, g, y,
             cutpoints_0, varphi_0, noise_variance_0, scale_0,
             J, D, colors, Kernel) = load_data_paper(dataset, plot=False)
             X = X[:300, :]  # X, t have already been shuffled
-            t = t[:300]
+            y = y[:300]
             # Set varphi hyperparameters
             varphi_hyperparameters = np.array([1.0, 30.0])  # [shape, scale] of a cutpoints on varphi
             # Initiate kernel
@@ -87,7 +88,7 @@ def main():
             # Sampler
             burn_steps = 500  # 5000
             steps = 1000  # 10000
-            m_0 = Y.flatten()
+            m_0 = g.flatten()
             # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
             noise_std_hyperparameters = None
             cutpoints_hyperparameters = None
@@ -97,7 +98,7 @@ def main():
                 sampler = EllipticalSliceGP(
                     cutpoints_0, noise_variance_0,
                     noise_std_hyperparameters,
-                    cutpoints_hyperparameters, kernel, J, (X, t))
+                    cutpoints_hyperparameters, kernel, J, (X, y))
                 theta = sampler.get_theta(indices)
                 # MPI parallel across chains
                 if approach == "AA":  # Ancilliary Augmentation approach
@@ -120,15 +121,15 @@ def main():
                 if approximation == "VB":
                     approximator = VBGP(  # VB approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, J, (X, t))
+                        kernel, J, (X, y))
                 elif approximation == "LA":
                     approximator = LaplaceGP(  # Laplace MAP approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, J, (X, t))
+                        kernel, J, (X, y))
                 elif approximation == "EP":
                     approximator = EPGP(  # EP approximation
                         cutpoints_0, noise_variance_0,
-                        kernel, J, (X, t))
+                        kernel, J, (X, y))
                 elif approximation == "V":
                     kernel = SquaredExponential(
                         lengthscales=1./np.sqrt(2 * varphi_0),
@@ -136,7 +137,7 @@ def main():
                         varphi_hyperparameters=varphi_hyperparameters)
                     approximator = VGP(
                         cutpoints_0, noise_variance_0,
-                        kernel, J, (X, t)
+                        kernel, J, (X, y)
                     )
 
                 # Initiate hyper-parameter sampler
