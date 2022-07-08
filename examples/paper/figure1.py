@@ -64,8 +64,8 @@ def main():
         profile.enable()
     #sys.stdout = open("{}.txt".format(now), "w")
     if dataset in datasets["benchmark"]:
-        (X_trains, t_trains,
-        X_tests, t_tests,
+        (X_trains, y_trains,
+        X_tests, y_tests,
         X_true, g_tests,
         cutpoints_0, varphi_0, noise_variance_0, scale_0,
         J, D, Kernel) = load_data(
@@ -75,15 +75,16 @@ def main():
         f_0 = np.zeros(len(X_tests))
         g_0 = f_0.copy()
         # outer_loops(
-        #     test, GibsGP, Kernel, X_trains, t_trains, X_tests,
-        #     t_tests, burn_steps, steps,
+        #     test, GibsGP, Kernel, X_trains, y_trains, X_tests,
+        #     y_tests, burn_steps, steps,
         #     cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
         # Initiate kernel
         kernel = Kernel(
             varphi=varphi_0, variance=scale_0)
         # Initiate classifier
         sampler = GibbsGP(
-            cutpoints_0, noise_variance_0, kernel, J, (X_trains[2], t_trains[2]))
+            cutpoints_0, noise_variance_0, kernel, J,
+            (X_trains[2], y_trains[2]))
         plot(sampler, f_0, g_0, cutpoints_0, burn_steps, steps, J, D)
     elif dataset in datasets["paper"] or dataset in datasets["synthetic"]:
         if dataset in datasets["paper"]:

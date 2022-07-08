@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 import enum
-from re import A
 from probit.kernels import Kernel, InvalidKernel
 import pathlib
 import random
@@ -17,7 +16,9 @@ from probit.utilities import (
     p, dp,
     sample_varphis,
     fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
-    fromb_t5_vector)
+    fromb_t5_vector,
+    probit_logZtilted, probit_dlogZtilted_dm, probit_logZtilted_dm2,
+    probit_logZtilted_dv)
 # NOTE Usually the numba implementation is not faster
 # from .numba.utilities import (
 #     fromb_t1_vector, fromb_t2_vector,
@@ -66,7 +67,7 @@ class Approximator(ABC):
         :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.
         :arg int J: The number of (ordinal) classes.
         :arg data: The data tuple. (X_train, y_train), where  
-            X_train is the (N, D) The data vector and t_train (N, ) is the
+            X_train is the (N, D) The data vector and y_train (N, ) is the
             target vector. Default `None`, if `None`, then the data and prior
             are assumed cached in `read_path` and are attempted to be read.
         :type data: (:class:`numpy.ndarray`, :class:`numpy.ndarray`)
@@ -110,21 +111,21 @@ class Approximator(ABC):
 
         # Get data and calculate the prior
         if data is not None:
-            X_train, t_train = data
+            X_train, y_train = data
             self.X_train = X_train
-            if t_train.dtype not in [int, np.int32]:
+            if y_train.dtype not in [int, np.int32]:
                 raise TypeError(
                     "t must contain only integer values (got {})".format(
-                        t_train.dtype))
+                        y_train.dtype))
             else:
-                t_train = t_train.astype(int)
-                self.t_train = t_train
+                y_train = y_train.astype(int)
+                self.y_train = y_train
             self._update_prior()
         else:
             # Try read model from file
             try:
                 self.X_train = read_array(self.read_path, "X_train")
-                self.t_train = read_array(self.read_path, "t_train")
+                self.y_train = read_array(self.read_path, "y_train")
                 self._load_cached_prior()
             except KeyError:
                 # The array does not exist in the model file
@@ -135,9 +136,9 @@ class Approximator(ABC):
         # TODO: deprecate self.N and self.D
         self.N = np.shape(self.X_train)[0]
         self.D = np.shape(self.X_train)[1]
-        self.grid = np.ogrid[0:self.N]  # For indexing sets of self.t_train
-        self.indices_where_0 = np.where(self.t_train == 0)
-        self.indices_where_J_1 = np.where(self.t_train == self.J - 1)
+        self.grid = np.ogrid[0:self.N]  # For indexing sets of self.y_train
+        self.indices_where_0 = np.where(self.y_train == 0)
+        self.indices_where_J_1 = np.where(self.y_train == self.J - 1)
 
     @abstractmethod
     def approximate_posterior(self):
@@ -309,8 +310,8 @@ class Approximator(ABC):
         """
         if cutpoints is not None:
             self.cutpoints = check_cutpoints(cutpoints, self.J)
-            self.cutpoints_ts = self.cutpoints[self.t_train]
-            self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
+            self.cutpoints_ts = self.cutpoints[self.y_train]
+            self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
         if varphi is not None or variance is not None:
             self.kernel.update_hyperparameter(
                 varphi=varphi, variance=variance)
@@ -1097,10 +1098,10 @@ class VBGP(Approximator):
                 # TODO: treat these with numerical stability, or fix them
                 temp_1s = np.divide(norm_pdf_z1s, Z)
                 temp_2s = np.divide(norm_pdf_z2s, Z)
-                idx = np.where(self.t_train == 0)  # TODO factor out
+                idx = np.where(self.y_train == 0)  # TODO factor out
                 gx[1] += np.sum(temp_1s[idx])
                 for j in range(2, self.J):
-                    idx = np.where(self.t_train == j - 1)  # TODO: factor it out seems inefficient. Is there a better way?
+                    idx = np.where(self.y_train == j - 1)  # TODO: factor it out seems inefficient. Is there a better way?
                     gx[j - 1] -= np.sum(temp_2s[idx])
                     gx[j] += np.sum(temp_1s[idx])
                 # gx[self.J] -= 0  # Since J is number of classes
@@ -1458,7 +1459,7 @@ class EPGP(Approximator):
         (posterior_means, posterior_covs, mean_EPs, precision_EPs,
             amplitude_EPs, approximate_log_marginal_likelihoods) = containers
         for index in indices:
-            target = self.t_train[index]
+            target = self.y_train[index]
             (cavity_mean_n, cavity_variance_n,
             posterior_variance_n, posterior_mean_n,
             mean_EP_n_old, precision_EP_n_old, amplitude_EP_n_old
@@ -2159,7 +2160,7 @@ class EPGP(Approximator):
             # For gx[2] -- ln\Delta^r
             for j in range(2, self.J):
                 if trainables[j]:
-                    targets = self.t_train[self.grid]
+                    targets = self.y_train[self.grid]
                     gx[j] = np.sum(t3[targets == j - 1])
                     gx[j] -= np.sum(t2[targets == self.J - 1])
                     # TODO: check this, since it may be an `else` condition!!!!
@@ -2219,8 +2220,8 @@ class EPGP(Approximator):
                 / np.sqrt(np.linalg.det(np.add(Pi_inv, self.K))))
 
     def compute_weights(
-        self, precision_EP, mean_EP, dlogZ_dcavity_mean,
-        L_cov=None, cov=None, numerically_stable=False):
+            self, precision_EP, mean_EP, dlogZ_dcavity_mean,
+            L_cov=None, cov=None, numerically_stable=False):
         """
         TODO: There may be an issue, where dlogZ_dcavity_mean is updated
         when it shouldn't be, on line 2045.
@@ -2293,8 +2294,8 @@ class PEPGP(Approximator):
         return "PEPGP"
 
     def __init__(
-            self, alpha, minibatch_size, cutpoints, noise_variance,
-            *args, **kwargs):
+            self, cutpoints, noise_variance, alpha, minibatch_size,
+            gauss_hermite_points=20, *args, **kwargs):
         # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`PEPGP` Approximator object.
@@ -2320,8 +2321,9 @@ class PEPGP(Approximator):
         self.jitter = 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
-        self.minibatch_size = minibatch_size  # TODO: could put as approximate argument
-        self.alpha = alpha  # TODO: could put as approximate argument
+        self.minibatch_size = minibatch_size
+        self.alpha = alpha
+        self.gauss_hermite_points = gauss_hermite_points
 
     def _update_prior(self):
         """Update prior covariances."""
@@ -2343,17 +2345,22 @@ class PEPGP(Approximator):
         return Kuu @ gamma, Kuu - Kuu @ (beta @ Kuu)
 
     def _compute_phi_mvg(self, m, V):
+        """TODO: does this need a numerically stable version."""
+        (L_V, lower) = cho_factor(V)
+        half_log_det_V = - np.sum(np.log(np.diag(L_V)))
+        L_VT_inv = solve_triangular(
+            L_V.T, np.eye(self.M), lower=True)
+        V_inv = solve_triangular(self.L_cov, L_VT_inv, lower=False)
+        return half_log_det_V + 0.5 * m.T @ V_inv @ m + 0.5 * self.M * np.log(2 * np.pi)
 
-        pass
+    def logZtilted(self, y_i, m_si_i, v_si_ii, alpha):
+        return probit_logZtilted(y_i, m_si_i, v_si_ii, alpha, self.gh_deg)
 
-    def _logZtilded():
-        pass
+    def dlogZtilted_dm(self, y_i, m_si_i, v_si_ii, alpha):
+        return probit_dlogZtilted_dm(y_i, m_si_i, v_si_ii, alpha, self.gh_deg)
 
-    def _dlogZtilted_dv():
-        pass 
-
-    def _dlogZtilted_dsn():
-        pass
+    def dlogZtilted_dv(self, y_i, m_si_i, v_si_ii, alpha):
+        return probit_dlogZtilted_dv(y_i, m_si_i, v_si_ii, alpha, self.gh_deg)
 
     def _delete(
             self, p_i, k_i, alpha, beta, gamma):
@@ -2499,15 +2506,13 @@ class PEPGP(Approximator):
         (beta, gamma, mean_EP, precision_EP,
                 amplitude_EP, dlogZ_dcavity_mean,
                 containers, error) = self._approximate_initiate(
-            posterior_mean_0, posterior_cov_0, mean_EP_0, precision_EP_0,
-            amplitude_EP_0)
+            beta_0, gamma_0, mean_EP_0, precision_EP_0)
         (posterior_means, posterior_covs, mean_EPs, precision_EPs,
             amplitude_EPs, approximate_log_marginal_likelihoods) = containers
         for index in indices:
-            y_i = self.t_train[index]
+            y_i = self.y_train[index]
             p_i = self.KuuinvKuf[:, index]
             k_i = self.Kfu[index, :]
-
 
             j = self.Kfdiag[index, index]
             (beta_si, gamma_si)= self._delete(
@@ -3177,7 +3182,7 @@ class PEPGP(Approximator):
 
     def objective_gradient(
             self, gx, intervals, varphi, noise_variance,
-            t2, t3, t4, t5, cov, weights, indices):
+            t2, t3, t4, t5, cov, weights, trainables):
         """
         Calculate gx, the jacobian of the variational lower bound of the
         log marginal likelihood at the EP equilibrium.
@@ -3224,7 +3229,7 @@ class PEPGP(Approximator):
             # For gx[2] -- ln\Delta^r
             for j in range(2, self.J):
                 if trainables[j]:
-                    targets = self.t_train[self.grid]
+                    targets = self.y_train[self.grid]
                     gx[j] = np.sum(t3[targets == j - 1])
                     gx[j] -= np.sum(t2[targets == self.J - 1])
                     # TODO: check this, since it may be an `else` condition!!!!
@@ -3469,7 +3474,7 @@ class LaplaceGP(Approximator):
             fx = self.objective(weight, precision, L_cov, Z)
             fxs[i] = fx
             gx = self.objective_gradient(
-                gx_0.copy(), (self.X_train, self.t_train), self.grid, self.J,
+                gx_0.copy(), (self.X_train, self.y_train), self.grid, self.J,
                 intervals, self.kernel.varphi, self.noise_variance,
                 self.noise_std,
                 w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
@@ -3612,7 +3617,7 @@ class LaplaceGP(Approximator):
         :return: gx
         :rtype: float
         """
-        X_train, t_train = data
+        X_train, y_train = data
         if trainables is not None:
             # compute a diagonal
             dsigma = cov @ K
@@ -3644,9 +3649,9 @@ class LaplaceGP(Approximator):
                 gx[1] = gx[1] / noise_std
             # For gx[2] -- ln\Delta^r
             for j in range(2, J):
-                targets = t_train[grid]
+                targets = y_train[grid]
                 print(targets)
-                print(t_train)
+                print(y_train)
                 # Prepare D f / D delta_l
                 cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
                 cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
@@ -3826,7 +3831,7 @@ class LaplaceGP(Approximator):
         fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
         gx = np.zeros(1 + self.J - 1 + 1 + 1)
         gx = self.objective_gradient(
-            gx, (self.X_train, self.t_train), self.grid,
+            gx, (self.X_train, self.y_train), self.grid,
             self.J, intervals, self.kernel.varphi, self.noise_variance,
             self.noise_std,
             w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,

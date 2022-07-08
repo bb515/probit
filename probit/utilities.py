@@ -1,7 +1,7 @@
 """Utility functions for probit."""
 import numpy as np
 from scipy.stats import expon
-from scipy.special import ndtr, log_ndtr
+from scipy.special import ndtr, log_ndtr, erf
 import warnings
 import h5py
 
@@ -587,6 +587,74 @@ def fromb_t5_vector(
     return q
 
 
+def probit_logZtilted(y, m, v, alpha, deg):
+    if alpha == 1.0:
+        t = y * m / np.sqrt(1+v)
+        Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
+        eps = 1e-16
+        return np.log(Z + eps)
+    else:
+        gh_x, gh_w = np.polynomial.hermite.hermgauss(deg)
+        ts = gh_x * np.sqrt(2*v) + m
+        pdfs = 0.5 * (1 + erf(y*ts / np.sqrt(2)))
+        return np.log(np.dot(pdfs**alpha, gh_w) / np.sqrt(np.pi)) 
+
+
+def probit_dlogZtilted_dm(y, m, v, alpha, deg):
+    if alpha == 1.0:
+        t = y * m / np.sqrt(1 + v)
+        Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
+        eps = 1e-16
+        Zeps = Z + eps
+        beta = 1 / Zeps / np.sqrt(1 + v) * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
+        return y*beta
+    else:
+        gh_x, gh_w = np.polynomial.hermite.hermgauss(deg) 
+        eps = 1e-8
+        ts = gh_x * np.sqrt(2*v) + m
+        pdfs = 0.5 * (1 + erf(y*ts / np.sqrt(2))) + eps
+        Ztilted = np.dot(pdfs**alpha, gh_w) / np.sqrt(np.pi)
+        dZdm = np.dot(gh_w, pdfs**(alpha-1.0)*np.exp(-ts**2/2)) * y * alpha / np.pi / np.sqrt(2)
+        return dZdm / Ztilted + eps
+
+
+def probit_logZtilted_dm2(y, m, v, alpha, deg):
+    if alpha == 1.0:
+        t = y * m / np.sqrt(1 + v)
+        Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
+        eps = 1e-16
+        Zeps = Z + eps
+        return - 0.5 * y * m / Zeps / (1 + v)**1.5 * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
+    else:
+        gh_x, gh_w = np.polynomial.hermite.hermgauss(deg)   
+        eps = 1e-8    
+        ts = gh_x * np.sqrt(2*v) + m
+        pdfs = 0.5 * (1 + erf(y*ts / np.sqrt(2))) + eps
+        Ztilted = np.dot(pdfs**alpha, gh_w) / np.sqrt(np.pi)
+        dZdv = np.dot(gh_w, pdfs**(alpha-1.0)*np.exp(-ts**2/2) * gh_x) * y * alpha / np.pi / np.sqrt(2) / np.sqrt(2*v)
+        return dZdv / Ztilted + eps
+
+
+def probit_logZtilted_dv(y, m, v, alpha, deg):
+    if alpha == 1.0:
+        t = y * m / np.sqrt(1 + v)
+        Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
+        eps = 1e-16
+        Zeps = Z + eps
+        beta = 1 / Zeps / np.sqrt(1 + v) * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
+        return - (beta**2 + m*y*beta/(1+v))
+    else:
+        gh_x, gh_w = np.polynomial.hermite.hermgauss(deg)
+        eps = 1e-8
+        ts = gh_x * np.sqrt(2*v) + m
+        pdfs = 0.5 * (1 + erf(y*ts / np.sqrt(2))) + eps
+        Ztilted = np.dot(pdfs**alpha, gh_w) / np.sqrt(np.pi)
+        dZdm = np.dot(gh_w, pdfs**(alpha-1)*np.exp(-ts**2/2)) * y * alpha / np.pi / np.sqrt(2)
+        dZdm2 = np.dot(gh_w, (alpha-1)*pdfs**(alpha-2)*np.exp(-ts**2)/np.sqrt(2*np.pi)  
+            - pdfs**(alpha-1) * y * ts * np.exp(-ts**2/2) ) * alpha / np.pi / np.sqrt(2)
+        return -dZdm**2 / Ztilted**2 + dZdm2 / Ztilted + eps
+
+
 def log_multivariate_normal_pdf(
         x, cov_inv, half_log_det_cov, mean=None):
     """Get the pdf of the multivariate normal distribution."""
@@ -696,9 +764,9 @@ def truncated_norm_normalising_constant(
         parallelised scalar (due to the boolean logic).
     TODO: There is no way to calculate this in the log domain (unless expansion
     approximations are used). Could investigate only using approximations here.
-    :arg cutpoints_ts: cutpoints[t_train] (N, ) array of cutpoints
+    :arg cutpoints_ts: cutpoints[y_train] (N, ) array of cutpoints
     :type cutpoints_ts: :class:`numpy.ndarray`
-    :arg cutpoints_tplus1s: cutpoints[t_train + 1] (N, ) array of cutpoints
+    :arg cutpoints_tplus1s: cutpoints[y_train + 1] (N, ) array of cutpoints
     :type cutpoints_ts: :class:`numpy.ndarray`
     :arg float noise_std: The noise standard deviation.
     :arg m: The mean vector.
@@ -777,9 +845,9 @@ def p(m, cutpoints_ts, cutpoints_tplus1s, noise_std,
 
     :arg m: The current posterior mean estimate.
     :type m: :class:`numpy.ndarray`
-    :arg cutpoints_ts: cutpoints[t_train] (N, ) array of cutpoints
+    :arg cutpoints_ts: cutpoints[y_train] (N, ) array of cutpoints
     :type cutpoints_ts: :class:`numpy.ndarray`
-    :arg cutpoints_tplus1s: cutpoints[t_train + 1] (N, ) array of cutpoints
+    :arg cutpoints_tplus1s: cutpoints[y_train + 1] (N, ) array of cutpoints
     :type cutpoints_ts: :class:`numpy.ndarray`
     :arg float noise_std: The noise standard deviation.
     :arg float EPS: The tolerated absolute error.
@@ -824,9 +892,9 @@ def dp(m, cutpoints_ts, cutpoints_tplus1s, noise_std, EPS,
 
     :arg m: The current posterior mean estimate.
     :type m: :class:`numpy.ndarray`
-    :arg cutpoints_ts: cutpoints[t_train] (N, ) array of cutpoints
+    :arg cutpoints_ts: cutpoints[y_train] (N, ) array of cutpoints
     :type cutpoints_ts: :class:`numpy.ndarray`
-    :arg cutpoints_tplus1s: cutpoints[t_train + 1] (N, ) array of cutpoints
+    :arg cutpoints_tplus1s: cutpoints[y_train + 1] (N, ) array of cutpoints
     :type cutpoints_ts: :class:`numpy.ndarray`
     :arg float noise_std: The noise standard deviation.
     :arg float EPS: The tolerated absolute error.
@@ -873,15 +941,15 @@ def dp(m, cutpoints_ts, cutpoints_tplus1s, noise_std, EPS,
     return sigma_dp
 
 
-def sample_y(y, m, t_train, cutpoints, noise_std, N):
+def sample_g(g, f, y_train, cutpoints, noise_std, N):
     for i in range(N):
         # Target class index
-        j_true = t_train[i]
-        y_i = np.NINF  # this is a trick for the next line
+        j_true = y_train[i]
+        g_i = np.NINF  # this is a trick for the next line
         # Sample from the truncated Gaussian
-        while y_i > cutpoints[j_true + 1] or y_i <= cutpoints[j_true]:
+        while g_i > cutpoints[j_true + 1] or g_i <= cutpoints[j_true]:
             # sample y
-            y_i = m[i] + np.random.normal(loc=m[i], scale=noise_std)
+            g_i = f[i] + np.random.normal(loc=f[i], scale=noise_std)
         # Add sample to the Y vector
-        y[i] = y_i
-    return y
+        g[i] = g_i
+    return g

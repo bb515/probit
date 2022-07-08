@@ -7,7 +7,7 @@ from probit.kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
 from probit.utilities import (
-    check_cutpoints, norm_z_pdf, norm_cdf, sample_y,
+    check_cutpoints, norm_z_pdf, norm_cdf, sample_g,
     truncated_norm_normalising_constant, log_multivariate_normal_pdf,
     log_multivariate_normal_pdf_vectorised)
 import numba_scipy  # Numba overloads for scipy and scipy.special
@@ -45,8 +45,8 @@ class Sampler(ABC):
         :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.    
         :arg X_train: (N, D) The data vector.
         :type X_train: :class:`numpy.ndarray`
-        :arg t_train: (N, ) The target vector.
-        :type t_train: :class:`numpy.ndarray`
+        :arg y_train: (N, ) The target vector.
+        :type y_train: :class:`numpy.ndarray`
         :arg J: The number of (ordinal) classes.
         :arg str write_path: Write path for outputs.
 
@@ -60,21 +60,21 @@ class Sampler(ABC):
             self.write_path = None
         else:
             self.write_path = pathlib.Path(write_path)
-        (X_train, t_train) = data
+        (X_train, y_train) = data
         self.N = np.shape(X_train)[0]
         self.D = np.shape(X_train)[1]
         self.X_train = X_train
-        if np.all(np.mod(t_train, 1) == 0):
-            t_train = t_train.astype(int)
+        if np.all(np.mod(y_train, 1) == 0):
+            y_train = y_train.astype(int)
         else:
             raise ValueError(
-                "t must contain only integer values (got {})".format(t_train))
-        if t_train.dtype != int:
+                "t must contain only integer values (got {})".format(y_train))
+        if y_train.dtype != int:
             raise TypeError(
                 "t must contain only integer values (got {})".format(
-                    t_train))
+                    y_train))
         else:
-            self.t_train = t_train
+            self.y_train = y_train
         self.J = J
         # See GPML by Williams et al. for a good explanation of jitter
         self.jitter = 1e-8 
@@ -155,24 +155,24 @@ class Sampler(ABC):
     #     intermediate_vector = solve_triangular(L_cov, intermediate_vector, lower=False)
     #     return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.dot(x, intermediate_vector)  # log likelihood
 
-    def _vector_probit_likelihood(self, m_ns, cutpoints):
+    def _vector_probit_likelihood(self, f_ns, cutpoints):
         """
         Get the probit likelihood given GP posterior mean samples and cutpoints sample.
 
         :return distribution_over_classes: the (N_samples, K) array of values.
         """
-        N_samples = np.shape(m_ns)[0]
+        N_samples = np.shape(f_ns)[0]
         distribution_over_classess = np.empty((N_samples, self.K))
         # Special case for cutpoints[-1] == np.NINF, cutpoints[0] == 0.0
-        distribution_over_classess[:, 0] = norm.cdf(np.subtract(cutpoints[0], m_ns))
+        distribution_over_classess[:, 0] = norm.cdf(np.subtract(cutpoints[0], f_ns))
         for k in range(1, self.K + 1):
             cutpoints_k = cutpoints[k]
             cutpoints_k_1 = cutpoints[k - 1]
             distribution_over_classess[:, k - 1] = norm.cdf(
-                np.subtract(cutpoints_k, m_ns)) - norm.cdf(np.subtract(cutpoints_k_1, m_ns))
+                np.subtract(cutpoints_k, f_ns)) - norm.cdf(np.subtract(cutpoints_k_1, f_ns))
         return distribution_over_classess
 
-    def _probit_likelihood(self, m_n, cutpoints):
+    def _probit_likelihood(self, f_n, cutpoints):
         """
                 TODO: 01/03/21 this was refactored without testing. Test it.
                 TODO: 22/02/22 is this even needed?
@@ -182,21 +182,21 @@ class Sampler(ABC):
         """
         distribution_over_classes = np.empty(self.J)
         # Special case for cutpoints[-1] == np.NINF, cutpoints[0] == 0.0
-        distribution_over_classes[0] = norm.cdf(cutpoints[0] - m_n)
+        distribution_over_classes[0] = norm.cdf(cutpoints[0] - f_n)
         for k in range(1, self.J + 1):
             cutpoints_j = cutpoints[j]  # remember these are the upper bounds of the classes
             cutpoints_j_1 = cutpoints[j - 1]
-            distribution_over_classes[j - 1] = norm.cdf(cutpoints_j - m_n) - norm.cdf(cutpoints_j_1 - m_n)
+            distribution_over_classes[j - 1] = norm.cdf(cutpoints_j - f_n) - norm.cdf(cutpoints_j_1 - f_n)
         return distribution_over_classes
 
-    def _predict_scalar(self, y_samples, cutpoints_samples, x_test):
+    def _predict_scalar(self, g_samples, cutpoints_samples, x_test):
         """
             TODO: This code was refactored on 01/03/2021 and 21/06/2021 without testing. Test it.
         Superseded by _predict_vector.
 
         Make gibbs prediction over classes of X_test[0] given the posterior samples.
 
-        :arg Y_samples: The Gibbs samples of the latent variable Y.
+        :arg g_samples: The Gibbs samples of the latent variable g.
         :arg x_test: The new data point, array like (1, D).
         :return: A Monte Carlo estimate of the class probabilities.
         """
@@ -204,14 +204,14 @@ class Sampler(ABC):
         Cs_new = self.kernel.kernel_vector(x_test, self.X_train)
         intermediate_vector = self.Sigma @ Cs_new  # (N, N_test)
         intermediate_scalar = Cs_new.T @ intermediate_vector
-        n_posterior_samples = np.shape(y_samples)[0]
+        n_posterior_samples = np.shape(g_samples)[0]
         # Sample pmf over classes
         distribution_over_classes_samples = []
         for i in range(n_posterior_samples):
-            y = y_samples[i]
+            g = g_samples[i]
             cutpoints = cutpoints_samples[i]
             # Take a sample of m from a GP regression
-            mean = y.T @ intermediate_vector  # (1, )
+            mean = g.T @ intermediate_vector  # (1, )
             var = cs_new - intermediate_scalar  # (1, )
             m = norm.rvs(loc=mean, scale=var)
             # Take a sample of cutpoints from the posterior cutpoints|y, t
@@ -219,30 +219,31 @@ class Sampler(ABC):
             uppers = np.empty(self.K - 2)
             locs = np.empty(self.K - 2)
             for k in range(1, self.K - 1):
-                indeces = np.where(self.t_train == k)
-                indeces2 = np.where(self.t_train == k + 1)
+                indeces = np.where(self.y_train == k)
+                indeces2 = np.where(self.y_train == k + 1)
                 if indeces2:
-                    uppers[k - 1] = np.min(np.append(y[indeces2], cutpoints[k + 2]))
+                    uppers[k - 1] = np.min(np.append(g[indeces2], cutpoints[k + 2]))
                 else:
                     uppers[k - 1] = cutpoints[k + 2]
                 if indeces:
-                    locs[k - 1] = np.max(np.append(y[indeces], cutpoints[k]))
+                    locs[k - 1] = np.max(np.append(g[indeces], cutpoints[k]))
                 else:
                     locs[k - 1] = cutpoints[k]
             cutpoints[0] = np.NINF
             cutpoints[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
             cutpoints[-1] = np.inf
             # Calculate the measurable function and append the resulting MC sample
-            distribution_over_classes_samples.append(self._probit_likelihood(m, cutpoints))
+            distribution_over_classes_samples.append(
+                self._probit_likelihood(m, cutpoints))
 
         monte_carlo_estimate = (1. / n_posterior_samples) * np.sum(distribution_over_classes_samples, axis=0)
         return monte_carlo_estimate
    
-    def _predict_vector(self, y_samples, cutpoints_samples, X_test):
+    def _predict_vector(self, g_samples, cutpoints_samples, X_test):
         """
         Make gibbs prediction over classes of X_test given the posterior samples.
 
-        :arg y_samples: The Gibbs samples of the latent variable Y.
+        :arg g_samples: The Gibbs samples of the latent variable Y.
         :arg X_test: The new data points, array like (N_test, D).
         :return: A Monte Carlo estimate of the class probabilities.
         """
@@ -255,51 +256,48 @@ class Sampler(ABC):
         intermediate_vectors = self.Sigma @ Cs_news  # (N, N_test)
         intermediate_vectors_T = intermediate_vectors.T
         intermediate_scalars = (np.multiply(Cs_news, intermediate_vectors)).sum(0)  # (N_test, )
-        n_posterior_samples = np.shape(y_samples)[0]
+        n_posterior_samples = np.shape(g_samples)[0]
         # Sample pmf over classes
         distribution_over_classes_sampless = []
         for i in range(n_posterior_samples):
-            y = y_samples[i]
+            g = g_samples[i]
             cutpoints = cutpoints_samples[i]
-            mean = intermediate_vectors_T @ y  # (N_test, )
+            mean = intermediate_vectors_T @ g  # (N_test, )
             var = cs_news - intermediate_scalars  # (N_test, )
-            m_ns = norm.rvs(loc=mean, scale=var)
+            f_ns = norm.rvs(loc=mean, scale=var)
             # Take a sample of cutpoints from the posterior cutpoints|y, t
             # This is proportional to the likelihood y|cutpoints, t since we have a flat prior
             # uppers = np.empty(self.K - 2)
             # locs = np.empty(self.K - 2)
             # for k in range(1, self.K - 1):
-            #     indeces = np.where(self.t_train == k)
-            #     indeces2 = np.where(self.t_train == k + 1)
+            #     indeces = np.where(self.y_train == k)
+            #     indeces2 = np.where(self.y_train == k + 1)
             #     if indeces2:
-            #         uppers[k - 1] = np.min(np.append(y[indeces2], cutpoints[k + 1]))
+            #         uppers[k - 1] = np.min(np.append(g[indeces2], cutpoints[k + 1]))
             #     else:
             #         uppers[k - 1] = cutpoints[k + 1]
             #     if indeces:
-            #         locs[k - 1] = np.max(np.append(y[indeces], cutpoints[k - 1]))
+            #         locs[k - 1] = np.max(np.append(g[indeces], cutpoints[k - 1]))
             #     else:
             #         locs[k - 1] = cutpoints[k - 1]
             # cutpoints[1:-1] = uniform.rvs(loc=locs, scale=uppers - locs)
             # cutpoints[0] = 0.0
             # cutpoints[-1] = np.inf
             # Calculate the measurable function and append the resulting MC sample
-            distribution_over_classes_sampless.append(self._vector_probit_likelihood(m_ns, cutpoints))
+            distribution_over_classes_sampless.append(self._vector_probit_likelihood(f_ns, cutpoints))
             # Take an expectation wrt the rv u, use n_samples=1000 draws from p(u)
             # TODO: How do we know that 1000 samples is enough to converge?
             #  Goes with root n_samples but depends on the estimator variance
         # TODO: Could also get a variance from the MC estimate.
         return (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
 
-    def predict(self, y_samples, cutpoints_samples, X_test, vectorised=True):
-        if self.kernel.general_kernel:
-            # This is the general case where there are hyper-parameters
-            # varphi (K, D) for all dimensions and classes.
-            return ValueError("ARD kernel may not be used in the ordered likelihood estimator.")
+    def predict(self, g_samples, cutpoints_samples, X_test, vectorised=True):
+        if vectorised:
+            return self._predict_vector(
+                g_samples, cutpoints_samples, X_test)
         else:
-            if vectorised:
-                return self._predict_vector(y_samples, cutpoints_samples, X_test)
-            else:
-                return self._predict_scalar(y_samples, cutpoints_samples, X_test)
+            return self._predict_scalar(
+                g_samples, cutpoints_samples, X_test)
 
     def _hyperparameter_initialise(self, theta, trainables):
         """
@@ -314,7 +312,7 @@ class Sampler(ABC):
             :math:`\b_{1}` is the first cutpoint, :math:`\Delta_{l}` is the
             :math:`l`th cutpoint interval, :math:`\varphi` is the single
             shared lengthscale parameter or vector of parameters in which
-            there are in the most general case J * D parameters.
+            there are D parameters.
         :type theta: :class:`numpy.ndarray`
         :return: (cutpoints, noise_variance) the updated cutpoints and noise variance.
         :rtype: (2,) tuple
@@ -441,8 +439,8 @@ class Sampler(ABC):
         """
         if cutpoints is not None:
             self.cutpoints = check_cutpoints(cutpoints, self.J)
-            self.cutpoints_ts = self.cutpoints[self.t_train]
-            self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
+            self.cutpoints_ts = self.cutpoints[self.y_train]
+            self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
         if varphi is not None or variance is not None:
             self.kernel.update_hyperparameter(
                 varphi=varphi, variance=variance)
@@ -677,11 +675,11 @@ class GibbsGP(Sampler):
         self.upper_bound = 6
         self.upper_bound2 = 30
         self.jitter = 1e-6
-        self.t_trainplus1 = self.t_train + 1
+        self.y_trainplus1 = self.y_train + 1
         # Initiate hyperparameters
         self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
 
-    def _m_tilde(self, y, cov, K):
+    def _f_tilde(self, g, cov, K):
         """
         TODO: consider moving to a utilities file.
         Return the posterior mean of m given y.
@@ -695,54 +693,54 @@ class GibbsGP(Sampler):
         :arg K:
         :type K:
         """
-        nu = cov @ y
+        nu = cov @ g
         return K @ nu, nu  # (N, J), (N, )
 
-    def sample_gibbs(self, m_0, steps, first_step=0):
+    def sample_gibbs(self, f_0, steps, first_step=0):
         """
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
             then over y (auxilliaries). In this sampler, cutpoints (cutpoint parameters) are fixed.
 
-        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
-        :type m_0: :class:`np.ndarray`.
+        :arg f_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type f_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
         """
         # Initiate containers for samples
-        m = m_0
-        y_container = np.empty(self.N)
-        m_samples = []
-        y_samples = []
+        m = f_0
+        g_container = np.empty(self.N)
+        f_samples = []
+        g_samples = []
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
             # Sample y from the usual full conditional
-            y = sample_y(y_container.copy(), m, self.t_train, self.cutpoints, self.noise_std, self.N)
+            g = sample_g(g_container.copy(), m, self.y_train, self.cutpoints, self.noise_std, self.N)
             # Calculate statistics, then sample other conditional
-            m_tilde, _ = self._m_tilde(y, self.cov, self.K)
-            m = m_tilde + self.L_Sigma @ norm.rvs(size=self.N)
-            m_samples.append(m)
-            y_samples.append(y)
-        return np.array(m_samples), np.array(y_samples)
+            f_tilde, _ = self._f_tilde(y, self.cov, self.K)
+            m = f_tilde + self.L_Sigma @ norm.rvs(size=self.N)
+            f_samples.append(m)
+            g_samples.append(g)
+        return np.array(f_samples), np.array(g_samples)
 
-    def _sample_metropolis_within_gibbs_initiate(self, m_0, cutpoints_0):
+    def _sample_metropolis_within_gibbs_initiate(self, f_0, cutpoints_0):
         """
         Initialise variables for the sample method.
-        TODO: 03/03/2021 The first Gibbs step is not robust to a poor choice of m_0 (it will never sample a y_1 within
-            range of the cutpoints). Idea: just initialise y_0 and m_0 close to another.
-            Start with an initial guess for m_0 based on a linear regression and then initialise y_0 with random N(0,1)
-            samples around that. Need to test convergence for random init of y_0 and m_0.
+        TODO: 03/03/2021 The first Gibbs step is not robust to a poor choice of f_0 (it will never sample a y_1 within
+            range of the cutpoints). Idea: just initialise y_0 and f_0 close to another.
+            Start with an initial guess for f_0 based on a linear regression and then initialise y_0 with random N(0,1)
+            samples around that. Need to test convergence for random init of y_0 and f_0.
         TODO: 26/12/2021 I think that I've fixed this issue.
         """
-        m_samples = []
-        y_samples = []
+        f_samples = []
+        g_samples = []
         cutpoints_samples = []
-        cutpoints_0_prev_jplus1 = cutpoints_0[self.t_trainplus1]
-        cutpoints_0_prev_j = cutpoints_0[self.t_train]
-        return m_0, cutpoints_0, cutpoints_0_prev_jplus1, cutpoints_0_prev_j, m_samples, y_samples, cutpoints_samples
+        cutpoints_0_prev_jplus1 = cutpoints_0[self.y_trainplus1]
+        cutpoints_0_prev_j = cutpoints_0[self.y_train]
+        return f_0, cutpoints_0, cutpoints_0_prev_jplus1, cutpoints_0_prev_j, f_samples, g_samples, cutpoints_samples
 
-    def sample_metropolis_within_gibbs(self, trainables, m_0, cutpoints_0, sigma_cutpoints, steps, first_step=0):
+    def sample_metropolis_within_gibbs(self, trainables, f_0, cutpoints_0, sigma_cutpoints, steps, first_step=0):
         """
         Sample from the posterior.
 
@@ -753,8 +751,8 @@ class GibbsGP(Sampler):
             from the full conditional by sampling from the joint full conditional y, \cutpoints using a
             Metropolis step.
 
-        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
-        :type m_0: :class:`np.ndarray`.
+        :arg f_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type f_0: :class:`np.ndarray`.
         :arg y_0: (N, ) numpy.ndarray of the initial location of the sampler.
         :type y_0: :class:`np.ndarray`.
         :arg cutpoints_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
@@ -765,9 +763,9 @@ class GibbsGP(Sampler):
         """
         (m,
         cutpoints_prev, cutpoints_prev_jplus1, cutpoints_prev_j,
-        m_samples, y_samples, cutpoints_samples,
-        y_container) = self._sample_initiate(
-            m_0, cutpoints_0)
+        f_samples, g_samples, cutpoints_samples,
+        g_container) = self._sample_initiate(
+            f_0, cutpoints_0)
         precision_cutpoints = 1. / sigma_cutpoints
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
@@ -793,10 +791,10 @@ class GibbsGP(Sampler):
                     norm_cdf(precision_cutpoints * (cutpoints[2:] - cutpoints[1:-1]))
                     - norm_cdf(precision_cutpoints * (cutpoints_prev[0:-2] - cutpoints[1:-1]))
             ))
-            cutpoints_jplus1 = cutpoints[self.t_trainplus1]
-            cutpoints_prev_jplus1 = cutpoints_prev[self.t_trainplus1]
-            cutpoints_j = cutpoints[self.t_train]
-            cutpoints_prev_j = cutpoints_prev[self.t_train]
+            cutpoints_jplus1 = cutpoints[self.y_trainplus1]
+            cutpoints_prev_jplus1 = cutpoints_prev[self.y_trainplus1]
+            cutpoints_j = cutpoints[self.y_train]
+            cutpoints_prev_j = cutpoints_prev[self.y_train]
             num_1 = np.sum(np.log(norm_cdf(cutpoints_jplus1 - m) - norm_cdf(cutpoints_j - m)))
             den_1 = np.sum(np.log(norm_cdf(cutpoints_prev_jplus1 - m) - norm_cdf(cutpoints_prev_j - m)))
             log_A = num_1 + num_2 - den_1 - den_2
@@ -806,30 +804,30 @@ class GibbsGP(Sampler):
                 cutpoints_prev = cutpoints
                 cutpoints_prev_jplus1 = cutpoints_jplus1
                 cutpoints_prev_j = cutpoints_j
-                # Sample y from the full conditional
-                y = sample_y(y_container.copy(), self.t_train, cutpoints, self.noise_std, self.N)
+                # Sample g from the full conditional
+                g = sample_g(g_container.copy(), self.y_train, cutpoints, self.noise_std, self.N)
             else:
                 # Reject, and use previous \cutpoints, y sample
                 cutpoints = cutpoints_prev
             # Calculate statistics, then sample other conditional
-            m_tilde, nu = self._m_tilde(y, self.cov, self.K)  # TODO: Numba?
+            f_tilde, nu = self._f_tilde(y, self.cov, self.K)  # TODO: Numba?
             m = m_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
             # plt.scatter(self.X_train, m)
             # plt.show()
             # print(cutpoints)
             m_samples.append(m.flatten())
-            y_samples.append(y.flatten())
+            g_samples.append(g.flatten())
             cutpoints_samples.append(cutpoints.flatten())
-        return np.array(m_samples), np.array(y_samples), np.array(cutpoints_samples)
+        return np.array(m_samples), np.array(g_samples), np.array(cutpoints_samples)
 
     def _sample_initiate(self, m_0, cutpoints_0):
         self.trainables = []
         for j in range(0, self.J -1):
-            self.trainables.append(np.where(self.t_train == j))
+            self.trainables.append(np.where(self.y_train == j))
         m_samples = []
-        y_samples = []
+        g_samples = []
         cutpoints_samples = []
-        return m_0, cutpoints_0, m_samples, y_samples, cutpoints_samples
+        return m_0, cutpoints_0, m_samples, g_samples, cutpoints_samples
 
     def sample(self, m_0, cutpoints_0, steps, first_step=0):
         """
@@ -847,10 +845,10 @@ class GibbsGP(Sampler):
 
         :return: Gibbs samples. The acceptance rate for the Gibbs algorithm is 1.
         """
-        m, cutpoints, cutpoints_prev, m_samples, y_samples, cutpoints_samples = self._sample_initiate(m_0, cutpoints_0)
+        m, cutpoints, cutpoints_prev, m_samples, g_samples, cutpoints_samples = self._sample_initiate(m_0, cutpoints_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            y = sample_y(y, m, self.t_train, cutpoints, self.noise_std, self.N)
+            g = sample_g(g, m, self.y_train, cutpoints, self.noise_std, self.N)
             # Calculate statistics, then sample other conditional
             m_tilde, _ = self._m_tilde(y, self.cov, self.K)
             m = m_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
@@ -860,11 +858,11 @@ class GibbsGP(Sampler):
             locs = -1. * np.ones(self.J - 2)
             for j in range(self.J - 2):  # TODO change the index to the class.
                 if self.trainables[j+1]:
-                    uppers[j] = np.min(np.append(y[self.trainables[j + 1]], cutpoints_prev[j + 2]))
+                    uppers[j] = np.min(np.append(g[self.trainables[j + 1]], cutpoints_prev[j + 2]))
                 else:
                     uppers[j] = cutpoints_prev[j + 2]
                 if self.indeces[j]:
-                    locs[j] = np.max(np.append(y[self.indeces[j]], cutpoints_prev[j]))
+                    locs[j] = np.max(np.append(g[self.indeces[j]], cutpoints_prev[j]))
                 else:
                     locs[j] = cutpoints_prev[j]
             # Fix \cutpoints_0 = -\infty, \cutpoints_1 = 0, \cutpoints_K = +\infty
@@ -874,9 +872,9 @@ class GibbsGP(Sampler):
             # update cutpoints prev
             cutpoints_prev = cutpoints
             m_samples.append(m)
-            y_samples.append(y)
+            g_samples.append(g)
             cutpoints_samples.append(cutpoints)
-        return np.array(m_samples), np.array(y_samples), np.array(cutpoints_samples)
+        return np.array(m_samples), np.array(g_samples), np.array(cutpoints_samples)
 
 
 class EllipticalSliceGP(Sampler):
@@ -915,7 +913,7 @@ class EllipticalSliceGP(Sampler):
         self.upper_bound = 6
         self.upper_bound2 = 30
         self.jitter = 1e-6
-        self.t_trainplus1 = self.t_train + 1
+        self.y_trainplus1 = self.y_train + 1
         # Initiate hyperparameters
         self.hyperparameters_update(
             cutpoints=cutpoints, noise_variance=noise_variance)
