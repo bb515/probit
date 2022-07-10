@@ -2318,7 +2318,7 @@ class PEPGP(Approximator):
         self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
-        self.jitter = 1e-10
+        self.jitter = 1e-6  # was 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
         if minibatch_size is None:
@@ -2337,9 +2337,9 @@ class PEPGP(Approximator):
         self.Z = self.X_train
         warnings.warn(
             "Updating prior covariance")
-        self.Kfdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         self.Kuu = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.Kfu = self.Kuu
+        self.Kfdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         (L_K, lower) = cho_factor(self.Kuu + self.jitter * np.eye(self.N))
         L_KT_inv = solve_triangular(
             L_K.T, np.eye(self.N), lower=True)
@@ -2577,27 +2577,27 @@ class PEPGP(Approximator):
             # The first EP approximation before data-update is the GP prior cov
             beta_0 = np.zeros((self.M, self.M))
         if gamma_0 is None:
-            gamma_0 = np.zeros((self.M,))
+            gamma_0 = np.zeros(self.M)
         if mean_EP_0 is None:
             mean_EP_0 = np.zeros((self.N, 1))
         if variance_EP_0 is None:
-            variance_EP_0 = np.inf * np.ones((self.N, 1))
+            variance_EP_0 = 1e20 * np.ones((self.N, 1))
         error = 0.0
         log_like_0 = 0.0
-        grads_logZtilted_0 = 0.0
+        grads_0 = 0.0
         betas = []
         gammas = []
         mean_EPs = []
         variance_EPs = []
         containers = (betas, gammas, mean_EPs, variance_EPs)
         return (beta_0, gamma_0, mean_EP_0, variance_EP_0,
-            log_like_0, grads_logZtilted_0, containers, error)
+            log_like_0, grads_0, containers, error)
 
     def approximate_parallel(
             self, indices, beta_0=None, gamma_0=None, mean_EP_0=None,
             variance_EP_0=None, write=False):
         """Approximate with parallel PEP."""
-        (beta, gamma, mean_EP, variance_EP, log_lik, grads_logZtilted,
+        (beta, gamma, mean_EP, variance_EP, log_lik, grads,
         containers, error) = self._approximate_parallel_initiate(
         beta_0, gamma_0, mean_EP_0, variance_EP_0)
         (betas, gammas, mean_EPs, variance_EPs) = containers
@@ -2607,9 +2607,9 @@ class PEPGP(Approximator):
 
         # perform parallel updates
         # deletion
-        p_i = self.KuuinvKuf[:, :, np.newaxis].transpose((1, 0, 2))
-        k_i = self.Kfu[:, :, np.newaxis] 
-        k_ii = self.Kfdiag[:, np.newaxis]
+        p_i = self.KuuinvKuf[:, indices, np.newaxis].transpose((1, 0, 2))
+        k_i = self.Kfu[indices, :, np.newaxis] 
+        k_ii = self.Kfdiag[indices, np.newaxis]
         gamma_new_axis = gamma[:, np.newaxis]
         h_si = p_i - np.einsum('ab,kbc->kac', beta, k_i)
         variance_i_ori = variance_EP[indices, :]
@@ -2619,10 +2619,10 @@ class PEPGP(Approximator):
         dlogZd_dmi2 = 1.0 / (variance_i / self.alpha - 
             np.sum(k_i * h_si, axis=1, keepdims=True))
         dlogZd_dmi = -dlogZd_dmi2 * (mean_i - 
-            np.sum(k_i * gamma, axis=1, keepdims=True))
+            np.sum(k_i * gamma_new_axis, axis=1, keepdims=True))
         hd1 = h_si * dlogZd_dmi
         hd2h = np.einsum('abc,adc->abd', h_si, h_si) * dlogZd_dmi2
-        gamma_si = gamma + hd1
+        gamma_si = gamma_new_axis + hd1
         beta_si = beta - hd2h
 
         # projection
@@ -2634,142 +2634,147 @@ class PEPGP(Approximator):
         dlogZ_dmi2 = np.zeros(m_si_i.shape)
         dlogZ_dvi = np.zeros(m_si_i.shape)
         logZtilted = np.zeros(m_si_i.shape)
-        try:
-            # todo: remove this loop
-            for i in range(len(indices)):
-                m_ii = m_si_i[i, 0]
-                v_ii = v_si_ii[i, 0]
-                y_ii = ybatch[i]
+        # try:
+        # todo: remove this loop
+        for i in range(len(indices)):
+            m_ii = m_si_i[i, 0]
+            v_ii = v_si_ii[i, 0]
+            y_ii = ybatch[i]
 
-                logZtilted[i] = probit_logZtilted(
-                    y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
-                dlogZ_dmi[i] = probit_dlogZtilted_dm(
-                    y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
-                dlogZ_dmi2[i] = probit_dlogZtilted_dm2(
-                    y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
-                dlogZ_dvi[i] = probit_dlogZtilted_dv(
-                    y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
+            logZtilted[i] = probit_logZtilted(
+                y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
+            dlogZ_dmi[i] = probit_dlogZtilted_dm(
+                y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
+            dlogZ_dmi2[i] = probit_dlogZtilted_dm2(
+                y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
+            dlogZ_dvi[i] = probit_dlogZtilted_dv(
+                y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
 
-            var_i_new = -1.0 / dlogZ_dmi2 - np.sum(k_i * h, axis=1)
-            mean_i_new = m_si_i - dlogZ_dmi / dlogZ_dmi2
+        var_i_new = -1.0 / dlogZ_dmi2 - np.sum(k_i * h, axis=1)
+        mean_i_new = m_si_i - dlogZ_dmi / dlogZ_dmi2
 
-            var_new_parallel = 1 / (1 / var_i_new + 1 / variance_i_ori * (
-                1 - self.alpha))
-            mean_div_var_i_new = (mean_i_new / var_i_new + 
-                mean_i_ori / variance_i_ori * (1 - self.alpha))
-            mean_new_parallel = mean_div_var_i_new * var_new_parallel
+        var_new_parallel = 1 / (1 / var_i_new + 1 / variance_i_ori * (
+            1 - self.alpha))
+        mean_div_var_i_new = (mean_i_new / var_i_new + 
+            mean_i_ori / variance_i_ori * (1 - self.alpha))
 
-            rho = 0.5
+        mean_new_parallel = mean_div_var_i_new * var_new_parallel
 
-            n1_new = 1.0 / var_new_parallel
-            n2_new = mean_new_parallel / var_new_parallel
+        rho = 0.5
 
-            n1_ori = 1.0 / variance_i_ori
-            n2_ori = mean_i_ori / variance_i_ori
+        n1_new = 1.0 / var_new_parallel
+        n2_new = mean_new_parallel / var_new_parallel
 
-            n1_damped = rho * n1_new + (1.0 - rho) * n1_ori
-            n2_damped = rho * n2_new + (1.0 - rho) * n2_ori
+        n1_ori = 1.0 / variance_i_ori
+        n2_ori = mean_i_ori / variance_i_ori
 
-            var_new_parallel = 1.0 / n1_damped
-            mean_new_parallel = var_new_parallel * n2_damped 
+        n1_damped = rho * n1_new + (1.0 - rho) * n1_ori
+        n2_damped = rho * n2_new + (1.0 - rho) * n2_ori
 
-            # update means and variances
-            mean_EP[indices, :] = mean_new_parallel
-            variance_EP[indices, :] = var_new_parallel
-            # update gamma and beta
-            # TODO: not sure why it requires a matrix inverse at every step
-            # TODO: why necessary to calculate m, V here?
-            (gamma, beta, m, V, Vinv, half_log_det_V,
-                T1u) = self._update_posterior(mean_EP, variance_EP)
+        var_new_parallel = 1.0 / n1_damped
+        mean_new_parallel = var_new_parallel * n2_damped 
 
-            if write:
-                # compute cavity covariance
-                betacavKuu = np.einsum('abc,cd->abd', beta_si, self.Kuu)
-                mcav = np.einsum('bc,acd->abd', self.Kuu, gamma_si)
-                Vcav = self.Kuu - np.einsum('bc,acd->abd', self.Kuu, betacavKuu)
+        # update means and variances
+        mean_EP[indices, :] = mean_new_parallel
+        variance_EP[indices, :] = var_new_parallel
+        # update gamma and beta
+        # TODO: not sure why it requires a matrix inverse at every step
+        # TODO: why necessary to calculate m, V here?
+        (gamma, beta, m, V, Vinv, half_log_det_V,
+            T1u) = self._update_posterior(mean_EP, variance_EP)
 
-                signV, logdetV = np.linalg.slogdet(V)
-                signKuu, logdetKuu = np.linalg.slogdet(self.Kuu)
-                Vinvm = np.dot(Vinv, m)
-                term1 = 0.5 * (logdetV - logdetKuu + np.dot(m, Vinvm))
+        diff_mean = mean_new_parallel[:, 0] - mean_i_ori[:, 0]
+        error = (diff_mean.T @ diff_mean)**2
 
-                tn = 1.0 / var_new_parallel
-                gn = mean_new_parallel
-                wnVcav = np.einsum('abc,abd->adc', p_i, Vcav)
-                wnVcavwn = np.einsum('abc,abd->ac', wnVcav, p_i)
-                wnVcavVinvm = np.sum(wnVcav * Vinvm[:, self.newaxis], axis=1)
-                wnV = np.einsum('abc,bd->adc', p_i, V)
-                wnVwn = np.sum(wnV * p_i, axis=1)
-                mwn = np.einsum('b,abc->ac', m, p_i)
-                oneminuswnVwn = 1 - self.alpha * tn * wnVwn
+        if write:
+            # compute cavity covariance
+            betacavKuu = np.einsum('abc,cd->abd', beta_si, self.Kuu)
+            mcav = np.einsum('bc,acd->abd', self.Kuu, gamma_si)
+            Vcav = self.Kuu - np.einsum('bc,acd->abd', self.Kuu, betacavKuu)
 
-                term2a = 0.5 * self.alpha * tn**2 * gn**2 * wnVcavwn
-                term2b = - gn * tn * wnVcavVinvm
-                term2c = 0.5 * tn * mwn**2 / oneminuswnVwn
-                term2d = -0.5 / self.alpha * np.log(oneminuswnVwn)
-                term2 = self.N / self.minibatch_size * np.sum(
-                    term2a + term2b + term2c + term2d)
+            signV, logdetV = np.linalg.slogdet(V)
+            signKuu, logdetKuu = np.linalg.slogdet(self.Kuu)
+            Vinvm = np.dot(Vinv, m)
+            term1 = 0.5 * (logdetV - logdetKuu + np.dot(m, Vinvm))
 
-                scale_logZtilted = self.N / self.minibatch_size / self.alpha
-                term3 = scale_logZtilted * np.sum(logZtilted)
+            tn = 1.0 / var_new_parallel
+            gn = mean_new_parallel
+            wnVcav = np.einsum('abc,abd->adc', p_i, Vcav)
+            wnVcavwn = np.einsum('abc,abd->ac', wnVcav, p_i)
+            wnVcavVinvm = np.sum(wnVcav * Vinvm[:, self.newaxis], axis=1)
+            wnV = np.einsum('abc,bd->adc', p_i, V)
+            wnVwn = np.sum(wnV * p_i, axis=1)
+            mwn = np.einsum('b,abc->ac', m, p_i)
+            oneminuswnVwn = 1 - self.alpha * tn * wnVwn
 
-                log_lik = term1 + term2 + term3
+            term2a = 0.5 * self.alpha * tn**2 * gn**2 * wnVcavwn
+            term2b = - gn * tn * wnVcavVinvm
+            term2c = 0.5 * tn * mwn**2 / oneminuswnVwn
+            term2d = -0.5 / self.alpha * np.log(oneminuswnVwn)
+            term2 = self.N / self.minibatch_size * np.sum(
+                term2a + term2b + term2c + term2d)
 
-                KuuinvMcav = np.einsum('bc,acd->abd', self.Kuuinv, mcav)
-                dlogZt_dmiKuuinvMcav = dlogZ_dmi[:, self.newaxis, :] * KuuinvMcav
-                dlogZt_dKuu_via_mi = -np.einsum('abc,adc->abd', dlogZt_dmiKuuinvMcav, p_i)
-                
-                VcavKuuinvKufi = np.einsum('abc,acd->abd', Vcav, p_i)
-                KuuinvVcavKuuinvKufi = np.einsum('bc,acd->abd', self.Kuuinv, VcavKuuinvKufi)
-                p_idlogZ_dvi = p_i * dlogZ_dvi[:, self.newaxis, :]
-                temp1 = - np.einsum('abc,adc->abd', KuuinvVcavKuuinvKufi, p_idlogZ_dvi)
-                temp2 = np.transpose(temp1, [0, 2, 1])
-                temp3 = np.einsum('abc,adc->abd', p_i, p_idlogZ_dvi)
-                dlogZt_dKuu_via_vi = temp1 + temp2 + temp3
-                dlogZt_dKuu = np.sum(dlogZt_dKuu_via_mi + dlogZt_dKuu_via_vi, axis=0)
+            scale_logZtilted = self.N / self.minibatch_size / self.alpha
+            term3 = scale_logZtilted * np.sum(logZtilted)
 
-                dlogZt_dKfu_via_mi = dlogZt_dmiKuuinvMcav
-                dlogZt_dKfu_via_vi = 2 * dlogZ_dvi[:, self.newaxis, :] * (-p_i + KuuinvVcavKuuinvKufi)
-                dlogZt_dKfu = dlogZt_dKfu_via_mi + dlogZt_dKfu_via_vi
-                dlogZt_dsf = (2*np.sum(dlogZt_dKfu * k_i) 
-                    + 2*np.sum(dlogZ_dvi*np.exp(2*self.sf)))
-                ls2 = np.exp(2*self.ls)
-                ones_M = np.ones((self.minibatch_size, self.M))
-                ones_D = np.ones((self.minibatch_size, self.D))
-                xi_minus_zu = np.einsum('km,kd->kmd', ones_M, Xbatch) - self.zu
-                
-                temp1 = np.einsum('kma,kd->kmd', k_i, ones_D) * 0.5 * xi_minus_zu**2
-                dlogZt_dls = 2.0*np.sum(dlogZt_dKfu * temp1) / ls2
-                temp2 = xi_minus_zu * np.einsum('km,d->kmd', ones_M, 1.0 / ls2 )
-                dlogZt_dzu = np.sum(np.einsum('kma,kd->kmd', dlogZt_dKfu * k_i, ones_D) * temp2, axis=0)
+            log_lik = term1 + term2 + term3
 
-                dlogZt_dsn = 0
-                for i in range(m_si_i.shape[0]):
-                    dlogZt_dsn += self.dlogZtilted_dsn(ybatch[i], m_si_i[i], 
-                        v_si_ii[i], self.alpha)
+            KuuinvMcav = np.einsum('bc,acd->abd', self.Kuuinv, mcav)
+            dlogZt_dmiKuuinvMcav = dlogZ_dmi[:, self.newaxis, :] * KuuinvMcav
+            dlogZt_dKuu_via_mi = -np.einsum('abc,adc->abd', dlogZt_dmiKuuinvMcav, p_i)
+            
+            VcavKuuinvKufi = np.einsum('abc,acd->abd', Vcav, p_i)
+            KuuinvVcavKuuinvKufi = np.einsum('bc,acd->abd', self.Kuuinv, VcavKuuinvKufi)
+            p_idlogZ_dvi = p_i * dlogZ_dvi[:, self.newaxis, :]
+            temp1 = - np.einsum('abc,adc->abd', KuuinvVcavKuuinvKufi, p_idlogZ_dvi)
+            temp2 = np.transpose(temp1, [0, 2, 1])
+            temp3 = np.einsum('abc,adc->abd', p_i, p_idlogZ_dvi)
+            dlogZt_dKuu_via_vi = temp1 + temp2 + temp3
+            dlogZt_dKuu = np.sum(dlogZt_dKuu_via_mi + dlogZt_dKuu_via_vi, axis=0)
 
-                self.log_lik = log_lik
+            dlogZt_dKfu_via_mi = dlogZt_dmiKuuinvMcav
+            dlogZt_dKfu_via_vi = 2 * dlogZ_dvi[:, self.newaxis, :] * (-p_i + KuuinvVcavKuuinvKufi)
+            dlogZt_dKfu = dlogZt_dKfu_via_mi + dlogZt_dKfu_via_vi
+            dlogZt_dsf = (2*np.sum(dlogZt_dKfu * k_i) 
+                + 2*np.sum(dlogZ_dvi*np.exp(2*self.sf)))
+            ls2 = np.exp(2*self.ls)
+            ones_M = np.ones((self.minibatch_size, self.M))
+            ones_D = np.ones((self.minibatch_size, self.D))
+            xi_minus_zu = np.einsum('km,kd->kmd', ones_M, Xbatch) - self.zu
+            
+            temp1 = np.einsum('kma,kd->kmd', k_i, ones_D) * 0.5 * xi_minus_zu**2
+            dlogZt_dls = 2.0*np.sum(dlogZt_dKfu * temp1) / ls2
+            temp2 = xi_minus_zu * np.einsum('km,d->kmd', ones_M, 1.0 / ls2 )
+            dlogZt_dzu = np.sum(np.einsum('kma,kd->kmd', dlogZt_dKfu * k_i, ones_D) * temp2, axis=0)
 
-                # compute the gradients
-                Vmm = V + np.outer(m, m)
-                S = - self.Kuuinv + np.dot(
-                    self.Kuuinv, np.dot(Vmm, self.Kuuinv))
-                S = S + 2*scale_logZtilted * dlogZt_dKuu
-                dhyp = d_trace_MKzz_dhypers(2*self.ls, 2*self.sf, self.zu, S, self.Kuu)
+            dlogZt_dsn = 0
+            for i in range(m_si_i.shape[0]):
+                dlogZt_dsn += self.dlogZtilted_dsn(ybatch[i], m_si_i[i], 
+                    v_si_ii[i], self.alpha)
 
-                grads_dlogZtilted = {
-                        'ls': dhyp[1] + scale_logZtilted * dlogZt_dls,
-                        'sf': dhyp[0] + scale_logZtilted * dlogZt_dsf,
-                        'sn': scale_logZtilted * dlogZt_dsn, 
-                        'zu': dhyp[2]/2 + scale_logZtilted * dlogZt_dzu} 
-        except (RuntimeWarning, np.linalg.linalg.LinAlgError):
-                print("exception: ignore this update")
-                mean_new_parallel = mean_i_ori
-                var_new_parallel = variance_i_ori
-                error = True
+            self.log_lik = log_lik
+
+            # compute the gradients
+            Vmm = V + np.outer(m, m)
+            S = - self.Kuuinv + np.dot(
+                self.Kuuinv, np.dot(Vmm, self.Kuuinv))
+            S = S + 2*scale_logZtilted * dlogZt_dKuu
+            dhyp = d_trace_MKzz_dhypers(2*self.ls, 2*self.sf, self.zu, S, self.Kuu)
+
+            grads = 0
+            # grads = {
+            #         'ls': dhyp[1] + scale_logZtilted * dlogZt_dls,
+            #         'sf': dhyp[0] + scale_logZtilted * dlogZt_dsf,
+            #         'sn': scale_logZtilted * dlogZt_dsn, 
+            #         'zu': dhyp[2]/2 + scale_logZtilted * dlogZt_dzu} 
+        # except (RuntimeWarning, np.linalg.linalg.LinAlgError):
+        #         print("exception: ignore this update")
+        #         mean_new_parallel = mean_i_ori
+        #         var_new_parallel = variance_i_ori
+        #         error = True
         # need to return m, V as well. something confusing about this.
         return (error, beta, gamma, mean_EP, variance_EP, m, V,
-                log_lik, grads_logZtilted)
+                log_lik, grads)
 
     def approximate_sequential(
             self, indices, beta_0=None, gamma_0=None,
@@ -2878,7 +2883,7 @@ class PEPGP(Approximator):
         return (error, beta, gamma, mean_EP, variance_EP,
                 log_lik, grads_logZtilted)
 
-    def approximate_posterior(
+    def approximate_posterior_parallel(
             self, phi, trainables, steps,
             beta_0=None, gamma_0=None, return_reparameterised=False,
             mean_EP_0=None, variance_EP_0=None, verbose=True):
@@ -2918,13 +2923,14 @@ class PEPGP(Approximator):
         variance_EP = variance_EP_0
         # random permutation of data
         indices = np.arange(self.N)
-        while error / (steps * self.N) > self.EPS**2:
+        # while error / (steps * self.N) > self.EPS**2:
+        for _ in range(100):
             iteration += 1
             (error, beta, gamma, mean_EP, variance_EP, posterior_mean,
-                posterior_cov, log_lik,
-                grads_logZtilted) = self.run_pep_parallel(
+                posterior_cov, log_lik, grads) = self.run_pep_parallel(
             indices, steps, beta=beta, gamma=gamma,
             mean_EP=mean_EP, variance_EP=variance_EP, write=False)
+            print("error={}".format(error))
         # TODO: Why not just directly calculate gradients given states
         # TODO: A: because it requires a whole loop
         # Compute posterior TODO: does it need to be done twice?
@@ -2947,7 +2953,7 @@ class PEPGP(Approximator):
         elif return_reparameterised is None:
             return fx, gx
 
-    def approximate_posterior_sequential(
+    def approximate_posterior(
             self, phi, trainables, steps,
             beta_0=None, gamma_0=None, return_reparameterised=False,
             mean_EP_0=None, variance_EP_0=None, verbose=True):
@@ -2992,7 +2998,7 @@ class PEPGP(Approximator):
             (error, beta, gamma, mean_EP, variance_EP,
                 log_lik, grads_logZtilted) = self.run_pep_sequential(
             indices, steps, beta=beta, gamma=gamma,
-            mean_EP=mean_EP, variance_EP=variance_EP)
+            mean_EP=mean_EP, variance_EP=variance_EP, write=False)
         # TODO: Why not just directly calculate gradients given states
         # TODO: A: because it requires a whole loop
         # Compute gradients of the hyperparameters
