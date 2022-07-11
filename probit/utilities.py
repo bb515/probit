@@ -616,6 +616,80 @@ def d_trace_MKzz_dhypers(lls, lsf, z, M, Kzz):
     return gr_lsf, gr_lls, gr_z
 
 
+def probit_logZtilted_vector(y, m, v, alpha, deg, N):
+    if alpha == 1.0:
+        t = y * m / np.sqrt(1+v)
+        Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
+        eps = 1e-16
+        return np.log(Z + eps)
+    else:
+        gh_x, gh_w = np.polynomial.hermite.hermgauss(deg)
+
+        # gh_x = np.tile(gh_x, (N, 1))  # try just new axis?
+        # gh_w = np.tile(gh_w, (N, 1))
+        ts_ = np.empty((N, deg))
+        for i in range(N):
+            ts_[i, :] = gh_x * np.sqrt(2*v[i, 0]) + m[i, 0] 
+        #print(ts_)
+
+        pdfs_ = np.empty((N, deg))
+        for i in range(N):
+            pdfs_[i, :] = 0.5 * (1 + erf(y[i, 0]*ts_[i] / np.sqrt(2)))
+
+        r_ = np.empty((N,))
+        for i in range(N):
+            r_[i] = np.log(np.dot(pdfs_[i]**alpha, gh_w) / np.sqrt(np.pi))
+ 
+        print(r_)
+
+        gh_x = gh_x.reshape(1, -1)
+
+        ts = gh_x * np.sqrt(2*v) + m
+
+        pdfs = 0.5 * (1 + erf(ts * y / np.sqrt(2)))
+
+        r = np.log(pdfs**alpha @ gh_w / np.sqrt(np.pi))
+        print(r)
+        return r
+
+
+def probit_dlogZtilted_dm_vector(y, m, v, alpha, deg):
+    if alpha == 1.0:
+        t = y * m / np.sqrt(1 + v)
+        Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
+        eps = 1e-16
+        Zeps = Z + eps
+        beta = 1 / Zeps / np.sqrt(1 + v) * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
+        return y*beta
+    else:
+        gh_x, gh_w = np.polynomial.hermite.hermgauss(deg) 
+        gh_x = gh_x.reshape(1, -1)
+        eps = 1e-8
+        ts = gh_x * np.sqrt(2*v) + m
+        pdfs = 0.5 * (1 + erf(ts * y / np.sqrt(2))) + eps
+        Ztilted = pdfs**alpha @ gh_w / np.sqrt(np.pi)
+        dZdm =  pdfs**(alpha-1.0) * np.exp(-ts**2/2) * y @ gh_w * alpha / np.pi / np.sqrt(2)
+        return dZdm / Ztilted + eps
+
+
+def probit_dlogZtilted_dm2_vector(y, m, v, alpha, deg):
+    if alpha == 1.0:
+        t = y * m / np.sqrt(1 + v)
+        Z = 0.5 * (1 + erf(t / np.sqrt(2)))  # was math.erf
+        eps = 1e-16
+        Zeps = Z + eps
+        return - 0.5 * y * m / Zeps / (1 + v)**1.5 * 1/np.sqrt(2*np.pi) * np.exp(-t**2.0 / 2)
+    else:
+        gh_x, gh_w = np.polynomial.hermite.hermgauss(deg)
+        gh_x = gh_x.reshape(1, -1)
+        eps = 1e-8    
+        ts = gh_x * np.sqrt(2*v) + m
+        pdfs = 0.5 * (1 + erf(ts * y / np.sqrt(2))) + eps
+        Ztilted = pdfs**alpha @ gh_w / np.sqrt(np.pi)
+        dZdv = pdfs**(alpha-1.0) * np.exp(-ts**2/2) * gh_x * y / np.sqrt(2*v) @ gh_w * alpha / np.pi / np.sqrt(2)
+        return dZdv / Ztilted + eps
+
+
 def probit_dlogZtilted_dsn(y_i, m_si_i, v_si_ii, alpha, deg):
     return 0
 

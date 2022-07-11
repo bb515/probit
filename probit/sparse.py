@@ -718,3 +718,17 @@ class SparsePEPGP(PEPGP):
         warnings.warn(
             "Done updating prior covariance")
 
+    def _update_posterior(self, mean_EP, variance_EP):
+        means = mean_EP[:, 0]
+        variances = variance_EP[:, 0]
+        T2u = (self.KuuinvKuf / variances) @ self.KuuinvKuf.T
+        T1u = self.KuuinvKuf @ (means / variances)
+        Vinv = self.Kuuinv + T2u
+        (L_Vinv, lower) = cho_factor(Vinv + self.jitter * np.eye(self.N))
+        L_VinvT_inv = solve_triangular(L_Vinv.T, np.eye(self.N), lower=True)
+        V = solve_triangular(L_Vinv, L_VinvT_inv, lower=False)
+        half_log_det_V = np.sum(np.log(np.diag(L_Vinv)))  # TODO: check this is the case
+        m = V @ T1u
+        gamma = self.Kuuinv @ m
+        beta = self.Kuuinv @ (self.Kuu - V) @ self.Kuuinv
+        return gamma, beta, m, V, Vinv, half_log_det_V, T1u
