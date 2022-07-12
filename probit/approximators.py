@@ -21,6 +21,8 @@ from probit.utilities import (
     probit_logZtilted, probit_dlogZtilted_dm, probit_dlogZtilted_dm2,
     probit_logZtilted_vector, probit_dlogZtilted_dm_vector,
     probit_dlogZtilted_dm2_vector,
+    ordinal_dlogZtilted_dm_vector,
+    ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
 # NOTE Usually the numba implementation is not faster
 # from .numba.utilities import (
@@ -61,7 +63,9 @@ class Approximator(ABC):
 
     @abstractmethod
     def __init__(
-            self, kernel, J, data=None, read_path=None):
+            self, kernel, J, data=None, read_path=None,
+            varphi_hyperparameters=None, cutpoints_hyperparameters=None,
+            noise_std_hyperparameters=None):
         """
         Create an :class:`Approximator` object.
 
@@ -80,6 +84,13 @@ class Approximator(ABC):
 
         :returns: A :class:`Approximator` object
         """
+        # Initiate hyper-hyper-parameters in case of MCMC or Variational
+        # inference over varphi
+        self.initiate_hyperhyperparameters(
+            varphi_hyperparameters=varphi_hyperparameters,
+            cutpoints_hyperparameters=cutpoints_hyperparameters,
+            noise_std_hyperparameters=noise_std_hyperparameters)
+
         # if not (isinstance(kernel, Kernel)):
         #     raise InvalidKernel(kernel)
         # else:
@@ -328,9 +339,19 @@ class Approximator(ABC):
             self.noise_std = np.sqrt(noise_variance)
 
     def initiate_hyperhyperparameters(self,
+            variance_hyperparameters=None,
+            varphi_hyperparameters=None,
             cutpoints_hyperparameters=None, noise_std_hyperparameters=None):
         """TODO: For MCMC over these parameters. Could it be a part
         of sampler?"""
+        if variance_hyperparameters is not None:
+            self.variance_hyperparameters = variance_hyperparameters
+        else:
+            self.variance_hyperparameters = None
+        if varphi_hyperparameters is not None:
+            self.varphi_hyperparameters = varphi_hyperparameters
+        else:
+            self.varphi_hyperparameters = None
         if cutpoints_hyperparameters is not None:
             self.cutpoints_hyperparameters = cutpoints_hyperparameters
         else:
@@ -655,9 +676,6 @@ class VBGP(Approximator):
         :returns: A :class:`VBGP` object.
         """
         super().__init__(*args, **kwargs)
-        # self.initiate_hyperparameters(
-        #     cutpoints_hyperparameters=cutpoints_hyperparameters,
-        #     noise_std_hyperparameters=noise_std_hyperparameters)
         #self.EPS = 0.000001  # Acts as a machine tolerance, controls error
         #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
         self.EPS = 1e-4  # perhaps not low enough.
@@ -1317,7 +1335,6 @@ class EPGP(Approximator):
 
     def __init__(
             self, cutpoints, noise_variance, *args, **kwargs):
-            # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`EPGP` Approximator object.
 
@@ -1329,9 +1346,6 @@ class EPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # self.initiate_hyperparameters(
-        #     cutpoints_hyperparameters=cutpoints_hyperparameters,
-        #     noise_std_hyperparameters=noise_std_hyperparameters)
         self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
@@ -2299,7 +2313,6 @@ class PEPGP(Approximator):
     def __init__(
             self, cutpoints, noise_variance, alpha, minibatch_size=None,
             gauss_hermite_points=20, *args, **kwargs):
-        # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`PEPGP` Approximator object.
 
@@ -2314,9 +2327,6 @@ class PEPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # self.initiate_hyperparameters(
-        #     cutpoints_hyperparameters=cutpoints_hyperparameters,
-        #     noise_std_hyperparameters=noise_std_hyperparameters)
         self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
@@ -2340,6 +2350,7 @@ class PEPGP(Approximator):
         # warnings.warn(
         #     "Updating prior covariance")
         self.Kuu = self.kernel.kernel_matrix(self.X_train, self.X_train)
+        self.K = self.Kuu
         self.Kfu = self.Kuu
         self.Kfdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         # (self.L_K, lower) = cho_factor(self.Kuu + self.jitter * np.eye(self.N))
@@ -2431,9 +2442,11 @@ class PEPGP(Approximator):
         m_si_i = np.dot(k_i, gamma_si)
         v_si_ii = Kff_ii - np.dot(np.dot(k_i, beta_si), k_i)
         dlogZ_dmi = probit_dlogZtilted_dm(
-            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points)
+            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points,
+            self.noise_variance)
         dlogZ_dmi2 = probit_dlogZtilted_dm2(
-            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points)
+            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points,
+            self.noise_variance)
         gamma_new = gamma_si + h * dlogZ_dmi
         beta_new = beta_si - np.outer(h, h) * dlogZ_dmi2
         return  h, m_si_i, v_si_ii, dlogZ_dmi, dlogZ_dmi2, beta_new, gamma_new
@@ -2563,7 +2576,7 @@ class PEPGP(Approximator):
         if mean_EP_0 is None:
             mean_EP_0 = np.zeros((self.N,))
         if variance_EP_0 is None:
-            variance_EP_0 = np.inf * np.ones((self.N,))
+            variance_EP_0 = 1e20 * np.ones((self.N,))
         error = 0.0
         log_like_0 = 0.0
         grads_logZtilted_0 = 0.0
@@ -2714,12 +2727,15 @@ class PEPGP(Approximator):
         beta_0, gamma_0, mean_EP_0, variance_EP_0)
         (betas, gammas, mean_EPs, variance_EPs) = containers
 
-        Xbatch = self.X_train[indices, :]
-        ybatch = (2 * self.y_train[indices, np.newaxis]) - 1
+        ## minibatch
+        # Kfu = self.Kfu[indices, :]
+        # KuuinvKuf = self.KuuinvKuf[:, indices]
+        # Kff_diag = self.Kfdiag[indices]
 
-        Kfu = self.Kfu[indices, :]
-        KuuinvKuf = self.KuuinvKuf[:, indices]
-        Kff_diag = self.Kfdiag[indices]
+        # Full dataset
+        Kfu = self.Kfu
+        KuuinvKuf = self.KuuinvKuf
+        Kff_diag = self.Kfdiag
 
         # perform parallel updates
         # deletion
@@ -2747,33 +2763,50 @@ class PEPGP(Approximator):
         m_si_i = np.einsum('abc,abc->ac', k_i, gamma_si)
         v_si_ii = k_ii - np.einsum('abc,abd,adc->ac', k_i, beta_si, k_i)
 
-        dlogZ_dmi = probit_dlogZtilted_dm_vector(ybatch, m_si_i, v_si_ii,
-            self.alpha, self.gauss_hermite_points)
-        dlogZ_dmi2 = probit_dlogZtilted_dm2_vector(ybatch, m_si_i, v_si_ii,
-            self.alpha, self.gauss_hermite_points)
+        # ## Ordinal likelihood
+        # cutpoints_tplus1s = self.cutpoints_tplus1s[indices, np.newaxis]
+        # cutpoints_ts = self.cutpoints_ts[indices, np.newaxis]
+        # dlogZ_dmi = ordinal_dlogZtilted_dm_vector(
+        #     cutpoints_tplus1s, cutpoints_ts, self.noise_std,
+        #     m_si_i, v_si_ii,
+        #     self.alpha, self.gauss_hermite_points)
+        # dlogZ_dmi2 = ordinal_dlogZtilted_dm2_vector(
+        #     cutpoints_tplus1s, cutpoints_ts, self.noise_std,
+        #     m_si_i, v_si_ii,
+        #     self.alpha, self.gauss_hermite_points)
+        # dlogZ_dmi = dlogZ_dmi.reshape(-1, 1)
+        # dlogZ_dmi2 = dlogZ_dmi2.reshape(-1, 1)
 
+        # Bernoulli likelihood
+        ybatch = (2 * self.y_train[indices, np.newaxis]) - 1
+        dlogZ_dmi = probit_dlogZtilted_dm_vector(ybatch, m_si_i, v_si_ii,
+            self.alpha, self.gauss_hermite_points, self.noise_variance)
+        dlogZ_dmi2 = probit_dlogZtilted_dm2_vector(ybatch, m_si_i, v_si_ii,
+            self.alpha, self.gauss_hermite_points, self.noise_variance)
         dlogZ_dmi = dlogZ_dmi.reshape(-1, 1)
         dlogZ_dmi2 = dlogZ_dmi2.reshape(-1, 1)
-        # print(np.shape(dlogZ_dmi))
-        # print(np.shape(dlogZ_dmi2))
-        # print(m_si_i.shape)
 
+        # # TODO: SS
+        # ybatch = (2 * self.y_train[indices, np.newaxis]) - 1
         # dlogZ_dmi = np.zeros(m_si_i.shape)
         # dlogZ_dmi2 = np.zeros(m_si_i.shape)
-        # dlogZ_dvi = np.zeros(m_si_i.shape)
-        # logZtilted = np.zeros(m_si_i.shape)
+        # #dlogZ_dvi = np.zeros(m_si_i.shape)
+        # #logZtilted = np.zeros(m_si_i.shape)
 
         # for i in range(len(indices)):
         #     m_ii = m_si_i[i, 0]
         #     v_ii = v_si_ii[i, 0]
         #     y_ii = ybatch[i]
 
-        #     logZtilted[i] = probit_logZtilted(
-        #         y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
+        #     # logZtilted[i] = probit_logZtilted(
+        #     #     y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points,
+        #     #     self.noise_std)
         #     dlogZ_dmi[i] = probit_dlogZtilted_dm(
-        #         y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
+        #         y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points,
+        #         self.noise_std)
         #     dlogZ_dmi2[i] = probit_dlogZtilted_dm2(
-        #         y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
+        #         y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points,
+        #         self.noise_std)
         #     # dlogZ_dvi[i] = probit_dlogZtilted_dv(
         #     #     y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
 
@@ -2787,10 +2820,9 @@ class PEPGP(Approximator):
 
         mean_new_parallel = mean_div_var_i_new * var_new_parallel
 
-        # rho = 1.1  # underdamped
-        rho = 0.5  # overdamped
-        # rho = 0.01
-        # rho = 1.0  # undamped
+        rho = 0.5 # damped - more numerically stable in some circumstances
+        # rho = 1.0  # undamped - probably best. What about underdamped tho?
+        
         n1_new = 1.0 / var_new_parallel
         n2_new = mean_new_parallel / var_new_parallel
 
@@ -2805,8 +2837,8 @@ class PEPGP(Approximator):
 
         if np.any(var_new_parallel < 0):
             # skip this update
+            error = np.inf
             print("SKIP")
-            # print(var_new_parallel.flatten())
         else:
             # update means and variances
             mean_EP[indices, :] = mean_new_parallel
@@ -2901,12 +2933,10 @@ class PEPGP(Approximator):
             mean_EP_n, variance_EP_n = self._include(
                 h, m_si_i, dlogZ_dmi, dlogZ_dmi2, p_i, k_i, self.alpha,
                 mean_EP_n_old, variance_EP_n_old)
-            diff = variance_EP_n - variance_EP_n_old
-            if (np.abs(diff) > self.EPS
-                    and variance_EP_n > 0.0):
+            #diff = variance_EP_n - variance_EP_n_old
+            if variance_EP_n > 0.0:
                 # Update EP parameters
-                error += (diff**2
-                          + (mean_EP_n - mean_EP_n_old)**2)
+                error += (mean_EP_n - mean_EP_n_old)**2
                 variance_EP[index] = variance_EP_n
                 mean_EP[index] = mean_EP_n
                 beta = beta_new
@@ -2918,19 +2948,20 @@ class PEPGP(Approximator):
                     log_lik += logZtilted + phi_cav
                     grads_logZtilted += dlogZtilted
             else:
+                pass
                 ############### Update them anyway. There is an issue with stability here possibly.
                 # Update EP parameters
-                error += (diff**2
-                          + (mean_EP_n - mean_EP_n_old)**2)
-                variance_EP[index] = variance_EP_n
-                mean_EP[index] = mean_EP_n
-                beta = beta_new
-                gamma = gamma_new
+                # error += (diff**2
+                #           + (mean_EP_n - mean_EP_n_old)**2)
+                # variance_EP[index] = variance_EP_n
+                # mean_EP[index] = mean_EP_n
+                # beta = beta_new
+                # gamma = gamma_new
                 ###############
-                if variance_EP_n < 0.0:
-                    print(
-                        "Skip {}, v_new={}, v_old={}.\n".format(
-                        index, variance_EP_n, variance_EP_n_old))
+                # if variance_EP_n < 0.0:
+                #     print(
+                #         "Skip {}, v_new={}, v_old={}.\n".format(
+                #         index, variance_EP_n, variance_EP_n_old))
         containers = (betas, gammas, mean_EPs, variance_EPs)
         return (error, beta, gamma, mean_EP, variance_EP,
                 log_lik, grads_logZtilted)
@@ -2976,6 +3007,7 @@ class PEPGP(Approximator):
         # random permutation of data
         indices = np.arange(self.N)
         while error / (steps * self.N) > self.EPS**2:
+        # for _ in range(10):
             iteration += 1
             (error, beta, gamma, mean_EP, variance_EP,
                 log_lik, grads) = self.run_pep_parallel(
@@ -3047,6 +3079,7 @@ class PEPGP(Approximator):
         # random permutation of data
         indices = np.arange(self.N)
         while error / (steps * self.N) > self.EPS**2:
+        #for _ in range(10):
             iteration += 1
             (error, beta, gamma, mean_EP, variance_EP,
                 log_lik, grads_logZtilted) = self.run_pep_sequential(
@@ -3056,10 +3089,10 @@ class PEPGP(Approximator):
         # TODO: Why not just directly calculate gradients given states
         # TODO: A: because it requires a whole loop
         # Compute gradients of the hyperparameters
-        (error, beta, gamma, mean_EP, variance_EP,
-                log_lik, grads_logZtilted) = self.run_pep_sequential(
-            indices, steps, beta=beta, gamma=gamma,
-            mean_EP=mean_EP, variance_EP=variance_EP, write=True)
+        # (error, beta, gamma, mean_EP, variance_EP,
+        #         log_lik, grads_logZtilted) = self.run_pep_sequential(
+        #     indices, steps, beta=beta, gamma=gamma,
+        #     mean_EP=mean_EP, variance_EP=variance_EP, write=True)
         # Compute posterior TODO: does it need to be done twice?
         (posterior_mean, posterior_cov) = self._compute_posterior(
             self.Kuu, gamma, beta)
@@ -3172,7 +3205,6 @@ class LaplaceGP(Approximator):
 
     def __init__(
             self, cutpoints, noise_variance, *args, **kwargs):
-        # cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`LaplaceGP` Approximator object.
 
@@ -3184,9 +3216,6 @@ class LaplaceGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # self.initiate_hyperparameters(
-        #     cutpoints_hyperparameters=cutpoints_hyperparameters,
-        #     noise_std_hyperparameters=noise_std_hyperparameters)
         # self.EPS = 0.001  # Acts as a machine tolerance
         # self.EPS = 1e-4
         self.EPS = 1e-2
@@ -3654,8 +3683,9 @@ class LaplaceGP(Approximator):
         if return_reparameterised is True:
             return fx, gx, weight, (cov, True)
         if return_reparameterised is False:
+            # return fx, gx, posterior_mean (, True)
             return fx, gx, posterior_mean, (
-                self.noise_variance * self.K @ cov, False)
+                self.K @ cov @ np.diag(1./precision), False)
         elif return_reparameterised is None:
             return fx, gx
 

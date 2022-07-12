@@ -72,7 +72,7 @@ class VGP(Approximator):
         warnings.warn(
             "Initiating model using gpflow")
         self._model = gpflow.models.VGP(
-            data=(self.X_train, self.t_train.reshape(-1, 1)),
+            data=(self.X_train, self.y_train.reshape(-1, 1)),
             kernel=self.kernel, likelihood=likelihood)
         def plot_prediction(fig, ax):
             Xnew = np.linspace(
@@ -81,7 +81,7 @@ class VGP(Approximator):
             Ypred = self._model.predict_f_samples(
                 Xnew, full_cov=True, num_samples=20)
             ax.plot(Xnew.flatten(), np.squeeze(Ypred).T, "C1", alpha=0.2)
-            ax.plot(self.X_train, self.t_train, "o")
+            ax.plot(self.X_train, self.y_train, "o")
         warnings.warn("Done initiating model using gpflow.")
         # Fix hyperparameters - difficult to do without letting user do it
         gpflow.set_trainable(self._model.kernel.lengthscales, False)
@@ -108,37 +108,37 @@ class VGP(Approximator):
             # MonitorTaskGroup(image_task, period=5)
         )
 
-    def get_phi(self, indices):
+    def get_phi(self, trainables):
         """
         Get the parameters (phi) for unconstrained optimization.
 
-        :arg indices: Indicator array of the hyperparameters to optimize over.
+        :arg trainables: Indicator array of the hyperparameters to optimize over.
             TODO: it is not clear, unless reading the code from this method,
-            that indices[0] means noise_variance, etc. so need to change the
+            that trainables[0] means noise_variance, etc. so need to change the
             interface to expect a dictionary with keys the hyperparameter
             names and values a bool that they are fixed?
-        :type indices: :class:`numpy.ndarray`
+        :type trainables: :class:`numpy.ndarray`
         :returns: The unconstrained parameters to optimize over, phi.
         :rtype: :class:`numpy.array`
         """
         phi = []
-        if indices[0]:
+        if trainables[0]:
             phi.append(np.log(np.sqrt(self.noise_variance)))
-        if indices[1]:
+        if trainables[1]:
             phi.append(self.cutpoints[1])
         for j in range(2, self.J):
-            if indices[j]:
+            if trainables[j]:
                 phi.append(np.log(self.cutpoints[j] - self.cutpoints[j - 1]))
-        if indices[self.J]:
+        if trainables[self.J]:
             phi.append(np.log(np.sqrt(self.kernel.variance)))
         # TODO: replace this with kernel number of hyperparameters.
-        if indices[self.J + 1]:
+        if trainables[self.J + 1]:
             phi.append(np.log(self.kernel.lengthscales.numpy()))
         return np.array(phi)
 
     def hyperparameters_update(
             self, cutpoints=None, varphi=None, variance=None,
-            noise_variance=None, varphi_hyperparameters=None):
+            noise_variance=None):
         """
         Reset kernel hyperparameters, generating new prior and posterior
         covariances. 
@@ -156,8 +156,8 @@ class VGP(Approximator):
         """
         if cutpoints is not None:
             self.cutpoints = check_cutpoints(cutpoints, self.J)
-            self.cutpoints_ts = self.cutpoints[self.t_train]
-            self.cutpoints_tplus1s = self.cutpoints[self.t_train + 1]
+            self.cutpoints_ts = self.cutpoints[self.y_train]
+            self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
             # self._model.likelihood.bin_edges = self.cutpoints[1:-1]
         if varphi is not None:
             self._model.kernel.lengthscales.assign(varphi)
@@ -170,7 +170,7 @@ class VGP(Approximator):
         # Handle a possible case where the kernel has hyperhyperparameters
 
     def grid_over_hyperparameters(
-            self, domain, res, indices=None, posterior_mean_0=None,
+            self, domain, res, trainables=None, posterior_mean_0=None,
             verbose=False, steps=100):
         """
         TODO: Can this be moved to a plot.py
@@ -195,18 +195,18 @@ class VGP(Approximator):
         xx, yy,
         Phi_new,
         fxs, gxs, gx_0,
-        intervals, indices_where) = self._grid_over_hyperparameters_initiate(
-            res, domain, indices, self.cutpoints)
+        intervals, trainables_where) = self._grid_over_hyperparameters_initiate(
+            res, domain, trainables, self.cutpoints)
         error = np.inf
         fx_old = np.inf
         for i, phi in enumerate(Phi_new):
             self._grid_over_hyperparameters_update(
-                phi, indices, self.cutpoints)
+                phi, trainables, self.cutpoints)
             # Reset error and posterior mean
             fx, gx = self.approximate_posterior(
-                theta, indices, verbose=False)
+                phi, trainables, verbose=False)
             fxs[i] = fx
-            gxs[i] = gx[indices_where]
+            gxs[i] = gx[trainables_where]
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
                 print(
@@ -249,23 +249,23 @@ class VGP(Approximator):
                 options=dict(maxiter=steps))
 
     def approximate_posterior(
-            self, theta, indices, steps=None, first_step=None,
+            self, phi, trainables, steps=None, first_step=None,
             return_reparameterised=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
-        :arg theta: (log-)hyperparameters to be optimised.
-        :arg indices:
+        :arg phi: (log-)hyperparameters to be optimised.
+        :arg trainables:
         :arg first_step:
         :arg bool write:
         :arg bool verbose:
         :return: fx, gx
         :rtype: float, `:class:numpy.ndarray`
         """
-        # Update prior covariance and get hyperparameters from theta
-        (intervals, steps, error, iteration, indices_where,
-        gx) = self._hyperparameter_training_step_initialise(
-            theta, indices, steps)
+        # Update prior covariance and get hyperparameters from phi
+        (intervals, error, iteration, trainables_where,
+                gx) = self._hyperparameter_training_step_initialise(
+            phi, trainables)
         self.approximate(steps=steps, write=False)
         fx = self._training_loss().numpy()
         gx = 0
@@ -345,7 +345,7 @@ class SVGP(VGP):
         super().__init__(*args, **kwargs)
 
         train_dataset = tf.data.Dataset.from_tensor_slices(
-            (self.X_train, self.t_train.reshape(-1, 1))).repeat().shuffle(
+            (self.X_train, self.y_train.reshape(-1, 1))).repeat().shuffle(
                 self.N)
         train_iter = iter(train_dataset.batch(minibatch_size))
         # Create an Adam Optimizer action
@@ -372,7 +372,7 @@ class SVGP(VGP):
             Ypred = self._model.predict_f_samples(
                 Xnew, full_cov=True, num_samples=20)
             ax.plot(Xnew.flatten(), np.squeeze(Ypred).T, "C1", alpha=0.2)
-            ax.plot(self.X_train, self.t_train, "o")
+            ax.plot(self.X_train, self.y_train, "o")
         warnings.warn("Done initiating model using gpflow.")
         # Fix inducing variables
         gpflow.set_trainable(self._model.inducing_variable, False)

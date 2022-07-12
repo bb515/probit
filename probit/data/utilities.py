@@ -39,6 +39,7 @@ datasets = {
         "Linear",
         ],
     "paper" : [
+        "figure2og",
         "figure2",
         "13",
         "table1"
@@ -1817,6 +1818,33 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
                 data["variance"]
             )
         }
+    elif dataset == "figure2og":
+        Kernel = SquaredExponential
+        from probit.data.paper import figure2
+        with pkg_resources.path(figure2, 'J=2_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
+            data = np.load(path)
+        if plot:
+            N_show = data["N_show"]
+            X_show = data["X_show"]
+            f_show = data["f_show"]
+            X_js = data["X_js"]
+            g_js = data["g_js"]
+        X = data["X"]
+        g = data["g"]
+        f = data["f"]
+        y = data["y"]
+        # N = data["N"]
+        colors = data["colors"]
+        J = data["J"]
+        D = data["D"]
+        hyperparameters = {
+            "true" : (
+                [np.NINF, 0.0, np.inf], #  data["cutpoints"],
+                data["lengthscale"],
+                data["noise_variance"],
+                data["variance"]
+            )
+        }
     elif dataset == "13":
         Kernel = LabEQ
         from probit.data.paper import figure2
@@ -2042,7 +2070,7 @@ def plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=None):
 
 
 if __name__ == "__main__":
-    J = 3
+    J = 2
     cmap = plt.cm.get_cmap('viridis', J)    # J discrete colors
     colors = []
     for j in range(J):
@@ -2051,7 +2079,7 @@ if __name__ == "__main__":
     # varphi = gamma.rvs(a=1.0, scale=np.sqrt(D))
     # noise_variance = gamma.rvs(a=1.2, scale=1./0.2)
     generate_synthetic_data_paper(
-        lengthscale=0.35, noise_variance=0.1, variance=1.0,
+        lengthscale=0.35, noise_variance=4.3264, variance=1.0,
         N_train_per_class=100, N_test_per_class=0, N_validate_per_class=0,
         N_show=100,
         splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)

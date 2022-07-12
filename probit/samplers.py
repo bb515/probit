@@ -1048,14 +1048,20 @@ class SufficientAugmentation(object):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
-                theta, trainables, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                theta, trainables, self.sampler.J,
+                # self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
+                #self.sampler.kernel.variance_hyperparameters,
+                self.sampler.variance_hyperparameters, self.sampler.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
-                theta, trainables, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                theta, trainables, self.sampler.J,
+                #self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
+                #self.sampler.kernel.variance_hyperparameters,
+                self.sampler.variance_hyperparameters, self.sampler.cutpoints)
         nu = solve_triangular(self.sampler.L_K.T, f, lower=True)  # TODO just make sure this is the correct solve.
         log_p_m_giv_theta = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
         log_p_theta_giv_m = log_p_theta[0] + log_p_m_giv_theta
@@ -1251,14 +1257,20 @@ class AncilliaryAugmentation(Sampler):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
-                theta, trainables, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                theta, trainables, self.sampler.J,
+                #self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
+                #self.sampler.kernel.variance_hyperparameters,
+                self.sampler.variance_hyperparameters, self.sampler.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
-                theta, trainables, self.sampler.J, self.sampler.kernel.varphi_hyperparameters,
+                theta, trainables, self.sampler.J,
+                #self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                self.sampler.kernel.variance_hyperparameters, self.sampler.cutpoints)
+                #self.sampler.kernel.variance_hyperparameters,
+                self.sampler.variance_hyperparameters, self.sampler.cutpoints)
         log_p_y_giv_nu_theta = self.sampler.get_log_likelihood(f)
         log_p_theta_giv_y_nu = log_p_theta[0] + log_p_y_giv_nu_theta
         return log_p_theta_giv_y_nu
@@ -1527,21 +1539,22 @@ class PseudoMarginal(object):
             (cutpoints, varphi, scale, noise_variance,
                     log_p_theta) = prior_reparameterised(
                 theta, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.kernel.varphi_hyperparameters,
+                self.approximator.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.variance_hyperparameters,
+                self.approximator.variance_hyperparameters,
+                #self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.kernel.varphi_hyperparameters,
+                self.approximator.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.variance_hyperparameters,
+                #self.approximator.kernel.variance_hyperparameters,
+                self.approximator.variance_hyperparameters,
                 self.approximator.cutpoints)
-        (fx, gx, posterior_mean,
-        (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
-            theta, trainables, steps, verbose=False,
-            return_reparameterised=False)
+
         # TODO: check but there may be no need to take this chol
         prior_L_cov = np.linalg.cholesky(
             self.approximator.K
@@ -1550,6 +1563,12 @@ class PseudoMarginal(object):
         prior_cov_inv = np.linalg.inv(
             self.approximator.K
             + self.approximator.jitter * np.eye(self.approximator.N))
+
+        (fx, gx, posterior_mean,
+        (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
+            theta, trainables, steps, verbose=False,
+            return_reparameterised=False)
+
         # perform cholesky decomposition since this was never performed in the EP posterior approximation
         if is_inv:
             # Laplace # TODO: 20/06/22 may be SS
@@ -1597,18 +1616,22 @@ class PseudoMarginal(object):
             (cutpoints, varphi, scale, noise_variance,
                     log_p_v) = prior_reparameterised(
                 v, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.kernel.varphi_hyperparameters,
+                self.approximator.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.variance_hyperparameters,
+                #self.approximator.kernel.variance_hyperparameters,
+                self.approximator.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             u, log_jacobian_u = proposal(u, trainables, proposal_L_cov,
                 self.approximator.J)
             cutpoints, varphi, scale, noise_variance, log_p_u = prior(
                 u, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.kernel.varphi_hyperparameters,
+                self.approximator.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.variance_hyperparameters,
+                self.approximator.variance_hyperparameters,
+                #self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         (fx, gx, posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
@@ -1711,18 +1734,22 @@ class PseudoMarginal(object):
             (cutpoints, varphi, scale, noise_variance,
                     log_p_theta) = prior_reparameterised(
                 theta_0, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.kernel.varphi_hyperparameters,
+                self.approximator.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.variance_hyperparameters,
+                self.approximator.variance_hyperparameters,
+                #self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             theta_0, log_jacobian_theta = proposal(
                 theta_0, trainables, proposal_L_cov, self.approximator.J)
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta_0, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.kernel.varphi_hyperparameters,
+                self.approximator.varphi_hyperparameters,
                 None, None,
-                self.approximator.kernel.variance_hyperparameters,
+                self.approximator.variance_hyperparameters,
+                #self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         theta_samples = []
         acceptance_rate = 0.0

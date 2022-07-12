@@ -19,7 +19,7 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
-from probit.approximators import EPGP, LaplaceGP, VBGP
+from probit.approximators import EPGP, LaplaceGP, VBGP, PEPGP
 from probit.sparse import SparseLaplaceGP, SparseVBGP
 from probit.gpflow import VGP, SVGP
 import gpflow
@@ -39,7 +39,7 @@ write_path = pathlib.Path()
 
 def get_approximator(
         approximation, Kernel, lengthscale_0, signal_variance_0,
-        lengthscale_hyperparameters, N_train, D):
+        N_train, D):
     # Set varphi hyperparameters
     lengthscale_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate]
     # Initiate kernel
@@ -52,6 +52,10 @@ def get_approximator(
         # steps is the number of swipes over the data until check convergence
         steps = 1
         Approximator = EPGP
+    elif approximation == "PEP":
+        # steps is the number of swipes over the data until check convergence
+        steps = 1
+        Approximator = PEPGP
     elif approximation == "VB":
         # steps is the number of fix point iterations until check convergence
         steps = np.max([10, N_train//10])
@@ -69,11 +73,9 @@ def get_approximator(
         steps = np.max([10, M])
         Approximator = SparseVBGP
     elif approximation == "V":
-        steps = 100
+        steps = 1000
         Approximator = VGP
         # Initiate kernel
-        # kernel = gpflow.kernels.SquaredExponential(
-        #     lengthscales=varphi_0, variance=signal_variance_0)
         kernel = gpflow.kernels.SquaredExponential(
             lengthscales=lengthscale_0,
             variance=signal_variance_0
@@ -83,7 +85,6 @@ def get_approximator(
         steps = 10000
         Approximator = SVGP
         # Initiate kernel
-        # kernel = gpflow.kernels.SquaredExponential()
         kernel = gpflow.kernels.SquaredExponential(
             lengthscales=lengthscale_0,
             variance=signal_variance_0
@@ -103,14 +104,14 @@ def main():
         "dataset_name", help="run example on a given dataset name")
     parser.add_argument(
         "bins", help="3, 13 or 52")
-    parser.add_argument(
-        "approximation", help="LA, VB, EP or V")
+    # parser.add_argument(
+    #     "approximation", help="LA, VB, EP, PEP or V")
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
     bins = int(args.bins)
-    approximation = args.approximation
+    # approximation = args.approximation
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
         profile = cProfile.Profile()
@@ -143,62 +144,93 @@ def main():
         # resolution of grid
         res = (50, None)
 
-        num_importance_samples = [64]
+        num_importance_samples = [64, 1]
         num_data = [200]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
         # To self.EPS or self.jitter. Possible is overflow error in a log sum exp?
-        for N in num_data:
-            X = X[:N, :]  # X, t have already been shuffled
-            y = y[:N]
-            Approximator, steps, M, kernel = get_approximator(
-                approximation, Kernel, lengthscale_0, variance_0,
-                N, D)
-            if "S" in approximation:
-                # Initiate sparse classifier
-                approximator = Approximator(
-                    M=M, cutpoints=cutpoints_0,
-                    noise_variance=noise_variance_0,
-                    kernel=kernel, J=J, data=(X, y))
-            else:
-                # Initiate classifier
-                approximator = Approximator(
-                    cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                    kernel=kernel, J=J, data=(X, y))
-            for i, Nimp in enumerate(num_importance_samples):
-                # Initiate hyper-parameter sampler
-                hyper_sampler = PseudoMarginal(approximator)
-                # plot figures
-                (thetas, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
-                        p_pseudo_marginals_hi, p_priors) = figure2(
-                    hyper_sampler, approximator, domain, res, trainables,
-                    num_importance_samples=Nimp, steps=steps,
-                    reparameterised=False, show=True, write=True)
-                if i==0:
-                    plt.plot(thetas, p_pseudo_marginals_mean)
-                    plt.plot(thetas, p_pseudo_marginals_lo, '--b',
-                        label="Nimp={}".format(Nimp))
-                    plt.plot(thetas, p_pseudo_marginals_hi, '--b')
-                    plt.plot(thetas, p_priors, 'r')
-                    axes = plt.gca()
-                    y_min_0, y_max_0 = axes.get_ylim()
-                    plt.xlabel("length-scale")
-                    plt.ylabel("pseudo marginal")
-                    plt.title("N = {}, {}".format(N, approximation))
-                    # plt.savefig("test.png")
-                    # plt.close()
+        for approximation in ["PEP"]:
+            for N in num_data:
+                # print(y)
+                # plt.scatter(X[np.where(y==0), 0], X[np.where(y==0), 1], marker='o', s=25,  c='b')
+                # plt.scatter(X[np.where(y==1), 0], X[np.where(y==1), 1], marker='o', s=25,  c='r')
+                # # plt.scatter(X[np.where(y==2), 0], X[np.where(y==2), 1], marker='o', s=25,  c='g')
+                # plt.savefig("data1.png")
+                # plt.close()
+                # Xt = np.c_[y, X]
+                # np.random.shuffle(Xt)
+                # X = Xt[:N, 1:D+1]
+                # y = Xt[:N, 0]
+                # y = y.astype(int)
+                X = X[:N, :]  # X, t have already been shuffled
+                y = y[:N]
+                # print(y)
+                # plt.scatter(X[np.where(y==0), 0], X[np.where(y==0), 1], marker='o', s=25,  c='b')
+                # plt.scatter(X[np.where(y==1), 0], X[np.where(y==1), 1], marker='o', s=25,  c='r')
+                # # plt.scatter(X[np.where(y==2), 0], X[np.where(y==2), 1], marker='o', s=25,  c='g')
+                # plt.savefig("data.png")
+                # plt.close()
+
+                Approximator, steps, M, kernel = get_approximator(
+                    approximation, Kernel, lengthscale_0, variance_0,
+                    N, D)
+                if "S" in approximation:
+                    # Initiate sparse classifier
+                    approximator = Approximator(
+                        M=M, cutpoints=cutpoints_0,
+                        noise_variance=noise_variance_0,
+                        kernel=kernel, J=J, data=(X, y),
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
+                elif "PEP" in approximation:
+                    alpha = 0.5
+                    # Initate PEP classifier
+                    approximator = Approximator(
+                        cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                        alpha=alpha, gauss_hermite_points=20,
+                        kernel=kernel, J=J, data=(X, y),
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 else:
-                    plt.plot(thetas, p_pseudo_marginals_lo, '--g',
-                        label="Nimp={}".format(Nimp))
-                    plt.plot(thetas, p_pseudo_marginals_hi, '--g')
-                    y_min, y_max = axes.get_ylim()
-                    y_min = np.min([y_min, y_min_0])
-                    y_max = np.max([y_max, y_max_0])
-                    plt.ylim(y_min, y_max)
-            plt.vlines(lengthscale_0, 0.0, 0.010, colors='k')
-            plt.legend()
-            plt.show()
-            plt.savefig(
-                write_path / "fig2_{}_N={}.png".format(approximation, N))
-            plt.close()
+                    # Initiate classifier
+                    approximator = Approximator(
+                        cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                        kernel=kernel, J=J, data=(X, y),
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
+                for i, Nimp in enumerate(num_importance_samples):
+                    # Initiate hyper-parameter sampler
+                    hyper_sampler = PseudoMarginal(approximator)
+                    # plot figures
+                    (thetas, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
+                            p_pseudo_marginals_hi, p_priors) = figure2(
+                        hyper_sampler, approximator, domain, res, trainables,
+                        num_importance_samples=Nimp, steps=steps,
+                        reparameterised=False, show=True, write=True)
+                    if i==0:
+                        plt.plot(thetas, p_pseudo_marginals_mean)
+                        plt.plot(thetas, p_pseudo_marginals_lo, '--b',
+                            label="Nimp={}".format(Nimp))
+                        plt.plot(thetas, p_pseudo_marginals_hi, '--b')
+                        plt.plot(thetas, p_priors, 'r')
+                        axes = plt.gca()
+                        y_min, y_max = axes.get_ylim()
+                        plt.xlabel("length-scale")
+                        plt.ylabel("pseudo marginal")
+                        plt.title("N = {}, {}".format(N, approximation))
+                        # plt.savefig("test.png")
+                        # plt.close()
+                    else:
+                        plt.plot(thetas, p_pseudo_marginals_lo, '--g',
+                            label="Nimp={}".format(Nimp))
+                        plt.plot(thetas, p_pseudo_marginals_hi, '--g')
+                        y_min_new, y_max_new = axes.get_ylim()
+                        y_min = np.min([y_min, y_min_new])
+                        y_max = np.max([y_max, y_max_new])
+                plt.ylim(0.0, 5.0)
+                plt.vlines(lengthscale_0, 0.0, 5.0, colors='k')
+                plt.legend()
+                plt.show()
+                plt.savefig(
+                    write_path / "fig2_{}_N={}.png".format(approximation, N))
+                plt.savefig(
+                    write_path / "fig2_{}_N={}.pdf".format(approximation, N))
+                plt.close()
 
     if args.profile:
         profile.disable()

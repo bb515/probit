@@ -56,7 +56,7 @@ class SparseVBGP(VBGP):
         super().__init__(*args, **kwargs)
         # self.EPS = 1e-8
         # self.EPS_2 = self.EPS**2
-        # self.jitter = 1e-10
+        self.jitter = 1e-8
 
     def _load_cached_prior(self):
         """
@@ -81,6 +81,7 @@ class SparseVBGP(VBGP):
         self.Kdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         self.Kuu = self.kernel.kernel_matrix(self.Z, self.Z)
         self.Kfu = self.kernel.kernel_matrix(self.X_train, self.Z)
+        self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
         warnings.warn(
             "Done updating prior covariance.")
 
@@ -305,29 +306,29 @@ class SparseVBGP(VBGP):
     #         self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, varphi,
     #         noise_variance, noise_std,
     #         m, weight, posterior_cov_div_var, trace_posterior_cov_div_var,
-    #         trace_cov, N, Z, norm_pdf_z1s, norm_pdf_z2s, indices,
+    #         trace_cov, N, Z, norm_pdf_z1s, norm_pdf_z2s, trainables,
     #         numerical_stability=True, verbose=False):
     #     """TODO"""
     #     return gx
 
     def approximate_posterior(
-            self, theta, indices, steps=None, first_step=1, max_iter=2,
+            self, phi, trainables, steps=None, first_step=1, max_iter=2,
             return_reparameterised=False, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
-        :arg theta: (log-)hyperparameters to be optimised.
-        :arg indices:
+        :arg phi: (log-)hyperparameters to be optimised.
+        :arg trainables:
         :arg first_step:
         :arg bool write:
         :arg bool verbose:
         :return: fx, gx
         :rtype: float, `:class:numpy.ndarray`
         """
-        # Update prior covariance and get hyperparameters from theta
-        (intervals, steps, error, iteration, indices_where,
+        # Update prior covariance and get hyperparameters from phi
+        (intervals, error, iteration, trainables_where,
         gx) = self._hyperparameter_training_step_initialise(
-            theta, indices, steps)
+            phi, trainables)
         fx_old = np.inf
         posterior_mean = None
         # Convergence is sometimes very fast so this may not be necessary
@@ -359,9 +360,9 @@ class SparseVBGP(VBGP):
         #         self.kernel.varphi, self.noise_variance, self.noise_std,
         #         posterior_mean, weight, self.posterior_cov_div_var,
         #         self.trace_posterior_cov_div_var, self.trace_cov,
-        #         self.N, Z, norm_pdf_z1s, norm_pdf_z2s, indices,
+        #         self.N, Z, norm_pdf_z1s, norm_pdf_z2s, trainables,
         #         numerical_stability=True, verbose=False)
-        # gx = gx[indices_where]
+        # gx = gx[trainables_where]
         if verbose:
             print(
                 "cutpoints={}, noise_variance={}, "
@@ -374,8 +375,8 @@ class SparseVBGP(VBGP):
             return fx, gx, weight, (
                 self.cov, False)
         elif return_reparameterised is False:
-            raise ValueError(
-                "Not implemented because this is a sparse implementation")
+            return fx, gx, self.Kfu @ weight, (
+                self.K - self.Kfu @ self.cov @ self.Kfu.T, False)
         elif return_reparameterised is None:
             return fx, gx
 
@@ -412,7 +413,7 @@ class SparseLaplaceGP(LaplaceGP):
         super().__init__(*args, **kwargs)
         # self.EPS = 1e-8
         # self.EPS_2 = self.EPS**2
-        # self.jitter = 1e-10
+        self.jitter = 1e-8
 
     def _load_cached_prior(self):
         """
@@ -440,6 +441,7 @@ class SparseLaplaceGP(LaplaceGP):
         self.Kdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         self.Kuu = self.kernel.kernel_matrix(self.Z, self.Z)
         self.Kfu = self.kernel.kernel_matrix(self.X_train, self.Z)
+        self.K = self.kernel.kernel_matrix(self.X_train, self.X_train)
         warnings.warn(
             "Done updating prior covariance")
 
@@ -537,21 +539,21 @@ class SparseLaplaceGP(LaplaceGP):
         LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)
         Binv = solve_triangular(LB, LBTinv, lower=False)
         cov = np.diag(precision) \
-            - np.diag(precision) @ (A.T @ Binv @ A) @ np.diag(precision)
+            - np.diag(np.sqrt(precision)) @ (A.T @ Binv @ A) @ np.diag(np.sqrt(precision))
         return weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, LB, cov, Z
 
     def approximate_posterior(
-            self, theta, indices, steps=None,
+            self, phi, trainables, steps=None,
             posterior_mean_0=None,
             return_reparameterised=False, first_step=1,
             verbose=False):
         """
         Newton-Raphson.
 
-        :arg theta: (log-)hyperparameters to be optimised.
-        :type theta:
-        :arg indices:
-        :type indices:
+        :arg phi: (log-)hyperparameters to be optimised.
+        :type phi:
+        :arg trainables:
+        :type trainables:
         :arg steps:
         :type steps:
         :arg posterior_mean_0:
@@ -561,10 +563,10 @@ class SparseLaplaceGP(LaplaceGP):
         :arg bool verbose:
         :return:
         """
-        # Update prior covariance and get hyperparameters from theta
-        (intervals, steps, error, iteration, indices_where,
+        # Update prior covariance and get hyperparameters from phi
+        (intervals, error, iteration, trainables_where,
                 gx) = self._hyperparameter_training_step_initialise(
-            theta, indices, steps)
+            phi, trainables)
         posterior_mean = posterior_mean_0
         while error / steps > self.EPS_2 and iteration < 10:  # TODO is this overkill?
             iteration += 1
@@ -578,11 +580,8 @@ class SparseLaplaceGP(LaplaceGP):
         L_cov, cov, Z) = self.compute_weights(
             posterior_mean)
         fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
-        if self.kernel._general and self.kernel._ARD:
-            gx = np.zeros(1 + self.J - 1 + 1 + self.J * self.D)
-        else:
-            gx = np.zeros(1 + self.J - 1 + 1 + 1)
-        gx = gx[np.nonzero(indices)]
+        gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        gx = gx[np.nonzero(trainables)]
         if verbose:
 
             print(
@@ -594,8 +593,11 @@ class SparseLaplaceGP(LaplaceGP):
             return fx, gx, weight, (
                 cov, True)
         elif return_reparameterised is False:
+            print(np.shape(cov))
+            assert 0
             return fx, gx, posterior_mean, (
-                self.noise_variance * self.posterior_cov_div_var, False)
+                self.K @ cov @ np.diag(1./precision), False)
+                # self.noise_variance * self.posterior_cov_div_var, False)
         elif return_reparameterised is None:
             return fx, gx
 
