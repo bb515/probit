@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import trange
-from probit.data.utilities import colors, datasets
+from probit.data.utilities import colors, datasets, load_data_paper
 from probit.data.utilities import calculate_metrics
 import warnings
 import time
@@ -1188,66 +1188,29 @@ def figure2(
         log_priors = np.array(log_p_priors)
         log_p_pseudo_marginals_ms = np.mean(log_p_pseudo_marginalss, axis=1)
         log_p_pseudo_marginals_std = np.std(log_p_pseudo_marginalss, axis=1)
-        # plt.plot(thetas, log_p_pseudo_marginals_ms, 'k')
-        # plt.plot(thetas, log_p_pseudo_marginals_ms + log_p_pseudo_marginals_std, '--b')
-        # plt.plot(thetas, log_p_pseudo_marginals_ms - log_p_pseudo_marginals_std, '--b')
-        # plt.plot(thetas, log_priors, '--g')
-        # if write: plt.savefig("tmp0.png")
-        # if show: plt.show()
-        # plt.close()
-
         # Normalize prior distribution - but need to make sure domain is such that approx all posterior mass is covered
         log_prob = log_p_priors + np.log(theta_step)
         max_log_prob = np.max(log_prob)
         log_sum_exp = max_log_prob + np.log(np.sum(np.exp(log_prob - max_log_prob)))
         p_priors = np.exp(log_p_priors - log_sum_exp)
-
+        # Can probably use a better quadrature rule for numerical integration
         # Normalize posterior distribution - but need to make sure domain is such that approx all posterior mass is covered
         log_prob = log_p_pseudo_marginals_ms + np.log(theta_step)
         max_log_prob = np.max(log_prob)
         log_sum_exp = max_log_prob + np.log(
             np.sum(np.exp(log_prob - max_log_prob)))
-        p_pseudo_marginals = np.exp(log_p_pseudo_marginals_ms - log_sum_exp)
-
-        # plt.plot(thetas, p_pseudo_marginals)
-        # # plt.plot(varphis, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
-        # # plt.plot(varphis, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
-        # plt.plot(thetas, p_priors, '--g')
-        # if write: plt.savefig("tmp1.png") 
-        # if show: plt.show()
-        # plt.close()
-
+        # p_pseudo_marginals = np.exp(log_p_pseudo_marginals_ms - log_sum_exp)
         # remember that there is a jacobian involved in the coordinate transformation
-        # This numerical integration isn't quite right... need to divide by the correct amount in the sum
-        # Also, doesn't it need to be devided by N?
-
         # log_p_pseudo_marginalss = log_p_pseudo_marginalss + np.log(theta_step).reshape(-1, 1)
         # max_log_p_pseudo_marginals = np.max(log_p_pseudo_marginalss, axis=0)
         # log_sum_exp = np.tile(max_log_p_pseudo_marginals, (M, 1)) + np.tile(
         #     np.log(np.sum(np.exp(log_p_pseudo_marginalss - max_log_p_pseudo_marginals), axis=0)), (M, 1))
         p_pseudo_marginals = np.exp(log_p_pseudo_marginalss - log_sum_exp.reshape(-1, 1))
-
         p_pseudo_marginals_mean = np.mean(p_pseudo_marginals, axis=1)
-
         p_pseudo_marginals_lo = np.quantile(p_pseudo_marginals, 0.025, axis=1)
         p_pseudo_marginals_hi = np.quantile(p_pseudo_marginals, 0.975, axis=1)
-
         # p_pseudo_marginals_std = np.std(p_pseudo_marginals, axis=1)
-
-        # plt.plot(thetas, p_pseudo_marginals_mean)
-        # plt.plot(thetas, p_pseudo_marginals_lo, '--b')
-        # plt.plot(thetas, p_pseudo_marginals_hi, '--r')
-
-        # plt.plot(thetas, p_pseudo_marginals_mean + p_pseudo_marginals_std, '--b')
-        # plt.plot(thetas, p_pseudo_marginals_mean - p_pseudo_marginals_std, '--r')
-        # plt.plot(thetas, p_priors, '--g')
-        # plt.xlabel("length-scale")
-        # plt.ylabel("pseudo marginal")
-        # plt.title("N = 50, EP")
-        #if write: plt.savefig("tmp2.png")
-        #if show: plt.show()
-        #plt.close()
-        return thetas, p_pseudo_marginals_mean, p_pseudo_marginals_lo, p_pseudo_marginals_hi, p_priors
+        return thetas, theta_step, p_pseudo_marginals_mean, p_pseudo_marginals_lo, p_pseudo_marginals_hi, p_priors
         #return log_p_pseudo_marginalss, log_p_priors, x1s, None, xlabel, ylabel, xscale, yscale
 
 
@@ -1524,26 +1487,62 @@ def _weighted_auto_cov(x, max_lags):
     return auto_cov
 
 
-def draw_mixing(states, state_0, reparameterised, write_path, file_name):
+def draw_mixing(states, state_0, write_path, file_name, logplot=True):
     """Plot mixing"""
     (Nsamp, Nparam) = np.shape(states)
-    if reparameterised: states = np.exp(states)
-    plt.plot(states)
-    mean = np.mean(states, axis=0)
-    xs = np.linspace(0, Nsamp, 2)
-    xs = np.tile(xs, (Nparam, 1)).T
-    ys = mean * np.ones(np.shape(xs))
-    trues = state_0 * np.ones(np.shape(xs))
-    plt.plot(xs, ys, label="sample mean")
-    plt.plot(xs, trues, color='k', label="true")
-    plt.xlim(0, Nsamp)
-    plt.legend()
-    plt.savefig(write_path / file_name)
-    plt.show()
+
+    if not logplot:
+        states = np.exp(states)
+        state_0 = np.exp(state_0)
+        label = "theta"
+    else:
+        label = "phi"
+    for i in range(Nparam):
+        plt.plot(states[:, i])
+        mean = np.mean(states[:, i], axis=0)
+        xs = np.linspace(0, Nsamp, 2)
+        xs = np.tile(xs, (Nparam, 1)).T
+        ys = mean * np.ones(np.shape(xs))
+        trues = state_0[i] * np.ones(np.shape(xs))
+        plt.plot(xs, ys, label="sample mean")
+        plt.plot(xs, trues, color='k', label="true")
+        plt.xlim(0, Nsamp)
+        plt.legend()
+        file_name_i = "{}_{}_".format(label, i) + file_name
+        plt.savefig(write_path / file_name_i)
+        plt.close()
+
+
+def draw_histogram(states, state_0, write_path, file_name,
+        bins=50, logplot=True):
+    """Plot histogram"""
+    (Nsamp, Nparam) = np.shape(states)
+    if not logplot:
+        states = np.exp(states)
+        state_0 = np.exp(state_0)
+        label = "theta"
+    else:
+        label = "phi"
+    for i in range(Nparam):
+        # plot histogram
+        font = {'family' : 'sans-serif',
+        'size'   : 22}
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax = fig.add_subplot(111)
+        ax.hist(states[:, i], density=True, bins=bins)
+        y_min, y_max = ax.get_ylim()
+        ax.vlines(state_0[i], 0.0, y_max, 'k')
+        ax.set_xlabel(label, **font)
+        plt.tight_layout()
+        file_name_i = "{}_{}_".format(label, i) + file_name
+        fig.savefig(write_path / file_name_i)
+        plt.close()
 
 
 def table1(
-        read_path, show=False, write=True):
+        read_path, n_samples, show=False, write=True):
     """
     Sample from the pseudo-marginal. Evaluate Acceptance rate, convergence
     diagnostics.
@@ -1560,14 +1559,14 @@ def table1(
     new Gram matrix or not. So the simplest way is to combinate manually.
     """
     approach = "PM"
-    Nsamp = 1000
+    Nsamp = n_samples
     Nhyperparameters = 1
     Nchain = 3
-    for N in [300]:
+    for N in [50]:
         for D in [2]:
-            for J in [13]:
-                for approximation in ["VB", "EP", "LA"]:
-                    for Nimp in [128]:
+            for J in [2]:
+                for approximation in ["EP"]:
+                    for Nimp in [4]:
                         for ARD in [False]:
                             # initiate containers
                             acceptance_rate = np.empty(Nchain)

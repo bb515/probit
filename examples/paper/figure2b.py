@@ -6,14 +6,14 @@ lines represent the average over 500 repetitions and dashed lines represent
 2.5th and 97.5th quantiles for $N_{\text{imp}} = 1$ and $N_{\text{imp}} = 64$.
 The solid red line is the prior density.
 """
-import os
-nthreads = "20"
-os.environ["OMP_NUM_THREADS"] = nthreads # export OMP_NUM_THREADS=4
-os.environ["OPENBLAS_NUM_THREADS"] = nthreads # export OPENBLAS_NUM_THREADS=4 
-os.environ["MKL_NUM_THREADS"] = nthreads # export MKL_NUM_THREADS=6
-os.environ["VECLIB_MAXIMUM_THREADS"] = nthreads # export VECLIB_MAXIMUM_THREADS=4
-os.environ["NUMEXPR_NUM_THREADS"] = nthreads # export NUMEXPR_NUM_THREADS=6
-os.environ["NUMBA_NUM_THREADS"] = nthreads
+# Make sure to limit CPU usage if necessary
+# import os
+# os.environ["OMP_NUM_THREADS"] = "4"
+# os.environ["OPENBLAS_NUM_THREADS"] = "4"
+# os.environ["MKL_NUM_THREADS"] = "6"
+# os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
+# os.environ["NUMEXPR_NUM_THREADS"] = "6"
+# os.environ["NUMBA_NUM_THREADS"] = "6"
 import argparse
 import cProfile
 from io import StringIO
@@ -30,15 +30,16 @@ import pathlib
 from probit.data.utilities import datasets, load_data_paper, load_data_synthetic
 import time
 import sys
-import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib
 
+font = {'family' : 'sans-serif',
+        'size'   : 22}
+
+# matplotlib.rcParams.update({'font.size': 22})
 
 now = time.ctime()
 write_path = pathlib.Path()
-font = {'family' : 'sans-serif',
-        'size'   : 22}
-matplotlib.rc('font', **font)
 
 
 def get_approximator(
@@ -124,40 +125,52 @@ def main():
     # Load data from file
     if dataset in datasets["paper"] or dataset in datasets["synthetic"]:
         if dataset in datasets["paper"]:
-            (X_, f, g, y_,
+            (X_, f_, g_, y_,
                 cutpoints_0, lengthscale_0, noise_variance_0, variance_0,
                 J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
         else:
-            (X, y,
+            (X_, y_,
             X_true, g_true,
             cutpoints_0, lengthscale_0, noise_variance_0, variance_0,
             J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
 
         trainables = np.ones(J + 2)
         # Fix noise_variance
-        #trainables[0] = 0
+        trainables[0] = 0
         # Fix scale
         trainables[J] = 0
         # Fix varphi
-        trainables[-1] = 0
+        #trainables[-1] = 0
         # Fix cutpoints
         trainables[1:J] = 0
 
-        noise_std_hyperparameters = np.array([1.2, 1./0.2])
-        varphi_hyperparameters = np.array([1.0, np.sqrt(D)])
-
         # (log) domain of grid
-        domain = ((-1.5, 1.7), None)
+        domain = ((-1.5, 0.33), None)
         # resolution of grid
-        res = (500, None)
+        res = (100, None)
 
-        num_importance_samples = [64]
-        num_data = [200]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
+        num_importance_samples = [16]
+        num_data = [1, 10, 20, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
+        #num_data = [1, 10, 20, 50]
+        colors = plt.cm.jet(np.linspace(0,1,len(num_data) + 1))
         # To self.EPS or self.jitter. Possible is overflow error in a log sum exp?
         for approximation in ["EP"]:
-            for N in num_data:
+            for i, N in enumerate(num_data):
+                # print(y)
+                # plt.scatter(X[np.where(y==0), 0], X[np.where(y==0), 1], marker='o', s=25,  c='b')
+                # plt.scatter(X[np.where(y==1), 0], X[np.where(y==1), 1], marker='o', s=25,  c='r')
+                # # plt.scatter(X[np.where(y==2), 0], X[np.where(y==2), 1], marker='o', s=25,  c='g')
+                # plt.savefig("data1.png")
+                # plt.close()
                 X = X_[:N, :]  # X, t have already been shuffled
                 y = y_[:N]
+                # print(y)
+                # plt.scatter(X[np.where(y==0), 0], X[np.where(y==0), 1], marker='o', s=25,  c='b')
+                # plt.scatter(X[np.where(y==1), 0], X[np.where(y==1), 1], marker='o', s=25,  c='r')
+                # # plt.scatter(X[np.where(y==2), 0], X[np.where(y==2), 1], marker='o', s=25,  c='g')
+                # plt.savefig("data.png")
+                # plt.close()
+
                 Approximator, steps, M, kernel = get_approximator(
                     approximation, Kernel, lengthscale_0, variance_0,
                     N, D)
@@ -167,8 +180,7 @@ def main():
                         M=M, cutpoints=cutpoints_0,
                         noise_variance=noise_variance_0,
                         kernel=kernel, J=J, data=(X, y),
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        varphi_hyperparameters = varphi_hyperparameters)
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 elif "PEP" in approximation:
                     alpha = 0.5
                     # Initate PEP classifier
@@ -176,60 +188,62 @@ def main():
                         cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                         alpha=alpha, gauss_hermite_points=20,
                         kernel=kernel, J=J, data=(X, y),
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        )
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 else:
                     # Initiate classifier
                     approximator = Approximator(
                         cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                         kernel=kernel, J=J, data=(X, y),
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        )  # [shape, rate])
-                phi_true = approximator.get_phi(trainables)
-                theta_true = np.exp(phi_true)
-                for i, Nimp in enumerate(num_importance_samples):
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
+                for _, Nimp in enumerate(num_importance_samples):
                     # Initiate hyper-parameter sampler
                     hyper_sampler = PseudoMarginal(approximator)
                     # plot figures
-                    (thetas, thetas_step, p_pseudo_marginals_mean,
-                            p_pseudo_marginals_lo,
+                    (thetas, thetas_step, p_pseudo_marginals_mean, p_pseudo_marginals_lo,
                             p_pseudo_marginals_hi, p_priors) = figure2(
                         hyper_sampler, approximator, domain, res, trainables,
                         num_importance_samples=Nimp, steps=steps,
                         reparameterised=False, show=True, write=True)
-                    # Check Riemann sum approximates 1
-                    print("Riemann sum={}".format(
-                        np.sum(thetas_step * p_pseudo_marginals_mean)))
-                    if i==0:
-                        plt.plot(thetas, p_pseudo_marginals_mean)
-                        plt.plot(thetas, p_pseudo_marginals_lo, '--b',
-                            label="Nimp={}".format(Nimp))
-                        plt.plot(thetas, p_pseudo_marginals_hi, '--b')
-                        plt.plot(thetas, p_priors, 'r')
-                        axes = plt.gca()
-                        y_min, y_max = axes.get_ylim()
-                        plt.xlabel("theta")
-                        plt.ylabel("pseudo marginal")
-                        plt.title("N = {}, {}".format(N, approximation))
-                        # plt.savefig("test.png")
-                        # plt.close()
-                    else:
-                        plt.plot(thetas, p_pseudo_marginals_lo, '--g',
-                            label="Nimp={}".format(Nimp))
-                        plt.plot(thetas, p_pseudo_marginals_hi, '--g')
-                        y_min_new, y_max_new = axes.get_ylim()
-                        y_min = np.min([y_min, y_min_new])
-                        y_max = np.max([y_max, y_max_new])
-                plt.ylim(0.0, y_max)
-                plt.vlines(theta_true, 0.0, y_max, colors='k')
-                plt.legend()
-                plt.tight_layout()
-                plt.grid()
-                plt.savefig(
-                    write_path / "fig2_{}_N={}.png".format(approximation, N))
-                plt.savefig(
-                    write_path / "fig2_{}_N={}.pdf".format(approximation, N))
-                plt.close()
+                    print(p_pseudo_marginals_mean)
+                if i==0:
+                    fig = plt.figure()
+                    fig.patch.set_facecolor('white')
+                    fig.patch.set_alpha(0.0)
+                    ax = fig.add_subplot(111)
+                    ax.plot(thetas, p_priors, color=colors[0],  label="prior".format(N))
+                    ax.plot(thetas, p_pseudo_marginals_mean, color=colors[i + 1], label="N={}".format(N))
+                    ax.plot(thetas, p_pseudo_marginals_lo, '--', color=colors[i + 1], alpha=0.4)
+                        # ,label="Nimp={}".format(Nimp))
+                    ax.plot(thetas, p_pseudo_marginals_hi, '--', color=colors[i + 1], alpha=0.4)
+                    y_min, y_max = ax.get_ylim()
+                    ax.set_xlabel("length-scale", **font)
+                    ax.set_ylabel("pseudo marginal", **font)
+                    # plt.title("N = {}, {}".format(N, approximation))
+                    # plt.savefig("test.png")
+                    # plt.close()
+                else:
+                    ax.plot(thetas, p_pseudo_marginals_mean, color=colors[i + 1], label="N={}".format(N))
+                    ax.plot(thetas, p_pseudo_marginals_lo, '--', color=colors[i + 1], alpha=0.4)
+                        # ,label="Nimp={}".format(Nimp))
+                    ax.plot(thetas, p_pseudo_marginals_hi, '--', color=colors[i + 1], alpha=0.4)
+                    y_min_new, y_max_new = ax.get_ylim()
+                    y_min = np.min([y_min, y_min_new])
+                    y_max = np.max([y_max, y_max_new])
+
+        ax.set_ylim(0.0, 4.1)
+        ax.vlines(lengthscale_0, 0.0, 4.1, colors='k', label="true")
+        ax.legend()
+        ax.tick_params(axis='both', which='major', labelsize=22)
+        ax.tick_params(axis='both', which='minor', labelsize=22)
+        plt.tight_layout()
+        ax.grid()
+        fig.savefig(
+            write_path / "fig2_{}.png".format(approximation, N),
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        fig.savefig(
+            write_path / "fig2_{}.pdf".format(approximation, N),
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.close()
 
     if args.profile:
         profile.disable()

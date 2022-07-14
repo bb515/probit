@@ -109,7 +109,7 @@ class Sampler(ABC):
         """
 
 
-    def get_log_likelihood(self, m):
+    def get_log_likelihood(self, f):
         """
         TODO: once self.cutpoints is factored out,
             this needs to go somewhere else. Like a KL divergence/likelihoods folder.
@@ -122,13 +122,16 @@ class Sampler(ABC):
         Note that numerical stability has been turned off in favour of exactness - but experiments should=
         be run twice with numerical stability turned on to see if it makes a difference.
         """
+        plt.scatter(self.X_train[:, 0], f)
+        plt.savefig("test.png")
+        plt.close()
         Z, *_ = truncated_norm_normalising_constant(
             self.cutpoints_ts, self.cutpoints_tplus1s,
-            self.noise_std, m, self.EPS)
+            self.noise_std, f, self.EPS)
             #  upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)  #  , numerically_stable=True)
-        if np.ndim(m) == 2:
+        if np.ndim(f) == 2:
             return np.sum(np.log(Z), axis=1)  # (num_samples,)
-        elif np.ndim(m) == 1:
+        elif np.ndim(f) == 1:
             return np.sum(np.log(Z))  # (1,)
 
     def _log_multivariate_normal_pdf(self, x, cov_inv, half_log_det_cov, mean=None):
@@ -155,6 +158,50 @@ class Sampler(ABC):
     #     intermediate_vector = solve_triangular(L_cov, intermediate_vector, lower=False)
     #     return -0.5 * np.log(2 * np.pi) - half_log_det_cov - 0.5 * np.dot(x, intermediate_vector)  # log likelihood
 
+    def predict(self, X_test, samples, cutpoints):
+        """
+        :arg samples: list of lists, each inner list containing weights, 
+        """
+        N_test = np.shape(X_test)[0]
+        Kss = self.kernel.kernel_prior_diagonal(X_test)
+        Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
+
+        temp = cov @ Kfs
+        posterior_variance = Kss - np.einsum(
+        'ij, ij -> j', Kfs, temp)
+
+        posterior_std = np.sqrt(posterior_variance)
+        posterior_pred_mean = Kfs.T @ weight
+        posterior_pred_variance = posterior_variance + noise_variance
+        posterior_pred_std = np.sqrt(posterior_pred_variance)
+
+
+        
+        # f*|f^(i) is a normally distributed variable with mean mu, var
+        # get B(cutpoints, mu, sqrt(noise_var + var))
+        if vectorised:
+            return self._predict_vector(
+                g_samples, cutpoints_samples, X_test)
+        else:
+            return self._predict_scalar(
+                g_samples, cutpoints_samples, X_test)
+    def _ordinal_predictive_distributions(
+        self, posterior_pred_mean, posterior_pred_std, N_test, cutpoints
+    ):
+        """
+        TODO: Replace with truncated_norm_normalizing_constant
+        Return predictive distributions for the ordinal likelihood.
+        """
+        predictive_distributions = np.empty((N_test, self.J))
+        for j in range(self.J):
+            z1 = np.divide(np.subtract(
+                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
+            z2 = np.divide(
+                np.subtract(cutpoints[j],
+                posterior_pred_mean), posterior_pred_std)
+            predictive_distributions[:, j] = norm_cdf(z1) - norm_cdf(z2)
+        return predictive_distributions
+
     def _vector_probit_likelihood(self, f_ns, cutpoints):
         """
         Get the probit likelihood given GP posterior mean samples and cutpoints sample.
@@ -165,11 +212,12 @@ class Sampler(ABC):
         distribution_over_classess = np.empty((N_samples, self.K))
         # Special case for cutpoints[-1] == np.NINF, cutpoints[0] == 0.0
         distribution_over_classess[:, 0] = norm.cdf(np.subtract(cutpoints[0], f_ns))
-        for k in range(1, self.K + 1):
-            cutpoints_k = cutpoints[k]
-            cutpoints_k_1 = cutpoints[k - 1]
-            distribution_over_classess[:, k - 1] = norm.cdf(
-                np.subtract(cutpoints_k, f_ns)) - norm.cdf(np.subtract(cutpoints_k_1, f_ns))
+        for j in range(1, self.J + 1):
+            cutpoints_j = cutpoints[j]
+            cutpoints_j_1 = cutpoints[j - 1]
+            distribution_over_classess[:, j - 1] = norm.cdf(
+                np.subtract(cutpoints_j, f_ns)) - norm.cdf(
+                    np.subtract(cutpoints_j_1, f_ns))
         return distribution_over_classess
 
     def _probit_likelihood(self, f_n, cutpoints):
@@ -183,13 +231,13 @@ class Sampler(ABC):
         distribution_over_classes = np.empty(self.J)
         # Special case for cutpoints[-1] == np.NINF, cutpoints[0] == 0.0
         distribution_over_classes[0] = norm.cdf(cutpoints[0] - f_n)
-        for k in range(1, self.J + 1):
+        for j in range(1, self.J + 1):
             cutpoints_j = cutpoints[j]  # remember these are the upper bounds of the classes
             cutpoints_j_1 = cutpoints[j - 1]
             distribution_over_classes[j - 1] = norm.cdf(cutpoints_j - f_n) - norm.cdf(cutpoints_j_1 - f_n)
         return distribution_over_classes
 
-    def _predict_scalar(self, g_samples, cutpoints_samples, x_test):
+    def _predict_scalarSS(self, g_samples, cutpoints_samples, x_test):
         """
             TODO: This code was refactored on 01/03/2021 and 21/06/2021 without testing. Test it.
         Superseded by _predict_vector.
@@ -236,10 +284,11 @@ class Sampler(ABC):
             distribution_over_classes_samples.append(
                 self._probit_likelihood(m, cutpoints))
 
-        monte_carlo_estimate = (1. / n_posterior_samples) * np.sum(distribution_over_classes_samples, axis=0)
+        monte_carlo_estimate = (1. / n_posterior_samples) * np.sum(
+            distribution_over_classes_samples, axis=0)
         return monte_carlo_estimate
-   
-    def _predict_vector(self, g_samples, cutpoints_samples, X_test):
+ 
+    def _predict_vectorSS(self, g_samples, cutpoints_samples, X_test):
         """
         Make gibbs prediction over classes of X_test given the posterior samples.
 
@@ -291,7 +340,7 @@ class Sampler(ABC):
         # TODO: Could also get a variance from the MC estimate.
         return (1. / n_posterior_samples) * np.sum(distribution_over_classes_sampless, axis=0)
 
-    def predict(self, g_samples, cutpoints_samples, X_test, vectorised=True):
+    def predictSS(self, g_samples, cutpoints_samples, X_test, vectorised=True):
         if vectorised:
             return self._predict_vector(
                 g_samples, cutpoints_samples, X_test)
@@ -462,9 +511,6 @@ class Sampler(ABC):
         self._hyperparameters_update(
             cutpoints=cutpoints, varphi=varphi, variance=variance,
             noise_variance=noise_variance)
-        # warnings.warn("Updating prior covariance.")
-        # self._update_prior(K=K)
-        # warnings.warn("Done updating prior covariance.")
         warnings.warn("Updating posterior covariance.")
         self._update_posterior(L_K=L_K, log_det_K=log_det_K)
         warnings.warn("Done updating posterior covariance.")
@@ -810,34 +856,34 @@ class GibbsGP(Sampler):
                 # Reject, and use previous \cutpoints, y sample
                 cutpoints = cutpoints_prev
             # Calculate statistics, then sample other conditional
-            f_tilde, nu = self._f_tilde(y, self.cov, self.K)  # TODO: Numba?
-            m = m_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
+            f_tilde, nu = self._f_tilde(g, self.cov, self.K)  # TODO: Numba?
+            f = f_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
             # plt.scatter(self.X_train, m)
             # plt.show()
             # print(cutpoints)
-            m_samples.append(m.flatten())
+            f_samples.append(f.flatten())
             g_samples.append(g.flatten())
             cutpoints_samples.append(cutpoints.flatten())
-        return np.array(m_samples), np.array(g_samples), np.array(cutpoints_samples)
+        return np.array(f_samples), np.array(g_samples), np.array(cutpoints_samples)
 
-    def _sample_initiate(self, m_0, cutpoints_0):
-        self.trainables = []
+    def _sample_initiate(self, f_0, cutpoints_0):
+        self.indices = []
         for j in range(0, self.J -1):
-            self.trainables.append(np.where(self.y_train == j))
-        m_samples = []
+            self.indices.append(np.where(self.y_train == j))
+        f_samples = []
         g_samples = []
         cutpoints_samples = []
-        return m_0, cutpoints_0, m_samples, g_samples, cutpoints_samples
+        return f_0, cutpoints_0, f_samples, g_samples, cutpoints_samples
 
-    def sample(self, m_0, cutpoints_0, steps, first_step=0):
+    def sample(self, f_0, cutpoints_0, steps, first_step=0):
         """
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: y (auxilliaries), m (GP regression posterior means) and
         cutpoints (cutpoint parameters).
 
-        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
-        :type m_0: :class:`np.ndarray`.
+        :arg f_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type f_0: :class:`np.ndarray`.
         :arg cutpoints_0: (K + 1, ) numpy.ndarray of the initial location of the sampler.
         :type cutpoints_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
@@ -845,24 +891,25 @@ class GibbsGP(Sampler):
 
         :return: Gibbs samples. The acceptance rate for the Gibbs algorithm is 1.
         """
-        m, cutpoints, cutpoints_prev, m_samples, g_samples, cutpoints_samples = self._sample_initiate(m_0, cutpoints_0)
+        (f, cutpoints, cutpoints_prev, f_samples, g_samples, cutpoints_samples
+            ) = self._sample_initiate(f_0, cutpoints_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
-            g = sample_g(g, m, self.y_train, cutpoints, self.noise_std, self.N)
+            g = sample_g(g, f, self.y_train, cutpoints, self.noise_std, self.N)
             # Calculate statistics, then sample other conditional
-            m_tilde, _ = self._m_tilde(y, self.cov, self.K)
-            m = m_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
+            f_tilde, _ = self._f_tilde(g, self.cov, self.K)
+            f = f_tilde.flatten() + self.L_Sigma @ norm.rvs(size=self.N)
             # Empty cutpoints (J + 1, ) array to collect the upper cut-points for each class
             cutpoints = -1. * np.ones(self.J + 1)
             uppers = -1. * np.ones(self.J - 2)
             locs = -1. * np.ones(self.J - 2)
             for j in range(self.J - 2):  # TODO change the index to the class.
-                if self.trainables[j+1]:
-                    uppers[j] = np.min(np.append(g[self.trainables[j + 1]], cutpoints_prev[j + 2]))
+                if self.indices[j+1]:
+                    uppers[j] = np.min(np.append(g[self.indices[j + 1]], cutpoints_prev[j + 2]))
                 else:
                     uppers[j] = cutpoints_prev[j + 2]
-                if self.indeces[j]:
-                    locs[j] = np.max(np.append(g[self.indeces[j]], cutpoints_prev[j]))
+                if self.indices[j]:
+                    locs[j] = np.max(np.append(g[self.indices[j]], cutpoints_prev[j]))
                 else:
                     locs[j] = cutpoints_prev[j]
             # Fix \cutpoints_0 = -\infty, \cutpoints_1 = 0, \cutpoints_K = +\infty
@@ -871,10 +918,10 @@ class GibbsGP(Sampler):
             cutpoints[-1] = np.inf
             # update cutpoints prev
             cutpoints_prev = cutpoints
-            m_samples.append(m)
+            f_samples.append(f)
             g_samples.append(g)
             cutpoints_samples.append(cutpoints)
-        return np.array(m_samples), np.array(g_samples), np.array(cutpoints_samples)
+        return np.array(f_samples), np.array(g_samples), np.array(cutpoints_samples)
 
 
 class EllipticalSliceGP(Sampler):
@@ -918,14 +965,14 @@ class EllipticalSliceGP(Sampler):
         self.hyperparameters_update(
             cutpoints=cutpoints, noise_variance=noise_variance)
 
-    def _sample_initiate(self, m_0):
+    def _sample_initiate(self, f_0):
         """Initialise variables for the sample method."""
-        m_samples = []
+        f_samples = []
         log_likelihood_samples = []
-        log_likelihood = self.get_log_likelihood(m_0)
-        return m_0, log_likelihood, m_samples, log_likelihood_samples
+        log_likelihood = self.get_log_likelihood(f_0)
+        return f_0, log_likelihood, f_samples, log_likelihood_samples
 
-    def sample(self, m_0, steps, first_step=0):
+    def sample(self, f_0, steps, first_step=0):
         """
         Sample from the latent variables posterior.
 
@@ -936,26 +983,27 @@ class EllipticalSliceGP(Sampler):
             posterior means) and then over y (auxilliaries). In this sampler,
             cutpoints (cutpoint parameters) are fixed.
 
-        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
-        :type m_0: :class:`np.ndarray`.
+        :arg f_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type f_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
         """
-        (m, log_likelihood, m_samples, log_likelihood_samples) = self._sample_initiate(m_0)
+        (f, log_likelihood, f_samples,
+            log_likelihood_samples) = self._sample_initiate(f_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
             # Sample m
-            m, log_likelihood = self.transition_operator(
-                self.L_K, self.N, m, log_likelihood)
-            m_samples.append(m.flatten())
+            f, log_likelihood = self.transition_operator(
+                self.L_K, self.N, f, log_likelihood)
+            f_samples.append(f.flatten())
             log_likelihood_samples.append(log_likelihood)
-        return np.array(m_samples), log_likelihood_samples
+        return np.array(f_samples), log_likelihood_samples
 
-    def transition_operator(self, L_K, N, m, log_likelihood, pi2=2 * np.pi):
+    def transition_operator(self, L_K, N, f, log_likelihood, pi2=2 * np.pi):
         """
         Elliptical slice sampling transition operator.
 
-        Draw samples from p(m|y, \theta).
+        Draw samples from p(f|y, \theta).
         """
         auxiliary_nu = L_K @ norm.rvs(size=N)
         auxiliary_theta = np.random.uniform(low=0, high=2 * np.pi)
@@ -963,7 +1011,7 @@ class EllipticalSliceGP(Sampler):
         auxiliary_theta_max = auxiliary_theta
         log_likelihood_plus_uniform = log_likelihood + np.log(np.random.uniform())
         while True:
-            m_proposed = m * np.cos(auxiliary_theta) + auxiliary_nu * np.sin(auxiliary_theta)
+            m_proposed = f * np.cos(auxiliary_theta) + auxiliary_nu * np.sin(auxiliary_theta)
             log_likelihood_proposed = self.get_log_likelihood(m_proposed)
             if log_likelihood_proposed > log_likelihood_plus_uniform:  # Accept reject
                 log_likelihood = log_likelihood_proposed
@@ -1044,28 +1092,33 @@ class SufficientAugmentation(object):
         else:
             self.sampler = sampler
 
-    def tmp_compute_marginal(self, f, theta, trainables, proposal_L_cov, reparameterised=True):
+    def tmp_compute_marginal(
+            self, f, theta, trainables, proposal_L_cov, reparameterised=False):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
                 theta, trainables, self.sampler.J,
-                # self.sampler.kernel.varphi_hyperparameters,
-                self.sampler.varphi_hyperparameters,
-                self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                #self.sampler.kernel.variance_hyperparameters,
-                self.sampler.variance_hyperparameters, self.sampler.cutpoints)
+                self.sampler.kernel.varphi_hyperparameters,
+                # self.sampler.varphi_hyperparameters,
+                self.sampler.noise_std_hyperparameters,
+                self.sampler.cutpoints_hyperparameters,
+                self.sampler.kernel.variance_hyperparameters,
+                #self.sampler.variance_hyperparameters,
+                self.sampler.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, trainables, self.sampler.J,
-                #self.sampler.kernel.varphi_hyperparameters,
-                self.sampler.varphi_hyperparameters,
-                self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                #self.sampler.kernel.variance_hyperparameters,
-                self.sampler.variance_hyperparameters, self.sampler.cutpoints)
+                self.sampler.kernel.varphi_hyperparameters,
+                #self.sampler.varphi_hyperparameters,
+                self.sampler.noise_std_hyperparameters,
+                self.sampler.cutpoints_hyperparameters,
+                self.sampler.kernel.variance_hyperparameters,
+                #self.sampler.variance_hyperparameters,
+                self.sampler.cutpoints)
         nu = solve_triangular(self.sampler.L_K.T, f, lower=True)  # TODO just make sure this is the correct solve.
-        log_p_m_giv_theta = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
-        log_p_theta_giv_m = log_p_theta[0] + log_p_m_giv_theta
-        return log_p_theta_giv_m
+        log_p_f_giv_theta = - 0.5 * self.sampler.log_det_K - 0.5 * nu.T @ nu
+        log_p_theta_giv_f = log_p_theta[0] + log_p_f_giv_theta
+        return log_p_theta_giv_f
 
     def transition_operator(
             self, u, log_prior_u, log_jacobian_u,
@@ -1105,8 +1158,8 @@ class SufficientAugmentation(object):
         print(log_p_v_given_m)
         # Log ratio
         log_a = (
-            log_p_v_given_m + np.sum(log_prior_v) + np.sum(log_jacobian_v)
-            - log_p_u_given_m - np.sum(log_prior_u) - np.sum(log_jacobian_u))
+            log_p_v_given_m + np.sum(log_prior_v) + np.sum(log_jacobian_u)
+            - log_p_u_given_m - np.sum(log_prior_u) - np.sum(log_jacobian_v))
         log_A = np.minimum(0, log_a)
         threshold = np.random.uniform(low=0.0, high=1.0)
         if log_A > np.log(threshold):
@@ -1126,49 +1179,49 @@ class SufficientAugmentation(object):
             joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
             return (u, log_prior_u, log_jacobian_u, joint_log_likelihood, 0)
 
-    def _sample_initiate(self, theta_0, trainables, proposal_cov, reparameterised):
+    def _sample_initiate(self, phi_0, trainables, proposal_cov, reparameterised):
         """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
         # Get starting point for the Markov Chain
-        if theta_0 is None:
-            theta_0 = self.sampler.get_phi(trainables)
+        if phi_0 is None:
+            phi_0 = self.sampler.get_phi(trainables)
         # Get type of proposal density
-        proposal_L_cov = proposal_initiate(theta_0, trainables, proposal_cov)
+        proposal_L_cov = proposal_initiate(phi_0, trainables, proposal_cov)
         # Evaluate priors and proposal conditionals
         if reparameterised:
-            theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, trainables, proposal_L_cov)
-            log_prior_theta = prior_reparameterised(theta_0, trainables)
+            phi_0, log_jacobian_phi = proposal_reparameterised(phi_0, trainables, proposal_L_cov)
+            log_prior = prior_reparameterised(phi_0, trainables)
         else:
-            theta_0, log_jacobian_theta = proposal(theta_0, trainables, proposal_L_cov)
-            log_prior_theta = prior(theta_0, trainables)
+            phi_0, log_jacobian_phi = proposal(phi_0, trainables, proposal_L_cov)
+            log_prior = prior(phi_0, trainables)
         # Initialise hyperparameters, and update prior and posterior covariances
-        self.sampler._hyperparameter_initialise(theta_0, trainables)
+        self.sampler._hyperparameter_initialise(phi_0, trainables)
         # Initiate containers for samples
-        theta_samples = []
+        phi_samples = []
         m_samples = []
         joint_log_likelihood_samples = []
         return (
-            theta_0, theta_samples, log_prior_theta,
-            log_jacobian_theta, proposal_L_cov,
+            phi_0, phi_samples, log_prior,
+            log_jacobian_phi, proposal_L_cov,
             m_samples, joint_log_likelihood_samples, 0)
 
-    def sample(self, m_0, trainables, proposal_cov, steps, first_step=0,
-            theta_0=None, reparameterised=True):
+    def sample(self, f_0, trainables, proposal_cov, steps, first_step=0,
+            phi_0=None, reparameterised=False):
         """
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
             then over y (auxilliaries). In this sampler, cutpoints (cutpoint parameters) are fixed.
 
-        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
-        :type m_0: :class:`np.ndarray`.
+        :arg f_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type f_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
         """
-        (theta, theta_samples, log_prior_theta,
-        log_jacobian_theta, log_marginal_likelihood_theta,
+        (theta, phi_samples, log_prior,
+        log_jacobian_phi, log_marginal_likelihood_theta,
         proposal_L_cov, joint_log_likelihood_samples, naccepted) = self._sample_initiate(
-            theta_0, trainables, proposal_cov, reparameterised)
-        (m, log_likelihood, m_samples, log_likelihood_samples) = self.sampler._sample_initiate(m_0)
+            phi_0, trainables, proposal_cov, reparameterised)
+        (m, log_likelihood, m_samples, log_likelihood_samples) = self.sampler._sample_initiate(f_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
             # Need p(v | \nu, y) and p(y | \ny, y), but need to condition on the same \nu, y
@@ -1183,11 +1236,11 @@ class SufficientAugmentation(object):
             # No if m is not the same for each
             # Yes if m is the same for each
             nu = self.sampler._nu(m, self.sampler.K)
-            (theta, log_prior_theta,
-            log_jacobian_theta,
+            (theta, log_prior,
+            log_jacobian_phi,
             joint_log_likelihood,
             bool) = self.transition_operator(
-                theta, log_prior_theta, log_jacobian_theta,
+                theta, log_prior, log_jacobian_phi,
                 trainables, proposal_L_cov, nu, reparameterised)
             naccepted += bool
             # Update hyperparameters from theta.
@@ -1195,12 +1248,12 @@ class SufficientAugmentation(object):
             # plt.show()
             # print(cutpoints)
             m_samples.append(m)
-            theta_samples.append(theta)
+            phi_samples.append(theta)
             joint_log_likelihood_samples.append(joint_log_likelihood)
         return np.array(m_samples), naccepted/steps
 
 
-class AncilliaryAugmentation(Sampler):
+class AncilliaryAugmentation(object):
     """
     An ancilliary augmentation (AA) hyperparameter sampler.
 
@@ -1231,7 +1284,7 @@ class AncilliaryAugmentation(Sampler):
         else:
             self.sampler = sampler
 
-    def _nu(self, f, K):
+    def _nu(self, f, L):
         """
         Calculate the ancilliary augmentation "whitened" variables.
 
@@ -1242,36 +1295,43 @@ class AncilliaryAugmentation(Sampler):
         :arg K:
         :type K:
         """
-        # m = L \nu
-        # m ~ N(0, K)
-        # p(m | theta)
-        # m.T @ K^{-1} @ m
+        # f = L \nu
+        # f ~ N(0, K)
+        # p(f | theta)
+        # f.T @ K^{-1} @ f
         # \nu.T @ L.T @ K^{-1} @ L @ \nu
         # \nu.T @ L.T @ L.{-1}.T @ L^{-1} @ L @ \nu
         # \nu.T @ \nu
-        # so m = L\nu
-        # so \nu = solve_triangular(m, L)
-        return solve_triangular(f, K)  # TODO: Why have I put (f, K)? Something to do with existing R implementation?
+        # so f = L\nu
+        # so \nu = solve_triangular(f, L)
+        return solve_triangular(f, L)
 
-    def tmp_compute_marginal(self, f, theta, trainables, proposal_L_cov, reparameterised=True):
+    def tmp_compute_marginal(self,
+            nu, theta, trainables, proposal_L_cov, reparameterised=False):
         """Temporary function to compute the marginal given theta"""
         if reparameterised:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior_reparameterised(
                 theta, trainables, self.sampler.J,
-                #self.sampler.kernel.varphi_hyperparameters,
-                self.sampler.varphi_hyperparameters,
+                self.sampler.kernel.varphi_hyperparameters,
+                #self.sampler.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                #self.sampler.kernel.variance_hyperparameters,
-                self.sampler.variance_hyperparameters, self.sampler.cutpoints)
+                self.sampler.kernel.variance_hyperparameters,
+                # self.sampler.variance_hyperparameters,
+                self.sampler.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, trainables, self.sampler.J,
-                #self.sampler.kernel.varphi_hyperparameters,
-                self.sampler.varphi_hyperparameters,
+                self.sampler.kernel.varphi_hyperparameters,
+                # self.sampler.varphi_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
-                #self.sampler.kernel.variance_hyperparameters,
-                self.sampler.variance_hyperparameters, self.sampler.cutpoints)
+                self.sampler.kernel.variance_hyperparameters,
+                #self.sampler.variance_hyperparameters,
+                self.sampler.cutpoints)
+        f = np.tril(self.sampler.L_K.T) @ nu
         log_p_y_giv_nu_theta = self.sampler.get_log_likelihood(f)
+        # TODO log_p_y_giv_nu_theta looks wrong
+        # y defines \nu, which in turn defines f
+        print(log_p_y_giv_nu_theta, log_p_theta)
         log_p_theta_giv_y_nu = log_p_theta[0] + log_p_y_giv_nu_theta
         return log_p_theta_giv_y_nu
 
@@ -1312,8 +1372,8 @@ class AncilliaryAugmentation(Sampler):
         print(log_p_v_given_m)
         # Log ratio
         log_a = (
-            log_p_v_given_m + np.sum(log_prior_v) + np.sum(log_jacobian_v)
-            - log_p_u_given_m - np.sum(log_prior_u) - np.sum(log_jacobian_u))
+            log_p_v_given_m + np.sum(log_prior_v) + np.sum(log_jacobian_u)
+            - log_p_u_given_m - np.sum(log_prior_u) - np.sum(log_jacobian_v))
         log_A = np.minimum(0, log_a)
         threshold = np.random.uniform(low=0.0, high=1.0)
         if log_A > np.log(threshold):
@@ -1333,54 +1393,54 @@ class AncilliaryAugmentation(Sampler):
             joint_log_likelihood = log_p_y_given_m + log_p_m_given_u + log_prior_u
             return (u, log_prior_u, log_jacobian_u, 0)
 
-    def _sample_initiate(self, theta_0, trainables, proposal_cov, reparameterised):
+    def _sample_initiate(self, phi_0, trainables, proposal_cov, reparameterised):
         """Initiate method for `:meth:sample_sufficient_augmentation'.""" 
         # Get starting point for the Markov Chain
-        if theta_0 is None:
-            theta_0 = self.sampler.get_phi(trainables)
+        if phi_0 is None:
+            phi_0 = self.sampler.get_phi(trainables)
         # Get type of proposal density
-        proposal_L_cov = proposal_initiate(theta_0, trainables, proposal_cov)
+        proposal_L_cov = proposal_initiate(phi_0, trainables, proposal_cov)
         # Evaluate priors and proposal conditionals
         if reparameterised:
-            theta_0, log_jacobian_theta = proposal_reparameterised(theta_0, trainables, proposal_L_cov)
-            log_prior_theta = prior_reparameterised(theta_0, trainables)
+            phi_0, log_jacobian_phi = proposal_reparameterised(phi_0, trainables, proposal_L_cov)
+            log_prior = prior_reparameterised(phi_0, trainables)
         else:
-            theta_0, log_jacobian_theta = proposal(theta_0, trainables, proposal_L_cov)
-            log_prior_theta = prior(theta_0, trainables)
+            phi_0, log_jacobian_phi = proposal(phi_0, trainables, proposal_L_cov)
+            log_prior = prior(phi_0, trainables)
         # Initialise hyperparameters, and update prior and posterior covariances
-        self.sampler._hyperparameter_initialise(theta_0, trainables)
+        self.sampler._hyperparameter_initialise(phi_0, trainables)
         # Initiate containers for samples
-        theta_samples = []
+        phi_samples = []
         m_samples = []
         joint_log_likelihood_samples = []
         return (
-            theta_0, theta_samples, log_prior_theta,
-            log_jacobian_theta, proposal_L_cov,
+            phi_0, phi_samples, log_prior,
+            log_jacobian_phi, proposal_L_cov,
             m_samples, joint_log_likelihood_samples, 0)
 
-    def sample(self, m_0, trainables, proposal_cov, steps, first_step=0,
-            theta_0=None, reparameterised=True):
+    def sample(self, f_0, trainables, proposal_cov, steps, first_step=0,
+            phi_0=None, reparameterised=False):
         """
         Sample from the posterior.
 
         Sampling occurs in Gibbs blocks over the parameters: m (GP regression posterior means) and
             then over y (auxilliaries). In this sampler, cutpoints (cutpoint parameters) are fixed.
 
-        :arg m_0: (N, ) numpy.ndarray of the initial location of the sampler.
-        :type m_0: :class:`np.ndarray`.
+        :arg f_0: (N, ) numpy.ndarray of the initial location of the sampler.
+        :type f_0: :class:`np.ndarray`.
         :arg int steps: The number of steps in the sampler.
         :arg int first_step: The first step. Useful for burn in algorithms.
         """
-        (theta, theta_samples, log_prior_theta,
-        log_jacobian_theta, log_marginal_likelihood_theta,
+        (theta, phi_samples, log_prior,
+        log_jacobian_phi, log_marginal_likelihood_theta,
         proposal_L_cov, joint_log_likelihood_samples, naccepted) = self._sample_initiate(
-            theta_0, trainables, proposal_cov, reparameterised)
-        (m, log_likelihood, m_samples, log_likelihood_samples) = self.sampler._sample_initiate(m_0)
+            phi_0, trainables, proposal_cov, reparameterised)
+        (m, log_likelihood, f_samples, log_likelihood_samples) = self.sampler._sample_initiate(f_0)
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples"):
             # Need p(v | \nu, y) and p(y | \ny, y), but need to condition on the same \nu, y
             # and since these change, then we need to change the variables.
-            m, log_likelihood = self.sampler.transition_operator(
+            f, log_likelihood = self.sampler.transition_operator(
                 self.L_K, self.N, m, log_likelihood)
             # In code_pseudo they have f | nu, L_chol, not f | L_cho, y. Weird.
             # Solve for nu
@@ -1389,21 +1449,22 @@ class AncilliaryAugmentation(Sampler):
             # So required two solves per step?
             # No if m is not the same for each
             # Yes if m is the same for each
-            nu = self._nu(m, self.sampler.K)
-            (theta, log_prior_theta,
-            log_jacobian_theta,
+            nu = self._nu(f, self.L_K)
+            #nu = self._nu(m, self.sampler.K)
+            (theta, log_prior,
+            log_jacobian_phi,
             bool) = self.transition_operator(
-                theta, log_prior_theta, log_jacobian_theta,
+                theta, log_prior, log_jacobian_phi,
                 trainables, proposal_L_cov, nu, reparameterised)
             naccepted += bool
             # Update hyperparameters from theta.
             # plt.scatter(self.sampler.X_train, m)
             # plt.show()
             # print(cutpoints)
-            m_samples.append(m)
-            theta_samples.append(theta)
+            f_samples.append(f)
+            phi_samples.append(theta)
             joint_log_likelihood_samples.append(joint_log_likelihood)
-        return np.array(m_samples), naccepted/steps
+        return np.array(f_samples), naccepted/steps
 
 
 class PseudoMarginal(object):
@@ -1447,13 +1508,13 @@ class PseudoMarginal(object):
         independent assumption so take the product of prior pdfs.
         """
         (cutpoints, varphi, scale, noise_variance,
-            log_prior_theta) = prior(theta, trainables)
+            log_prior) = prior(theta, trainables)
         # Update prior covariance
         self.approximator.hyperparameters_update(
             cutpoints=cutpoints, varphi=varphi, scale=scale,
             noise_variance=noise_variance)
         # intervals = self.approximator.cutpoints[2:self.approximator.J] - self.approximator.cutpoints[1:self.approximator.J - 1]
-        return log_prior_theta
+        return log_prior
 
     def _weight(
             self, f_samp, prior_cov_inv, half_log_det_prior_cov,
@@ -1466,7 +1527,7 @@ class PseudoMarginal(object):
                 f_samp, posterior_cov_inv, half_log_det_posterior_cov,
                 mean=posterior_mean))
 
-    def _weight_vectorised(
+    def _weight_vectorisedSS(
             self, f_samps, prior_cov_inv, half_log_det_prior_cov,
             posterior_cov_inv, half_log_det_posterior_cov, posterior_mean):
         log_ws = (self.approximator.get_log_likelihood(f_samps)
@@ -1477,7 +1538,20 @@ class PseudoMarginal(object):
                 mean=posterior_mean))
         return log_ws
 
-    def _importance_sampler_vectorised(
+    def _weight_vectorised(
+            self, f_samps, log_det_cov, weight, precision, posterior_mean):
+        intermediate_vectors = np.einsum('i, ki -> ki', precision, f_samps)
+
+        log_ws = (self.approximator.get_log_likelihood(f_samps)
+            + 0.5 * log_det_cov - 0.5 * np.sum(np.log(precision))
+            + 0.5 * np.einsum('ki, ki->k', f_samps, intermediate_vectors)
+            - np.einsum('ki, i -> k', f_samps, weight)
+            - np.einsum('ki, i -> k', intermediate_vectors, posterior_mean)
+            + 0.5 * weight.T @ posterior_mean
+            + 0.5 * posterior_mean.T @ (precision * posterior_mean))
+        return log_ws
+
+    def _importance_sampler_vectorisedSS(
             self, num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
             posterior_mean, posterior_cov_inv, half_log_det_posterior_cov,
             posterior_cholesky):
@@ -1498,9 +1572,32 @@ class PseudoMarginal(object):
         # for i in range(3):
         #     plt.scatter(self.approximator.X_train, f_samps[i])
         # plt.show()
-        log_ws = self._weight_vectorised(
+        log_ws = self._weight_vectorisedSS(
             f_samps, prior_cov_inv, half_log_det_prior_cov,
             posterior_cov_inv, half_log_det_posterior_cov, posterior_mean)
+        max_log_ws = np.max(log_ws)
+        log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
+        return log_sum_exp - np.log(num_importance_samples)
+
+    def _importance_sampler_vectorised(
+            self, num_importance_samples, log_det_cov, weight, precision,
+            posterior_mean, posterior_cholesky):
+        """
+        Sampling from an unbiased estimate of the marginal likelihood
+        p(y|\theta) given the likelihood of the parameters p(y | f) and samples
+        from an (unbiased) approximating distribution q(f|y, \theta).
+        """
+        zs = np.random.normal(
+            0, 1, (num_importance_samples, self.approximator.N))
+        posterior_L, is_inv  = posterior_cholesky
+        if is_inv:
+            zs = solve_triangular(posterior_L, zs.T, lower=False)
+            zs = zs.T
+        else:
+            zs = zs @ np.triu(posterior_L)
+        f_samps = zs + posterior_mean
+        log_ws = self._weight_vectorised(
+            f_samps, log_det_cov, weight, precision, posterior_mean)
         max_log_ws = np.max(log_ws)
         log_sum_exp = max_log_ws + np.log(np.sum(np.exp(log_ws - max_log_ws)))
         return log_sum_exp - np.log(num_importance_samples)
@@ -1539,32 +1636,35 @@ class PseudoMarginal(object):
             (cutpoints, varphi, scale, noise_variance,
                     log_p_theta) = prior_reparameterised(
                 theta, trainables, self.approximator.J,
-                #self.approximator.kernel.varphi_hyperparameters,
-                self.approximator.varphi_hyperparameters,
-                None, None,
-                self.approximator.variance_hyperparameters,
-                #self.approximator.kernel.variance_hyperparameters,
+                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.varphi_hyperparameters,
+                self.approximator.noise_std_hyperparameters,
+                self.approximator.cutpoints_hyperparameters,
+                #self.approximator.variance_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
                 theta, trainables, self.approximator.J,
-                #self.approximator.kernel.varphi_hyperparameters,
-                self.approximator.varphi_hyperparameters,
-                None, None,
-                #self.approximator.kernel.variance_hyperparameters,
-                self.approximator.variance_hyperparameters,
+                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.varphi_hyperparameters,
+                self.approximator.noise_std_hyperparameters,
+                self.approximator.cutpoints_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
+                #self.approximator.variance_hyperparameters,
                 self.approximator.cutpoints)
 
-        # TODO: check but there may be no need to take this chol
-        prior_L_cov = np.linalg.cholesky(
-            self.approximator.K
-            + self.approximator.jitter * np.eye(self.approximator.N))
-        half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
-        prior_cov_inv = np.linalg.inv(
-            self.approximator.K
-            + self.approximator.jitter * np.eye(self.approximator.N))
+        # # TODO: check but there may be no need to take this chol
+        # prior_L_cov = np.linalg.cholesky(
+        #     self.approximator.K
+        #     + self.approximator.jitter * np.eye(self.approximator.N))
+        # half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+        # prior_cov_inv = np.linalg.inv(
+        #     self.approximator.K
+        #     + self.approximator.jitter * np.eye(self.approximator.N))
 
-        (fx, gx, posterior_mean,
+        (_, _, log_det_cov, weight, precision,
+        posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
             theta, trainables, steps, verbose=False,
             return_reparameterised=False)
@@ -1574,8 +1674,8 @@ class PseudoMarginal(object):
             # Laplace # TODO: 20/06/22 may be SS
             posterior_cov_inv = posterior_matrix
             posterior_L_inv_cov, lower = cho_factor(posterior_cov_inv)
-            half_log_det_posterior_cov = - np.sum(
-                np.log(np.diag(posterior_L_inv_cov)))
+            # half_log_det_posterior_cov = - np.sum(
+            #     np.log(np.diag(posterior_L_inv_cov)))
             posterior_cholesky = (posterior_L_inv_cov, True)
         else:
             # LA, EP, VB, V - perhaps a simpler way to do this via the precisions
@@ -1583,12 +1683,12 @@ class PseudoMarginal(object):
             (posterior_L_cov, lower) = cho_factor(
                 posterior_cov
                 + self.approximator.jitter * np.eye(self.approximator.N))
-            half_log_det_posterior_cov = np.sum(
-                np.log(np.diag(posterior_L_cov)))
-            posterior_L_covT_inv = solve_triangular(
-                posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
-            posterior_cov_inv = solve_triangular(
-                posterior_L_cov, posterior_L_covT_inv, lower=False)
+            # half_log_det_posterior_cov = np.sum(
+            #     np.log(np.diag(posterior_L_cov)))
+            # posterior_L_covT_inv = solve_triangular(
+            #     posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
+            # posterior_cov_inv = solve_triangular(
+            #     posterior_L_cov, posterior_L_covT_inv, lower=False)
             posterior_cholesky = (posterior_L_cov, False)
         log_p_pseudo_marginals = np.empty(50)
         # TODO This could be parallelized using MPI
@@ -1598,9 +1698,8 @@ class PseudoMarginal(object):
             #     posterior_mean, posterior_cov_inv, half_log_det_posterior_cov, posterior_cholesky)
             # print(log_p_pseudo_marginal)
             log_p_pseudo_marginals[i] = self._importance_sampler_vectorised(
-                num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
-                posterior_mean, posterior_cov_inv, half_log_det_posterior_cov,
-                posterior_cholesky)
+                num_importance_samples, log_det_cov, weight, precision,
+                posterior_mean, posterior_cholesky)
         return (
             np.array(log_p_pseudo_marginals) + log_p_theta[0], log_p_theta[0])
 
@@ -1616,59 +1715,66 @@ class PseudoMarginal(object):
             (cutpoints, varphi, scale, noise_variance,
                     log_p_v) = prior_reparameterised(
                 v, trainables, self.approximator.J,
-                #self.approximator.kernel.varphi_hyperparameters,
-                self.approximator.varphi_hyperparameters,
-                None, None,
-                #self.approximator.kernel.variance_hyperparameters,
-                self.approximator.variance_hyperparameters,
+                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.varphi_hyperparameters,
+                self.approximator.noise_std_hyperparameters,
+                self.approximator.cutpoints_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
+                #self.approximator.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
-            u, log_jacobian_u = proposal(u, trainables, proposal_L_cov,
-                self.approximator.J)
-            cutpoints, varphi, scale, noise_variance, log_p_u = prior(
-                u, trainables, self.approximator.J,
-                #self.approximator.kernel.varphi_hyperparameters,
-                self.approximator.varphi_hyperparameters,
-                None, None,
-                self.approximator.variance_hyperparameters,
-                #self.approximator.kernel.variance_hyperparameters,
+            v, log_jacobian_v = proposal(
+                u, trainables, proposal_L_cov, self.approximator.J)
+            cutpoints, varphi, scale, noise_variance, log_p_v = prior(
+                v, trainables, self.approximator.J,
+                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.varphi_hyperparameters,
+                self.approximator.noise_std_hyperparameters,
+                self.approximator.cutpoints_hyperparameters,
+                #self.approximator.variance_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
-        (fx, gx, posterior_mean,
+        (fx, gx, log_det_cov, weight, precision,
+        posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
             v, trainables, steps, verbose=False)
-        prior_L_cov = np.linalg.cholesky(self.approximator.K
-            + self.approximator.jitter * np.eye(self.approximator.N))
-        half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
-        prior_cov_inv = np.linalg.inv(self.approximator.K
-            + self.approximator.jitter * np.eye(self.approximator.N))
+        # TODO: really slow!
+        # prior_L_cov = np.linalg.cholesky(self.approximator.K
+        #     + self.approximator.jitter * np.eye(self.approximator.N))
+        # half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+        # prior_cov_inv = np.linalg.inv(self.approximator.K
+        #     + self.approximator.jitter * np.eye(self.approximator.N))
         # perform cholesky decomposition since this was never performed in the EP posterior approximation
         if is_inv:
             posterior_cov_inv = posterior_matrix
             posterior_L_inv_cov, lower = cho_factor(posterior_cov_inv)
-            half_log_det_posterior_cov = - np.sum(
-                np.log(np.diag(posterior_L_inv_cov)))
+            # half_log_det_posterior_cov = - np.sum(
+            #     np.log(np.diag(posterior_L_inv_cov)))
             posterior_cholesky = (posterior_L_inv_cov, True)
         else:
             posterior_cov = posterior_matrix
             (posterior_L_cov, lower) = cho_factor(
                 posterior_cov
                 + self.approximator.jitter * np.eye(self.approximator.N))  # Is this necessary?
-            half_log_det_posterior_cov = np.sum(
-                np.log(np.diag(posterior_L_cov)))
-            posterior_L_covT_inv = solve_triangular(
-                posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
-            posterior_cov_inv = solve_triangular(
-                posterior_L_cov, posterior_L_covT_inv, lower=False)
+            # half_log_det_posterior_cov = np.sum(
+            #     np.log(np.diag(posterior_L_cov)))
+            # posterior_L_covT_inv = solve_triangular(
+            #     posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
+            # posterior_cov_inv = solve_triangular(
+            #     posterior_L_cov, posterior_L_covT_inv, lower=False)
             posterior_cholesky = (posterior_L_cov, False)
+        # log_p_pseudo_marginal_v = self._importance_sampler_vectorisedSS(
+        #         num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
+        #         posterior_mean, posterior_cov_inv, half_log_det_posterior_cov,
+        #         posterior_cholesky)
         log_p_pseudo_marginal_v = self._importance_sampler_vectorised(
-                num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
-                posterior_mean, posterior_cov_inv, half_log_det_posterior_cov,
-                posterior_cholesky)
+                num_importance_samples, log_det_cov, weight, precision,
+                posterior_mean, posterior_cholesky)
         # Log ratio
         log_a = (
-            log_p_pseudo_marginal_v + np.sum(log_p_v) + np.sum(log_jacobian_v)
+            log_p_pseudo_marginal_v + np.sum(log_p_v) + np.sum(log_jacobian_u)
             - log_p_pseudo_marginal_u - np.sum(log_p_u)
-            - np.sum(log_jacobian_u))
+            - np.sum(log_jacobian_v))
         log_A = np.minimum(0, log_a)
         threshold = np.random.uniform(low=0.0, high=1.0)
         if log_A > np.log(threshold):
@@ -1686,100 +1792,106 @@ class PseudoMarginal(object):
             return (u, log_p_u, log_jacobian_u, log_p_pseudo_marginal_u, 0.0)
 
     def _sample_initiate(
-            self, theta_0, trainables, proposal_cov, num_importance_samples,
-            reparameterised):
+            self, phi_0, trainables, steps, proposal_cov,
+            num_importance_samples, reparameterised):
         # Get starting point for the Markov Chain
-        if theta_0 is None:
-            theta_0 = self.approximator.get_phi(trainables)
-        (fx, gx, posterior_mean,
+        if phi_0 is None:
+            phi_0 = self.approximator.get_phi(trainables)
+        (_, _, log_det_cov, weight, precision,
+        posterior_mean,
         (posterior_matrix, is_inv)) = self.approximator.approximate_posterior(
-            theta_0, trainables, first_step=0, verbose=False)
-        prior_L_cov = np.linalg.cholesky(
-            self.approximator.K
-            + self.approximator.jitter * np.eye(self.approximator.N))
-        half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
-        prior_cov_inv = np.linalg.inv(
-            self.approximator.K
-            + self.approximator.jitter * np.eye(self.approximator.N))
+            phi_0, trainables, steps, verbose=False)
+        # prior_L_cov = np.linalg.cholesky(
+        #     self.approximator.K
+        #     + self.approximator.jitter * np.eye(self.approximator.N))
+        # half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L_cov)))
+        # prior_cov_inv = np.linalg.inv(
+        #     self.approximator.K
+        #     + self.approximator.jitter * np.eye(self.approximator.N))
         # perform cholesky decomposition since this was never performed in the EP posterior approximation
         if is_inv:
             # TODO maybe SS
             posterior_cov_inv = posterior_matrix
             posterior_L_inv_cov, lower = cho_factor(posterior_cov_inv)
-            half_log_det_posterior_cov = - np.sum(np.log(np.diag(posterior_L_inv_cov)))
+            # half_log_det_posterior_cov = - np.sum(np.log(np.diag(posterior_L_inv_cov)))
             posterior_cholesky = (posterior_L_inv_cov, True)
         else:
             posterior_cov = posterior_matrix
             (posterior_L_cov, lower) = cho_factor(
                 posterior_cov
                 + self.approximator.jitter * np.eye(self.approximator.N))  # Is this necessary?
-            half_log_det_posterior_cov = np.sum(
-                np.log(np.diag(posterior_L_cov)))
-            posterior_L_covT_inv = solve_triangular(
-                posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
-            posterior_cov_inv = solve_triangular(
-                posterior_L_cov, posterior_L_covT_inv, lower=False)
+            # half_log_det_posterior_cov = np.sum(
+            #     np.log(np.diag(posterior_L_cov)))
+            # posterior_L_covT_inv = solve_triangular(
+            #     posterior_L_cov.T, np.eye(self.approximator.N), lower=True)
+            # posterior_cov_inv = solve_triangular(
+            #     posterior_L_cov, posterior_L_covT_inv, lower=False)
             posterior_cholesky = (posterior_L_cov, False)
 
+        # log_p_pseudo_marginal = self._importance_sampler_vectorised(
+        #         num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
+        #         posterior_mean, posterior_cov_inv, half_log_det_posterior_cov,
+        #         posterior_cholesky)
         log_p_pseudo_marginal = self._importance_sampler_vectorised(
-                num_importance_samples, prior_cov_inv, half_log_det_prior_cov,
-                posterior_mean, posterior_cov_inv, half_log_det_posterior_cov,
-                posterior_cholesky)
+                num_importance_samples, log_det_cov, weight, precision,
+                posterior_mean, posterior_cholesky)
 
         # Evaluate priors and proposal conditionals
-        proposal_L_cov = proposal_initiate(theta_0, trainables, proposal_cov)
+        proposal_L_cov = proposal_initiate(phi_0, trainables, proposal_cov)
         if reparameterised:
-            theta_0, log_jacobian_theta = proposal_reparameterised(
-                theta_0, trainables, proposal_L_cov)
+            phi_0, log_jacobian_phi = proposal_reparameterised(
+                phi_0, trainables, proposal_L_cov)
             (cutpoints, varphi, scale, noise_variance,
                     log_p_theta) = prior_reparameterised(
-                theta_0, trainables, self.approximator.J,
-                #self.approximator.kernel.varphi_hyperparameters,
-                self.approximator.varphi_hyperparameters,
-                None, None,
-                self.approximator.variance_hyperparameters,
-                #self.approximator.kernel.variance_hyperparameters,
+                phi_0, trainables, self.approximator.J,
+                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.varphi_hyperparameters,
+                self.approximator.noise_std_hyperparameters,
+                self.approximator.cutpoints_hyperparameters,
+                #self.approximator.variance_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
         else:
-            theta_0, log_jacobian_theta = proposal(
-                theta_0, trainables, proposal_L_cov, self.approximator.J)
+            phi_0, log_jacobian_phi = proposal(
+                phi_0, trainables, proposal_L_cov, self.approximator.J)
             cutpoints, varphi, scale, noise_variance, log_p_theta = prior(
-                theta_0, trainables, self.approximator.J,
-                #self.approximator.kernel.varphi_hyperparameters,
-                self.approximator.varphi_hyperparameters,
-                None, None,
-                self.approximator.variance_hyperparameters,
-                #self.approximator.kernel.variance_hyperparameters,
+                phi_0, trainables, self.approximator.J,
+                self.approximator.kernel.varphi_hyperparameters,
+                #self.approximator.varphi_hyperparameters,
+                self.approximator.noise_std_hyperparameters,
+                self.approximator.cutpoints_hyperparameters,
+                #self.approximator.variance_hyperparameters,
+                self.approximator.kernel.variance_hyperparameters,
                 self.approximator.cutpoints)
-        theta_samples = []
+        phi_samples = []
         acceptance_rate = 0.0
         return (
-            theta_0, theta_samples, log_p_theta,
-            log_jacobian_theta, log_p_pseudo_marginal, proposal_L_cov,
+            phi_0, phi_samples, log_p_theta,
+            log_jacobian_phi, log_p_pseudo_marginal, proposal_L_cov,
             acceptance_rate)
 
     def sample(
             self, trainables, steps, proposal_cov, n_samples, first_sample=0,
-            num_importance_samples=80, theta_0=None,
-            reparameterised=True, verbose=False):
-        (theta, theta_samples, log_prior_theta,
-        log_jacobian_theta, log_marginal_likelihood_theta, proposal_L_cov,
+            num_importance_samples=80, phi_0=None,
+            reparameterised=False, verbose=False):
+        (theta, phi_samples, log_prior,
+        log_jacobian_phi, log_marginal_likelihood_theta, proposal_L_cov,
         acceptance_rate) = self._sample_initiate(
-            theta_0, trainables, proposal_cov, num_importance_samples,
+            phi_0, trainables, steps, proposal_cov, num_importance_samples,
             reparameterised)
         for _ in trange(
                 first_sample, first_sample + n_samples,
                 desc="Pseudo-marginal Sampler Progress", unit="samples"):
-            (theta, log_prior_theta, log_jacobian_theta,
+            (theta, log_prior, log_jacobian_phi,
             log_marginal_likelihood_theta, accept) = self._transition_operator(
-                theta, log_prior_theta, log_jacobian_theta,
+                theta, log_prior, log_jacobian_phi,
                 log_marginal_likelihood_theta, trainables, steps,
                 proposal_L_cov,
                 num_importance_samples, reparameterised, verbose=verbose)
             acceptance_rate += accept
-            theta_samples.append(theta)
+            phi_samples.append(theta)
         acceptance_rate /= n_samples
-        return np.array(theta_samples), acceptance_rate
+        return np.array(phi_samples), acceptance_rate
 
 
 class CutpointValueError(Exception):

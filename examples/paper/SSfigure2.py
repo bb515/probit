@@ -135,21 +135,18 @@ def main():
 
         trainables = np.ones(J + 2)
         # Fix noise_variance
-        #trainables[0] = 0
+        trainables[0] = 0
         # Fix scale
         trainables[J] = 0
         # Fix varphi
-        trainables[-1] = 0
+        #trainables[-1] = 0
         # Fix cutpoints
         trainables[1:J] = 0
 
-        noise_std_hyperparameters = np.array([1.2, 1./0.2])
-        varphi_hyperparameters = np.array([1.0, np.sqrt(D)])
-
         # (log) domain of grid
-        domain = ((-1.5, 1.7), None)
+        domain = ((-1.5, 0.33), None)
         # resolution of grid
-        res = (500, None)
+        res = (100, None)
 
         num_importance_samples = [64]
         num_data = [200]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
@@ -167,8 +164,7 @@ def main():
                         M=M, cutpoints=cutpoints_0,
                         noise_variance=noise_variance_0,
                         kernel=kernel, J=J, data=(X, y),
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        varphi_hyperparameters = varphi_hyperparameters)
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 elif "PEP" in approximation:
                     alpha = 0.5
                     # Initate PEP classifier
@@ -176,17 +172,13 @@ def main():
                         cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                         alpha=alpha, gauss_hermite_points=20,
                         kernel=kernel, J=J, data=(X, y),
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        )
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 else:
                     # Initiate classifier
                     approximator = Approximator(
                         cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                         kernel=kernel, J=J, data=(X, y),
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        )  # [shape, rate])
-                phi_true = approximator.get_phi(trainables)
-                theta_true = np.exp(phi_true)
+                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 for i, Nimp in enumerate(num_importance_samples):
                     # Initiate hyper-parameter sampler
                     hyper_sampler = PseudoMarginal(approximator)
@@ -197,9 +189,9 @@ def main():
                         hyper_sampler, approximator, domain, res, trainables,
                         num_importance_samples=Nimp, steps=steps,
                         reparameterised=False, show=True, write=True)
+                    print(p_pseudo_marginals_mean)
                     # Check Riemann sum approximates 1
-                    print("Riemann sum={}".format(
-                        np.sum(thetas_step * p_pseudo_marginals_mean)))
+                    print("Riemann sum={}".format(np.sum(thetas_step * p_pseudo_marginals_mean)))
                     if i==0:
                         plt.plot(thetas, p_pseudo_marginals_mean)
                         plt.plot(thetas, p_pseudo_marginals_lo, '--b',
@@ -208,7 +200,7 @@ def main():
                         plt.plot(thetas, p_priors, 'r')
                         axes = plt.gca()
                         y_min, y_max = axes.get_ylim()
-                        plt.xlabel("theta")
+                        plt.xlabel("length-scale")
                         plt.ylabel("pseudo marginal")
                         plt.title("N = {}, {}".format(N, approximation))
                         # plt.savefig("test.png")
@@ -220,11 +212,10 @@ def main():
                         y_min_new, y_max_new = axes.get_ylim()
                         y_min = np.min([y_min, y_min_new])
                         y_max = np.max([y_max, y_max_new])
-                plt.ylim(0.0, y_max)
-                plt.vlines(theta_true, 0.0, y_max, colors='k')
+                plt.ylim(0.0, 5.0)
+                plt.vlines(lengthscale_0, 0.0, 5.0, colors='k')
                 plt.legend()
-                plt.tight_layout()
-                plt.grid()
+                plt.show()
                 plt.savefig(
                     write_path / "fig2_{}_N={}.png".format(approximation, N))
                 plt.savefig(

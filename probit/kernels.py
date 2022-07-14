@@ -134,44 +134,51 @@ class Kernel(ABC):
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
+    def _check_varphi_shape(self, varphi):
+        if ((type(varphi) is list) or
+                (type(varphi) is np.ndarray)):
+            if np.shape(varphi) == (1,):
+                # e.g. [[1]]
+                L = 1
+                M = 1
+            elif np.shape(varphi) == ():
+                # e.g. [1]
+                L = 1
+                M = 1
+            elif np.shape(varphi[0]) == (1,):
+                # e.g. [[1],[2],[3]]
+                L = np.shape(varphi)[0]
+                M = 1
+            elif np.shape(varphi[0]) == ():
+                # e.g. [1, 2, 3]
+                L = 1
+                M = np.shape(varphi)[0]
+            else:
+                # e.g. [[1, 2], [3, 4], [5, 6]]
+                L = np.shape(varphi)[0]
+                M = np.shape(varphi)[1]
+        elif ((type(varphi) is float) or
+                (type(varphi) is np.float64)):
+            # e.g. 1
+            L = 1
+            M = 1
+        else:
+            raise TypeError(
+                "Type of varphi is not supported "
+                "(expected {} or {}, got {})".format(
+                    float, np.ndarray, type(varphi)))
+        return L, M
+
     def _initialise_varphi(self, varphi=None):
         """
         Initialise as Matern type kernel
         (loosely defined here as a kernel with a length scale) 
         """
         if varphi is not None:
-            if ((type(varphi) is list) or
-                    (type(varphi) is np.ndarray)):
-                if np.shape(varphi) == (1,):
-                    # e.g. [[1]]
-                    L = 1
-                    M = 1
-                elif np.shape(varphi) == ():
-                    # e.g. [1]
-                    L = 1
-                    M = 1
-                elif np.shape(varphi[0]) == (1,):
-                    # e.g. [[1],[2],[3]]
-                    L = np.shape(varphi)[0]
-                    M = 1
-                elif np.shape(varphi[0]) == ():
-                    # e.g. [1, 2, 3]
-                    L = 1
-                    M = np.shape(varphi)[0]
-                else:
-                    # e.g. [[1, 2], [3, 4], [5, 6]]
-                    L = np.shape(varphi)[0]
-                    M = np.shape(varphi)[1]
-            elif ((type(varphi) is float) or
-                    (type(varphi) is np.float64)):
-                # e.g. 1
-                L = 1
-                M = 1
-            else:
-                raise TypeError(
-                    "Type of varphi is not supported "
-                    "(expected {} or {}, got {})".format(
-                        float, np.ndarray, type(varphi)))
+            L, M = self._check_varphi_shape(varphi)
+        else:
+            L = None
+            M = None 
         return varphi, L, M
 
     def _initialise_hyperparameter(self, parameter, hyperparameter):
@@ -454,19 +461,34 @@ class SquaredExponential(Kernel):
         # For this kernel, the shared and single kernel for each class
         # (i.e. non general) and single lengthscale across
         # all data dims (i.e. non ARD) is assumed.
-        if self.L != 1:
-            raise ValueError(
-                "L wrong for simple kernel (expected {}, got {})".format(
-                    1, self.L))
-        if self.M != 1:
-            raise ValueError(
-                "M wrong for non-ARD kernel (expected {}, got {})".format(
-                    1, self.M))
         if self.variance is None:
             raise ValueError(
                 "You must supply a variance for the simple kernel "
                 "(expected {} type, got {})".format(float, self.variance))
         self.num_hyperparameters = np.size(self.varphi)
+
+    def _initialise_varphi(self, varphi=None):
+        """
+        Initialise as Matern type kernel
+        (loosely defined here as a kernel with a length scale) 
+        """
+        if varphi is not None:
+            L, M = self._check_varphi_shape(varphi)
+            if L != 1:
+                raise ValueError(
+                    "L wrong for simple kernel (expected {}, got {})".format(
+                        1, self.L))
+            if M != 1:
+                raise ValueError(
+                    "M wrong for non-ARD kernel (expected {}, got {})".format(
+                        1, self.M))
+            if varphi < 1e-09:
+                # To prevent overflow
+                varphi = 1e-09
+        else:
+            L = None
+            M = None 
+        return varphi, L, M
 
     def kernel(self, X_i, X_j):
         return (

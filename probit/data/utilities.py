@@ -371,15 +371,15 @@ def generate_prior_data_paper(
     # K_show = K0_show + jitter * np.identity(N_show)
     # L_K_show = np.linalg.cholesky(K_show)
  
-    # Shuffle data
-    Xt = np.c_[f_data, X_data]
-    np.random.shuffle(Xt)
-    f = Xt[:N_total, :1]
-    X = Xt[:N_total, 1:D + 1]
-
+    # Shuffle data  # TODO: SS.Shouldn't be necessary?
+    # Xt = np.c_[f_data, X_data]
+    # np.random.shuffle(Xt)
+    # f = Xt[:N_total, :1]
+    # X = Xt[:N_total, 1:D + 1]
     # Generate the latent variables
+    X = X_data
+    f = f_data
     epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
-    epsilons = epsilons[:, None]
     g = epsilons + f
     g = g.flatten()
 
@@ -390,8 +390,8 @@ def generate_prior_data_paper(
             plt.savefig("Sample from prior GP.png")
             plt.close()
 
-    idx_sorted = np.argsort(g)
     # Sort the responses
+    idx_sorted = np.argsort(g)
     g = g[idx_sorted]
     f = f[idx_sorted]
     X = X[idx_sorted]
@@ -427,6 +427,14 @@ def generate_prior_data_paper(
     g = g_js.flatten()
     f = f_js.flatten()
     y = y_js.flatten()
+    # Reshuffle
+    data = np.c_[g, X, y, f]
+    np.random.shuffle(data)
+    g = data[:, :1].flatten()
+    X = data[:, 1:D + 1]
+    y = data[:, D + 1].flatten()
+    y = np.array(y, dtype=int)
+    f = data[:, -1].flatten()
 
     # Prepare data
     X_validates = []
@@ -2024,12 +2032,12 @@ def plot_kernel(kernel, N_total=500, n_samples=10):
     plt.show()
 
 
-def plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=None):
+def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, cmap, N_show=None):
     """TODO: generalise to 3D, move to plot.py"""
-    colors_ = [colors[i] for i in t]
+    colors_ = [colors[i] for i in y]
     if D==1:
-            plt.scatter(X, Y, color=colors_)
-            plt.plot(X_show, Z_show, color='k', alpha=0.4)
+            plt.scatter(X, g, color=colors_)
+            plt.plot(X_show, f_show, color='k', alpha=0.4)
             plt.show()
             plt.savefig("scatter.png")
             # plot_ordinal(X, t, X_js, Y_js, J, D, colors=colors)
@@ -2057,11 +2065,11 @@ def plot_ordinal(X, t, Y, X_show, Z_show, J, D, colors, cmap, N_show=None):
             # plt.close()
     elif D==2:
         fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-        ax.scatter3D(X[:, 0], X[:, 1], Y[:], color=colors_)
+        ax.scatter3D(X[:, 0], X[:, 1], g[:], color=colors_)
         surf = ax.plot_surface(
             X_show[:, 0].reshape(N_show, N_show),
             X_show[:, 1].reshape(N_show, N_show),
-            Z_show.reshape(N_show, N_show), alpha=0.4)
+            f_show.reshape(N_show, N_show), alpha=0.4)
         fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
         plt.savefig("surface.png")
         plt.show()
@@ -2080,7 +2088,7 @@ if __name__ == "__main__":
     # noise_variance = gamma.rvs(a=1.2, scale=1./0.2)
     generate_synthetic_data_paper(
         lengthscale=0.35, noise_variance=4.3264, variance=1.0,
-        N_train_per_class=100, N_test_per_class=0, N_validate_per_class=0,
+        N_train_per_class=500, N_test_per_class=0, N_validate_per_class=0,
         N_show=100,
         splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)
     # SS TODO: delete
