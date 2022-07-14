@@ -10,11 +10,10 @@ probit allows users to write their code in pure Python. Simulations are then exe
 Features
 --------
 - Exact inference with MCMC (Gibbs sampler or Elliptical slice sampler)
-- Approximate inference with Variational Bayes, Laplace approximation or Expectation Propagation
-- Sparse approximate inference with the Nyström approximation applied to Variational Bayes and Laplace approximation.
-- Sparse approximate inference with sparse Expectation Propagation.
+- Approximate inference with mean field Variational Bayes, Laplace approximation, Expectation Propagation or Power Expectation Propagation
+- Sparse approximate inference applied to Power Expectation Propagation and mean field Variational Bayes
 - Gaussian, ARD, linear and polynomial kernel functions
-- Fully Bayesian pseudo-marginal inference
+- Fully Bayesian inference with pseudo-marginal approach, auxiliary augmentation or sufficient augmentation.
 
 Planned Features
 --------
