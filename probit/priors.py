@@ -81,7 +81,7 @@ def prior(phi, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
             scale=varphi_hyperparameters[1])
         log_prior_theta[index] = log_prior_pdf
         index += 1
-    return cutpoints, varphi, scale, noise_variance, log_prior_theta
+    return log_prior_theta
 
 
 def prior_reparameterised(
@@ -170,5 +170,5 @@ def prior_reparameterised(
             scale=varphi_hyperparameters[1])
         log_prior_phi[index] = log_prior_pdf
         index += 1
-    return cutpoints, varphi, scale, noise_variance, log_prior_phi
+    return log_prior_phi
 

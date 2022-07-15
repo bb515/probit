@@ -335,6 +335,8 @@ def generate_prior_data_paper(
         xx, yy = np.meshgrid(x, y)
         # Pairs
         X_show = np.dstack([xx, yy]).reshape(-1, 2)
+    else:
+        X_show = np.zeros((1, D))
 
     N_train = int(J * N_train_per_class)
     N_test = int(J * N_test_per_class)
@@ -351,19 +353,20 @@ def generate_prior_data_paper(
 
     # Sample from a multivariate normal
     K0 = kernel.kernel_matrix(X, X)
-    K = K0 + jitter * np.identity(N_total + N_show**D)
+    K = K0 + jitter * np.identity(np.shape(X_data)[0] + np.shape(X_show)[0])
     L_K = np.linalg.cholesky(K)
 
     # Generate normal samples for both sets of input data
     if seed: np.random.seed(seed)  # set seed
-    nu = np.random.normal(loc=0.0, scale=1.0, size=N_total + N_show**D)
+    nu = np.random.normal(loc=0.0, scale=1.0,
+        size=np.shape(X_data)[0] + np.shape(X_show)[0])
     f = L_K @ nu
 
     # Store f_show
     f_data = f[:N_total]
     f_show = f[N_total:]
 
-    assert np.shape(f_show) == (N_show**D,)
+    assert np.shape(f_show) == (np.shape(X_show)[0],)
 
     K0_show = None
     # Also precalculate the cholesky for X_show for storage
@@ -1523,8 +1526,8 @@ def generate_synthetic_data_paper(
         plot=plot, seed=seed)
     # Save data
     np.savez(
-        'J={}_kernel_string={}_var={}_noisevar={}_lengthscale={}.npz'.format(
-            J, repr(kernel), variance, noise_variance, lengthscale),
+        'D={}_J={}_kernel_string={}_var={}_noisevar={}_lengthscale={}.npz'.format(
+            D, J, repr(kernel), variance, noise_variance, lengthscale),
         N_show=N_show, N=N, J=J, D=D,
         X_js=X_js, g_js=g_js,
         X=X, g=g, y=y, f=f,
@@ -1899,52 +1902,58 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
                 elif D == 10:
                     assert 0
             else:
-                Kernel = SEIso
+                Kernel = SquaredExponential
                 if D == 2:
-                    with pkg_resources.path(table1, 'table1_SEIso_J=3_D=2.npz') as path:
+                    with pkg_resources.path(table1, 'D=2_J=3_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
                         data = np.load(path)
-                    X_js = data["X_js"]
-                    Y_js = data["Y_js"]
+                    if plot:
+                        N_show = data["N_show"]
+                        X_show = data["X_show"]
+                        f_show = data["f_show"]
+                        X_js = data["X_js"]
+                        g_js = data["g_js"]
                     X = data["X"]
-                    Y = data["Y"]
-                    t = data["t"]
-                    # K0_show = data["K0_show"]
-                    # X_show = data["X_show"]
-                    # Z_show = data["Z_show"]
-                    # colors = data["colors"]
+                    g = data["g"]
+                    f = data["f"]
+                    y = data["y"]
+                    # N = data["N"]
+                    colors = data["colors"]
                     J = data["J"]
                     D = data["D"]
                     hyperparameters = {
                         "true" : (
-                            data["bins"],
-                            data["lengthscales"],
+                            data["cutpoints"],
+                            data["lengthscale"],
                             data["noise_variance"],
-                            data["scale"]
+                            data["variance"]
                         )
                     }
                 elif D == 10:
-                    with pkg_resources.path(table1, 'table1_SEIso_J=3_D=10.npz') as path:
+                    with pkg_resources.path(table1, 'D=10_J=3_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
                         data = np.load(path)
-                    # X_js = data["X_js"]
-                    # Y_js = data["Y_js"]
+                    if plot:
+                        N_show = data["N_show"]
+                        X_show = data["X_show"]
+                        f_show = data["f_show"]
+                        X_js = data["X_js"]
+                        g_js = data["g_js"]
                     X = data["X"]
-                    Y = data["Y"]
-                    t = data["t"]
-                    # K0_show = data["K0_show"]
-                    # X_show = data["X_show"]
-                    # Z_show = data["Z_show"]
-                    # colors = data["colors"]
+                    g = data["g"]
+                    f = data["f"]
+                    y = data["y"]
+                    # N = data["N"]
+                    colors = data["colors"]
                     J = data["J"]
                     D = data["D"]
                     hyperparameters = {
                         "true" : (
-                            data["bins"],
-                            data["lengthscales"],
+                            data["cutpoints"],
+                            data["lengthscale"],
                             data["noise_variance"],
-                            data["scale"]
+                            data["variance"]
                         )
                     }
-        elif J == 11:
+        elif J == 13:
             if ARD is True:
                 Kernel = SEARD
                 if D == 2:
@@ -1952,31 +1961,57 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
                 elif D == 10:
                     assert 0
             else:
-                Kernel = SEIso
+                Kernel = SquaredExponential
                 if D == 2:
-                    with pkg_resources.path(table1, 'table1_SEIso_J=11_D=2.npz') as path:
+                    with pkg_resources.path(table1, 'D=2_J=13_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
                         data = np.load(path)
-                    X_js = data["X_js"]
-                    Y_js = data["Y_js"]
+                    if plot:
+                        N_show = data["N_show"]
+                        X_show = data["X_show"]
+                        f_show = data["f_show"]
+                        X_js = data["X_js"]
+                        g_js = data["g_js"]
                     X = data["X"]
-                    Y = data["Y"]
-                    t = data["t"]
-                    # K0_show = data["K0_show"]
-                    # X_show = data["X_show"]
-                    # Z_show = data["Z_show"]
-                    # colors = data["colors"]
+                    g = data["g"]
+                    f = data["f"]
+                    y = data["y"]
+                    # N = data["N"]
+                    colors = data["colors"]
                     J = data["J"]
                     D = data["D"]
                     hyperparameters = {
                         "true" : (
-                            data["bins"],
-                            data["lengthscales"],
+                            data["cutpoints"],
+                            data["lengthscale"],
                             data["noise_variance"],
-                            data["scale"]
+                            data["variance"]
                         )
                     }
                 elif D == 10:
-                    assert 0
+                    with pkg_resources.path(table1, 'D=10_J=13_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
+                        data = np.load(path)
+                    if plot:
+                        N_show = data["N_show"]
+                        X_show = data["X_show"]
+                        f_show = data["f_show"]
+                        X_js = data["X_js"]
+                        g_js = data["g_js"]
+                    X = data["X"]
+                    g = data["g"]
+                    f = data["f"]
+                    y = data["y"]
+                    # N = data["N"]
+                    colors = data["colors"]
+                    J = data["J"]
+                    D = data["D"]
+                    hyperparameters = {
+                        "true" : (
+                            data["cutpoints"],
+                            data["lengthscale"],
+                            data["noise_variance"],
+                            data["variance"]
+                        )
+                    }
     cutpoints_0, varphi_0, noise_variance_0, variance_0 = hyperparameters["true"]
     if plot:
         plot_ordinal(X, y, g, X_show, f_show, J, D, colors, plt.cm.get_cmap('viridis', J), N_show=N_show)
@@ -2078,7 +2113,7 @@ def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, cmap, N_show=None):
 
 
 if __name__ == "__main__":
-    J = 2
+    J = 3
     cmap = plt.cm.get_cmap('viridis', J)    # J discrete colors
     colors = []
     for j in range(J):
@@ -2090,7 +2125,7 @@ if __name__ == "__main__":
         lengthscale=0.35, noise_variance=4.3264, variance=1.0,
         N_train_per_class=500, N_test_per_class=0, N_validate_per_class=0,
         N_show=100,
-        splits=1, J=J, D=2, colors=colors, cmap=cmap, plot=True, seed=517)
+        splits=1, J=J, D=10, colors=colors, cmap=cmap, plot=True, seed=517)
     # SS TODO: delete
     # generate_synthetic_data_new(
     #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)

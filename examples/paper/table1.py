@@ -99,34 +99,44 @@ def main():
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
     parser.add_argument(
+        "J", help="number of classes")
+    parser.add_argument(
+        "D", help="number of classes")
+    parser.add_argument(
         "approach", help="SA, AA or PM")
     parser.add_argument(
         "approximation", help="LA, EP or VB")
     parser.add_argument(
-        "chain", help="int, e.g. 0, 1, 2...")
+        "Nimp", help="Number of importance samples 1, 2, 64, ...")
+    # parser.add_argument(
+    #     "chain", help="int, e.g. 0, 1, 2...")
     parser.add_argument(
         "--N_train", help="int, Number of training data points")
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
+    J = int(args.J)
+    D = int(args.D)
     approach = args.approach
     approximation = args.approximation
-    chain = int(args.chain)
+    num_importance_samples = int(args.Nimp)
+    # chain = int(args.chain)
     N_train = int(args.N_train)
     write_path = pathlib.Path(__file__).parent.absolute()
     if args.profile:
         profile = cProfile.Profile()
         profile.enable()
     #sys.stdout = open("{}.txt".format(now), "w")
-    n_burn = 100  # 5000
-    n_samples = 1000  # 10000
+    n_burn = 5000  # 5000
+    n_samples = 10000  # 10000
     if 1:
         if dataset in datasets["paper"]:
             # Load data from file
             (X_, f_, g_, y_,
                 cutpoints_0, lengthscale_0, noise_variance_0, variance_0,
-                J, D, colors, Kernel) = load_data_paper(dataset, plot=False)
+                J, D, colors, Kernel) = load_data_paper(
+                    dataset, J=J, D=D, ARD=False, plot=False)
             X = X_[:N_train, :]
             f = f_[:N_train]
             g = g_[:N_train]
@@ -163,123 +173,128 @@ def main():
             # Sampler
             # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
             # Define the proposal covariance
-            proposal_cov = 1.0  # If this is too large, then may get numerical instability  # 35
-            if approach in ["AA", "SA"]:
-                # Initiate kernel
-                kernel = Kernel(
-                    varphi=lengthscale_0,
-                    variance=variance_0,
-                    varphi_hyperparameters=varphi_hyperparameters)
-                sampler = EllipticalSliceGP(
-                    cutpoints_0, noise_variance_0,
-                    noise_std_hyperparameters,
-                    cutpoints_hyperparameters, kernel, J, (X, y))
-                # phi = sampler.get_phi(trainables)
-                if approach == "AA":  # Ancilliary Augmentation approach
-                    hyper_sampler = AncilliaryAugmentation(sampler)
-                else: # approach == "SA":  # Sufficient Augmentation approach
-                    hyper_sampler = SufficientAugmentation(sampler)
-                # TODO: not sure if theta is theta or phi
-                # Burn-in
-                phis, acceptance_rate = hyper_sampler.sample(
-                    f, trainables, proposal_cov, n_burn, verbose=True)
-                phi_0 = phis[-1]
-                print(phis)
-                print(np.cov(phis.T))
-                proposal_cov = 10.0 * np.cov(phis.T)
-                print(np.corrcoef(phis.T))
-                print("ACC={}".format(acceptance_rate))
-                # Sample
-                phis, acceptance_rate = hyper_sampler.sample(
-                    f, trainables, proposal_cov, n_samples, phi_0=phi_0, verbose=False)
-                np.savez(
-                    write_path/'theta_N={}_D={}_J={}_ARD={}_{}_chain={}.npz'.format(
-                    sampler.N, sampler.D, sampler.J, False, approach, 0),
-                    X=phis,
-                    acceptance_rate=acceptance_rate)
-            elif approach == "PM":  # Pseudo Marginal approach
+            # if approach in ["AA", "SA"]:
+            #     # Initiate kernel
+            #     kernel = Kernel(
+            #         varphi=lengthscale_0,
+            #         variance=variance_0,
+            #         varphi_hyperparameters=varphi_hyperparameters)
+            #     sampler = EllipticalSliceGP(
+            #         cutpoints_0, noise_variance_0,
+            #         cutpoints_hyperparameters,
+            #         noise_std_hyperparameters,
+            #         kernel, J, (X, y))
+            #     # phi = sampler.get_phi(trainables)
+            #     if approach == "AA":  # Ancilliary Augmentation approach
+            #         hyper_sampler = AncilliaryAugmentation(sampler)
+            #     else: # approach == "SA":  # Sufficient Augmentation approach
+            #         hyper_sampler = SufficientAugmentation(sampler)
+            #     # TODO: not sure if theta is theta or phi
+            #     # Burn-in
+            #     phis, acceptance_rate = hyper_sampler.sample(
+            #         f, trainables, proposal_cov, n_burn)
+            #     phi_0 = phis[-1]
+            #     print(phis)
+            #     print(np.cov(phis.T))
+            #     proposal_cov = 10.0 * np.cov(phis.T)
+            #     print(np.corrcoef(phis.T))
+            #     print("ACC={}".format(acceptance_rate))
+            #     # Sample
+            #     phis, acceptance_rate = hyper_sampler.sample(
+            #         f, trainables, proposal_cov, n_samples, phi_0=phi_0, verbose=False)
+            #     np.savez(
+            #         write_path/'theta_N={}_D={}_J={}_ARD={}_{}_chain={}.npz'.format(
+            #         sampler.N, sampler.D, sampler.J, False, approach, 0),
+            #         X=phis,
+            #         acceptance_rate=acceptance_rate)
+            if approach == "PM":  # Pseudo Marginal approach
                 Approximator, steps, M, kernel = get_approximator(
                     approximation, Kernel, lengthscale_0, variance_0,
                     N_train, D)
-                if "S" in approximation:
-                    # Initiate sparse classifier
-                    approximator = Approximator(
-                        M=M, cutpoints=cutpoints_0,
-                        noise_variance=noise_variance_0,
-                        kernel=kernel, J=J, data=(X, y),
-                        varphi_hyperparameters = varphi_hyperparameters,
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        cutpoints_hyperparameters = cutpoints_hyperparameters,
-                        )
-                elif "PEP" in approximation:
-                    alpha = 0.5
-                    # Initate PEP classifier
-                    approximator = Approximator(
-                        cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                        alpha=alpha, gauss_hermite_points=20,
-                        kernel=kernel, J=J, data=(X, y),
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        cutpoints_hyperparameters = cutpoints_hyperparameters,
-                        )
-                else:
-                    # Initiate classifier
-                    approximator = Approximator(
-                        cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                        kernel=kernel, J=J, data=(X, y),
-                        noise_std_hyperparameters = noise_std_hyperparameters,
-                        cutpoints_hyperparameters = cutpoints_hyperparameters,
-                        )
+                for chain in range(1):
+                    if "S" in approximation:
+                        # Initiate sparse classifier
+                        approximator = Approximator(
+                            M=M, cutpoints=cutpoints_0,
+                            noise_variance=noise_variance_0,
+                            kernel=kernel, J=J, data=(X, y),
+                            varphi_hyperparameters = varphi_hyperparameters,
+                            noise_std_hyperparameters = noise_std_hyperparameters,
+                            cutpoints_hyperparameters = cutpoints_hyperparameters,
+                            )
+                    elif "PEP" in approximation:
+                        alpha = 0.5
+                        # Initate PEP classifier
+                        approximator = Approximator(
+                            cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                            alpha=alpha, gauss_hermite_points=20,
+                            kernel=kernel, J=J, data=(X, y),
+                            noise_std_hyperparameters = noise_std_hyperparameters,
+                            cutpoints_hyperparameters = cutpoints_hyperparameters,
+                            )
+                    else:
+                        # Initiate classifier
+                        approximator = Approximator(
+                            cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+                            kernel=kernel, J=J, data=(X, y),
+                            noise_std_hyperparameters = noise_std_hyperparameters,
+                            cutpoints_hyperparameters = cutpoints_hyperparameters,
+                            )
 
-                # Initiate hyper-parameter sampler
-                hyper_sampler = PseudoMarginal(approximator)
-                num_importance_samples = 1  # If this is 1, then may run into numerical errors for EP
-                phi_true = approximator.get_phi(trainables)
-                # Burn
-                phis, acceptance_rate = hyper_sampler.sample(
-                    trainables, steps, proposal_cov, n_burn,
-                    num_importance_samples=num_importance_samples,
-                    reparameterised=False)
-                print(phis)
-                print(np.cov(phis.T))
-                print("ACC={}".format(acceptance_rate))
-                proposal_cov = 4.0 * np.cov(phis.T)
-                print(proposal_cov)
-                draw_mixing(phis, phi_true, logplot=False,
-                    write_path=write_path,
-                    file_name='burn_trace_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
-                    approximator.N, approximator.D, approximator.J,
-                    num_importance_samples, False, approach, approximation, chain))
-                draw_histogram(phis, phi_true, logplot=False,
-                    write_path=write_path,
-                    file_name='burn_histogram_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
-                    approximator.N, approximator.D, approximator.J,
-                    num_importance_samples, False,
-                    approach, approximation, chain), bins=100)
-                # phi_0 = phis[-1]
-                # phis, acceptance_rate = hyper_sampler.sample(
-                #     trainables, steps, proposal_cov, n_samples,
-                #     num_importance_samples=num_importance_samples,
-                #     phi_0=phi_0, reparameterised=False)
-                # print(np.cov(phis.T))
-                # print("ACC=", acceptance_rate)
-                # draw_mixing(phis, phi_true, logplot=False,
-                #     write_path=write_path,
-                #     file_name='trace_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
-                #     approximator.N, approximator.D, approximator.J,
-                #     num_importance_samples, False,
-                #     approach, approximation, chain))
-                # draw_histogram(phis, phi_true, logplot=False,
-                #     write_path=write_path,
-                #     file_name='histogram_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
-                #     approximator.N, approximator.D, approximator.J,
-                #     num_importance_samples, False,
-                #     approach, approximation, chain), bins=100)
-                # np.savez(
-                #     write_path/'theta_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.npz'.format(
-                #     approximator.N, approximator.D, approximator.J,
-                #     num_importance_samples, False,
-                #     approach, approximation, chain),
-                #     X=phis, acceptance_rate=acceptance_rate)
+                    # Initiate hyper-parameter sampler
+                    hyper_sampler = PseudoMarginal(approximator)
+                    phi_true = approximator.get_phi(trainables)
+                    proposal_cov = 5.0 * np.array(
+                        [
+                            [0.01260413, 0.01655797],
+                            [0.01655797, 0.86673764]
+                        ])
+                    # Burn
+                    phis, acceptance_rate = hyper_sampler.sample(
+                        trainables, steps, proposal_cov, n_burn,
+                        num_importance_samples=num_importance_samples,
+                        reparameterised=False)
+                    print(phis)
+                    print(np.cov(phis.T))
+                    print("ACC={}".format(acceptance_rate))
+                    print(proposal_cov)
+                    for chain in [2]: #  range(3):
+                        draw_mixing(phis, phi_true, logplot=False,
+                            write_path=write_path,
+                            file_name='burn_trace_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
+                            approximator.N, approximator.D, approximator.J,
+                            num_importance_samples, False, approach, approximation, chain))
+                        draw_histogram(phis, phi_true, logplot=False,
+                            write_path=write_path,
+                            file_name='burn_histogram_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
+                            approximator.N, approximator.D, approximator.J,
+                            num_importance_samples, False,
+                            approach, approximation, chain), bins=100)
+                        phi_0 = phis[-1]
+                        phis, acceptance_rate = hyper_sampler.sample(
+                            trainables, steps, proposal_cov, n_samples,
+                            num_importance_samples=num_importance_samples,
+                            phi_0=phi_0, reparameterised=False)
+                        print(np.cov(phis.T))
+                        print("ACC=", acceptance_rate)
+                        # draw_mixing(phis, phi_true, logplot=False,
+                        #     write_path=write_path,
+                        #     file_name='trace_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
+                        #     approximator.N, approximator.D, approximator.J,
+                        #     num_importance_samples, False,
+                        #     approach, approximation, chain))
+                        # draw_histogram(phis, phi_true, logplot=False,
+                        #     write_path=write_path,
+                        #     file_name='histogram_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
+                        #     approximator.N, approximator.D, approximator.J,
+                        #     num_importance_samples, False,
+                        #     approach, approximation, chain), bins=100)
+                        np.savez(
+                            write_path/'theta_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.npz'.format(
+                            approximator.N, approximator.D, approximator.J,
+                            num_importance_samples, False,
+                            approach, approximation, chain),
+                            X=phis, acceptance_rate=acceptance_rate)
 
     # plot figures
     if 0: table1(write_path, n_samples, show=True, write=True)

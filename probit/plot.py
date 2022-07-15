@@ -1318,6 +1318,7 @@ def _potential_scale_reduction(
     # sigma_2_plus is an estimate of the true variance, which would be unbiased if
     # each chain was drawn from the target.  c.f. "law of total variance."
     sigma_2_plus = ((n - 1) / n) * w + b_div_n
+    R = ((m + 1.) / m) * sigma_2_plus / w - (n - 1.) / (m * n)
     return ((m + 1.) / m) * sigma_2_plus / w - (n - 1.) / (m * n)
 
 
@@ -1560,19 +1561,19 @@ def table1(
     """
     approach = "PM"
     Nsamp = n_samples
-    Nhyperparameters = 1
+    Nhyperparameters = 2
     Nchain = 3
-    for N in [50]:
+    for N in [200]:
         for D in [2]:
-            for J in [2]:
+            for J in [3]:
                 for approximation in ["EP"]:
-                    for Nimp in [4]:
+                    for Nimp in [2]:
                         for ARD in [False]:
                             # initiate containers
                             acceptance_rate = np.empty(Nchain)
                             effective_sample_size = np.empty((Nchain, Nhyperparameters))
                             states = np.empty((Nchain, Nsamp, Nhyperparameters))
-                            Rhat = np.empty(4)
+                            Rhat = np.empty((4, Nhyperparameters))
                             if ARD is True:
                                 Nhyperparameters = D + 1  # needed?
                             elif ARD is False: 
@@ -1588,7 +1589,7 @@ def table1(
                                 effective_sample_size[chain, :] = _effective_sample_size(
                                     states_chain[:, :], filter_beyond_lag=None, filter_beyond_positive_pairs=True)
                             # Find
-                            for i, N_samp in enumerate([100, 200, 500, 10000]):
+                            for i, N_samp in enumerate([1000, 2000, 5000, 10000]):
                                 # print(_potential_scale_reduction(
                                 #     states[:, :Nsamp, :], independent_chain_ndims=1, split_chains=False))
                                 Rhat[i] = _potential_scale_reduction(

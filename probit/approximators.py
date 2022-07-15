@@ -679,7 +679,8 @@ class VBGP(Approximator):
         super().__init__(*args, **kwargs)
         #self.EPS = 0.000001  # Acts as a machine tolerance, controls error
         #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
-        self.EPS = 1e-4  # perhaps not low enough.
+        self.EPS = 1e-3
+        # self.EPS = 1e-4  # perhaps not low enough.
         # self.EPS = 1e-8
         #self.EPS_2 = 1e-7
         self.EPS_2 = self.EPS**2
@@ -1194,7 +1195,7 @@ class VBGP(Approximator):
             fx_old = np.inf
             # TODO: reset m_0 is None?
             # Convergence is sometimes very fast so this may not be necessary
-            while error / steps > self.EPS:
+            while error / steps > self.EPS_2:
                 iteration += 1
                 (posterior_mean_0, weight, y, p, *_) = self.approximate(
                     steps, posterior_mean_0=posterior_mean_0,
@@ -1260,7 +1261,7 @@ class VBGP(Approximator):
         fx_old = np.inf
         posterior_mean = None
         # Convergence is sometimes very fast so this may not be necessary
-        while error / steps > self.EPS and iteration < max_iter:
+        while error / steps > self.EPS_2:  # and iteration < max_iter:
             iteration += 1
             (posterior_mean, weight, *_) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
@@ -1349,8 +1350,8 @@ class EPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # self.EPS = 1e-2  # 
-        self.EPS = 1e-4  # perhaps too large
+        self.EPS = 1e-3
+        # self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
         self.jitter = 1e-10
@@ -3198,7 +3199,7 @@ class LaplaceGP(Approximator):
         super().__init__(*args, **kwargs)
         # self.EPS = 0.001  # Acts as a machine tolerance
         # self.EPS = 1e-4
-        self.EPS = 1e-2
+        self.EPS = 1e-3
         # self.EPS = 1e-6
         self.EPS_2 = self.EPS**2
         # self.jitter = 1e-4  # Try increasing the noise variance if jitter has to be this large
@@ -3633,7 +3634,7 @@ class LaplaceGP(Approximator):
                 gx) = self._hyperparameter_training_step_initialise(
             phi, trainables)
         posterior_mean = posterior_mean_0
-        while error / steps > self.EPS_2 and iteration < 10:  # TODO is this overkill?
+        while error / steps > self.EPS_2:  # and iteration < 10:  # TODO is this overkill?
             iteration += 1
             (error, weight, posterior_mean, containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,

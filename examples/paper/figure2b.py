@@ -109,6 +109,7 @@ def main():
         "dataset_name", help="run example on a given dataset name")
     parser.add_argument(
         "bins", help="3, 13 or 52")
+    D = 10
     # parser.add_argument(
     #     "approximation", help="LA, VB, EP, PEP or V")
     # The --profile argument generates profiling information for the example
@@ -127,7 +128,8 @@ def main():
         if dataset in datasets["paper"]:
             (X_, f_, g_, y_,
                 cutpoints_0, lengthscale_0, noise_variance_0, variance_0,
-                J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
+                J, D, colors, Kernel) = load_data_paper(
+                    dataset, D=D, J=bins, ARD=False, plot=False)
         else:
             (X_, y_,
             X_true, g_true,
@@ -150,7 +152,8 @@ def main():
         res = (100, None)
 
         num_importance_samples = [16]
-        num_data = [1, 10, 20, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
+        # num_data = [1, 10, 20, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
+        num_data = [500, 1000]
         #num_data = [1, 10, 20, 50]
         colors = plt.cm.jet(np.linspace(0,1,len(num_data) + 1))
         # To self.EPS or self.jitter. Possible is overflow error in a log sum exp?
