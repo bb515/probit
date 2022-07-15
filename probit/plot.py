@@ -1561,51 +1561,53 @@ def table1(
     """
     approach = "PM"
     Nsamp = n_samples
-    Nhyperparameters = 2
     Nchain = 3
+    Nhyperparameters = 2
     for N in [200]:
         for D in [2]:
-            for J in [3]:
-                for approximation in ["EP"]:
-                    for Nimp in [2]:
+            for J in [3, 13]:
+                for approximation in ["EP", "LA"]:
+                    for Nimp in [2, 64]:
                         for ARD in [False]:
-                            # initiate containers
-                            acceptance_rate = np.empty(Nchain)
-                            effective_sample_size = np.empty((Nchain, Nhyperparameters))
-                            states = np.empty((Nchain, Nsamp, Nhyperparameters))
-                            Rhat = np.empty((4, Nhyperparameters))
-                            if ARD is True:
-                                Nhyperparameters = D + 1  # needed?
-                            elif ARD is False: 
-                                Nhyperparameters = 1  # needed?
-                            for chain in range(Nchain):
-                                # Get the data
-                                data_chain_theta = np.load(
-                                    read_path/'theta_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.npz'.format(
-                                        N, D, J, Nimp, ARD, approach, approximation, chain))
-                                states_chain = data_chain_theta["X"]
-                                states[chain, :, :] = states_chain
-                                acceptance_rate[chain] = data_chain_theta["acceptance_rate"]
-                                effective_sample_size[chain, :] = _effective_sample_size(
-                                    states_chain[:, :], filter_beyond_lag=None, filter_beyond_positive_pairs=True)
-                            # Find
-                            for i, N_samp in enumerate([1000, 2000, 5000, 10000]):
-                                # print(_potential_scale_reduction(
-                                #     states[:, :Nsamp, :], independent_chain_ndims=1, split_chains=False))
-                                Rhat[i] = _potential_scale_reduction(
-                                    states[:, :N_samp, :], independent_chain_ndims=1, split_chains=False)
-                            pr1 = np.mean(effective_sample_size, axis=0)
-                            pr2 = np.std(effective_sample_size, axis=0)
-                            pr30 = Rhat[0]
-                            pr31 = Rhat[1]
-                            pr32 = Rhat[2]
-                            pr33 = Rhat[3]
-                            pr4 = np.mean(acceptance_rate * 100, axis=0)
-                            pr5 = np.std(acceptance_rate * 100, axis=0)
-                            print("N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chains={}:".format(
-                                N, D, J, Nimp, ARD, approach, approximation, chain + 1))
-                            print("ESS={}+/-{},  R0={}, R1={}, R2={}, R3={}, Acc={}+/-{}".format(
-                                pr1, pr2, pr30, pr31, pr32, pr33, pr4, pr5))
+                            try:
+                                # initiate containers
+                                acceptance_rate = np.empty(Nchain)
+                                effective_sample_size = np.empty((Nchain, Nhyperparameters))
+                                states = np.empty((Nchain, Nsamp, Nhyperparameters))
+                                Rhat = np.empty((4, Nhyperparameters)) 
+                                for chain in range(Nchain):
+                                    # Get the data
+                                    data_chain_theta = np.load(
+                                        read_path/'theta_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.npz'.format(
+                                            N, D, J, Nimp, ARD, approach, approximation, chain))
+                                    states_chain = data_chain_theta["X"]
+                                    states[chain, :, :] = states_chain
+                                    acceptance_rate[chain] = data_chain_theta["acceptance_rate"]
+                                    effective_sample_size[chain, :] = _effective_sample_size(
+                                        states_chain[:, :], filter_beyond_lag=None, filter_beyond_positive_pairs=True)
+                                # Find
+                                for i, N_samp in enumerate([1000, 2000, 5000, 10000]):
+                                    # print(_potential_scale_reduction(
+                                    #     states[:, :Nsamp, :], independent_chain_ndims=1, split_chains=False))
+                                    Rhat[i] = _potential_scale_reduction(
+                                        states[:, :N_samp, :], independent_chain_ndims=1, split_chains=False)
+                                pr1 = np.mean(effective_sample_size, axis=0)
+                                pr2 = np.std(effective_sample_size, axis=0)
+                                pr30 = Rhat[0]
+                                pr31 = Rhat[1]
+                                pr32 = Rhat[2]
+                                pr33 = Rhat[3]
+                                pr4 = np.mean(acceptance_rate * 100, axis=0)
+                                pr5 = np.std(acceptance_rate * 100, axis=0)
+                                print("N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chains={}:".format(
+                                    N, D, J, Nimp, ARD, approach, approximation, chain + 1))
+                                print("ESS={}+/-{},  R0={}, R1={}, R2={}, R3={}, Acc={}+/-{}".format(
+                                    pr1, pr2, pr30, pr31, pr32, pr33, pr4, pr5))
+                            except:
+                                print("N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chains={}:".format(
+                                    N, D, J, Nimp, ARD, approach, approximation, chain + 1))
+                                print("pass")
+
     # rc('font', **{'family': 'serif', 'serif': ['Computer Modern Roman'], 'size' : 12})
     # rc('text', usetex=True)
 

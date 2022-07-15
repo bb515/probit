@@ -135,11 +135,11 @@ def main():
 
         trainables = np.ones(J + 2)
         # Fix noise_variance
-        #trainables[0] = 0
+        trainables[0] = 0
         # Fix scale
         trainables[J] = 0
         # Fix varphi
-        trainables[-1] = 0
+        # trainables[-1] = 0
         # Fix cutpoints
         trainables[1:J] = 0
 
@@ -147,14 +147,20 @@ def main():
         varphi_hyperparameters = np.array([1.0, np.sqrt(D)])
 
         # (log) domain of grid
-        domain = ((-1.5, 1.7), None)
+        domain = ((-1.5, 0.33), None)
         # resolution of grid
         res = (500, None)
 
-        num_importance_samples = [64]
-        num_data = [200]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
+        num_importance_samples = [1, 16]
+        num_data = [450]  # TODO: for large values of N, I observe numerical instability. Why? Don't think it is due
         # To self.EPS or self.jitter. Possible is overflow error in a log sum exp?
-        for approximation in ["EP"]:
+        approximations = ["EP", "LA"]
+
+        colors = plt.cm.jet(np.linspace(0,1,14))
+        fig, ax = plt.subplots(nrows=len(num_data), ncols=len(approximations), figsize=(10, 3))
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        for j, approximation in enumerate(approximations):
             for N in num_data:
                 X = X_[:N, :]  # X, t have already been shuffled
                 y = y_[:N]
@@ -201,36 +207,47 @@ def main():
                     print("Riemann sum={}".format(
                         np.sum(thetas_step * p_pseudo_marginals_mean)))
                     if i==0:
-                        plt.plot(thetas, p_pseudo_marginals_mean)
-                        plt.plot(thetas, p_pseudo_marginals_lo, '--b',
+                        ax[j].plot(thetas, p_pseudo_marginals_mean, color=colors[-2])
+                        ax[j].plot(thetas, p_pseudo_marginals_lo, '--', color=colors[-2], alpha=0.4,
                             label="Nimp={}".format(Nimp))
-                        plt.plot(thetas, p_pseudo_marginals_hi, '--b')
-                        plt.plot(thetas, p_priors, 'r')
-                        axes = plt.gca()
-                        y_min, y_max = axes.get_ylim()
-                        plt.xlabel("theta")
-                        plt.ylabel("pseudo marginal")
-                        plt.title("N = {}, {}".format(N, approximation))
+                        ax[j].plot(thetas, p_pseudo_marginals_hi, '--', color=colors[-2], alpha=0.4)
+                        ax[j].plot(thetas, p_priors, color=colors[0])
+                        y_min, y_max = ax[j].get_ylim()
+                        # plt.title("N = {}, {}".format(N, approximation))
                         # plt.savefig("test.png")
                         # plt.close()
                     else:
-                        plt.plot(thetas, p_pseudo_marginals_lo, '--g',
+                        ax[j].plot(thetas, p_pseudo_marginals_lo, '--', color=colors[-2],
                             label="Nimp={}".format(Nimp))
-                        plt.plot(thetas, p_pseudo_marginals_hi, '--g')
-                        y_min_new, y_max_new = axes.get_ylim()
+                        ax[j].plot(thetas, p_pseudo_marginals_hi, '--', color=colors[-2])
+                        y_min_new, y_max_new = ax[j].get_ylim()
                         y_min = np.min([y_min, y_min_new])
                         y_max = np.max([y_max, y_max_new])
-                plt.ylim(0.0, y_max)
-                plt.vlines(theta_true, 0.0, y_max, colors='k')
-                plt.legend()
-                plt.tight_layout()
-                plt.grid()
-                plt.savefig(
-                    write_path / "fig2_{}_N={}.png".format(approximation, N))
-                plt.savefig(
-                    write_path / "fig2_{}_N={}.pdf".format(approximation, N))
-                plt.close()
 
+                ax[j].set_xticks([])
+                ax[j].set_xticks([], minor=True)
+                if approximation == "EP":
+                    ax[j].set_xlabel("{}".format(approximation))
+                else:
+                    ax[j].set_xlabel("Laplace")
+                ax[j].set_yticks([])
+                ax[j].set_yticks([], minor=True)
+                ax[j].set_ylim(0.0, 4.1)
+                ax[j].vlines(theta_true, 0.0, 4.1, colors='k')
+                ax[j].legend()
+                ax[j].grid()
+
+        # fig.set_xlabel("theta")
+        # fig.set_ylabel("pseudo marginal")
+        plt.tight_layout()
+        fig.savefig(
+            write_path / "fig2_{}.png".format(approximation, N),
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        fig.savefig(
+            write_path / "fig2_{}.pdf".format(approximation, N),
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.close()
+ 
     if args.profile:
         profile.disable()
         s = StringIO()

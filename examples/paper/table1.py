@@ -130,7 +130,7 @@ def main():
     #sys.stdout = open("{}.txt".format(now), "w")
     n_burn = 5000  # 5000
     n_samples = 10000  # 10000
-    if 1:
+    if 0:
         if dataset in datasets["paper"]:
             # Load data from file
             (X_, f_, g_, y_,
@@ -244,11 +244,17 @@ def main():
                     # Initiate hyper-parameter sampler
                     hyper_sampler = PseudoMarginal(approximator)
                     phi_true = approximator.get_phi(trainables)
-                    proposal_cov = 5.0 * np.array(
-                        [
-                            [0.01260413, 0.01655797],
-                            [0.01655797, 0.86673764]
-                        ])
+                    # # J=3, D=2
+                    # proposal_cov = 5.0 * np.array(
+                    #     [
+                    #         [0.01260413, 0.01655797],
+                    #         [0.01655797, 0.86673764]
+                    #     ])
+                    # J=13, D=2
+                    proposal_cov = 4.0 * np.array(
+                        [[0.00350904, 0.00712082],
+                        [0.00712082, 0.53788416]])
+   
                     # Burn
                     phis, acceptance_rate = hyper_sampler.sample(
                         trainables, steps, proposal_cov, n_burn,
@@ -258,7 +264,7 @@ def main():
                     print(np.cov(phis.T))
                     print("ACC={}".format(acceptance_rate))
                     print(proposal_cov)
-                    for chain in [2]: #  range(3):
+                    for chain in range(3):
                         draw_mixing(phis, phi_true, logplot=False,
                             write_path=write_path,
                             file_name='burn_trace_N={}_D={}_J={}_Nimp={}_ARD={}_{}_{}_chain={}.png'.format(
@@ -297,7 +303,7 @@ def main():
                             X=phis, acceptance_rate=acceptance_rate)
 
     # plot figures
-    if 0: table1(write_path, n_samples, show=True, write=True)
+    if 1: table1(write_path, n_samples, show=True, write=True)
 
     if args.profile:
         profile.disable()
