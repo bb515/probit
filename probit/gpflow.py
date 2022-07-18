@@ -57,14 +57,19 @@ class VGP(Approximator):
         #self.EPS_2 = 1e-7
         self.EPS_2 = self.EPS**2
         # Initiate hyperparameters
-        self._model_initiate(cutpoints)
+        if cutpoints is not None:
+            self.cutpoints = check_cutpoints(cutpoints, self.J)
+            self.cutpoints_ts = self.cutpoints[self.y_train]
+            self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
+            # self._model.likelihood.bin_edges = self.cutpoints[1:-1]
+        self._model_initiate(self.cutpoints)
         self.hyperparameters_update(
-            cutpoints=cutpoints, noise_variance=noise_variance)
+            noise_variance=noise_variance)
 
     def _update_prior(self):
         """Only need to do this if using a sampling algorithm."""
         # TODO: tidy
-        self.K = self.kernel.K(self.X_train, self.X_train).numpy()
+        # self.K = self.kernel.K(self.X_train, self.X_train).numpy()
 
     def _model_initiate(self, cutpoints):
         """Update prior covariances."""
@@ -72,7 +77,7 @@ class VGP(Approximator):
         warnings.warn(
             "Initiating model using gpflow")
         self._model = gpflow.models.VGP(
-            data=(self.X_train, self.y_train.reshape(-1, 1)),
+            data=(self.X_train.astype(np.float64), self.y_train.reshape(-1, 1)),
             kernel=self.kernel, likelihood=likelihood)
         def plot_prediction(fig, ax):
             Xnew = np.linspace(
@@ -154,11 +159,6 @@ class VGP(Approximator):
         :arg varphi_hyperparameters:
         :type varphi_hyperparameters:
         """
-        if cutpoints is not None:
-            self.cutpoints = check_cutpoints(cutpoints, self.J)
-            self.cutpoints_ts = self.cutpoints[self.y_train]
-            self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
-            # self._model.likelihood.bin_edges = self.cutpoints[1:-1]
         if varphi is not None:
             self._model.kernel.lengthscales.assign(varphi)
         if variance is not None:

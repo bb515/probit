@@ -54,8 +54,8 @@ class SparseVBGP(VBGP):
         """
         self.M = M
         super().__init__(*args, **kwargs)
-        # self.EPS = 1e-8
-        # self.EPS_2 = self.EPS**2
+        self.EPS = 1e-2
+        self.EPS_2 = self.EPS**2
         self.jitter = 1e-8
 
     def _load_cached_prior(self):
@@ -332,7 +332,7 @@ class SparseVBGP(VBGP):
         fx_old = np.inf
         posterior_mean = None
         # Convergence is sometimes very fast so this may not be necessary
-        while error / steps > self.EPS and iteration < max_iter:
+        while error / steps > self.EPS_2: #   and iteration < max_iter:
             iteration += 1
             (posterior_mean, weight, *_) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,

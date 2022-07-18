@@ -2123,7 +2123,7 @@ if __name__ == "__main__":
     # noise_variance = gamma.rvs(a=1.2, scale=1./0.2)
     generate_synthetic_data_paper(
         lengthscale=0.35, noise_variance=4.3264, variance=1.0,
-        N_train_per_class=500, N_test_per_class=0, N_validate_per_class=0,
+        N_train_per_class=10000, N_test_per_class=0, N_validate_per_class=0,
         N_show=100,
         splits=1, J=J, D=10, colors=colors, cmap=cmap, plot=True, seed=517)
     # SS TODO: delete

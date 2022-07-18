@@ -1482,6 +1482,7 @@ class EPGP(Approximator):
         (posterior_means, posterior_covs, mean_EPs, precision_EPs,
             amplitude_EPs, approximate_log_marginal_likelihoods) = containers
         for index in indices:
+            print(index)
             target = self.y_train[index]
             posterior_variance_n = posterior_cov[index, index]
             precision_EP_n_old = precision_EP[index]
@@ -1974,6 +1975,8 @@ class EPGP(Approximator):
                 indices, steps, posterior_mean_0=posterior_mean,
                 posterior_cov_0=posterior_cov, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP)
+            if verbose:
+                print("error = {}".format(error))
         # Compute gradients of the hyperparameters
         (weight, precision_EP, L_cov, cov) = self.compute_weights(
             precision_EP, mean_EP, dlogZ_dcavity_mean)
@@ -3199,7 +3202,7 @@ class LaplaceGP(Approximator):
         super().__init__(*args, **kwargs)
         # self.EPS = 0.001  # Acts as a machine tolerance
         # self.EPS = 1e-4
-        self.EPS = 1e-3
+        self.EPS = 1e-1
         # self.EPS = 1e-6
         self.EPS_2 = self.EPS**2
         # self.jitter = 1e-4  # Try increasing the noise variance if jitter has to be this large
