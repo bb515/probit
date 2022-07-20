@@ -160,6 +160,7 @@ def main():
         N_train = np.shape(y)[0]
         Approximator, steps, M, kernel = get_approximator(
             approximation, Kernel, varphi_0, signal_variance_0, N_train)
+        noise_variance_0 = 100.0
         if "S" in approximation:
             # Initiate sparse classifier
             classifier = Approximator(
@@ -176,11 +177,10 @@ def main():
         # Fix signal variance
         trainables[J] = 0
         # Fix varphi
-        trainables[-1] = 0
+        # trainables[-1] = 0
         # Fix cutpoints
-        trainables[1] = 0
-        # Just varphi
-        domain = ((-0.0, 0.3), None)
+        trainables[1:J] = 0
+        domain = ((-2, 2), None)
         res = (100, None)
         # #  just signal variance
         # domain = ((0., 1.8), None)
@@ -200,9 +200,9 @@ def main():
         # classifier = train(
         #     classifier, method, trainables, verbose=True, steps=steps)
         # test(classifier, X, y, g_true, steps)
-        # grid_synthetic(classifier, domain, res, steps, trainables, show=True)
-        plot_synthetic(
-            classifier, dataset, X_true, g_true, steps, colors=colors)
+        grid_synthetic(classifier, domain, res, steps, trainables, show=True)
+        # plot_synthetic(
+        #     classifier, dataset, X_true, g_true, steps, colors=colors)
         #plot_synthetic(classifier, dataset, X, Y, colors=colors)
     else:
         raise ValueError("Dataset {} not found.".format(dataset))

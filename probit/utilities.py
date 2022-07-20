@@ -1082,3 +1082,26 @@ def sample_g(g, f, y_train, cutpoints, noise_std, N):
         # Add sample to the Y vector
         g[i] = g_i
     return g
+
+
+class CutpointValueError(Exception):
+    """
+    An invalid cutpoint argument was used to construct the classifier model.
+    """
+
+    def __init__(self, cutpoint):
+        """
+        Construct the exception.
+
+        :arg cutpoint: The cutpoint parameters array.
+        :type cutpoint: :class:`numpy.array` or list
+
+        :rtype: :class:`CutpointValueError`
+        """
+        message = (
+                "The cutpoint list or array "
+                "must be in ascending order, "
+                f" {cutpoint} was given."
+                )
+
+        super().__init__(message)

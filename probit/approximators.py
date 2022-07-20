@@ -303,25 +303,16 @@ class Approximator(ABC):
     def _hyperparameters_update(
         self, cutpoints=None, varphi=None, variance=None, noise_variance=None):
         """
-        TODO: Is the below still relevant?
-        Reset kernel hyperparameters, generating new prior and posterior
-        covariances. Note that hyperparameters are fixed parameters of the
-        approximator, not variables that change during the estimation. The
-        strange thing is that hyperparameters can be absorbed into the set of
-        variables and so the definition of hyperparameters and variables
-        becomes muddled. Since varphi can be a variable or a parameter, then
-        optionally initiate it as a parameter, and then intitate it as a
-        variable within :meth:`approximate`. Problem is, if it changes at
-        approximate time, then a hyperparameter update needs to be called.
-
+        Reset kernel hyperparameters, generating new prior covariances.
+ 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.
         :arg varphi: The kernel hyper-parameters.
         :type varphi: :class:`numpy.ndarray` or float.
         :arg variance:
         :type variance:
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
+        :arg noise variance:
+        :type noise variance:
         """
         if cutpoints is not None:
             self.cutpoints = check_cutpoints(cutpoints, self.J)
@@ -372,7 +363,7 @@ class Approximator(ABC):
             noise_variance=noise_variance)
 
     def _hyperparameter_training_step_initialise(
-            self, phi, trainables):
+            self, phi, trainables, verbose=False):
         """
         TODO: this doesn't look correct, for example if only training a subset
         Initialise the hyperparameter training step.
@@ -402,28 +393,41 @@ class Approximator(ABC):
             if trainables[0]:
                 noise_std = np.exp(phi[index])
                 noise_variance = noise_std**2
-                # if noise_variance < 1.0e-04:
-                #     warnings.warn(
-                #         "WARNING: noise variance is very low - numerical"
-                #         " stability issues may arise "
-                #         "(noise_variance={}).".format(noise_variance))
-                # elif noise_variance > 1.0e3:
-                #     warnings.warn(
-                #         "WARNING: noise variance is very large - numerical"
-                #         " stability issues may arise "
-                #     "(noise_variance={}).".format(noise_variance))
+                if verbose:
+                    if noise_variance < 1.0e-04:
+                        warnings.warn(
+                            "WARNING: noise variance is very low - numerical"
+                            " stability issues may arise "
+                            "(noise_variance={}).".format(noise_variance))
+                    elif noise_variance > 1.0e3:
+                        warnings.warn(
+                            "WARNING: noise variance is very large - numerical"
+                            " stability issues may arise "
+                        "(noise_variance={}).".format(noise_variance))
                 index += 1
-            if cutpoints is None and np.any(trainables[1:self.J]):
+            if np.any(trainables[1:self.J]):
                 # Get cutpoints from classifier
-                cutpoints = self.cutpoints
-            if trainables[1]:
-                cutpoints[1] = phi[index]
-                index += 1
-            for j in range(2, self.J):
-                if trainables[j]:
-                    print(np.exp(phi[index]))
-                    cutpoints[j] = cutpoints[j - 1] + np.exp(phi[index])
+                if cutpoints is None: cutpoints = self.cutpoints
+                # Then need to get all values of phi
+                phi_cutpoints = np.empty(self.J-1)
+                phi_cutpoints[0] = cutpoints[1]
+                for j in range(2, self.J):
+                    phi_cutpoints[j - 1] = np.log(
+                        cutpoints[j] - cutpoints[j - 1])
+                # update phi_cutpoints
+                if trainables[1]:
+                    phi_cutpoints[0] = phi[index]
                     index += 1
+                for j in range(2, self.J):
+                    if trainables[j]:
+                        phi_cutpoints[j - 1] = phi[index]
+                        index += 1
+                print(phi_cutpoints)
+                # update cutpoints
+                cutpoints[1] = phi_cutpoints[0]
+                for j in range(2, self.J):
+                    cutpoints[j] = cutpoints[j - 1] + np.exp(
+                        phi_cutpoints[j - 1])
             if trainables[self.J]:
                 std_dev = np.exp(phi[index])
                 variance = std_dev**2
@@ -442,181 +446,6 @@ class Approximator(ABC):
         iteration = 0
         trainables_where = np.where(trainables!=0)
         return (intervals, error, iteration, trainables_where, gx)
-
-    def hyperparameter_training_step(
-            self, phi, trainables, verbose, steps,
-            first_step=0, write=False):
-        """
-        Optimisation routine for hyperparameters.
-        :return: fx, gx
-        """
-        return self.approximate_posterior(
-            phi, trainables, steps, first_step=first_step,
-            posterior_mean_0=None, return_reparameterised=None,
-            verbose=verbose)  # returns (fx, gx)
-
-    def _grid_over_hyperparameters_initiate(
-            self, res, domain, trainables, cutpoints):
-        """
-        Initiate metadata and hyperparameters for plotting the objective
-        function surface over hyperparameters.
-
-        :arg int res:
-        :arg domain: ((2,)tuple, (2.)tuple) of the start/stop in the domain to
-            grid over, for each axis, like: ((start, stop), (start, stop)).
-        :type domain:
-        :arg trainables: Indicator array of the hyperparameters to sample over.
-        :type trainables: :class:`numpy.ndarray`
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        """
-        index = 0
-        label = []
-        axis_scale = []
-        space = []
-        if trainables[0]:
-            # Grid over noise_std
-            label.append(r"$\sigma$")
-            axis_scale.append("log")
-            space.append(
-                np.logspace(domain[index][0], domain[index][1], res[index]))
-            index += 1
-        if trainables[1]:
-            # Grid over b_1, the first cutpoint
-            label.append(r"$b_{}$".format(1))
-            axis_scale.append("linear")
-            space.append(
-                np.linspace(domain[index][0], domain[index][1], res[index]))
-            index += 1
-        for j in range(2, self.J):
-            if trainables[j]:
-                # Grid over b_j - b_{j-1}, the differences between cutpoints
-                label.append(r"$b_{} - b_{}$".format(j, j-1))
-                axis_scale.append("log")
-                space.append(
-                    np.logspace(
-                        domain[index][0], domain[index][1], res[index]))
-                index += 1
-        if trainables[self.J]:
-            # Grid over variance
-            label.append("$variance$")
-            axis_scale.append("log")
-            space.append(
-                np.logspace(domain[index][0], domain[index][1], res[index]))
-            index += 1
-        # TODO: 
-        # gx_0 = np.empty(1 + self.J - 1 + 1 + self.J * self.D)
-        # # In this case, then there is a scale parameter,
-        # #  the first cutpoint, the interval parameters,
-        # # and lengthvariances parameter for each dimension and class
-        # for j in range(self.J * self.D):
-        #     if trainables[self.J + 1 + j]:
-        #         # grid over this particular hyperparameter
-        #         raise ValueError("TODO")
-        #         index += 1
-        gx_0 = np.empty(1 + self.J - 1 + 1 + 1)
-        if trainables[self.J + 1]:
-            # Grid over only kernel hyperparameter, varphi
-            label.append(r"$\varphi$")
-            axis_scale.append("log")
-            space.append(
-                np.logspace(
-                    domain[index][0], domain[index][1], res[index]))
-            index +=1
-        if index == 2:
-            meshgrid = np.meshgrid(space[0], space[1])
-            thetas = np.dstack(meshgrid)
-            thetas = thetas.reshape((len(space[0]) * len(space[1]), 2))
-            fxs = np.empty(len(thetas))
-            gxs = np.empty((len(thetas), 2))
-        elif index == 1:
-            meshgrid = (space[0], None)
-            space.append(None)
-            axis_scale.append(None)
-            label.append(None)
-            thetas = space[0]
-            fxs = np.empty(len(thetas))
-            gxs = np.empty(len(thetas))
-        else:
-            raise ValueError(
-                "Too many independent variables to plot objective over!"
-                " (got {}, expected {})".format(
-                index, "1, or 2"))
-        assert len(axis_scale) == 2
-        assert len(meshgrid) == 2
-        assert len(space) ==  2
-        assert len(label) == 2
-        intervals = cutpoints[2:self.J] - cutpoints[1:self.J - 1]
-        trainables_where = np.where(trainables != 0)
-        return (
-            space[0], space[1],
-            label[0], label[1],
-            axis_scale[0], axis_scale[1],
-            meshgrid[0], meshgrid[1],
-            thetas, fxs, gxs, gx_0, intervals, trainables_where)
-
-    def _grid_over_hyperparameters_update(
-        self, theta, trainables, cutpoints):
-        """
-        Update the hyperparameters, theta.
-
-        :arg theta: The updated values of the hyperparameters.
-        :type theta:
-        :arg trainables:
-        :type trainables:
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        """
-        index = 0
-        if trainables[0]:
-            if np.isscalar(theta):
-                noise_std = theta
-            else:
-                noise_std = theta[index]
-            noise_variance = noise_std**2
-            noise_variance_update = noise_variance
-            # Update kernel parameters, update prior and posterior covariance
-            index += 1
-        else:
-            noise_variance_update = None
-        if trainables[1]:
-            cutpoints = np.empty((self.J + 1,))
-            cutpoints[0] = np.NINF
-            cutpoints[-1] = np.inf
-            if np.isscalar(theta):
-                cutpoints[1] = theta
-            else:
-                cutpoints[1] = theta[index]
-            index += 1
-        for j in range(2, self.J):
-            if trainables[j]:
-                if np.isscalar(theta):
-                    cutpoints[j] = cutpoints[j-1] + theta
-                else:
-                    cutpoints[j] = cutpoints[j-1] + theta[index]
-                index += 1
-        if trainables[self.J]:
-            std_dev = theta[index]
-            variance = std_dev**2
-            index += 1
-            variance_update = variance
-        else:
-            variance_update = None
-        if trainables[self.J + 1]:  # TODO: replace this with kernel number of hyperparameters.
-            if np.isscalar(theta):
-                varphi = theta
-            else:
-                varphi = theta[index]
-            varphi_update = varphi
-            index += 1
-        else:
-            varphi_update = None
-        # Update kernel parameters, update prior and posterior covariance
-        self.hyperparameters_update(
-                cutpoints=cutpoints, 
-                noise_variance=noise_variance_update,
-                variance=variance_update,
-                varphi=varphi_update)
 
     def _load_cached_prior(self):
         """
@@ -790,7 +619,7 @@ class VBGP(Approximator):
         return posterior_mean_0, containers
 
     def approximate(
-            self, steps, posterior_mean_0=None, first_step=0,
+            self, steps, posterior_mean_0=None,
             write=False):
         """
         Estimating the posterior means are a 3 step iteration over
@@ -801,7 +630,6 @@ class VBGP(Approximator):
         :arg posterior_mean_0: The initial state of the approximate posterior
             mean (N,). If `None` then initialised to zeros, default `None`.
         :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg int first_step: The first step. Useful for burn in algorithms.
         :arg bool write: Boolean variable to store and write arrays of
             interest. If set to "True", the method will output non-empty
             containers of evolution of the statistics over the steps. If
@@ -815,7 +643,7 @@ class VBGP(Approximator):
         posterior_mean, containers = self._approximate_initiate(
             posterior_mean_0)
         posterior_means, gs, varphis, psis, fxs = containers
-        for _ in trange(first_step, first_step + steps,
+        for _ in trange(1, 1 + steps,
                         desc="VB GP approximator progress", unit="samples",
                         disable=True):
             p_ = p(
@@ -1156,99 +984,14 @@ class VBGP(Approximator):
                         print("gx = {}".format(gx[self.J + 1]))
         return -gx
 
-    def grid_over_hyperparameters(
-            self, domain, res, steps, trainables=None, posterior_mean_0=None,
-            verbose=False):
-        """
-        TODO: Can this be moved to a plot.py
-        Return meshgrid values of fx and directions of gx over hyperparameter
-        space.
-
-        The particular hyperparameter space is inferred from the user inputs
-        - the rule is that if any of the
-        variables are None, then those are the variables to grid over. We can
-        only visualise these surfaces for
-        maximum of 2 variables, so the number of combinations is Mc2 + Mc1
-        where M is the total no. of hyperparameters.
-
-        Special cases are frequent: log and non log variables. 2 axis vs 1
-        axis objective function, calculate
-        new Gram matrix or not. So the simplest way is to combinate manually.
-        """
-        (
-        x1s, x2s,
-        xlabel, ylabel,
-        xscale, yscale,
-        xx, yy,
-        thetas,
-        fxs, gxs, gx_0,
-        intervals, trainables_where) = self._grid_over_hyperparameters_initiate(
-            res, domain, trainables, self.cutpoints)
-        error = np.inf
-        fx_old = np.inf
-        for i, theta in enumerate(thetas):
-            self._grid_over_hyperparameters_update(
-                theta, trainables, self.cutpoints)
-            # Reset error and posterior mean
-            iteration = 0
-            error = np.inf
-            fx_old = np.inf
-            # TODO: reset m_0 is None?
-            # Convergence is sometimes very fast so this may not be necessary
-            while error / steps > self.EPS_2:
-                iteration += 1
-                (posterior_mean_0, weight, y, p, *_) = self.approximate(
-                    steps, posterior_mean_0=posterior_mean_0,
-                    first_step=0, write=False)
-                (Z,
-                norm_pdf_z1s,
-                norm_pdf_z2s,
-                z1s,
-                z2s,
-                *_) = truncated_norm_normalising_constant(
-                    self.cutpoints_ts, self.cutpoints_tplus1s,
-                    self.noise_std, posterior_mean_0, self.EPS)
-                fx = self.objective(
-                    self.N, posterior_mean_0, weight, self.trace_cov,
-                    self.trace_posterior_cov_div_var, Z,
-                    self.noise_variance, self.log_det_cov)
-                error = np.abs(fx_old - fx)
-                fx_old = fx
-                print("({}), error={}".format(iteration, error))
-            print("{}/{}".format(i + 1, len(thetas)))
-            gx = self.objective_gradient(
-                gx_0.copy(), intervals, self.cutpoints_ts,
-                self.cutpoints_tplus1s, self.kernel.varphi,
-                self.noise_variance, self.noise_std, posterior_mean_0,
-                weight, self.cov, self.trace_cov,
-                self.partial_K_varphi, self.N, Z,
-                norm_pdf_z1s, norm_pdf_z2s, trainables,
-                numerical_stability=True, verbose=False)
-            fxs[i] = fx
-            gxs[i] = gx[trainables_where]
-            if verbose:
-                print("function call {}, gradient vector {}".format(fx, gx))
-                print(
-                    "cutpoints={}, varphi={}, noise_variance={}, variance={}, "
-                    "fx={}, gx={}".format(
-                    self.cutpoints, self.kernel.varphi, self.noise_variance,
-                    self.kernel.variance, fx, gxs[i]))
-        if x2s is not None:
-            return (
-                fxs.reshape((len(x1s), len(x2s))), gxs,
-                xx, yy, xlabel, ylabel, xscale, yscale)
-        else:
-            return fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale
-
     def approximate_posterior(
-            self, phi, trainables, steps, first_step=0, max_iter=2,
-            return_reparameterised=False, verbose=False):
+            self, phi, trainables, steps,
+            return_reparameterised=None, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
         :arg phi: (log-)hyperparameters to be optimised.
         :arg trainables:
-        :arg first_step:
         :arg bool write:
         :arg bool verbose:
         :return: fx, gx
@@ -1257,15 +1000,14 @@ class VBGP(Approximator):
         # Update prior covariance and get hyperparameters from phi
         (intervals, error, iteration, trainables_where,
         gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables)
+            phi, trainables, verbose=verbose)
         fx_old = np.inf
         posterior_mean = None
-        # Convergence is sometimes very fast so this may not be necessary
-        while error / steps > self.EPS_2:  # and iteration < max_iter:
+        while error / steps > self.EPS_2:
             iteration += 1
             (posterior_mean, weight, *_) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
-                first_step=first_step, write=False)
+                write=False)
             (Z, norm_pdf_z1s, norm_pdf_z2s,
                     *_ )= truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
@@ -1276,39 +1018,40 @@ class VBGP(Approximator):
                     self.trace_posterior_cov_div_var, Z,
                     self.noise_variance, self.log_det_cov)
             else:
-                # Only terms in f matter
+                # Only terms in posterior_mean change for fixed hyperparameters
                 fx = -0.5 * posterior_mean.T @ weight - np.sum(Z)
             error = np.abs(fx_old - fx)
             fx_old = fx
             if verbose:
                 print("({}), error={}".format(iteration, error))
-        # fx = self.objective(
-        #             self.N, posterior_mean, weight, self.trace_cov,
-        #             self.trace_posterior_cov_div_var, Z,
-        #             self.noise_variance, self.log_det_cov)
-        # gx = self.objective_gradient(
-        #         gx.copy(), intervals, self.cutpoints_ts,
-        #         self.cutpoints_tplus1s,
-        #         self.kernel.varphi, self.noise_variance, self.noise_std,
-        #         posterior_mean, weight, self.cov, self.trace_cov,
-        #         self.partial_K_varphi, self.N, Z,
-        #         norm_pdf_z1s, norm_pdf_z2s, trainables,
-        #         numerical_stability=True, verbose=False)
-        # gx = gx[trainables_where]
-        fx = 0
-        if verbose:
-            print(
-                "\ncutpoints={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
-                    self.cutpoints, self.noise_variance,
-                    self.kernel.varphi, fx))
         if return_reparameterised is True:
+            fx = 0
             return fx, gx, weight, (self.cov, True)
         elif return_reparameterised is False:
+            fx = 0
             precision = np.ones(self.N) / self.noise_variance
             return fx, gx, self.log_det_cov, weight, precision, posterior_mean, (
                 self.noise_variance * self.K @ self.cov, False)
         elif return_reparameterised is None:
+            fx = self.objective(
+                        self.N, posterior_mean, weight, self.trace_cov,
+                        self.trace_posterior_cov_div_var, Z,
+                        self.noise_variance, self.log_det_cov)
+            gx = self.objective_gradient(
+                    gx.copy(), intervals, self.cutpoints_ts,
+                    self.cutpoints_tplus1s,
+                    self.kernel.varphi, self.noise_variance, self.noise_std,
+                    posterior_mean, weight, self.cov, self.trace_cov,
+                    self.partial_K_varphi, self.N, Z,
+                    norm_pdf_z1s, norm_pdf_z2s, trainables,
+                    numerical_stability=True, verbose=False)
+            gx = gx[trainables_where]
+            if verbose:
+                print(
+                "\ncutpoints={}, varphi={}, noise_variance={}, variance={},"
+                "\nfunction_eval={}, \nfunction_grad={}".format(
+                    self.cutpoints, self.kernel.varphi, self.noise_variance,
+                    self.kernel.variance, fx, gx))
             return fx, gx
 
 
@@ -1350,7 +1093,7 @@ class EPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        self.EPS = 1e-2
+        self.EPS = 1e-4
         # self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
@@ -1461,7 +1204,6 @@ class EPGP(Approximator):
             amplitudes (N,). If `None` then initialised to ones, default
             `None`.
         :type amplitude_EP_0: :class:`numpy.ndarray`
-        :arg int first_step: The first step. Useful for burn in algorithms.
         :arg bool fix_hyperparameters: Must be `True`, since the hyperparameter
             approximate posteriors are of the hyperparameters are not
             calculated in this EP approximation.
@@ -1483,7 +1225,7 @@ class EPGP(Approximator):
         (posterior_means, posterior_covs, mean_EPs, precision_EPs,
             amplitude_EPs, approximate_log_marginal_likelihoods) = containers
         for index in indices:
-            print(index)
+            if (index + 1) % 1000 == 0: print(index)
             target = self.y_train[index]
             posterior_variance_n = posterior_cov[index, index]
             precision_EP_n_old = precision_EP[index]
@@ -1837,78 +1579,6 @@ class EPGP(Approximator):
             )  # TODO: use log det C trick
             return np.sum(approximate_marginal_likelihood)
 
-    def grid_over_hyperparameters(
-            self, domain, res,
-            trainables=None,
-            posterior_mean_0=None, posterior_cov_0=None, mean_EP_0=None,
-            precision_EP_0=None, amplitude_EP_0=None,
-            first_step=0, write=False, verbose=False):
-        """
-        Return meshgrid values of fx and gx over hyperparameter space.
-
-        The particular hyperparameter space is inferred from the user inputs,
-        trainables.
-        """
-        steps = self.N  # TODO: let user specify this
-        (x1s, x2s,
-        xlabel, ylabel,
-        xscale, yscale,
-        xx, yy,
-        thetas, fxs,
-        gxs, gx_0, intervals,
-        trainables_where) = self._grid_over_hyperparameters_initiate(
-            res, domain, trainables, self.cutpoints)
-        for i, phi in enumerate(thetas):
-            self._grid_over_hyperparameters_update(
-                phi, trainables, self.cutpoints)
-            if verbose:
-                print(
-                    "cutpoints_0 = {}, varphi_0 = {}, noise_variance_0 = {}, "
-                    "variance_0 = {}".format(
-                        self.cutpoints, self.kernel.varphi, self.noise_variance,
-                        self.kernel.variance))
-            # Reset parameters
-            iteration = 0
-            error = np.inf
-            posterior_mean = posterior_mean_0
-            posterior_cov = posterior_cov_0
-            mean_EP = mean_EP_0
-            precision_EP = precision_EP_0
-            amplitude_EP = amplitude_EP_0
-            while error / steps > self.EPS**2:
-                iteration += 1
-                (error, dlogZ_dcavity_mean, posterior_mean, posterior_cov, mean_EP,
-                 precision_EP, amplitude_EP, containers) = self.approximate(
-                    steps, posterior_mean_0=posterior_mean, posterior_cov_0=posterior_cov,
-                    mean_EP_0=mean_EP, precision_EP_0=precision_EP,
-                    amplitude_EP_0=amplitude_EP,
-                    first_step=first_step, write=False)
-                if verbose:
-                    print("({}), error={}".format(iteration, error))
-            print("{}/{}".format(i + 1, len(thetas)))
-            weight, precision_EP, L_cov, cov = self.compute_weights(
-                precision_EP, mean_EP, dlogZ_dcavity_mean)
-            t1, t2, t3, t4, t5 = self.compute_integrals_vector(
-                np.diag(posterior_cov), posterior_mean, self.noise_variance)
-            fx = self.objective(
-                precision_EP, posterior_mean,
-                t1, L_cov, cov, weight)
-            fxs[i] = fx
-            gx = self.objective_gradient(
-                gx_0.copy(), intervals, self.kernel.varphi,
-                self.noise_variance,
-                t2, t3, t4, t5, cov, weight, trainables)
-            gxs[i] = gx[trainables_where]
-            if verbose:
-                print("function call {}, gradient vector {}".format(fx, gx))
-                print("varphi={}, noise_variance={}, fx={}".format(
-                    self.kernel.varphi, self.noise_variance, fx))
-        if x2s is not None:
-            return (fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy,
-                xlabel, ylabel, xscale, yscale)
-        else:
-            return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
-
     def run_ep_sequential(self, indices, n_sweeps,
             posterior_mean_0=None,
             posterior_cov_0=None, mean_EP_0=None,
@@ -1928,10 +1598,9 @@ class EPGP(Approximator):
 
     def approximate_posterior(
             self, phi, trainables, steps,
-            posterior_mean_0=None, return_reparameterised=False,
-            posterior_cov_0=None, mean_EP_0=None,
-            precision_EP_0=None,
-            amplitude_EP_0=None, verbose=True):
+            posterior_mean_0=None, return_reparameterised=None,
+            posterior_cov_0=None, mean_EP_0=None, precision_EP_0=None,
+            amplitude_EP_0=None, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -1953,7 +1622,6 @@ class EPGP(Approximator):
         :type precision_EP_0:
         :arg amplitude_EP_0:
         :type amplitude_EP_0:
-        :arg int first_step:
         :arg bool write:
         :arg bool verbose:
         :return: fx the objective and gx the objective gradient
@@ -1961,7 +1629,7 @@ class EPGP(Approximator):
         # Update prior covariance and get hyperparameters from phi
         (intervals, error, iteration, trainables_where,
         gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables)
+            phi, trainables, verbose=verbose)
         posterior_mean = posterior_mean_0
         posterior_cov = posterior_cov_0
         mean_EP = mean_EP_0
@@ -1978,26 +1646,9 @@ class EPGP(Approximator):
                 precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP)
             if verbose:
                 print("error = {}".format(error))
-        # Compute gradients of the hyperparameters
         (weight, precision_EP, L_cov, cov) = self.compute_weights(
             precision_EP, mean_EP, dlogZ_dcavity_mean)
-        # # Try optimisation routine
-        # t1, t2, t3, t4, t5 = self.compute_integrals_vector(
-        #     np.diag(posterior_cov), posterior_mean, self.noise_variance)
-        # fx = self.objective(precision_EP, posterior_mean, t1,
-        #     L_cov, cov, weight)
-        # gx = np.zeros(1 + self.J - 1 + 1 + 1)
-        # gx = self.objective_gradient(
-        #     gx, intervals, self.kernel.varphi, self.noise_variance,
-        #     t2, t3, t4, t5, cov, weight, trainables)
-        # gx = gx[np.where(trainables != 0)]
         fx = 0
-        if verbose:
-            print(
-                "\ncutpoints={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
-                    self.cutpoints, self.noise_variance,
-                    self.kernel.varphi, fx))
         if return_reparameterised is True:
             return fx, gx, weight, (cov, True)
         elif return_reparameterised is False:
@@ -2005,6 +1656,22 @@ class EPGP(Approximator):
             return fx, gx, log_det_cov, weight, precision_EP, posterior_mean, (
                 posterior_cov, False)
         elif return_reparameterised is None:
+            # Compute gradients of the hyperparameters
+            t1, t2, t3, t4, t5 = self.compute_integrals_vector(
+                np.diag(posterior_cov), posterior_mean, self.noise_variance)
+            fx = self.objective(precision_EP, posterior_mean, t1,
+                L_cov, cov, weight)
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+            gx = self.objective_gradient(
+                gx, intervals, self.kernel.varphi, self.noise_variance,
+                t2, t3, t4, t5, cov, weight, trainables)
+            gx = gx[np.where(trainables != 0)]
+            if verbose:
+                print(
+                "\ncutpoints={}, varphi={}, noise_variance={}, variance={},"
+                "\nfunction_eval={}, \nfunction_grad={}".format(
+                    self.cutpoints, self.kernel.varphi, self.noise_variance,
+                    self.kernel.variance, fx, gx))
             return fx, gx
 
     def compute_integrals_vector(
@@ -2880,7 +2547,6 @@ class PEPGP(Approximator):
             amplitudes (N,). If `None` then initialised to ones, default
             `None`.
         :type amplitude_EP_0: :class:`numpy.ndarray`
-        :arg int first_step: The first step. Useful for burn in algorithms.
         :arg bool fix_hyperparameters: Must be `True`, since the hyperparameter
             approximate posteriors are of the hyperparameters are not
             calculated in this EP approximation.
@@ -2953,8 +2619,8 @@ class PEPGP(Approximator):
 
     def approximate_posterior(
             self, phi, trainables, steps,
-            beta_0=None, gamma_0=None, return_reparameterised=False,
-            mean_EP_0=None, variance_EP_0=None, verbose=True):
+            beta_0=None, gamma_0=None, return_reparameterised=None,
+            mean_EP_0=None, variance_EP_0=None, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -2976,7 +2642,6 @@ class PEPGP(Approximator):
         :type precision_EP_0:
         :arg amplitude_EP_0:
         :type amplitude_EP_0:
-        :arg int first_step:
         :arg bool write:
         :arg bool verbose:
         :return: fx the objective and gx the objective gradient
@@ -2984,7 +2649,7 @@ class PEPGP(Approximator):
         # Update prior covariance and get hyperparameters from phi
         (intervals, error, iteration, trainables_where,
         gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables)
+            phi, trainables, verbose=verbose)
         beta = beta_0
         gamma = gamma_0
         mean_EP = mean_EP_0
@@ -3004,29 +2669,30 @@ class PEPGP(Approximator):
         # Compute posterior TODO: does it need to be done twice?
         (posterior_mean, posterior_cov) = self._compute_posterior(
             self.Kuu, gamma, beta)
-        fx = self.objective(self.N, self.alpha, self.minibatch_size,
-            posterior_mean, posterior_cov, log_lik)
-        gx = np.zeros(1 + self.J - 1 + 1 + 1)
-        gx = self.objective_gradient(
-            gx, trainables)
-        gx = gx[np.where(trainables != 0)]
-        if verbose:
-            print(
-                "\ncutpoints={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
-                    self.cutpoints, self.noise_variance,
-                    self.kernel.varphi, fx))
+        fx = 0
         if return_reparameterised is True:
             return fx, gx, gamma, (beta, True)
         elif return_reparameterised is False:
             return fx, gx, posterior_mean, (posterior_cov, False)
         elif return_reparameterised is None:
+            fx = self.objective(self.N, self.alpha, self.minibatch_size,
+                posterior_mean, posterior_cov, log_lik)
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+            gx = self.objective_gradient(
+                gx, trainables)
+            gx = gx[np.where(trainables != 0)]
+            if verbose:
+                print(
+                "\ncutpoints={}, varphi={}, noise_variance={}, variance={},"
+                "\nfunction_eval={}, \nfunction_grad={}".format(
+                    self.cutpoints, self.kernel.varphi, self.noise_variance,
+                    self.kernel.variance, fx, gx))
             return fx, gx
 
     def approximate_posterior_(
             self, phi, trainables, steps,
-            beta_0=None, gamma_0=None, return_reparameterised=False,
-            mean_EP_0=None, variance_EP_0=None, verbose=True):
+            beta_0=None, gamma_0=None, return_reparameterised=None,
+            mean_EP_0=None, variance_EP_0=None, verbose=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -3048,7 +2714,6 @@ class PEPGP(Approximator):
         :type precision_EP_0:
         :arg amplitude_EP_0:
         :type amplitude_EP_0:
-        :arg int first_step:
         :arg bool write:
         :arg bool verbose:
         :return: fx the objective and gx the objective gradient
@@ -3056,7 +2721,7 @@ class PEPGP(Approximator):
         # Update prior covariance and get hyperparameters from phi
         (intervals, error, iteration, trainables_where,
         gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables)
+            phi, trainables, verbose=verbose)
         beta = beta_0
         gamma = gamma_0
         mean_EP = mean_EP_0
@@ -3079,25 +2744,26 @@ class PEPGP(Approximator):
         #     indices, steps, beta=beta, gamma=gamma,
         #     mean_EP=mean_EP, variance_EP=variance_EP, write=True)
         # Compute posterior TODO: does it need to be done twice?
+        fx = 0
         (posterior_mean, posterior_cov) = self._compute_posterior(
             self.Kuu, gamma, beta)
-        fx = self.objective(self.N, self.alpha, self.minibatch_size,
-            posterior_mean, posterior_cov, log_lik)
-        gx = np.zeros(1 + self.J - 1 + 1 + 1)
-        gx = self.objective_gradient(
-            gx, trainables)
-        gx = gx[np.where(trainables != 0)]
-        if verbose:
-            print(
-                "\ncutpoints={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
-                    self.cutpoints, self.noise_variance,
-                    self.kernel.varphi, fx))
         if return_reparameterised is True:
             return fx, gx, gamma, (beta, True)
         elif return_reparameterised is False:
             return fx, gx, posterior_mean, (posterior_cov, False)
         elif return_reparameterised is None:
+            fx = self.objective(self.N, self.alpha, self.minibatch_size,
+                posterior_mean, posterior_cov, log_lik)
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+            gx = self.objective_gradient(
+                gx, trainables)
+            gx = gx[np.where(trainables != 0)]
+            if verbose:
+                print(
+                    "\ncutpoints={}, noise_variance={}, "
+                    "varphi={}\nfunction_eval={}".format(
+                        self.cutpoints, self.noise_variance,
+                        self.kernel.varphi, fx))
             return fx, gx
 
     def objective(
@@ -3247,70 +2913,6 @@ class LaplaceGP(Approximator):
                 approximate_marginal_likelihood, 0.5 * np.log(np.linalg.det(self.K + inverse_precision_matrix))
             )  # TODO: use log det C trick
             return np.sum(approximate_marginal_likelihood)
-
-    def grid_over_hyperparameters(
-            self, domain, res,
-            trainables=None,
-            posterior_mean_0=None,
-            first_step=0, verbose=True):  # TODO False
-        """
-        Return meshgrid values of fx and gx over hyperparameter space.
-
-        The particular hyperparameter space is inferred from the user inputs,
-        trainables.
-        """
-        steps = self.N  # TODO: let user specify this
-        (x1s, x2s,
-        xlabel, ylabel,
-        xscale, yscale,
-        xx, yy,
-        thetas, fxs,
-        gxs, gx_0, intervals,
-        trainables_where) = self._grid_over_hyperparameters_initiate(
-            res, domain, trainables, self.cutpoints)
-        for i, phi in enumerate(thetas):
-            self._grid_over_hyperparameters_update(
-                phi, trainables, self.cutpoints)
-            if verbose:
-                print(
-                    "cutpoints_0 = {}, varphi_0 = {}, noise_variance_0 = {}, "
-                    "variance_0 = {}".format(
-                        self.cutpoints, self.kernel.varphi, self.noise_variance,
-                        self.kernel.variance))
-            # Reset parameters
-            iteration = 0
-            error = np.inf
-            posterior_mean = posterior_mean_0
-            while error / steps > self.EPS_2:
-                iteration += 1
-                (error, weight, posterior_mean, containers) = self.approximate(
-                    steps, posterior_mean_0=posterior_mean,
-                    first_step=first_step, write=False)
-                if verbose:
-                    print("({}), error={}".format(iteration, error))
-            print("{}/{}".format(i + 1, len(thetas)))
-            (weight, precision,
-            w1, w2, g1, g2, v1, v2, q1, q2,
-            L_cov, cov, Z) = self.compute_weights(
-                posterior_mean)
-            fx = self.objective(weight, precision, L_cov, Z)
-            fxs[i] = fx
-            gx = self.objective_gradient(
-                gx_0.copy(), (self.X_train, self.y_train), self.grid, self.J,
-                intervals, self.kernel.varphi, self.noise_variance,
-                self.noise_std,
-                w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
-                self.N, self.K, precision, trainables)
-            gxs[i] = gx[trainables_where]
-            if verbose:
-                print("function call {}, gradient vector {}".format(fx, gx))
-                print("varphi={}, noise_variance={}, fx={}".format(
-                    self.kernel.varphi, self.noise_variance, fx))
-        if x2s is not None:
-            return (fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy,
-                xlabel, ylabel, xscale, yscale)
-        else:
-            return (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
     def compute_weights(
         self, posterior_mean):
@@ -3563,7 +3165,7 @@ class LaplaceGP(Approximator):
         return error, weight, posterior_mean
 
     def approximate(
-            self, steps, posterior_mean_0=None, first_step=0, write=False):
+            self, steps, posterior_mean_0=None, write=False):
         """
         Estimating the posterior means and posterior covariance (and marginal
         likelihood) via Laplace approximation via Newton-Raphson iteration as
@@ -3579,7 +3181,6 @@ class LaplaceGP(Approximator):
         :arg posterior_mean_0: The initial state of the approximate posterior
             mean (N,). If `None` then initialised to zeros, default `None`.
         :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg int first_step: The first step. Useful for burn in algorithms.
         :arg bool write: Boolean variable to store and write arrays of
             interest. If set to "True", the method will output non-empty
             containers of evolution of the statistics over the steps.
@@ -3594,7 +3195,7 @@ class LaplaceGP(Approximator):
         (posterior_mean, containers, error) = self._approximate_initiate(
             posterior_mean_0)
         (posterior_means, posterior_precisions) = containers
-        for _ in trange(first_step, first_step + steps,
+        for _ in trange(1, 1 + steps,
                         desc="Laplace GP approximator progress",
                         unit="iterations", disable=True):
             (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
@@ -3613,9 +3214,8 @@ class LaplaceGP(Approximator):
         return error, weight, posterior_mean, containers
 
     def approximate_posterior(
-            self, phi, trainables, steps,
-            posterior_mean_0=None,
-            return_reparameterised=False, first_step=0, verbose=False):
+            self, phi, trainables, steps, posterior_mean_0=None,
+            return_reparameterised=None, verbose=False):
         """
         Newton-Raphson procedure for convex optimization to find MAP point and
         curvature.
@@ -3628,7 +3228,6 @@ class LaplaceGP(Approximator):
         :type steps:
         :arg posterior_mean_0:
         :type posterior_mean_0:
-        :arg int first_step:
         :arg bool write:
         :arg bool verbose:
         :return:
@@ -3636,13 +3235,12 @@ class LaplaceGP(Approximator):
         # Update prior covariance and get hyperparameters from phi
         (intervals, error, iteration, trainables_where,
                 gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables)
+            phi, trainables, verbose=verbose)
         posterior_mean = posterior_mean_0
-        while error / steps > self.EPS_2:  # and iteration < 10:  # TODO is this overkill?
+        while error / steps > self.EPS_2:
             iteration += 1
             (error, weight, posterior_mean, containers) = self.approximate(
-                steps, posterior_mean_0=posterior_mean,
-                first_step=first_step, write=False)
+                steps, posterior_mean_0=posterior_mean, write=False)
             if verbose:
                 print("({}), error={}".format(iteration, error))
         # Calculates weights and matrix inverses one more time.
@@ -3650,22 +3248,7 @@ class LaplaceGP(Approximator):
         w1, w2, g1, g2, v1, v2, q1, q2,
         L_cov, cov, Z) = self.compute_weights(
             posterior_mean)
-        # fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
-        # gx = np.zeros(1 + self.J - 1 + 1 + 1)
-        # gx = self.objective_gradient(
-        #     gx, (self.X_train, self.y_train), self.grid,
-        #     self.J, intervals, self.kernel.varphi, self.noise_variance,
-        #     self.noise_std,
-        #     w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
-        #     self.N, self.K, precision, trainables)
-        # gx = gx[np.nonzero(trainables)]
         fx = 0
-        if verbose:
-            print(
-                "\ncutpoints={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
-                    self.cutpoints, self.noise_variance,
-                    self.kernel.varphi, fx))
         if return_reparameterised is True:
             # TODO: Double check that weight = K^{-1}posterior_mean
             return fx, gx, weight, (cov, True)
@@ -3674,30 +3257,22 @@ class LaplaceGP(Approximator):
             return fx, gx, log_det_cov, weight, precision, posterior_mean, (
                 self.K @ cov @ np.diag(1./precision), False)
         elif return_reparameterised is None:
+            fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+            gx = self.objective_gradient(
+                gx, (self.X_train, self.y_train), self.grid,
+                self.J, intervals, self.kernel.varphi, self.noise_variance,
+                self.noise_std,
+                w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
+                self.N, self.K, precision, trainables)
+            gx = gx[np.nonzero(trainables)]
+            if verbose:
+                print(
+                "\ncutpoints={}, varphi={}, noise_variance={}, variance={},"
+                "\nfunction_eval={}, \nfunction_grad={}".format(
+                    self.cutpoints, self.kernel.varphi, self.noise_variance,
+                    self.kernel.variance, fx, gx))
             return fx, gx
-
-
-class CutpointValueError(Exception):
-    """
-    An invalid cutpoint argument was used to construct the classifier model.
-    """
-
-    def __init__(self, cutpoint):
-        """
-        Construct the exception.
-
-        :arg cutpoint: The cutpoint parameters array.
-        :type cutpoint: :class:`numpy.array` or list
-
-        :rtype: :class:`CutpointValueError`
-        """
-        message = (
-                "The cutpoint list or array "
-                "must be in ascending order, "
-                f" {cutpoint} was given."
-                )
-
-        super().__init__(message)
 
 
 class InvalidApproximator(Exception):

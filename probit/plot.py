@@ -12,7 +12,7 @@ from matplotlib import rc
 
 
 def grid(classifier, X_trains, y_trains,
-        domain, res, steps, now, trainables=None):
+        domain, res, steps, now, trainables=None, verbose=False):
     """
     Grid of (optimised and converged) variational lower bound across the chosen
     hyperparameters.
@@ -51,44 +51,84 @@ def grid(classifier, X_trains, y_trains,
         classifier.__init__(
             classifier.cutpoints, classifier.noise_variance,
             classifier.kernel, X_trains[split], y_trains[split], classifier.J)
-        (Z, grad,
-        x, y,
+
+        (x1s, x2s,
         xlabel, ylabel,
-        xscale, yscale) = classifier.grid_over_hyperparameters(
-            domain, res, steps, trainables=trainables, verbose=True)
+        xscale, yscale,
+        xx, yy,
+        phis, fxs,
+        gxs) = _grid_over_hyperparameters_initiate(
+            res, domain, trainables, classifier.J)
+        for i, phi in enumerate(phis):
+            print(phi)
+            fx, gx = classifier.approximate_posterior(phi, trainables, steps)
+            fxs[i] = fx
+            gxs[i] = gx
+            if verbose:
+                print(
+                "\ncutpoints={}, varphi={}, noise_variance={}, variance={},"
+                "\nfunction_eval={}, \nfunction_grad={}".format(
+                    classifier.cutpoints, classifier.kernel.varphi,
+                    classifier.noise_variance, classifier.kernel.variance,
+                    fx, gxs[i]))
+        # TODO: tidy up this code
+        if x2s is not None:
+            (Z, grad,
+            x, y,
+            xlabel, ylabel,
+            xscale, yscale) = (fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy,
+                    xlabel, ylabel, xscale, yscale)
+        else:
+            (Z, grad,
+            x, y,
+            xlabel, ylabel,
+            xscale, yscale) = (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
+
         Z_av.append(Z)
         grad_av.append(grad)
         if ylabel is None:
             # norm = np.abs(np.max(grad))
             # grad = grad / norm  # normalise - all the same length
             index = np.argmin(Z)
-            plt.scatter(
+            fig, ax = plt.subplots(1, 1)
+            fig.patch.set_facecolor('white')
+            fig.patch.set_alpha(0.0)
+            ax.scatter(
                 x[index], Z[index],
                 color='red', label=r"$\varphi$ = {}".format(x[index]))
-            plt.legend()
-            plt.plot(x, Z)
-            plt.xscale(xscale)
-            plt.xlabel(r"$\varphi$")
-            plt.ylabel(r"$\mathcal{F}(\varphi)$")
-            plt.savefig("bound_{}_{}.png".format(split, now))
+            ax.legend()
+            ax.plot(x, Z)
+            ax.set_xscale(xscale)
+            ax.set_xlabel(r"$\varphi$")
+            ax.set_ylabel(r"$\mathcal{F}(\varphi)$")
+            fig.savefig(
+                "bound_{}_{}.png".format(split, now),
+                facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
-            plt.plot(x, grad)
-            plt.xscale(xscale)
-            plt.xlabel(xlabel)
-            plt.xlabel(r"$\varphi$")
-            plt.ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
-            plt.savefig("grad_{}_{}.png".format(split, now))
+
+            fig, ax = plt.subplots(1, 1)
+            fig.patch.set_facecolor('white')
+            fig.patch.set_alpha(0.0)
+            ax.plot(x, grad)
+            ax.set_xscale(xscale)
+            ax.set_xlabel(xlabel)
+            ax.set_xlabel(r"$\varphi$")
+            ax.set_ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
+            fig.savefig(
+                "grad_{}_{}.png".format(split, now),
+                facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
         else:
             fig, axs = plt.subplots(1, figsize=(6, 6))
             ax = plt.axes(projection='3d')
             ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
                             cmap='viridis', edgecolor='none')
-            plt.xscale(xscale)
-            plt.yscale(yscale)
-            plt.savefig("grid_over_hyperparameters_{}_{}.png".format(
-                split, now))
+            ax.set_xscale(xscale)
+            ax.set_yscale(yscale)
+            fig.savefig("grid_over_hyperparameters_{}_{}.png".format(
+                split, now), facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
+
             norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
             u = grad[:, 0] / norm
             v = grad[:, 1] / norm
@@ -97,47 +137,60 @@ def grid(classifier, X_trains, y_trains,
             ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
             ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
             ax.plot(0.1, 30, 'm')
-            plt.xscale(xscale)
-            plt.yscale(yscale)
-            plt.xlim(0.1, 10.0)
-            plt.ylim(0.1, 10.0)
-            plt.xlabel(xlabel, fontsize=16)
-            plt.ylabel(ylabel, fontsize=16)
-            plt.savefig("Contour plot - lower bound on the log "
-                "likelihood_{}_{}.png".format(split, now))
+            ax.set_xscale(xscale)
+            ax.set_yscale(yscale)
+            ax.set_xlim(0.1, 10.0)
+            ax.set_ylim(0.1, 10.0)
+            ax.set_xlabel(xlabel, fontsize=16)
+            ax.set_ylabel(ylabel, fontsize=16)
+            fig.savefig("Contour plot - lower bound on the log "
+                "likelihood_{}_{}.png".format(split, now),
+                facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
+
     Z_av = np.mean(np.array(Z_av), axis=0)
     grad_av = np.mean(np.array(grad_av), axis=0)
     if ylabel is None:
         # norm = np.abs(np.max(grad))
         # u = grad / norm
-        plt.plot(x, Z_av)
-        plt.xscale(xscale)
-        plt.ylabel(r"$\mathcal{F}(\varphi)$")
-        plt.xlabel(r"$\varphi$")
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.plot(x, Z_av)
+        ax.set_xscale(xscale)
+        ax.set_ylabel(r"$\mathcal{F}(\varphi)$")
+        ax.set_xlabel(r"$\varphi$")
         index = np.argmin(Z_av)
-        plt.scatter(
+        ax.scatter(
             x[index], Z_av[index],
             color='red', label=r"\varphi = {}".format(x[index]))
-        plt.legend()
-        plt.savefig("bound_av_{}.png".format(now))
+        ax.legend()
+        fig.savefig("bound_av_{}.png".format(now),
+            facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close()
-        plt.plot(x, grad_av)
-        plt.xscale(xscale)
-        plt.xlabel(xlabel)
-        plt.xlabel(r"$\varphi$")
-        plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial varphi}$")
-        plt.savefig("grad_av_{}.png".format(now))
+
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.plot(x, grad_av)
+        ax.set_xscale(xscale)
+        ax.set_xlabel(xlabel)
+        ax.set_xlabel(r"$\varphi$")
+        ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial varphi}$")
+        fig.savefig("grad_av_{}.png".format(now),
+            facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close()
     else:
         fig, axs = plt.subplots(1, figsize=(6, 6))
         ax = plt.axes(projection='3d')
         ax.plot_surface(x, y, Z_av, rstride=1, cstride=1, alpha=0.4,
                         cmap='viridis', edgecolor='none')
-        plt.xscale(xscale)
-        plt.yscale(yscale)
-        plt.savefig("grid_over_hyperparameters_av_{}.png".format(now))
+        ax.set_xscale(xscale)
+        ax.set_yscale(yscale)
+        fig.savefig("grid_over_hyperparameters_av_{}.png".format(now),
+            facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close()
+
         norm = np.linalg.norm(np.array((grad_av[:, 0], grad_av[:, 1])), axis=0)
         u = grad_av[:, 0] / norm
         v = grad_av[:, 1] / norm
@@ -146,14 +199,15 @@ def grid(classifier, X_trains, y_trains,
         ax.contourf(x, y, Z_av, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
         ax.plot(0.1, 30, 'm')
-        plt.xlim(0.1, 10.0)
-        plt.ylim(0.1, 10.0)
-        plt.xscale(xscale)
-        plt.yscale(yscale)
-        plt.xlabel(xlabel, fontsize=16)
-        plt.ylabel(ylabel, fontsize=16)
-        plt.savefig("Contour plot - lower bound on the log "
-            "likelihood_av_{}.png".format(now))
+        ax.set_xlim(0.1, 10.0)
+        ax.set_ylim(0.1, 10.0)
+        ax.set_xscale(xscale)
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        fig.savefig("Contour plot - lower bound on the log "
+            "likelihood_av_{}.png".format(now),
+            facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close()
 
 
@@ -181,23 +235,28 @@ def plot_contour(
     print(np.sum(Z, axis=1), 'sum')
     for j in range(classifier.J):
         fig, axs = plt.subplots(1, figsize=(6, 6))
-        plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
-        plt.scatter(
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.contourf(x1, x2, Z_new[:, :, j], zorder=1)
+        ax.scatter(
             classifier.X_train[np.where(classifier.y_train == j)][:, 0],
             classifier.X_train[np.where(classifier.y_train == j)][:, 1],
             color='red')
-        plt.scatter(
+        ax.scatter(
             X_test[np.where(t_test == j)][:, 0],
             X_test[np.where(t_test == j)][:, 1], color='blue')
-        # plt.scatter(
+        # ax.scatter(
         #   X_train[np.where(t == j + 1)][:, 0],
         #   X_train[np.where(t == j + 1)][:, 1],
         #   color='blue')
-        # plt.xlim(0, 2)
-        # plt.ylim(0, 2)
-        plt.xlabel(r"$x_1$", fontsize=16)
-        plt.ylabel(r"$x_2$", fontsize=16)
-        plt.savefig("contour_{}.png".format(j))
+        # ax.set_xlim(0, 2)
+        # ax.set_ylim(0, 2)
+        ax.set_xlabel(r"$x_1$", fontsize=16)
+        ax.set_ylabel(r"$x_2$", fontsize=16)
+        fig.savefig(
+            "contour_{}.png".format(j),
+            facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close()
 
 
@@ -240,8 +299,10 @@ def run_adam(classifier, iterations):
 
 def plot(classifier, X_test, title=""):
     """Plot from GPFlow documentation for ordinal regression."""
-    fig = plt.figure(figsize=(14, 6))
-    plt.imshow(
+    fig, ax = plt.subplots(1, 1, figsize=(14, 6))
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.imshow(
         classifier.predict(X_test),
         interpolation="nearest",
         extent=[X_test.min(), X_test.max(), -0.5, classifier.J + 0.5],
@@ -249,11 +310,11 @@ def plot(classifier, X_test, title=""):
         aspect="auto",
         cmap=plt.cm.viridis,
     )
-    plt.colorbar()
-    plt.plot(
+    ax.colorbar()
+    ax.plot(
         classifier.X_train, classifier.y_train, "kx",
         mew=2, scalex=False, scaley=False)
-    plt.savefig("test")
+    fig.savefig("test", facecolor=fig.get_facecolor(), edgecolor='none')
     plt.show()
     plt.close()
 
@@ -262,20 +323,24 @@ def plot(classifier, X_test, title=""):
     Y_new = np.arange(np.max(Y + 1)).reshape([-1, 1])
     X_new = np.full_like(Y_new, x_new)
     # for predict_log_density x and y need to have the same number of rows
-    dens_new = np.exp(m.predict_log_density((X_new, Y_new)))
-    fig = plt.figure(figsize=(8, 4))
+    dens_new = np.exp(classifier._model.predict_log_density((X_new, Y_new)))
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
     plt.bar(x=Y_new.flatten(), height=dens_new.flatten())
-    plt.savefig("test2")
+    fig.savefig("test2", facecolor=fig.get_facecolor(), edgecolor='none')
     plt.show()
     plt.close()
 
-    plt.figure(figsize=(12, 4))
+    fig, ax = plt.subplots(1, 1, figsize=(12, 4))
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
     plt.title(title)
     pY, pYv = classifier._model.predict_y(X_test)  # Predict Y values at test locations
-    plt.plot(classifier.X_train, classifier.y_train, "x", label="Training points", alpha=0.2)
-    (line,) = plt.plot(X_test, pY, lw=1.5, label="Mean of predictive posterior")
+    ax.plot(classifier.X_train, classifier.y_train, "x", label="Training points", alpha=0.2)
+    (line,) = ax.plot(X_test, pY, lw=1.5, label="Mean of predictive posterior")
     col = line.get_color()
-    plt.fill_between(
+    ax.fill_between(
         X_test[:, 0],
         (pY - 2 * pYv ** 0.5)[:, 0],
         (pY + 2 * pYv ** 0.5)[:, 0],
@@ -284,10 +349,10 @@ def plot(classifier, X_test, title=""):
         lw=1.5,
     )
     Z = classifier._model.inducing_variable.Z.numpy()
-    plt.plot(Z, np.zeros_like(Z), "k|", mew=2, label="Inducing locations")
-    plt.legend(loc="lower right")
+    ax.plot(Z, np.zeros_like(Z), "k|", mew=2, label="Inducing locations")
+    ax.legend(loc="lower right")
     plt.show()
-    plt.savefig("test3")
+    fig.savefig("test3", facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
 
@@ -312,10 +377,10 @@ def train(classifier, method, trainables, verbose=True, steps=None, max_sec=5000
         :class:`numpy.ndarray`, float or :class:`numpy.ndarray`, float, float)
     """
     minimize_stopper = MinimizeStopper(max_sec=max_sec)
-    theta = classifier.get_theta(trainables)
-    args = (trainables, verbose, steps)
+    phi = classifier.get_phi(trainables)
+    args = (trainables, steps)
     res = minimize(
-        classifier.hyperparameter_training_step, theta,
+        classifier.approximate_posterior, phi,
         args, method=method, jac=True,
         callback=minimize_stopper.__call__)
     return classifier
@@ -452,137 +517,177 @@ def outer_loop_problem_size(
     print(plot_mean_metrics)
     print(np.shape(plot_mean_metrics))
 
-    plt.plot(plot_N, plot_mean_fx, '-', color='gray',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_fx, '-', color='gray',
         label="variational bound +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_fx - plot_std_fx, plot_mean_fx + plot_std_fx, 
         color='gray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} fx.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} fx.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 13], '-', color='gray',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 13], '-', color='gray',
         label="RMSE +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 13] - plot_std_metrics[:, 13],
         plot_mean_metrics[:, 13] + plot_std_metrics[:, 13],
         color='gray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} RMSE.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} RMSE.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 14], '-', color='gray',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 14], '-', color='gray',
         label="MAE +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 14] - plot_std_metrics[:, 14],
         plot_mean_metrics[:, 14] + plot_std_metrics[:, 14],
         color='gray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} MAE.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} MAE.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 15], '-', color='gray',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 15], '-', color='gray',
         label="log predictive probability +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 15] - plot_std_metrics[:, 15],
         plot_mean_metrics[:, 15] + plot_std_metrics[:, 15],
         color='gray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} log predictive probability.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} log predictive probability.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 4], '-', color='gray',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 4], '-', color='gray',
         label="mean zero-one accuracy +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 4] - plot_std_metrics[:, 4],
         plot_mean_metrics[:, 4] + plot_std_metrics[:, 4],
         color='gray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} mean zero-one accuracy.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} mean zero-one accuracy.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 4], '-', color='black',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 4], '-', color='black',
         label="in top 1 accuracy +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 4] - plot_std_metrics[:, 4],
         plot_mean_metrics[:, 4] + plot_std_metrics[:, 4],
         color='black', alpha=0.2)
-    plt.plot(plot_N, plot_mean_metrics[:, 5], '-', color='gray',
+    ax.plot(plot_N, plot_mean_metrics[:, 5], '-', color='gray',
         label="in top 3 accuracy +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 5] - plot_std_metrics[:, 5],
         plot_mean_metrics[:, 5] + plot_std_metrics[:, 5],
         color='gray', alpha=0.2)
-    plt.plot(plot_N, plot_mean_metrics[:, 6], '-', color='lightgray',
+    ax.plot(plot_N, plot_mean_metrics[:, 6], '-', color='lightgray',
         label="in top 5 accuracy +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 6] - plot_std_metrics[:, 6],
         plot_mean_metrics[:, 6] + plot_std_metrics[:, 6],
         color='lightgray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} in top accuracy.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} in top accuracy.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 7], '-', color='black',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 7], '-', color='black',
         label="distance 1 accuracy +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 7] - plot_std_metrics[:, 7],
         plot_mean_metrics[:, 7] + plot_std_metrics[:, 7],
         color='black', alpha=0.2)
-    plt.plot(plot_N, plot_mean_metrics[:, 8], '-', color='gray',
+    ax.plot(plot_N, plot_mean_metrics[:, 8], '-', color='gray',
         label="distance 3 accuracy +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 8] - plot_std_metrics[:, 8],
         plot_mean_metrics[:, 8] + plot_std_metrics[:, 8],
         color='gray', alpha=0.2)
-    plt.plot(plot_N, plot_mean_metrics[:, 9], '-', color='lightgray',
+    ax.plot(plot_N, plot_mean_metrics[:, 9], '-', color='lightgray',
         label="distance 5 accuracy +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 9] - plot_std_metrics[:, 9],
         plot_mean_metrics[:, 9] + plot_std_metrics[:, 9],
         color='lightgray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} distance accuracy.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} distance accuracy.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 0], '-', color='gray',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 0], '-', color='gray',
         label="f1 score +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 0] - plot_std_metrics[:, 0],
         plot_mean_metrics[:, 0] + plot_std_metrics[:, 0],
         color='gray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} f1 score.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} f1 score.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 1], '-', color='gray',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 1], '-', color='gray',
         label="uncertainty plus +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 1] - plot_std_metrics[:, 1],
         plot_mean_metrics[:, 1] + plot_std_metrics[:, 1],
         color='gray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} uncertainty plus.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} uncertainty plus.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-    plt.plot(plot_N, plot_mean_metrics[:, 2], '-', color='gray',
+    fig, ax = plt.subplots(1, 1)
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(0.0)
+    ax.plot(plot_N, plot_mean_metrics[:, 2], '-', color='gray',
         label="uncertainty minus +/- 1 std")
-    plt.fill_between(
+    ax.fill_between(
         plot_N, plot_mean_metrics[:, 2] - plot_std_metrics[:, 2],
         plot_mean_metrics[:, 2] + plot_std_metrics[:, 2],
         color='gray', alpha=0.2)
-    plt.xscale("log")
-    plt.legend()
-    plt.savefig("{} uncertainty minus.png".format(string))
+    ax.set_xscale("log")
+    ax.legend()
+    fig.savefig("{} uncertainty minus.png".format(string),
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
     np.savez(
             "{} plot.npz".format(string),
@@ -682,34 +787,40 @@ def outer_loops_Rogers(
         metrics_Z = metrics_Z.reshape((N, N, np.shape(metrics_Z)[1]))
         if plot==True:
             fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, predictive_likelihood_Z)
-            plt.scatter(
+            ax.contourf(x1, x2, predictive_likelihood_Z)
+            ax.scatter(
                 X_new[argmax_predictive_likelihood, 0],
                 X_new[argmax_predictive_likelihood, 1], c='r')
             axs.set_xscale('log')
             axs.set_yscale('log')
-            plt.xlabel(r"$\log{\varphi}$", fontsize=16)
-            plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - Predictive likelihood of test set.png")
+            ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+            ax.set_ylabel(r"$\log{s}$", fontsize=16)
+            fig.savefig("Contour plot - Predictive likelihood of test set.png",
+                facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
+
             fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, bounds_Z)
-            plt.scatter(X_new[argmax_bound, 0], X_new[argmax_bound, 0], c='r')
+            ax.contourf(x1, x2, bounds_Z)
+            ax.scatter(X_new[argmax_bound, 0], X_new[argmax_bound, 0], c='r')
             axs.set_xscale('log')
             axs.set_yscale('log')
-            plt.xlabel(r"$\log{\varphi}$", fontsize=16)
-            plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - Variational lower bound.png")
+            ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+            ax.set_ylabel(r"$\log{s}$", fontsize=16)
+            fig.savefig("Contour plot - Variational lower bound.png",
+                facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
+
             fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, zero_one_Z)
-            plt.scatter(X_new[argmax_zero_one, 0], X_new[argmax_zero_one, 0], c='r')
+            ax.contourf(x1, x2, zero_one_Z)
+            ax.scatter(X_new[argmax_zero_one, 0], X_new[argmax_zero_one, 0], c='r')
             axs.set_xscale('log')
             axs.set_yscale('log')
-            plt.xlabel(r"$\log{\varphi}$", fontsize=16)
-            plt.ylabel(r"$\log{s}$", fontsize=16)
-            plt.savefig("Contour plot - mean zero-one accuracy.png")
+            ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+            ax.set_ylabel(r"$\log{s}$", fontsize=16)
+            ax.savefig("Contour plot - mean zero-one accuracy.png",
+                facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
+
     moments_metrics_Z = np.array(moments_metrics_Z)
     moments_fx_Z = np.array(moments_fx_Z)
     mean_metrics_Z = np.average(moments_metrics_Z, axis=1)
@@ -731,130 +842,301 @@ def outer_loops_Rogers(
     mean_metrics_Z = mean_metrics_Z.reshape((N, N, np.shape(mean_metrics_Z[1])))
 
     # fig, axs = plt.subplots(1, figsize=(6, 6))
-    # plt.contourf(x1, x2, mean_metrics_Z[0])
-    # plt.scatter(X_new[argmax_metrics[0], 0], X_new[argmax_metrics[0], 1], c='r')
+    # ax.contourf(x1, x2, mean_metrics_Z[0])
+    # ax.scatter(X_new[argmax_metrics[0], 0], X_new[argmax_metrics[0], 1], c='r')
     # axs.set_xscale('log')
     # axs.set_yscale('log')
-    # plt.xlabel(r"$\log{\varphi}$", fontsize=16)
-    # plt.ylabel(r"$\log{s}$", fontsize=16)
-    # plt.savefig("Contour plot - Predictive likelihood of test set.png")
+    # ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+    # ax.set_ylabel(r"$\log{s}$", fontsize=16)
+    # fig.savefig("Contour plot - Predictive likelihood of test set.png")
     # plt.close()
     fig, axs = plt.subplots(1, figsize=(6, 6))
-    plt.contourf(x1, x2, mean_fx_Z)
-    plt.scatter(X_new[argmax_fx, 0], X_new[argmax_fx, 0], c='r')
+    ax.contourf(x1, x2, mean_fx_Z)
+    ax.scatter(X_new[argmax_fx, 0], X_new[argmax_fx, 0], c='r')
     axs.set_xscale('log')
     axs.set_yscale('log')
-    plt.xlabel(r"$\log{\varphi}$", fontsize=16)
-    plt.ylabel(r"$\log{s}$", fontsize=16)
-    plt.savefig("Contour plot - Variational lower bound.png")
+    ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+    ax.set_ylabel(r"$\log{s}$", fontsize=16)
+    fig.savefig("Contour plot - Variational lower bound.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
+
+def _grid_over_hyperparameters_initiate(
+        res, domain, trainables, J):
+    """
+    Initiate metadata and hyperparameters for plotting the objective
+    function surface over hyperparameters.
+
+    :arg int res:
+    :arg domain: ((2,)tuple, (2.)tuple) of the start/stop in the domain to
+        grid over, for each axis, like: ((start, stop), (start, stop)).
+    :type domain:
+    :arg trainables: Indicator array of the hyperparameters to sample over.
+    :type trainables: :class:`numpy.ndarray`
+    :arg cutpoints: (J + 1, ) array of the cutpoints.
+    :type cutpoints: :class:`numpy.ndarray`.
+    """
+    index = 0
+    label = []
+    axis_scale = []
+    space = []
+    phi_space = []
+    if trainables[0]:
+        # Grid over noise_std
+        label.append(r"$\sigma$")
+        axis_scale.append("log")
+        theta = np.logspace(domain[index][0], domain[index][1], res[index])
+        space.append(theta)
+        phi_space.append(np.log(theta))
+        index += 1
+    if trainables[1]:
+        # Grid over b_1, the first cutpoint
+        label.append(r"$b_{}$".format(1))
+        axis_scale.append("linear")
+        theta = np.linspace(domain[index][0], domain[index][1], res[index])
+        space.append(theta)
+        phi_space.append(theta)
+        index += 1
+    for j in range(2, J):
+        if trainables[j]:
+            # Grid over b_j - b_{j-1}, the differences between cutpoints
+            label.append(r"$b_{} - b_{}$".format(j, j-1))
+            axis_scale.append("log")
+            theta = np.logspace(
+                domain[index][0], domain[index][1], res[index])
+            space.append(theta)
+            phi_space.append(np.log(theta))
+            index += 1
+    if trainables[J]:
+        # Grid over variance
+        label.append("$variance$")
+        axis_scale.append("log")
+        theta = np.logspace(domain[index][0], domain[index][1], res[index])
+        space.append(theta)
+        phi_space.append(np.log(theta))
+        index += 1
+    # TODO: 
+    # gx_0 = np.empty(1 + J - 1 + 1 + J * D)
+    # # In this case, then there is a scale parameter,
+    # #  the first cutpoint, the interval parameters,
+    # # and lengthvariances parameter for each dimension and class
+    # for j in range(J * D):
+    #     if trainables[J + 1 + j]:
+    #         # grid over this particular hyperparameter
+    #         raise ValueError("TODO")
+    #         index += 1
+    if trainables[J + 1]:
+        # Grid over only kernel hyperparameter, varphi
+        label.append(r"$\varphi$")
+        axis_scale.append("log")
+        theta = np.logspace(domain[index][0], domain[index][1], res[index])
+        space.append(theta)
+        phi_space.append(np.log(theta))
+        index +=1
+    if index == 2:
+        meshgrid_theta = np.meshgrid(space[0], space[1])
+        meshgrid_phi = np.meshgrid(phi_space[0], phi_space[1])
+        phis = np.dstack(meshgrid_phi)
+        phis = phis.reshape((len(space[0]) * len(space[1]), 2))
+        fxs = np.empty(len(phis))
+        gxs = np.empty((len(phis), 2))
+    elif index == 1:
+        meshgrid_theta = (space[0], None)
+        space.append(None)
+        phi_space.append(None)
+        axis_scale.append(None)
+        label.append(None)
+        phis = phi_space[0].reshape(-1, 1)
+        fxs = np.empty(len(phis))
+        gxs = np.empty(len(phis))
+    else:
+        raise ValueError(
+            "Too many independent variables to plot objective over!"
+            " (got {}, expected {})".format(
+            index, "1, or 2"))
+    assert len(axis_scale) == 2
+    assert len(meshgrid_theta) == 2
+    assert len(space) ==  2
+    assert len(label) == 2
+    return (
+        space[0], space[1],
+        label[0], label[1],
+        axis_scale[0], axis_scale[1],
+        meshgrid_theta[0], meshgrid_theta[1],
+        phis, fxs, gxs)
 
 
 def grid_synthetic(
-    classifier, domain, res, steps, trainables, show=False):
+    classifier, domain, res, steps, trainables, show=False, verbose=False):
     """Grid of optimised lower bound across the hyperparameters with cutpoints set."""
-    (Z, grad,
-    x, y,
+    (x1s, x2s,
     xlabel, ylabel,
-    xscale, yscale) = classifier.grid_over_hyperparameters(
-        domain=domain, res=res, steps=steps, trainables=trainables)
+    xscale, yscale,
+    xx, yy,
+    phis, fxs,
+    gxs) = _grid_over_hyperparameters_initiate(
+        res, domain, trainables, classifier.J)
+    for i, phi in enumerate(phis):
+        print(phi)
+        fx, gx = classifier.approximate_posterior(phi, trainables, steps)
+        fxs[i] = fx
+        gxs[i] = gx
+        if verbose:
+            print(
+            "\ncutpoints={}, varphi={}, noise_variance={}, variance={},"
+            "\nfunction_eval={}, \nfunction_grad={}".format(
+                classifier.cutpoints, classifier.kernel.varphi,
+                classifier.noise_variance, classifier.kernel.variance,
+                fx, gxs[i]))
+    # TODO: tidy up this code
+    if x2s is not None:
+        (Z, grad,
+        x, y,
+        xlabel, ylabel,
+        xscale, yscale) = (fxs.reshape((len(x1s), len(x2s))), gxs, xx, yy,
+                xlabel, ylabel, xscale, yscale)
+    else:
+        (Z, grad,
+        x, y,
+        xlabel, ylabel,
+        xscale, yscale) = (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
+
     print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
-        plt.plot(x, Z)
-        plt.savefig("grid_over_hyperparameters.png")
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax = fig.add_subplot(111)
+        ax.plot(x, Z)
+        fig.savefig("grid_over_hyperparameters.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
         plt.close()
-        plt.plot(x, Z, 'b')
-        plt.vlines(30.0, -80, 20, 'k', alpha=0.5, label=r"'true' $\varphi$")
-        plt.xlabel(xlabel)
-        plt.xscale(xscale)
-        plt.ylabel(r"$\mathcal{F}$")
-        plt.savefig("bound.png")
+
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax = fig.add_subplot(111)
+        ax.plot(x, Z, 'b')
+        ax.vlines(30.0, ax.get_ylim()[0], ax.get_ylim()[1], 'k', alpha=0.5, label=r"'true' $\varphi$")
+        ax.set_xlabel(xlabel)
+        ax.set_xscale(xscale)
+        ax.set_ylabel(r"$\mathcal{F}$")
+        fig.savefig("bound.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
         plt.close()
-        plt.plot(x, grad, 'r')
-        plt.vlines(30.0, -20, 20, 'k', alpha=0.5, label=r"'true' $\varphi$")
-        plt.xscale(xscale)
-        plt.xlabel(xlabel)
-        plt.ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
-        plt.savefig("grad.png")
+
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax = fig.add_subplot(111)
+        ax.plot(x, grad, 'r')
+        ax.vlines(30.0, ax.get_ylim()[0], ax.get_ylim()[1], 'k', alpha=0.5, label=r"'true' $\varphi$")
+        ax.set_xscale(xscale)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
+        fig.savefig("grad.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
         plt.close()
+
         #Normalization:
         #First derivatives: need to calculate them in the log domain
         log_x = np.log(x)
         dlog_x = np.diff(log_x)
         dZ_ = np.gradient(Z, log_x)
         dZ = np.diff(Z) / dlog_x
-        plt.plot(
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax = fig.add_subplot(111)
+        ax.plot(
             log_x, grad, 'r',
             label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ analytic")
-        plt.vlines(
-            np.log(30.0), -20, 20, 'k', alpha=0.5,
+        ax.vlines(
+            np.log(30.0), ax.get_ylim()[0], ax.get_ylim()[1], 'k', alpha=0.5,
             label=r"'true' $\log \varphi$")
-        plt.xlabel("log " + xlabel)
-        plt.ylabel(
+        ax.set_xlabel("log " + xlabel)
+        ax.set_ylabel(
             r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
-        plt.plot(
+        ax.plot(
             log_x, dZ_, 'r--',
             label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
-        plt.legend()
-        plt.savefig("both.png")
+        ax.legend()
+        fig.savefig("both.png")
         if show: plt.show()
         plt.close()
-        plt.vlines(
-            np.log(30.0), -80, 20, 'k', alpha=0.5,
+
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax = fig.add_subplot(111)
+        ax.plot(log_x, Z, 'b', label=r"$\mathcal{F}}$")
+        ax.vlines(
+            np.log(30.0), ax.get_ylim()[0], ax.get_ylim()[1], 'k', alpha=0.5,
             label=r"'true' $\log \varphi$")
-        plt.plot(log_x, Z, 'b', label=r"$\mathcal{F}}$")
-        plt.plot(
+        ax.plot(
             log_x, grad, 'r',
             label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ analytic")
-        plt.plot(
+        ax.plot(
             log_x, dZ_, 'r--',
             label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
-        plt.xlabel("log " + xlabel)
-        plt.legend()
-        plt.savefig("bound_grad.png")
+        ax.set_xlabel("log " + xlabel)
+        ax.legend()
+        fig.savefig(
+            "bound_grad.png", facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
         plt.close()
+
     else:
-        fig, axs = plt.subplots(1, figsize=(6, 6))
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
         ax = plt.axes(projection='3d')
         ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
                         cmap='viridis', edgecolor='none')
-        plt.xscale(xscale)
-        plt.yscale(yscale)
-        plt.savefig("grid_over_hyperparameters.png")
+        ax.set_xscale(xscale)
+        ax.set_yscale(yscale)
+        fig.savefig(
+            "grid_over_hyperparameters.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
         plt.close()
+
         norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
         u = grad[:, 0] / norm
         v = grad[:, 1] / norm
         fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
         ax.set_aspect(1)
         ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.1, color='red')
         ax.plot(0.1, 30, 'm')
-        plt.xscale(xscale)
+        ax.set_xscale(xscale)
         # TODO: add xlim based on the domain
-        plt.xlim(domain[0])  #TODO: temporary, remove.
-        #plt.ylim(domain[1])
-        plt.yscale(yscale)
-        plt.xlabel(xlabel, fontsize=16)
-        plt.ylabel(ylabel, fontsize=16)
-        plt.savefig("Contour plot - VB lower bound on the log likelihood.png")
+        ax.set_xlim(domain[0])  #TODO: temporary, remove.
+        #ax.set_ylim(domain[1])
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        fig.savefig(
+            "Contour plot - VB lower bound on the log likelihood.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
         plt.close()
+
         # fig, ax = plt.subplots(1, 1)
         # ax.set_aspect(1)
         # ax.contourf(x, y, np.log(Z), 100, cmap='viridis', zorder=1)
         # ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
         # ax.plot(0.1, 30, 'm')
-        # plt.xscale(xscale)
-        # plt.yscale(yscale)
-        # plt.xlabel(xlabel, fontsize=16)
-        # plt.ylabel(ylabel, fontsize=16)
-        # plt.savefig("Contour plot - log VB lower bound on the log likelihood.png")
+        # ax.set_xscale(xscale)
+        # ax.set_yscale(yscale)
+        # ax.set_xlabel(xlabel, fontsize=16)
+        # ax.set_ylabel(ylabel, fontsize=16)
+        # fig.savefig("Contour plot - log VB lower bound on the log likelihood.png")
         # if show: plt.show()
         # plt.close()
 
@@ -885,20 +1167,24 @@ def plot(classifier, steps, domain=None):
         Z_new = Z.reshape((N, N, classifier.J))
         print(np.sum(Z, axis=1), 'sum')
         for j in range(classifier.J):
-            fig, axs = plt.subplots(1, figsize=(6, 6))
-            plt.contourf(x1, x2, Z_new[:, :, j], zorder=1)
-            plt.scatter(classifier.X_train[np.where(
+            fig, ax = plt.subplots(1, figsize=(6, 6))
+            fig.patch.set_facecolor('white')
+            fig.patch.set_alpha(0.0)
+            ax.contourf(x1, x2, Z_new[:, :, j], zorder=1)
+            ax.scatter(classifier.X_train[np.where(
                 classifier.y_train == j)][:, 0],
                 classifier.X_train[np.where(
                     classifier.y_train == j)][:, 1], color='red')
-            plt.scatter(
+            ax.scatter(
                 classifier.X_train[np.where(
                     classifier.y_train == j + 1)][:, 0],
                 classifier.X_train[np.where(
                     classifier.y_train == j + 1)][:, 1], color='blue')
-            plt.xlabel(r"$x_1$", fontsize=16)
-            plt.ylabel(r"$x_2$", fontsize=16)
-            plt.savefig("contour_{}.png".format(j))
+            ax.set_xlabel(r"$x_1$", fontsize=16)
+            ax.set_ylabel(r"$x_2$", fontsize=16)
+            fig.savefig(
+                "contour_{}.png".format(j),
+                facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
     return fx
 
@@ -929,11 +1215,14 @@ def plot_synthetic(
                 posterior_std) = classifier.predict(
                     X_new, cov, weights)
                 print(np.sum(Z, axis=1), 'sum')
-                plt.xlim(x_lims)
-                plt.ylim(0.0, 1.0)
-                plt.xlabel(r"$x$", fontsize=16)
-                plt.ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
-                plt.stackplot(x, Z.T,
+                fig, ax = plt.subplots(1, 1)
+                fig.patch.set_facecolor('white')
+                fig.patch.set_alpha(0.0)
+                ax.set_xlim(x_lims)
+                ax.set_ylim(0.0, 1.0)
+                ax.set_xlabel(r"$x$", fontsize=16)
+                ax.set_ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
+                ax.stackplot(x, Z.T,
                             labels=(
                                 r"$p(\omega=0|x, X, t)$",
                                 r"$p(\omega=1|x, X, t)$",
@@ -943,38 +1232,45 @@ def plot_synthetic(
                             )
                 val = 0.5  # where the data lies on the y-axis.
                 for j in range(classifier.J):
-                    plt.scatter(
+                    ax.scatter(
                         classifier.X_train[np.where(classifier.y_train == j)],
                         np.zeros_like(classifier.X_train[np.where(
                             classifier.y_train == j)]) + val,
                         s=15, facecolors=colors[j], edgecolors='white')
-                plt.savefig(
+                fig.savefig(
                     "Cumulative distribution plot of ordinal class "
                     "distributions for x_new=[{}, {}].png".format(
-                        x_lims[0], x_lims[1]))
+                        x_lims[0], x_lims[1]),
+                        facecolor=fig.get_facecolor(), edgecolor='none')
                 plt.show()
                 plt.close()
+
                 np.savez(
                     "tertile.npz",
                     x=X_new, y=posterior_predictive_m, s=posterior_std)
-                plt.plot(X_new, posterior_predictive_m, 'r')
-                plt.fill_between(
+                fig, ax = plt.subplots(1, 1)
+                fig.patch.set_facecolor('white')
+                fig.patch.set_alpha(0.0)
+                ax.plot(X_new, posterior_predictive_m, 'r')
+                ax.fill_between(
                     X_new[:, 0], posterior_predictive_m - 2*posterior_std,
                     posterior_predictive_m + 2*posterior_std,
                     color='red', alpha=0.2)
-                plt.scatter(X_true, Y_true, color='b', s=4)
-                plt.ylim(-2.2, 2.2)
-                plt.xlim(-0.5, 1.5)
+                ax.scatter(X_true, Y_true, color='b', s=4)
+                ax.set_ylim(-2.2, 2.2)
+                ax.set_xlim(-0.5, 1.5)
                 for j in range(classifier.J):
-                    plt.scatter(
+                    ax.scatter(
                         classifier.X_train[np.where(classifier.y_train == j)],
                         np.zeros_like(classifier.X_train[
                             np.where(classifier.y_train == j)]),
                         s=15, facecolors=colors[j], edgecolors='white')
-                plt.savefig(
-                    "Scatter plot of data compared to posterior mean.png")
+                fig.savefig(
+                    "Scatter plot of data compared to posterior mean.png",
+                    facecolor=fig.get_facecolor(), edgecolor='none')
                 plt.show()
                 plt.close()
+
             elif classifier.D == 2:
                 x_lims = (-4.0, 6.0)
                 y_lims = (-4.0, 6.0)
@@ -1016,15 +1312,16 @@ def plot_synthetic(
                         Y_true[np.where(
                             classifier.y_train == j)],
                         s=15, facecolors=colors[j], edgecolors='white')
-                plt.savefig("surface.png")
+                fig.savefig("surface.png",
+                    facecolor=fig.get_facecolor(), edgecolor='none')
                 plt.show()
 
-                # plt.xlim(x_lims)
-                # plt.ylim(y_lims)
-                # plt.ylim(0.0, 1.0)
-                # plt.xlabel(r"$x$", fontsize=16)
-                # plt.ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
-                # plt.stackplot(x, Z.T,
+                # ax.set_xlim(x_lims)
+                # ax.set_ylim(y_lims)
+                # ax.set_ylim(0.0, 1.0)
+                # ax.set_xlabel(r"$x$", fontsize=16)
+                # ax.set_ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
+                # ax.stackplot(x, Z.T,
                 #             labels=(
                 #                 r"$p(\omega=0|x, X, t)$",
                 #                 r"$p(\omega=1|x, X, t)$",
@@ -1032,7 +1329,7 @@ def plot_synthetic(
                 #             colors=(
                 #                 colors[0], colors[1], colors[2])
                 #             )
-                # plt.savefig(
+                # fig.savefig(
                 #     "Ordered Gibbs Cumulative distribution plot of class "
                 #     "distributions for x_new=[{}, {}].png".format(
                 #         x_lims[0], x_lims[1]))
@@ -1041,11 +1338,13 @@ def plot_synthetic(
                 def colorTriangle(r,g,b):
                     image = np.stack([r,g,b],axis=2)
                     return image/image.max(axis=2)[:,:,None]
-                plt.imshow(
+                ax.imshow(
                     colorTriangle(
                         Z.T[0, :].reshape(N, N), Z.T[1, :].reshape(N, N),
                         Z.T[2, :].reshape(N, N)),
-                        origin='lower',extent=(-4.0,6.0,-4.0,6.0)) 
+                        origin='lower',extent=(-4.0,6.0,-4.0,6.0))
+                fig.savefig("color_triangle.png",
+                    facecolor=fig.get_facecolor(), edgecolor='none')
                 plt.show()
                 plt.close()
         else:
@@ -1059,10 +1358,13 @@ def plot_synthetic(
             posterior_std) = classifier.predict(
                 X_new, cov, weights)
             print(np.sum(Z, axis=1), 'sum')
-            plt.xlim(x_lims)
-            plt.ylim(0.0, 1.0)
-            plt.xlabel(r"$x$", fontsize=16)
-            plt.ylabel(r"$p(\omega_{*}={}|x, X, \omega)$", fontsize=16)
+            fig, ax = plt.subplots(1, 1)
+            fig.patch.set_facecolor('white')
+            fig.patch.set_alpha(0.0)
+            ax.set_xlim(x_lims)
+            ax.set_ylim(0.0, 1.0)
+            ax.set_xlabel(r"$x$", fontsize=16)
+            ax.set_ylabel(r"$p(\omega_{*}={}|x, X, \omega)$", fontsize=16)
             if classifier.J == 13:
                 plt.stackplot(x, Z.T,
                                 labels=(
@@ -1082,41 +1384,47 @@ def plot_synthetic(
                             colors=colors
                             )
             else:
-                plt.stackplot(x, Z.T, colors=colors)
+                ax.stackplot(x, Z.T, colors=colors)
             val = 0.5  # where the data lies on the y-axis.
             for j in range(classifier.J):
-                plt.scatter(
+                ax.scatter(
                     classifier.X_train[np.where(classifier.y_train == j)],
                     np.zeros_like(
                         classifier.X_train[np.where(
                             classifier.y_train == j)]) + val,
                             s=15, facecolors=colors[j],
                         edgecolors='white')
-            plt.savefig(
+            fig.savefig(
                 "Ordered Gibbs Cumulative distribution plot of class "
                 "distributions for x_new=[{}, {}].png"
-                    .format(x_lims[0], x_lims[1]))
+                    .format(x_lims[0], x_lims[1]),
+                    facecolor=fig.get_facecolor(), edgecolor='none')
             plt.show()
             plt.close()
+
             np.savez(
                 "{}.npz".format(classifier.J),
                 x=X_new, y=posterior_predictive_m, s=posterior_std)
-            plt.plot(X_new, posterior_predictive_m, 'r')
-            plt.fill_between(
+            fig, ax = plt.subplots(1, 1)
+            fig.patch.set_facecolor('white')
+            fig.patch.set_alpha(0.0)
+            ax.plot(X_new, posterior_predictive_m, 'r')
+            ax.fill_between(
                 X_new[:, 0], posterior_predictive_m - 2*posterior_std,
                 posterior_predictive_m + 2*posterior_std,
                 color='red', alpha=0.2)
-            plt.scatter(X_true, Y_true, color='b', s=4)
-            plt.ylim(-2.2, 2.2)
-            plt.xlim(-0.5, 1.5)
+            ax.scatter(X_true, Y_true, color='b', s=4)
+            ax.set_ylim(-2.2, 2.2)
+            ax.set_xlim(-0.5, 1.5)
             for j in range(classifier.J):
-                plt.scatter(
+                ax.scatter(
                     classifier.X_train[np.where(classifier.y_train == j)],
                     np.zeros_like(classifier.X_train[np.where(classifier.y_train == j)]),
                     s=15,
                     facecolors=colors[j],
                     edgecolors='white')
-            plt.savefig("scatter_versus_posterior_mean.png")
+            ax.savefig("scatter_versus_posterior_mean.png",
+                facecolor=fig.get_facecolor(), edgecolor='none')
             plt.show()
             plt.close()
     return fx
@@ -1499,18 +1807,23 @@ def draw_mixing(states, state_0, write_path, file_name, logplot=True):
     else:
         label = "phi"
     for i in range(Nparam):
-        plt.plot(states[:, i])
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.plot(states[:, i])
         mean = np.mean(states[:, i], axis=0)
         xs = np.linspace(0, Nsamp, 2)
         xs = np.tile(xs, (Nparam, 1)).T
         ys = mean * np.ones(np.shape(xs))
         trues = state_0[i] * np.ones(np.shape(xs))
-        plt.plot(xs, ys, label="sample mean")
-        plt.plot(xs, trues, color='k', label="true")
-        plt.xlim(0, Nsamp)
-        plt.legend()
+        ax.plot(xs, ys, label="sample mean")
+        ax.plot(xs, trues, color='k', label="true")
+        ax.set_xlim(0, Nsamp)
+        ax.legend()
         file_name_i = "{}_{}_".format(label, i) + file_name
-        plt.savefig(write_path / file_name_i)
+        fig.savefig(
+            write_path / file_name_i,
+            facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close()
 
 
@@ -1533,12 +1846,13 @@ def draw_histogram(states, state_0, write_path, file_name,
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
         ax.hist(states[:, i], density=True, bins=bins)
-        y_min, y_max = ax.get_ylim()
-        ax.vlines(state_0[i], 0.0, y_max, 'k')
+        ax.vlines(state_0[i], ax.get_ylim()[0], ax.get_ylim()[1], 'k')
         ax.set_xlabel(label, **font)
         plt.tight_layout()
         file_name_i = "{}_{}_".format(label, i) + file_name
-        fig.savefig(write_path / file_name_i)
+        fig.savefig(
+            write_path / file_name_i,
+            facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close()
 
 
