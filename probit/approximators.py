@@ -1350,13 +1350,14 @@ class EPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        self.EPS = 1e-3
+        self.EPS = 1e-2
         # self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
         self.jitter = 1e-10
         # Initiate hyperparameters
-        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
+        self.hyperparameters_update(
+            cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _approximate_initiate(
             self, posterior_mean_0=None, posterior_cov_0=None,
@@ -3202,7 +3203,7 @@ class LaplaceGP(Approximator):
         super().__init__(*args, **kwargs)
         # self.EPS = 0.001  # Acts as a machine tolerance
         # self.EPS = 1e-4
-        self.EPS = 1e-1
+        self.EPS = 1e-3
         # self.EPS = 1e-6
         self.EPS_2 = self.EPS**2
         # self.jitter = 1e-4  # Try increasing the noise variance if jitter has to be this large
