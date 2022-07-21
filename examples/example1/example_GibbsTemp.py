@@ -28,8 +28,8 @@ from probit.data.utilities import generate_prior_data, generate_synthetic_data, 
 
 write_path = pathlib.Path()
 
-# Septiel varphi=30.0, scale=20.0
-# Tertile varphi=30.0, noise_variance=0.1
+# Septiel theta=30.0, scale=20.0
+# Tertile theta=30.0, noise_variance=0.1
 
 
 # TODO: Check indexing is correct

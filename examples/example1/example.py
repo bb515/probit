@@ -1,6 +1,8 @@
 """Ordinal regression concrete examples. Approximate inference."""
 # Make sure to limit CPU usage
 import os
+
+from probit.utilities import dp
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
@@ -27,10 +29,10 @@ write_path = pathlib.Path()
 
 
 def get_approximator(
-        approximation, Kernel, varphi_0, signal_variance_0, N_train):
+        approximation, Kernel, theta_0, signal_variance_0, N_train):
     # Initiate kernel
     kernel = Kernel(
-        varphi=varphi_0, variance=signal_variance_0)
+        theta=theta_0, variance=signal_variance_0)
     M = None
     if approximation == "EP":
         from probit.approximators import EPGP
@@ -64,9 +66,9 @@ def get_approximator(
     #     Approximator = VGP
     #     # Initiate kernel
     #     # kernel = gpflow.kernels.SquaredExponential(
-    #     #     lengthscales=varphi_0, variance=signal_variance_0)
+    #     #     lengthscales=theta_0, variance=signal_variance_0)
     #     kernel = gpflow.kernels.SquaredExponential(
-    #         lengthscales=1./np.sqrt(2 * varphi_0),
+    #         lengthscales=1./np.sqrt(2 * theta_0),
     #         variance=signal_variance_0
     #     )
     # elif approximation == "SV":
@@ -78,7 +80,7 @@ def get_approximator(
     #     # Initiate kernel
     #     # kernel = gpflow.kernels.SquaredExponential()
     #     kernel = gpflow.kernels.SquaredExponential(
-    #         lengthscales=1./np.sqrt(2 * varphi_0),
+    #         lengthscales=1./np.sqrt(2 * theta_0),
     #         variance=signal_variance_0
     #     )
     else:
@@ -116,96 +118,97 @@ def main():
         (X_trains, y_trains,
         X_tests, y_tests,
         X_true, g_tests,
-        cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
+        cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
         J, D, Kernel) = load_data(
             dataset, bins)
-        N_train = np.shape(y_trains[0])
-        Approximator, steps, M, kernel = get_approximator(
-            approximation, Kernel, varphi_0, signal_variance_0, N_train)
-        outer_loops(
-            Approximator, Kernel, X_trains, y_trains, X_tests, y_tests, steps,
-            cutpoints_0, varphi_0, noise_variance_0, signal_variance_0, J, D)
-        if "S" in approximation:
-            # Initiate sparse classifier
-            classifier = Approximator(
-                M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                kernel=kernel, J=J, data=(X_trains[2], y_trains[2]))
-        else:
-            # Initiate classifier
-            classifier = Approximator(
-                cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                kernel=kernel, J=J, data=(X_trains[2], y_trains[2]))
-        trainables = np.ones(5)  # three
-        # trainables = np.ones(15)  # thirteen
-        # Fix noise_variance
-        trainables[0] = 0
-        # Fix cutpoints
-        trainables[1:J] = 0
-        # Fix signal variance
-        trainables[J] = 0
-        # Fix varphi
-        trainables[-1] = 0
-        classifier = train(
-            classifier, method, trainables)
-        fx, metrics = test(
-            classifier, X_tests[2], y_tests[2], g_tests[2], steps)
+        X = X_trains[2]
+        y = y_trains[2]
     elif dataset in datasets["synthetic"]:
-        # (X, g, y,
-        # cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
-        # J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
         (X, y,
         X_true, g_true,
-        cutpoints_0, varphi_0, noise_variance_0, signal_variance_0,
+        cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
-        N_train = np.shape(y)[0]
-        Approximator, steps, M, kernel = get_approximator(
-            approximation, Kernel, varphi_0, signal_variance_0, N_train)
-        noise_variance_0 = 100.0
-        if "S" in approximation:
-            # Initiate sparse classifier
-            classifier = Approximator(
-                M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                kernel=kernel, J=J, data=(X, y))
-        else:
-            # Initiate classifier
-            classifier = Approximator(
-                cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-                kernel=kernel, J=J, data=(X, y))
-        trainables = np.ones(J + 2)
-        # Fix noise variance
-        trainables[0] = 0
-        # Fix signal variance
-        trainables[J] = 0
-        # Fix varphi
-        # trainables[-1] = 0
-        # Fix cutpoints
-        trainables[1:J] = 0
-        domain = ((-2, 2), None)
-        res = (100, None)
-        # #  just signal variance
-        # domain = ((0., 1.8), None)
-        # res = (20, None)
-        # # just std
-        # domain = ((-0.1, 1.), None)
-        # res = (100, None)
-        # # varphi and signal variance
-        # domain = ((0, 2), (0, 2))
-        # res = (100, None)
-        # # cutpoints b_1 and b_2 - b_1
-        # domain = ((-0.75, -0.5), (-1.0, 1.0))
-        # res = (14, 14)
-        # grid_synthetic(classifier, domain, res, steps, trainables, show=False)
-        # plot(classifier, domain=None)
-        # classifier = train(classifier, method, trainables)
-        # classifier = train(
-        #     classifier, method, trainables, verbose=True, steps=steps)
-        # test(classifier, X, y, g_true, steps)
-        grid_synthetic(classifier, domain, res, steps, trainables, show=True)
-        # plot_synthetic(
-        #     classifier, dataset, X_true, g_true, steps, colors=colors)
-        #plot_synthetic(classifier, dataset, X, Y, colors=colors)
+    elif dataset in datasets["paper"]:
+        (X, f_, g_true, y,
+        cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
+        J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
+        # from probit.kernels import SquaredExponentialARD
+        # Kernel = SquaredExponentialARD
+        # theta_0 = np.array([1./np.sqrt(theta_0 / 2), 1./np.sqrt(theta_0 / 2)])
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
+    N_train = np.shape(y)[0]
+    Approximator, steps, M, kernel = get_approximator(
+        approximation, Kernel, theta_0, signal_variance_0, N_train)
+    if "S" in approximation:
+        # Initiate sparse classifier
+        classifier = Approximator(
+            M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+            kernel=kernel, J=J, data=(X, y))
+    else:
+        # Initiate classifier
+        classifier = Approximator(
+            cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+            kernel=kernel, J=J, data=(X, y))
+
+    trainables = [1] * (J + 2)
+    if kernel._ARD:
+        trainables[-1] = [1] * int(D)
+        # Fix theta
+        trainables[-1] = [0] * int(D)
+    else:
+        trainables[-1] = 1
+        # Fix theta
+        trainables[-1] = 0
+    # Fix noise variance
+    trainables[0] = 0
+    # Fix signal variance
+    trainables[J] = 0
+    # Fix cutpoints
+    trainables[1:J] = [0] * (J - 1)
+    trainables[J-1] = 1
+    trainables[J-2] = 1
+
+    print(trainables)
+    # just theta
+    # domain = ((-1, 1.3), None)
+    # res = (20, None)
+    # theta_0 and theta_1
+    # domain = ((-1, 1.3), (-1, 1.3))
+    # res = (20, 20)
+    # #  just signal variance, domain is log_10(signal_std)
+    # domain = ((0., 1.8), None)
+    # res = (20, None)
+    # just noise variance, domain is log_10(noise_std)
+    domain = ((-1., 0.1), (-1, 0.1))
+    res = (5, 5)
+    # # theta and signal variance
+    # domain = ((0, 2), (0, 2))
+    # res = (100, None)
+    # # cutpoints b_1 and b_2 - b_1
+    # domain = ((-0.75, -0.5), (-1.0, 1.0))
+    # res = (14, 14)
+
+    # grid_synthetic(classifier, domain, res, steps, trainables, show=False)
+
+    # plot(classifier, domain=None)
+
+    # classifier = train(classifier, method, trainables)
+    # classifier = train(
+    #     classifier, method, trainables, verbose=True, steps=steps)
+    # test(classifier, X, y, g_true, steps)
+
+    grid_synthetic(classifier, domain, res, steps, trainables, show=True)
+
+    # plot_synthetic(
+    #     classifier, dataset, X_true, g_true, steps, colors=colors)
+
+    #plot_synthetic(classifier, dataset, X, Y, colors=colors)
+
+    # outer_loops(
+    #     Approximator, Kernel, X_trains, y_trains, X_tests, y_tests, steps,
+    #     cutpoints_0, theta_0, noise_variance_0, signal_variance_0, J, D)
+
     if args.profile:
         profile.disable()
         s = StringIO()

@@ -356,11 +356,11 @@ class Sampler(ABC):
         :arg theta: The set of (log-)hyperparameters
             .. math::
                 [\log{\sigma} \log{b_{1}} \log{\Delta_{1}}
-                \log{\Delta_{2}} ... \log{\Delta_{J-2}} \log{\varphi}],
+                \log{\Delta_{2}} ... \log{\Delta_{J-2}} \log{\theta}],
 
             where :math:`\sigma` is the noise standard deviation,
             :math:`\b_{1}` is the first cutpoint, :math:`\Delta_{l}` is the
-            :math:`l`th cutpoint interval, :math:`\varphi` is the single
+            :math:`l`th cutpoint interval, :math:`\theta` is the single
             shared lengthscale parameter or vector of parameters in which
             there are D parameters.
         :type theta: :class:`numpy.ndarray`
@@ -371,7 +371,7 @@ class Sampler(ABC):
         noise_variance = None
         cutpoints = None
         variance = None
-        varphi = None
+        theta = None
         index = 0
         if trainables[0]:
             noise_std = np.exp(phi[index])
@@ -407,7 +407,7 @@ class Sampler(ABC):
             #     # In this case, then there is a scale parameter, the first
             #     # cutpoint, the interval parameters,
             #     # and lengthscales parameter for each dimension and class
-            #     varphi = np.exp(
+            #     theta = np.exp(
             #         np.reshape(
             #             theta[self.J:self.J + self.J * self.D],
             #             (self.J, self.D)))
@@ -416,11 +416,11 @@ class Sampler(ABC):
             # In this case, then there is a scale parameter, the first
             # cutpoint, the interval parameters,
             # and a single, shared lengthscale parameter
-            varphi = np.exp(phi[index])
+            theta = np.exp(phi[index])
             index += 1
         # Update prior and posterior covariance
         self.hyperparameters_update(
-            cutpoints=cutpoints, varphi=varphi, variance=variance,
+            cutpoints=cutpoints, theta=theta, variance=variance,
             noise_variance=noise_variance)
         # TODO not sure if needed
         intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
@@ -464,7 +464,7 @@ class Sampler(ABC):
         self.L_Sigma = np.linalg.cholesky(Sigma + self.jitter * np.eye(self.N))
 
     def _hyperparameters_update(
-            self, cutpoints=None, varphi=None, variance=None,
+            self, cutpoints=None, theta=None, variance=None,
             noise_variance=None):
         """
         TODO: Is the below still relevant?
@@ -473,27 +473,27 @@ class Sampler(ABC):
         approximator, not variables that change during the estimation. The
         strange thing is that hyperparameters can be absorbed into the set of
         variables and so the definition of hyperparameters and variables
-        becomes muddled. Since varphi can be a variable or a parameter, then
+        becomes muddled. Since theta can be a variable or a parameter, then
         optionally initiate it as a parameter, and then intitate it as a
         variable within :meth:`approximate`. Problem is, if it changes at
         approximate time, then a hyperparameter update needs to be called.
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
+        :arg theta: The kernel hyper-parameters.
+        :type theta: :class:`numpy.ndarray` or float.
         :arg variance:
         :type variance:
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
+        :arg theta: The kernel hyper-parameters.
+        :type theta: :class:`numpy.ndarray` or float.
         """
         if cutpoints is not None:
             self.cutpoints = check_cutpoints(cutpoints, self.J)
             self.cutpoints_ts = self.cutpoints[self.y_train]
             self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
-        if varphi is not None or variance is not None:
+        if theta is not None or variance is not None:
             self.kernel.update_hyperparameter(
-                varphi=varphi, variance=variance)
+                theta=theta, variance=variance)
             # Update prior covariance
             warnings.warn("Updating prior covariance.")
             self._update_prior()
@@ -504,13 +504,13 @@ class Sampler(ABC):
             self.noise_std = np.sqrt(noise_variance)
 
     def hyperparameters_update(
-            self, cutpoints=None, varphi=None, variance=None,
+            self, cutpoints=None, theta=None, variance=None,
             noise_variance=None, K=None, L_K=None, log_det_K=None):
         """
         Wrapper function for :meth:`_hyperparameters_update`.
         """
         self._hyperparameters_update(
-            cutpoints=cutpoints, varphi=varphi, variance=variance,
+            cutpoints=cutpoints, theta=theta, variance=variance,
             noise_variance=noise_variance)
         warnings.warn("Updating posterior covariance.")
         self._update_posterior(L_K=L_K, log_det_K=log_det_K)
@@ -537,7 +537,7 @@ class Sampler(ABC):
             phi.append(np.log(np.sqrt(self.kernel.variance)))
         # TODO: replace this with kernel number of hyperparameters.
         if trainables[self.J + 1]:
-            phi.append(np.log(self.kernel.varphi))
+            phi.append(np.log(self.kernel.theta))
         return np.array(phi)
 
     def _grid_over_hyperparameters_initiate(
@@ -602,8 +602,8 @@ class Sampler(ABC):
         else:
             gx_0 = np.empty(1 + self.J - 1 + 1 + 1)
             if trainables[self.J + 1]:
-                # Grid over only kernel hyperparameter, varphi
-                label.append(r"$\varphi$")
+                # Grid over only kernel hyperparameter, theta
+                label.append(r"$\theta$")
                 axis_scale.append("log")
                 space.append(
                     np.logspace(
@@ -685,19 +685,19 @@ class Sampler(ABC):
             scale_update = None
         if trainables[self.J + 1]:  # TODO: replace this with kernel number of hyperparameters.
             if np.isscalar(phi):
-                varphi = phi
+                theta = phi
             else:
-                varphi = phi[index]
-            varphi_update = varphi
+                theta = phi[index]
+            theta_update = theta
             index += 1
         else:
-            varphi_update = None
+            theta_update = None
         # Update kernel parameters, update prior and posterior covariance
         self.hyperparameters_update(
                 cutpoints=cutpoints, 
                 noise_variance=noise_variance_update,
                 scale=scale_update,
-                varphi=varphi_update)
+                theta=theta_update)
 
 
 class GibbsGP(Sampler):
@@ -1099,8 +1099,8 @@ class SufficientAugmentation(object):
         if reparameterised:
             log_p_theta = prior_reparameterised(
                 theta, trainables, self.sampler.J,
-                self.sampler.kernel.varphi_hyperparameters,
-                # self.sampler.varphi_hyperparameters,
+                self.sampler.kernel.theta_hyperparameters,
+                # self.sampler.theta_hyperparameters,
                 self.sampler.noise_std_hyperparameters,
                 self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters,
@@ -1109,8 +1109,8 @@ class SufficientAugmentation(object):
         else:
             log_p_theta = prior(
                 theta, trainables, self.sampler.J,
-                self.sampler.kernel.varphi_hyperparameters,
-                #self.sampler.varphi_hyperparameters,
+                self.sampler.kernel.theta_hyperparameters,
+                #self.sampler.theta_hyperparameters,
                 self.sampler.noise_std_hyperparameters,
                 self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters,
@@ -1137,7 +1137,7 @@ class SufficientAugmentation(object):
         # So we don't need to recalculate
         # TODO do I need copy?
         cutpoints = self.sampler.cutpoints.copy()
-        varphi = self.sampler.kernel.varphi.copy()
+        theta = self.sampler.kernel.theta.copy()
         variance = self.sampler.kernel.variance.copy()
         noise_variance = self.sampler.noise_variance.copy()
         L_K = self.sampler.L_K.copy()
@@ -1153,7 +1153,7 @@ class SufficientAugmentation(object):
             v, log_jacobian_v = proposal(u, trainables, proposal_L_cov)
             log_prior_v = prior(
                 v, trainables, self.sampler.J,
-                self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.kernel.theta_hyperparameters,
                 self.sampler.noise_std_hyperparameters,
                 self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters,
@@ -1181,7 +1181,7 @@ class SufficientAugmentation(object):
             # Revert the hyperparameters and
             # prior and posterior covariances to previous values
             self.sampler.hyperparameters_update(
-                cutpoints=cutpoints, varphi=varphi, variance=variance,
+                cutpoints=cutpoints, theta=theta, variance=variance,
                 noise_variance=noise_variance,
                 K=K, L_K=L_K, log_det_K=log_det_K, cov=cov, L_Sigma=L_Sigma)
             joint_log_likelihood = log_p_y_given_f + log_p_f_given_u + log_prior_u
@@ -1202,7 +1202,7 @@ class SufficientAugmentation(object):
             phi_0, log_jacobian_phi = proposal(phi_0, trainables, proposal_L_cov)
             log_prior = prior(
                 phi_0, trainables, self.sampler.J,
-                self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.kernel.theta_hyperparameters,
                 self.sampler.noise_std_hyperparameters,
                 self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters,
@@ -1305,8 +1305,8 @@ class AncilliaryAugmentation(object):
         if reparameterised:
             log_p_theta = prior_reparameterised(
                 theta, trainables, self.sampler.J,
-                self.sampler.kernel.varphi_hyperparameters,
-                #self.sampler.varphi_hyperparameters,
+                self.sampler.kernel.theta_hyperparameters,
+                #self.sampler.theta_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters,
                 # self.sampler.variance_hyperparameters,
@@ -1314,8 +1314,8 @@ class AncilliaryAugmentation(object):
         else:
             log_p_theta = prior(
                 theta, trainables, self.sampler.J,
-                self.sampler.kernel.varphi_hyperparameters,
-                # self.sampler.varphi_hyperparameters,
+                self.sampler.kernel.theta_hyperparameters,
+                # self.sampler.theta_hyperparameters,
                 self.sampler.noise_std_hyperparameters, self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters,
                 #self.sampler.variance_hyperparameters,
@@ -1344,7 +1344,7 @@ class AncilliaryAugmentation(object):
         # So we don't need to recalculate
         # TODO do I need copy?
         cutpoints = self.sampler.cutpoints.copy()
-        varphi = self.sampler.kernel.varphi.copy()
+        theta = self.sampler.kernel.theta.copy()
         variance = self.sampler.kernel.variance.copy()
         noise_variance = self.sampler.noise_variance.copy()
         L_K = self.sampler.L_K.copy()
@@ -1362,7 +1362,7 @@ class AncilliaryAugmentation(object):
                 u, trainables, proposal_L_cov, self.sampler.J)
             log_prior_v = prior(
                 v, trainables, self.sampler.J,
-                self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.kernel.theta_hyperparameters,
                 self.sampler.noise_std_hyperparameters,
                 self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters,
@@ -1389,7 +1389,7 @@ class AncilliaryAugmentation(object):
             # Revert the hyperparameters and
             # prior and posterior covariances to previous values
             self.sampler.hyperparameters_update(
-                cutpoints=cutpoints, varphi=varphi, variance=variance,
+                cutpoints=cutpoints, theta=theta, variance=variance,
                 noise_variance=noise_variance,
                 K=K, L_K=L_K, log_det_K=log_det_K)
             joint_log_likelihood = log_p_y_given_f + log_p_f_given_u + log_prior_u
@@ -1412,7 +1412,7 @@ class AncilliaryAugmentation(object):
                 phi_0, trainables, proposal_L_cov, self.sampler.J)
             log_prior = prior(
                 phi_0, trainables, self.sampler.J,
-                self.sampler.kernel.varphi_hyperparameters,
+                self.sampler.kernel.theta_hyperparameters,
                 self.sampler.noise_std_hyperparameters,
                 self.sampler.cutpoints_hyperparameters,
                 self.sampler.kernel.variance_hyperparameters,
@@ -1517,11 +1517,11 @@ class PseudoMarginal(object):
     #     defined over continuous domains. Hyperparameter priors assumed to be
     #     independent assumption so take the product of prior pdfs.
     #     """
-    #     (cutpoints, varphi, scale, noise_variance,
+    #     (cutpoints, theta, scale, noise_variance,
     #         log_prior) = prior(theta, trainables)
     #     # Update prior covariance
     #     self.approximator.hyperparameters_update(
-    #         cutpoints=cutpoints, varphi=varphi, scale=scale,
+    #         cutpoints=cutpoints, theta=theta, scale=scale,
     #         noise_variance=noise_variance)
     #     # intervals = self.approximator.cutpoints[2:self.approximator.J] - self.approximator.cutpoints[1:self.approximator.J - 1]
     #     return log_prior
@@ -1645,8 +1645,8 @@ class PseudoMarginal(object):
         if reparameterised:
             log_p_theta = prior_reparameterised(
                 theta, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
-                #self.approximator.varphi_hyperparameters,
+                self.approximator.kernel.theta_hyperparameters,
+                #self.approximator.theta_hyperparameters,
                 self.approximator.noise_std_hyperparameters,
                 self.approximator.cutpoints_hyperparameters,
                 #self.approximator.variance_hyperparameters,
@@ -1655,8 +1655,8 @@ class PseudoMarginal(object):
         else:
             log_p_theta = prior(
                 theta, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
-                #self.approximator.varphi_hyperparameters,
+                self.approximator.kernel.theta_hyperparameters,
+                #self.approximator.theta_hyperparameters,
                 self.approximator.noise_std_hyperparameters,
                 self.approximator.cutpoints_hyperparameters,
                 self.approximator.kernel.variance_hyperparameters,
@@ -1723,8 +1723,8 @@ class PseudoMarginal(object):
                 u, trainables, proposal_L_cov)
             log_p_v = prior_reparameterised(
                 v, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
-                #self.approximator.varphi_hyperparameters,
+                self.approximator.kernel.theta_hyperparameters,
+                #self.approximator.theta_hyperparameters,
                 self.approximator.noise_std_hyperparameters,
                 self.approximator.cutpoints_hyperparameters,
                 self.approximator.kernel.variance_hyperparameters,
@@ -1735,8 +1735,8 @@ class PseudoMarginal(object):
                 u, trainables, proposal_L_cov, self.approximator.J)
             log_p_v = prior(
                 v, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
-                #self.approximator.varphi_hyperparameters,
+                self.approximator.kernel.theta_hyperparameters,
+                #self.approximator.theta_hyperparameters,
                 self.approximator.noise_std_hyperparameters,
                 self.approximator.cutpoints_hyperparameters,
                 #self.approximator.variance_hyperparameters,
@@ -1851,8 +1851,8 @@ class PseudoMarginal(object):
                 phi_0, trainables, proposal_L_cov)
             log_p_theta = prior_reparameterised(
                 phi_0, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
-                #self.approximator.varphi_hyperparameters,
+                self.approximator.kernel.theta_hyperparameters,
+                #self.approximator.theta_hyperparameters,
                 self.approximator.noise_std_hyperparameters,
                 self.approximator.cutpoints_hyperparameters,
                 #self.approximator.variance_hyperparameters,
@@ -1863,8 +1863,8 @@ class PseudoMarginal(object):
                 phi_0, trainables, proposal_L_cov, self.approximator.J)
             log_p_theta = prior(
                 phi_0, trainables, self.approximator.J,
-                self.approximator.kernel.varphi_hyperparameters,
-                #self.approximator.varphi_hyperparameters,
+                self.approximator.kernel.theta_hyperparameters,
+                #self.approximator.theta_hyperparameters,
                 self.approximator.noise_std_hyperparameters,
                 self.approximator.cutpoints_hyperparameters,
                 #self.approximator.variance_hyperparameters,

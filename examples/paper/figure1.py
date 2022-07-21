@@ -74,7 +74,7 @@ def main():
         (X_trains, y_trains,
         X_tests, y_tests,
         X_true, g_tests,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0,
+        cutpoints_0, theta_0, noise_variance_0, scale_0,
         J, D, Kernel) = load_data(
             dataset, bins)
         burn_steps = 2000
@@ -84,10 +84,10 @@ def main():
         # outer_loops(
         #     test, GibsGP, Kernel, X_trains, y_trains, X_tests,
         #     y_tests, burn_steps, steps,
-        #     cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D)
+        #     cutpoints_0, theta_0, noise_variance_0, scale_0, J, D)
         # Initiate kernel
         kernel = Kernel(
-            varphi=varphi_0, variance=scale_0)
+            theta=theta_0, variance=scale_0)
         # Initiate classifier
         sampler = GibbsGP(
             cutpoints_0, noise_variance_0, kernel, J,
@@ -105,7 +105,7 @@ def main():
         else:
             (X, y,
             X_true, g_true,
-            cutpoints_0, varphi_0, noise_variance_0, scale_0,
+            cutpoints_0, theta_0, noise_variance_0, scale_0,
             J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
 
         # Set lengthscale hyperparameters
@@ -113,9 +113,9 @@ def main():
 
         # Initiate kernel
         kernel = Kernel(
-            varphi=lengthscale_0,
+            theta=lengthscale_0,
             variance=variance_0,
-            varphi_hyperparameters=lengthscale_hyperparameters)
+            theta_hyperparameters=lengthscale_hyperparameters)
         # sampler = GibbsGP(cutpoints_0, noise_variance_0, kernel, J, (X, t))
         noise_std_hyperparameters = None
         cutpoints_hyperparameters = None
@@ -124,24 +124,24 @@ def main():
             noise_std_hyperparameters,
             cutpoints_hyperparameters, kernel, J, (X, y))
         M = 1000
-        # varphis_step = varphis[1:] - varphis[:-1]
-        # varphis = varphis[:-1]
+        # thetas_step = thetas[1:] - thetas[:-1]
+        # thetas = thetas[:-1]
         trainables = np.ones(J + 2)
         # Fix noise_variance
         trainables[0] = 0
         # Fix scale
         trainables[J] = 0
-        # Fix varphi
+        # Fix theta
         #trainables[-1] = 0
         # Fix cutpoints
         trainables[1:J] = 0
-        # Just varphi
+        # Just theta
         domain = ((-1.5, 0.0), None)
         res = (M + 1, None)
 
-        varphis = np.logspace(domain[0][0], domain[0][1], res[0])
-        varphis_step = varphis[1:] - varphis[:-1]
-        varphis = varphis[1:]
+        thetas = np.logspace(domain[0][0], domain[0][1], res[0])
+        thetas_step = thetas[1:] - thetas[:-1]
+        thetas = thetas[1:]
 
         phi = sampler.get_phi(trainables)
         proposal_cov = 0.05
@@ -152,15 +152,15 @@ def main():
         log_p_theta_giv_y_nus = []
         from scipy.linalg import solve_triangular
         nu = solve_triangular(sampler.L_K.T, f, lower=True)
-        for i, varphi in enumerate(varphis):
+        for i, theta in enumerate(thetas):
             # print(i)
             # Need to update sampler hyperparameters
-            sampler.hyperparameters_update(varphi=varphi)
+            sampler.hyperparameters_update(theta=theta)
             theta=sampler.get_phi(trainables)
             log_p_theta_giv_y_nu = hyper_sampler.tmp_compute_marginal(
                 nu, theta, trainables, proposal_L_cov, reparameterised=False)
             log_p_theta_giv_y_nus.append(log_p_theta_giv_y_nu)
-        plt.plot(varphis, log_p_theta_giv_y_nus)
+        plt.plot(thetas, log_p_theta_giv_y_nus)
         plt.savefig("AAa {}.png".format(lengthscale_0))
         plt.show()
         plt.close()
@@ -168,8 +168,8 @@ def main():
         log_sum_exp = max_log_p_theta_giv_y_nus + np.log(np.sum(
             np.exp(log_p_theta_giv_y_nus - max_log_p_theta_giv_y_nus)))
         p_theta_giv_y_nus = np.exp(
-            log_p_theta_giv_y_nus - log_sum_exp - np.log(varphis_step))
-        plt.plot(varphis, p_theta_giv_y_nus)
+            log_p_theta_giv_y_nus - log_sum_exp - np.log(thetas_step))
+        plt.plot(thetas, p_theta_giv_y_nus)
         plt.savefig("AAb {}.png".format(lengthscale_0))
         plt.show()
         plt.close()
@@ -177,10 +177,10 @@ def main():
         # Sufficient Augmentation approach
         hyper_sampler = SufficientAugmentation(sampler)
         log_p_theta_giv_ms = []
-        for i, varphi in enumerate(varphis):
+        for i, theta in enumerate(thetas):
             print(i)
             # Need to update sampler hyperparameters
-            sampler.hyperparameters_update(varphi=varphi)
+            sampler.hyperparameters_update(theta=theta)
             theta=sampler.get_phi(trainables)
             log_p_theta_giv_ms.append(hyper_sampler.tmp_compute_marginal(
                     f, theta, trainables, proposal_L_cov,
@@ -193,8 +193,8 @@ def main():
         log_sum_exp = max_log_p_theta_giv_ms + np.log(
             np.sum(np.exp(log_p_theta_giv_ms - max_log_p_theta_giv_ms)))
         p_theta_giv_ms = np.exp(
-            log_p_theta_giv_ms - log_sum_exp - np.log(varphis_step))
-        plt.plot(varphis, p_theta_giv_ms)
+            log_p_theta_giv_ms - log_sum_exp - np.log(thetas_step))
+        plt.plot(thetas, p_theta_giv_ms)
         plt.savefig("SAb.png")
         plt.show()
         plt.close()
@@ -203,12 +203,12 @@ def main():
         approximator = EPGP(
                         cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                         kernel=kernel, J=J, data=(X, y),
-                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
+                        theta_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
         # Initiate hyper-parameter sampler
         hyper_sampler = PseudoMarginal(approximator)
         log_p_pseudo_marginalss = []
         log_p_priors = []
-        for i, theta in enumerate(varphis):
+        for i, theta in enumerate(thetas):
             # Need to update sampler hyperparameters
             approximator._grid_over_hyperparameters_update(
                 theta, trainables, approximator.cutpoints)
@@ -224,10 +224,10 @@ def main():
         log_p_pseudo_marginalss = np.array(log_p_pseudo_marginalss)
         log_p_pseudo_marginals_ms = np.mean(log_p_pseudo_marginalss, axis=1)
         # Normalize prior distribution - but need to make sure domain is such that approx all posterior mass is covered
-        log_prob = log_p_priors + np.log(varphis_step)
+        log_prob = log_p_priors + np.log(thetas_step)
         max_log_prob = np.max(log_prob)
         log_sum_exp = max_log_prob + np.log(np.sum(np.exp(log_prob - max_log_prob)))
-        log_prob = log_p_pseudo_marginals_ms + np.log(varphis_step)
+        log_prob = log_p_pseudo_marginals_ms + np.log(thetas_step)
         max_log_prob = np.max(log_prob)
         log_sum_exp = max_log_prob + np.log(
             np.sum(np.exp(log_prob - max_log_prob)))
@@ -239,9 +239,9 @@ def main():
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
-        ax.plot(varphis, p_pseudo_marginals_mean, 'k', label="PM")
-        ax.plot(varphis, p_theta_giv_ms, 'b', label="SA", )
-        ax.plot(varphis, p_theta_giv_y_nus, 'r', label="AA")
+        ax.plot(thetas, p_pseudo_marginals_mean, 'k', label="PM")
+        ax.plot(thetas, p_theta_giv_ms, 'b', label="SA", )
+        ax.plot(thetas, p_theta_giv_y_nus, 'r', label="AA")
         ax.set_facecolor('white')
         ax.set_xlabel("length-scale")
         ax.set_ylabel("posterior density")

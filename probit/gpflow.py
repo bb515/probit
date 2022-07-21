@@ -142,7 +142,7 @@ class VGP(Approximator):
         return np.array(phi)
 
     def hyperparameters_update(
-            self, cutpoints=None, varphi=None, variance=None,
+            self, cutpoints=None, theta=None, variance=None,
             noise_variance=None):
         """
         Reset kernel hyperparameters, generating new prior and posterior
@@ -150,17 +150,17 @@ class VGP(Approximator):
 
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.
-        :arg varphi: The kernel hyper-parameters.
-        :type varphi: :class:`numpy.ndarray` or float.
+        :arg theta: The kernel hyper-parameters.
+        :type theta: :class:`numpy.ndarray` or float.
         :arg variance:
         :type variance:
         :arg float noise_variance: The noise variance.
         :type noise_variance:
-        :arg varphi_hyperparameters:
-        :type varphi_hyperparameters:
+        :arg theta_hyperparameters:
+        :type theta_hyperparameters:
         """
-        if varphi is not None:
-            self._model.kernel.lengthscales.assign(varphi)
+        if theta is not None:
+            self._model.kernel.lengthscales.assign(theta)
         if variance is not None:
             self._model.kernel.variance.assign(variance)
         if noise_variance is not None:
@@ -210,9 +210,9 @@ class VGP(Approximator):
             if verbose:
                 print("function call {}, gradient vector {}".format(fx, gx))
                 print(
-                    "cutpoints={}, varphi={}, noise_variance={}, variance={}, "
+                    "cutpoints={}, theta={}, noise_variance={}, variance={}, "
                     "fx={}, gx={}".format(
-                    self.cutpoints, self.kernel.varphi, self.noise_variance,
+                    self.cutpoints, self.kernel.theta, self.noise_variance,
                     self.kernel.variance, fx, gxs[i]))
         if x2s is not None:
             return (

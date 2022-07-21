@@ -33,8 +33,8 @@ def grid(classifier, X_trains, y_trains,
         to distinguish between plots.
     :arg cutpoints:
     :type cutpoints: :class:`numpy.ndarray` or None
-    :arg varphi:
-    :type varphi: :class:`numpy.ndarray` or float or None
+    :arg theta:
+    :type theta: :class:`numpy.ndarray` or float or None
     :arg noise_variance:
     :type noise_variance: float or None
     :arg variance:
@@ -66,9 +66,9 @@ def grid(classifier, X_trains, y_trains,
             gxs[i] = gx
             if verbose:
                 print(
-                "\ncutpoints={}, varphi={}, noise_variance={}, variance={},"
+                "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
                 "\nfunction_eval={}, \nfunction_grad={}".format(
-                    classifier.cutpoints, classifier.kernel.varphi,
+                    classifier.cutpoints, classifier.kernel.theta,
                     classifier.noise_variance, classifier.kernel.variance,
                     fx, gxs[i]))
         # TODO: tidy up this code
@@ -95,12 +95,12 @@ def grid(classifier, X_trains, y_trains,
             fig.patch.set_alpha(0.0)
             ax.scatter(
                 x[index], Z[index],
-                color='red', label=r"$\varphi$ = {}".format(x[index]))
+                color='red', label=r"$\theta$ = {}".format(x[index]))
             ax.legend()
             ax.plot(x, Z)
             ax.set_xscale(xscale)
-            ax.set_xlabel(r"$\varphi$")
-            ax.set_ylabel(r"$\mathcal{F}(\varphi)$")
+            ax.set_xlabel(r"$\theta$")
+            ax.set_ylabel(r"$\mathcal{F}(\theta)$")
             fig.savefig(
                 "bound_{}_{}.png".format(split, now),
                 facecolor=fig.get_facecolor(), edgecolor='none')
@@ -112,8 +112,8 @@ def grid(classifier, X_trains, y_trains,
             ax.plot(x, grad)
             ax.set_xscale(xscale)
             ax.set_xlabel(xlabel)
-            ax.set_xlabel(r"$\varphi$")
-            ax.set_ylabel(r"\frac{\partial \mathcal{F}}{\partial varphi}")
+            ax.set_xlabel(r"$\theta$")
+            ax.set_ylabel(r"\frac{\partial \mathcal{F}}{\partial theta}")
             fig.savefig(
                 "grad_{}_{}.png".format(split, now),
                 facecolor=fig.get_facecolor(), edgecolor='none')
@@ -158,12 +158,12 @@ def grid(classifier, X_trains, y_trains,
         fig.patch.set_alpha(0.0)
         ax.plot(x, Z_av)
         ax.set_xscale(xscale)
-        ax.set_ylabel(r"$\mathcal{F}(\varphi)$")
-        ax.set_xlabel(r"$\varphi$")
+        ax.set_ylabel(r"$\mathcal{F}(\theta)$")
+        ax.set_xlabel(r"$\theta$")
         index = np.argmin(Z_av)
         ax.scatter(
             x[index], Z_av[index],
-            color='red', label=r"\varphi = {}".format(x[index]))
+            color='red', label=r"\theta = {}".format(x[index]))
         ax.legend()
         fig.savefig("bound_av_{}.png".format(now),
             facecolor=fig.get_facecolor(), edgecolor='none')
@@ -175,8 +175,8 @@ def grid(classifier, X_trains, y_trains,
         ax.plot(x, grad_av)
         ax.set_xscale(xscale)
         ax.set_xlabel(xlabel)
-        ax.set_xlabel(r"$\varphi$")
-        ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial varphi}$")
+        ax.set_xlabel(r"$\theta$")
+        ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial theta}$")
         fig.savefig("grad_av_{}.png".format(now),
             facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close()
@@ -412,9 +412,9 @@ def save_model(
             approximator_string=repr(classifier),
             optimizer_method_string=optimizer_method_string,
             N_train=classifier.N,
-            varphi=classifier.kernel.varphi,
-            varphi_hyperparameters=classifier.kernel.varphi_hyperparameters,
-            varphi_hyperhyperparameters=classifier.kernel.varphi_hyperhyperparameters,
+            theta=classifier.kernel.theta,
+            theta_hyperparameters=classifier.kernel.theta_hyperparameters,
+            theta_hyperhyperparameters=classifier.kernel.theta_hyperhyperparameters,
             signal_variance=classifier.kernel.variance,
             cutpoints=classifier.cutpoints,
             noise_variance=classifier.noise_variance,
@@ -447,7 +447,7 @@ def save_model(
 def outer_loop_problem_size(
         test, Approximator, Kernel, method, X_trains, y_trains, X_tests, t_tests,
         y_tests, steps,
-        cutpoints_0, varphi_0, noise_variance_0, scale_0, J, D, size, num,
+        cutpoints_0, theta_0, noise_variance_0, scale_0, J, D, size, num,
         string="VB"):
     """
     Plots outer loop for metrics and variational lower bound over N_train
@@ -474,8 +474,8 @@ def outer_loop_problem_size(
     :arg steps:
     :arg cutpoints_0
     :type cutpoints_0:
-    :arg varphi_0:
-    :type varphi_0:
+    :arg theta_0:
+    :type theta_0:
     :arg noise_variance_0:
     :type noise_variance_0:
     :arg variance_0:
@@ -502,7 +502,7 @@ def outer_loop_problem_size(
             test, Approximator, Kernel, method,
             X_trains[:, :N, :], y_trains[:, :N],
             X_tests, t_tests, y_tests, steps,
-            cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D)
+            cutpoints_0, theta_0, noise_variance_0, variance_0, J, D)
         plot_N.append(N)
         plot_mean_fx.append(mean_fx)
         plot_std_fx.append(std_fx)
@@ -699,15 +699,15 @@ def outer_loop_problem_size(
 
 def outer_loops(
         test, Approximator, Kernel, method, X_trains, y_trains, X_tests, t_tests,
-        y_tests, steps, cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D):
+        y_tests, steps, cutpoints_0, theta_0, noise_variance_0, variance_0, J, D):
     moments_fx = []
-    #moments_varphi = []
+    #moments_theta = []
     #moments_noise_variance = []
     #moments_cutpoints = []
     moments_metrics = []
     for split in range(1):
         # Reset kernel
-        kernel = Kernel(varphi=varphi_0, variance=variance_0)
+        kernel = Kernel(theta=theta_0, variance=variance_0)
         # Build the classifier with the new training data
         classifier = Approximator(
             cutpoints_0, noise_variance_0, kernel, J,
@@ -719,7 +719,7 @@ def outer_loops(
             steps)
         moments_fx.append(fx / classifier.N)  # if divided by N it is average per datapoint
         moments_metrics.append(metrics)
-        # moments_varphi.append(classifier.varphi)
+        # moments_theta.append(classifier.theta)
         # moments_noise_variance.append(classifier.noise_variance)
         # moments_cutpoints.append(classifier.cutpoints[1:-1])
     moments_fx = np.array(moments_fx)
@@ -734,7 +734,7 @@ def outer_loops(
 def outer_loops_Rogers(
         test, Approximator, Kernel, X_trains, y_trains, X_tests, t_tests,
         y_tests,
-        cutpoints_0, varphi_0, noise_variance_0, variance_0, J, D, plot=False):
+        cutpoints_0, theta_0, noise_variance_0, variance_0, J, D, plot=False):
     steps = 50
     grid = np.ogrid[0:len(X_tests[0, :, :])]
     moments_fx_Z = []
@@ -751,7 +751,7 @@ def outer_loops_Rogers(
     X_new = X_new.reshape((N * N, 2))
     for split in range(20):
         # Reset kernel
-        kernel = Kernel(varphi=varphi_0, variance=variance_0)
+        kernel = Kernel(theta=theta_0, variance=variance_0)
         # Build the classifier with the new training data
         classifier = Approximator(
             cutpoints_0, noise_variance_0, kernel, J,
@@ -765,9 +765,9 @@ def outer_loops_Rogers(
         for x_new in X_new:
             noise_std = x_new[0]
             noise_variance = noise_std**2
-            varphi = x_new[1]
+            theta = x_new[1]
             classifier.hyperparameters_update(
-                noise_variance=noise_variance, varphi=varphi)
+                noise_variance=noise_variance, theta=theta)
             (fx, metrics) = test(
             classifier,
             X_test, t_test, y_test, steps)
@@ -793,7 +793,7 @@ def outer_loops_Rogers(
                 X_new[argmax_predictive_likelihood, 1], c='r')
             axs.set_xscale('log')
             axs.set_yscale('log')
-            ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+            ax.set_xlabel(r"$\log{\theta}$", fontsize=16)
             ax.set_ylabel(r"$\log{s}$", fontsize=16)
             fig.savefig("Contour plot - Predictive likelihood of test set.png",
                 facecolor=fig.get_facecolor(), edgecolor='none')
@@ -804,7 +804,7 @@ def outer_loops_Rogers(
             ax.scatter(X_new[argmax_bound, 0], X_new[argmax_bound, 0], c='r')
             axs.set_xscale('log')
             axs.set_yscale('log')
-            ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+            ax.set_xlabel(r"$\log{\theta}$", fontsize=16)
             ax.set_ylabel(r"$\log{s}$", fontsize=16)
             fig.savefig("Contour plot - Variational lower bound.png",
                 facecolor=fig.get_facecolor(), edgecolor='none')
@@ -815,7 +815,7 @@ def outer_loops_Rogers(
             ax.scatter(X_new[argmax_zero_one, 0], X_new[argmax_zero_one, 0], c='r')
             axs.set_xscale('log')
             axs.set_yscale('log')
-            ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+            ax.set_xlabel(r"$\log{\theta}$", fontsize=16)
             ax.set_ylabel(r"$\log{s}$", fontsize=16)
             ax.savefig("Contour plot - mean zero-one accuracy.png",
                 facecolor=fig.get_facecolor(), edgecolor='none')
@@ -846,7 +846,7 @@ def outer_loops_Rogers(
     # ax.scatter(X_new[argmax_metrics[0], 0], X_new[argmax_metrics[0], 1], c='r')
     # axs.set_xscale('log')
     # axs.set_yscale('log')
-    # ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+    # ax.set_xlabel(r"$\log{\theta}$", fontsize=16)
     # ax.set_ylabel(r"$\log{s}$", fontsize=16)
     # fig.savefig("Contour plot - Predictive likelihood of test set.png")
     # plt.close()
@@ -855,14 +855,14 @@ def outer_loops_Rogers(
     ax.scatter(X_new[argmax_fx, 0], X_new[argmax_fx, 0], c='r')
     axs.set_xscale('log')
     axs.set_yscale('log')
-    ax.set_xlabel(r"$\log{\varphi}$", fontsize=16)
+    ax.set_xlabel(r"$\log{\theta}$", fontsize=16)
     ax.set_ylabel(r"$\log{s}$", fontsize=16)
     fig.savefig("Contour plot - Variational lower bound.png",
         facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
 def _grid_over_hyperparameters_initiate(
-        res, domain, trainables, J):
+        classifier, res, domain, trainables):
     """
     Initiate metadata and hyperparameters for plotting the objective
     function surface over hyperparameters.
@@ -881,6 +881,8 @@ def _grid_over_hyperparameters_initiate(
     axis_scale = []
     space = []
     phi_space = []
+    phi_0 = classifier.get_phi(trainables)
+    theta_0 = []
     if trainables[0]:
         # Grid over noise_std
         label.append(r"$\sigma$")
@@ -888,51 +890,62 @@ def _grid_over_hyperparameters_initiate(
         theta = np.logspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
         phi_space.append(np.log(theta))
+        theta_0.append(np.exp(phi_0[index]))
         index += 1
     if trainables[1]:
+        phi_0 = np.exp(phi_0)
         # Grid over b_1, the first cutpoint
         label.append(r"$b_{}$".format(1))
         axis_scale.append("linear")
         theta = np.linspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
         phi_space.append(theta)
+        theta_0.append(phi_0[index])
         index += 1
-    for j in range(2, J):
+    for j in range(2, classifier.J):
         if trainables[j]:
             # Grid over b_j - b_{j-1}, the differences between cutpoints
-            label.append(r"$b_{} - b_{}$".format(j, j-1))
+            label.append(rf"$b_{ {j} } - b_{ {j-1} }$")
             axis_scale.append("log")
             theta = np.logspace(
                 domain[index][0], domain[index][1], res[index])
             space.append(theta)
             phi_space.append(np.log(theta))
+            theta_0.append(np.exp(phi_0[index]))
             index += 1
-    if trainables[J]:
+    if trainables[classifier.J]:
         # Grid over variance
         label.append("$variance$")
         axis_scale.append("log")
         theta = np.logspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
         phi_space.append(np.log(theta))
+        theta_0.append(np.exp(phi_0[index]))
         index += 1
-    # TODO: 
-    # gx_0 = np.empty(1 + J - 1 + 1 + J * D)
-    # # In this case, then there is a scale parameter,
-    # #  the first cutpoint, the interval parameters,
-    # # and lengthvariances parameter for each dimension and class
-    # for j in range(J * D):
-    #     if trainables[J + 1 + j]:
-    #         # grid over this particular hyperparameter
-    #         raise ValueError("TODO")
-    #         index += 1
-    if trainables[J + 1]:
-        # Grid over only kernel hyperparameter, varphi
-        label.append(r"$\varphi$")
-        axis_scale.append("log")
-        theta = np.logspace(domain[index][0], domain[index][1], res[index])
-        space.append(theta)
-        phi_space.append(np.log(theta))
-        index +=1
+    if classifier.kernel._ARD is True:
+        # In this case, then there is a scale parameter,
+        #  the first cutpoint, the interval parameters,
+        # and lengthvariances parameter for each dimension and class
+        for d in range(classifier.D):
+            if trainables[classifier.J + 1][d]:
+                # Grid over kernel hyperparameter, theta in this dimension
+                label.append(r"$\theta_{}$".format(d))
+                axis_scale.append("log")
+                theta = np.logspace(domain[index][0], domain[index][1], res[index])
+                space.append(theta)
+                phi_space.append(np.log(theta))
+                theta_0.append(np.exp(phi_0[index]))
+                index += 1
+    else:
+        if trainables[classifier.J + 1]:
+            # Grid over only kernel hyperparameter, theta
+            label.append(r"$\theta$")
+            axis_scale.append("log")
+            theta = np.logspace(domain[index][0], domain[index][1], res[index])
+            space.append(theta)
+            phi_space.append(np.log(theta))
+            theta_0.append(np.exp(phi_0[index]))
+            index +=1
     if index == 2:
         meshgrid_theta = np.meshgrid(space[0], space[1])
         meshgrid_phi = np.meshgrid(phi_space[0], phi_space[1])
@@ -951,7 +964,7 @@ def _grid_over_hyperparameters_initiate(
         gxs = np.empty(len(phis))
     else:
         raise ValueError(
-            "Too many independent variables to plot objective over!"
+            "Too few or too many independent variables to plot objective over!"
             " (got {}, expected {})".format(
             index, "1, or 2"))
     assert len(axis_scale) == 2
@@ -963,7 +976,7 @@ def _grid_over_hyperparameters_initiate(
         label[0], label[1],
         axis_scale[0], axis_scale[1],
         meshgrid_theta[0], meshgrid_theta[1],
-        phis, fxs, gxs)
+        phis, fxs, gxs, np.array(theta_0))
 
 
 def grid_synthetic(
@@ -974,8 +987,8 @@ def grid_synthetic(
     xscale, yscale,
     xx, yy,
     phis, fxs,
-    gxs) = _grid_over_hyperparameters_initiate(
-        res, domain, trainables, classifier.J)
+    gxs, theta_0) = _grid_over_hyperparameters_initiate(
+        classifier, res, domain, trainables)
     for i, phi in enumerate(phis):
         print(phi)
         fx, gx = classifier.approximate_posterior(phi, trainables, steps)
@@ -983,9 +996,9 @@ def grid_synthetic(
         gxs[i] = gx
         if verbose:
             print(
-            "\ncutpoints={}, varphi={}, noise_variance={}, variance={},"
+            "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
             "\nfunction_eval={}, \nfunction_grad={}".format(
-                classifier.cutpoints, classifier.kernel.varphi,
+                classifier.cutpoints, classifier.kernel.theta,
                 classifier.noise_variance, classifier.kernel.variance,
                 fx, gxs[i]))
     # TODO: tidy up this code
@@ -1003,10 +1016,18 @@ def grid_synthetic(
 
     print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
+        #Normalization:
+        #First derivatives: need to calculate them in the log domain
+        log_x = np.log(x)
+        dlog_x = np.diff(log_x)
+        dZ_ = np.gradient(Z, log_x)
+        dZ = np.diff(Z) / dlog_x
+
         fig = plt.figure()
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
+        ax.grid()
         ax.plot(x, Z)
         fig.savefig("grid_over_hyperparameters.png",
             facecolor=fig.get_facecolor(), edgecolor='none')
@@ -1017,8 +1038,10 @@ def grid_synthetic(
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
+        ax.grid()
         ax.plot(x, Z, 'b')
-        ax.vlines(30.0, ax.get_ylim()[0], ax.get_ylim()[1], 'k', alpha=0.5, label=r"'true' $\varphi$")
+        ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+            alpha=0.5, label=r"'true' $\theta$")
         ax.set_xlabel(xlabel)
         ax.set_xscale(xscale)
         ax.set_ylabel(r"$\mathcal{F}$")
@@ -1031,59 +1054,69 @@ def grid_synthetic(
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
-        ax.plot(x, grad, 'r')
-        ax.vlines(30.0, ax.get_ylim()[0], ax.get_ylim()[1], 'k', alpha=0.5, label=r"'true' $\varphi$")
+        ax.grid()
+        ax.plot(
+            x, dZ_, 'r--',
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
+        ax.set_ylim(ax.get_ylim())
+        ax.plot(
+            x, grad, 'b', alpha=0.7,
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
+        print(grad, "GRAD")
+        ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+            alpha=0.5, label=r"'true' $\theta$")
         ax.set_xscale(xscale)
         ax.set_xlabel(xlabel)
-        ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
+        ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
+        ax.legend()
         fig.savefig("grad.png",
             facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
         plt.close()
-
-        #Normalization:
-        #First derivatives: need to calculate them in the log domain
-        log_x = np.log(x)
-        dlog_x = np.diff(log_x)
-        dZ_ = np.gradient(Z, log_x)
-        dZ = np.diff(Z) / dlog_x
+ 
         fig = plt.figure()
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
-        ax.plot(
-            log_x, grad, 'r',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ analytic")
-        ax.vlines(
-            np.log(30.0), ax.get_ylim()[0], ax.get_ylim()[1], 'k', alpha=0.5,
-            label=r"'true' $\log \varphi$")
-        ax.set_xlabel("log " + xlabel)
-        ax.set_ylabel(
-            r"$\frac{\partial \mathcal{F}}{\partial \varphi}$")
+        ax.grid()
         ax.plot(
             log_x, dZ_, 'r--',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
+        ax.vlines(
+            np.log(theta_0), 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k', alpha=0.5,
+            label=r"'true' $\log \theta$")
+        ax.set_ylim(ax.get_ylim())
+        ax.plot(
+            log_x, grad, 'r',
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
+        ax.set_xlabel("log " + xlabel)
+        ax.set_ylabel(
+            r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
         ax.legend()
         fig.savefig("both.png")
+        plt.tight_layout()
         if show: plt.show()
         plt.close()
 
         fig = plt.figure()
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
+        ax.grid()
         ax = fig.add_subplot(111)
         ax.plot(log_x, Z, 'b', label=r"$\mathcal{F}}$")
         ax.vlines(
-            np.log(30.0), ax.get_ylim()[0], ax.get_ylim()[1], 'k', alpha=0.5,
-            label=r"'true' $\log \varphi$")
-        ax.plot(
-            log_x, grad, 'r',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ analytic")
+            np.log(theta_0), 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k', alpha=0.5,
+            label=r"'true' $\log \theta$")
         ax.plot(
             log_x, dZ_, 'r--',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \varphi}$ numeric")
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
+        ax.set_ylim(ax.get_ylim())
+        ax.plot(
+            log_x, grad, 'r',
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
         ax.set_xlabel("log " + xlabel)
         ax.legend()
+        plt.tight_layout()
         fig.savefig(
             "bound_grad.png", facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
@@ -1098,6 +1131,7 @@ def grid_synthetic(
                         cmap='viridis', edgecolor='none')
         ax.set_xscale(xscale)
         ax.set_yscale(yscale)
+        plt.tight_layout()
         fig.savefig(
             "grid_over_hyperparameters.png",
             facecolor=fig.get_facecolor(), edgecolor='none')
@@ -1113,32 +1147,36 @@ def grid_synthetic(
         ax.set_aspect(1)
         ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.1, color='red')
+        ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
         ax.plot(0.1, 30, 'm')
         ax.set_xscale(xscale)
-        # TODO: add xlim based on the domain
-        ax.set_xlim(domain[0])  #TODO: temporary, remove.
-        #ax.set_ylim(domain[1])
+        ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+        ax.set_ylim((10**domain[1][0], 10**domain[1][1]))
         ax.set_yscale(yscale)
         ax.set_xlabel(xlabel, fontsize=16)
         ax.set_ylabel(ylabel, fontsize=16)
+        plt.tight_layout()
         fig.savefig(
             "Contour plot - VB lower bound on the log likelihood.png",
             facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
         plt.close()
 
-        # fig, ax = plt.subplots(1, 1)
-        # ax.set_aspect(1)
-        # ax.contourf(x, y, np.log(Z), 100, cmap='viridis', zorder=1)
-        # ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
-        # ax.plot(0.1, 30, 'm')
-        # ax.set_xscale(xscale)
-        # ax.set_yscale(yscale)
-        # ax.set_xlabel(xlabel, fontsize=16)
-        # ax.set_ylabel(ylabel, fontsize=16)
-        # fig.savefig("Contour plot - log VB lower bound on the log likelihood.png")
-        # if show: plt.show()
-        # plt.close()
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.set_aspect(1)
+        ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
+        ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
+        ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
+        ax.set_xscale(xscale)
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        plt.tight_layout()
+        fig.savefig("Contour plot2 - VB lower bound on the log likelihood.png")
+        if show: plt.show()
+        plt.close()
 
 
 def plot(classifier, steps, domain=None):
@@ -1182,6 +1220,7 @@ def plot(classifier, steps, domain=None):
                     classifier.y_train == j + 1)][:, 1], color='blue')
             ax.set_xlabel(r"$x_1$", fontsize=16)
             ax.set_ylabel(r"$x_2$", fontsize=16)
+            plt.tight_layout()
             fig.savefig(
                 "contour_{}.png".format(j),
                 facecolor=fig.get_facecolor(), edgecolor='none')
@@ -1237,6 +1276,7 @@ def plot_synthetic(
                         np.zeros_like(classifier.X_train[np.where(
                             classifier.y_train == j)]) + val,
                         s=15, facecolors=colors[j], edgecolors='white')
+                plt.tight_layout()
                 fig.savefig(
                     "Cumulative distribution plot of ordinal class "
                     "distributions for x_new=[{}, {}].png".format(
@@ -1265,6 +1305,7 @@ def plot_synthetic(
                         np.zeros_like(classifier.X_train[
                             np.where(classifier.y_train == j)]),
                         s=15, facecolors=colors[j], edgecolors='white')
+                plt.tight_layout()
                 fig.savefig(
                     "Scatter plot of data compared to posterior mean.png",
                     facecolor=fig.get_facecolor(), edgecolor='none')
@@ -1312,6 +1353,7 @@ def plot_synthetic(
                         Y_true[np.where(
                             classifier.y_train == j)],
                         s=15, facecolors=colors[j], edgecolors='white')
+                plt.tight_layout()
                 fig.savefig("surface.png",
                     facecolor=fig.get_facecolor(), edgecolor='none')
                 plt.show()
@@ -1329,6 +1371,7 @@ def plot_synthetic(
                 #             colors=(
                 #                 colors[0], colors[1], colors[2])
                 #             )
+                # plt.tight_layout()
                 # fig.savefig(
                 #     "Ordered Gibbs Cumulative distribution plot of class "
                 #     "distributions for x_new=[{}, {}].png".format(
@@ -1485,9 +1528,9 @@ def figure2(
             print("log_p_pseudo_marginal {}, log_p_prior {}".format(
                 np.mean(log_p_pseudo_marginals), log_p_prior))
             print(
-                "cutpoints={}, varphi={}, noise_variance={},"
+                "cutpoints={}, theta={}, noise_variance={},"
                 " variance={}".format(approximator.cutpoints,
-                approximator.kernel.varphi, approximator.noise_variance,
+                approximator.kernel.theta, approximator.noise_variance,
                 approximator.kernel.variance))
     if x2s is not None:
         raise ValueError("Multivariate plots are TODO")
@@ -1846,7 +1889,7 @@ def draw_histogram(states, state_0, write_path, file_name,
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
         ax.hist(states[:, i], density=True, bins=bins)
-        ax.vlines(state_0[i], ax.get_ylim()[0], ax.get_ylim()[1], 'k')
+        ax.vlines(state_0[i], 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k')
         ax.set_xlabel(label, **font)
         plt.tight_layout()
         file_name_i = "{}_{}_".format(label, i) + file_name

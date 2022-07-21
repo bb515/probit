@@ -13,8 +13,8 @@ class SquaredExponential(SquaredExponential):
     """
     def __init__(
         self,
-        varphi_hyperparameters=None,
-        varphi_hyperhyperparameters=None,
+        theta_hyperparameters=None,
+        theta_hyperhyperparameters=None,
         variance_hyperparameters=None,
         **kwargs: Any
     ) -> None:
@@ -26,23 +26,23 @@ class SquaredExponential(SquaredExponential):
  
         :arg variance_hyperparameters:
         :type variance_hyperparameters: float or :class:`numpy.ndarray` or None
-        :arg varphi_hyperparameters:
-        :type varphi_hyperparameters: float or :class:`numpy.ndarray` or None
-        :arg varphi_hyperhyperparameters: The (K, ) array or float or None (location/ scale)
-            hyper-hyper-parameters that define varphi_hyperparameters prior. Not to be confused
+        :arg theta_hyperparameters:
+        :type theta_hyperparameters: float or :class:`numpy.ndarray` or None
+        :arg theta_hyperhyperparameters: The (K, ) array or float or None (location/ scale)
+            hyper-hyper-parameters that define theta_hyperparameters prior. Not to be confused
             with `Sigma`, which is a covariance matrix. Default None.
-        :type varphi_hyperhyperparameters: float or :class:`numpy.ndarray` or None
+        :type theta_hyperhyperparameters: float or :class:`numpy.ndarray` or None
 
         :returns: A :class:`Kernel` object
         """
         super().__init__(**kwargs)
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = varphi_hyperparameters
-            if varphi_hyperhyperparameters is not None:
-                self.varphi_hyperhyperparameters = varphi_hyperhyperparameters
+        if theta_hyperparameters is not None:
+            self.theta_hyperparameters = theta_hyperparameters
+            if theta_hyperhyperparameters is not None:
+                self.theta_hyperhyperparameters = theta_hyperhyperparameters
         else:
-            self.varphi_hyperparameters = None
-            self.varphi_hyperhyperparameters = None
+            self.theta_hyperparameters = None
+            self.theta_hyperhyperparameters = None
         if variance_hyperparameters is not None:
             self.variance_hyperparameters = variance_hyperparameters
         else:

@@ -62,7 +62,7 @@ def proposal(phi, trainables, L_cov, J):
         # In this case, then there is a scale parameter, the first
         # cutpoint, the interval parameters,
         # and a single, shared lengthscale parameter
-        # varphi is sampled from the domain of log(varphi) and so the jacobian is
+        # theta is sampled from the domain of log(theta) and so the jacobian is
         log_jacobian_phi[index] = -phi[index]
         index += 1
     return phi, log_jacobian_phi
