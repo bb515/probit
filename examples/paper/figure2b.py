@@ -45,13 +45,13 @@ write_path = pathlib.Path()
 def get_approximator(
         approximation, Kernel, lengthscale_0, signal_variance_0,
         N_train, D):
-    # Set varphi hyperparameters
+    # Set theta hyperparameters
     lengthscale_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate]
     # Initiate kernel
     kernel = Kernel(
-        varphi=lengthscale_0,
+        theta=lengthscale_0,
         variance=signal_variance_0,
-        varphi_hyperparameters=lengthscale_hyperparameters)
+        theta_hyperparameters=lengthscale_hyperparameters)
     M = None
     if approximation == "EP":
         # steps is the number of swipes over the data until check convergence
@@ -141,7 +141,7 @@ def main():
         trainables[0] = 0
         # Fix scale
         trainables[J] = 0
-        # Fix varphi
+        # Fix theta
         #trainables[-1] = 0
         # Fix cutpoints
         trainables[1:J] = 0
@@ -183,7 +183,7 @@ def main():
                         M=M, cutpoints=cutpoints_0,
                         noise_variance=noise_variance_0,
                         kernel=kernel, J=J, data=(X, y),
-                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
+                        theta_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 elif "PEP" in approximation:
                     alpha = 0.5
                     # Initate PEP classifier
@@ -191,13 +191,13 @@ def main():
                         cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                         alpha=alpha, gauss_hermite_points=20,
                         kernel=kernel, J=J, data=(X, y),
-                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
+                        theta_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 else:
                     # Initiate classifier
                     approximator = Approximator(
                         cutpoints=cutpoints_0, noise_variance=noise_variance_0,
                         kernel=kernel, J=J, data=(X, y),
-                        varphi_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
+                        theta_hyperparameters = np.array([1.0, np.sqrt(D)]))  # [shape, rate])
                 for _, Nimp in enumerate(num_importance_samples):
                     # Initiate hyper-parameter sampler
                     hyper_sampler = PseudoMarginal(approximator)

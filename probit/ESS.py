@@ -30,11 +30,11 @@ from scipy.stats import gamma
 import warnings
 
 
-# def test(Kernel, J, X_true, y_true, varphi_0, noise_variance_0, scale_0):
+# def test(Kernel, J, X_true, y_true, theta_0, noise_variance_0, scale_0):
 #     N = len(X_true)
 #     # Section 3 - MCMC sampling from p(f, \theta | y)
 #     # Initiate kernel
-#     kernel = Kernel(varphi=varphi_0, scale=scale_0) 
+#     kernel = Kernel(theta=theta_0, scale=scale_0) 
 #     # Import kernel
 #     K0 = kernel.kernel_matrix(X_true, X_true)
 #     jitter = 1e-6
@@ -123,25 +123,25 @@ def main():
         n_importance_samples = 10
         (X, t,
         X_true, Y_true,
-        gamma_0, varphi_0, noise_variance_0, scale_0,
+        gamma_0, theta_0, noise_variance_0, scale_0,
         J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
         print(noise_variance_0)
-        print(varphi_0)
+        print(theta_0)
         noise_variance_0 = 1.0
         psi_0 = np.array([5.0, 1.0])  # shape and rate for gamma prior
-        #psi_0 = np.array([3.0, 6.0])  # mean and variance for diffuse prior on log_varphi
+        #psi_0 = np.array([3.0, 6.0])  # mean and variance for diffuse prior on log_theta
         # Initiate kernel
-        kernel = Kernel(varphi=varphi_0, psi=psi_0, scale=scale_0)
+        kernel = Kernel(theta=theta_0, psi=psi_0, scale=scale_0)
         indices = np.ones(J + 2)
         # Fix noise_variance
         indices[0] = 0
         # Fix scale
         indices[J] = 0
-        # Fix varphi
+        # Fix theta
         #indices[-1] = 0
         # Fix gamma
         indices[1:J] = 0
-        # Just varphi
+        # Just theta
         # domain = ((-4, 4), None)
         # res = (100, None)
         # Initiate sampler

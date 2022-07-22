@@ -6,7 +6,7 @@ from scipy.special import ndtr, log_ndtr
 import warnings
 
 
-def prior(phi, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
+def prior(phi, indices, J, theta_hyperparameters, noise_std_hyperparameters,
         cutpoints_hyperparameters, scale_hyperparameters, cutpoints_0):
     """
     A priors defined over their usual domains, and so a transformation of
@@ -18,7 +18,7 @@ def prior(phi, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
     noise_variance = None
     cutpoints = None
     scale = None
-    varphi = None
+    theta = None
     log_prior_theta = np.zeros(len(phi))
     index = 0
     if indices[0]:
@@ -70,22 +70,22 @@ def prior(phi, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
         #     # In this case, then there is a scale parameter, the first
         #     # cutpoint, the interval parameters,
         #     # and a single, shared lengthscale parameter
-        varphi = np.exp(phi[index])
+        theta = np.exp(phi[index])
         # log_prior_pdf = expon.logpdf(
-        #     varphi,
-        #     loc=varphi_hyperparameters[0],
-        #     scale=varphi_hyperparameters[1])
+        #     theta,
+        #     loc=theta_hyperparameters[0],
+        #     scale=theta_hyperparameters[1])
         log_prior_pdf = gamma.logpdf(
-            varphi,
-            a=varphi_hyperparameters[0],
-            scale=varphi_hyperparameters[1])
+            theta,
+            a=theta_hyperparameters[0],
+            scale=theta_hyperparameters[1])
         log_prior_theta[index] = log_prior_pdf
         index += 1
     return log_prior_theta
 
 
 def prior_reparameterised(
-        phi, indices, J, varphi_hyperparameters, noise_std_hyperparameters,
+        phi, indices, J, theta_hyperparameters, noise_std_hyperparameters,
         cutpoints_hyperparameters, scale_hyperparameters, cutpoints_0):
     """
     The variables \theta has been reparameterized into \phi, so now are infact
@@ -99,7 +99,7 @@ def prior_reparameterised(
     noise_variance = None
     cutpoints = None
     scale = None
-    varphi = None
+    theta = None
     index = 0
     log_prior_phi = np.zeros(np.size(phi))
     if indices[0]:
@@ -162,12 +162,12 @@ def prior_reparameterised(
         #     # In this case, then there is a scale parameter, the first
         #     # cutpoint, the interval parameters,
         #     # and a single, shared lengthscale parameter
-        varphi = np.exp(phi[index])
+        theta = np.exp(phi[index])
         ## Normal distribution in the log domain
         log_prior_pdf = norm.logpdf(
             phi[index],
-            loc=varphi_hyperparameters[0],
-            scale=varphi_hyperparameters[1])
+            loc=theta_hyperparameters[0],
+            scale=theta_hyperparameters[1])
         log_prior_phi[index] = log_prior_pdf
         index += 1
     return log_prior_phi

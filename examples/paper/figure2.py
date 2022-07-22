@@ -44,13 +44,13 @@ matplotlib.rc('font', **font)
 def get_approximator(
         approximation, Kernel, lengthscale_0, signal_variance_0,
         N_train, D):
-    # Set varphi hyperparameters
+    # Set theta hyperparameters
     lengthscale_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate]
     # Initiate kernel
     kernel = Kernel(
-        varphi=lengthscale_0,
+        theta=lengthscale_0,
         variance=signal_variance_0,
-        varphi_hyperparameters=lengthscale_hyperparameters)
+        theta_hyperparameters=lengthscale_hyperparameters)
     M = None
     if approximation == "EP":
         # steps is the number of swipes over the data until check convergence
@@ -138,13 +138,13 @@ def main():
         trainables[0] = 0
         # Fix scale
         trainables[J] = 0
-        # Fix varphi
+        # Fix theta
         # trainables[-1] = 0
         # Fix cutpoints
         trainables[1:J] = 0
 
         noise_std_hyperparameters = np.array([1.2, 1./0.2])
-        varphi_hyperparameters = np.array([1.0, np.sqrt(D)])
+        theta_hyperparameters = np.array([1.0, np.sqrt(D)])
 
         # (log) domain of grid
         domain = ((-1.5, 0.33), None)
@@ -174,7 +174,7 @@ def main():
                         noise_variance=noise_variance_0,
                         kernel=kernel, J=J, data=(X, y),
                         noise_std_hyperparameters = noise_std_hyperparameters,
-                        varphi_hyperparameters = varphi_hyperparameters)
+                        theta_hyperparameters = theta_hyperparameters)
                 elif "PEP" in approximation:
                     alpha = 0.5
                     # Initate PEP classifier

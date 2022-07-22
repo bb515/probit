@@ -36,13 +36,13 @@ write_path = pathlib.Path()
 def get_approximator(
         approximation, Kernel, lengthscale_0, signal_variance_0,
         N_train, D):
-    # Set varphi hyperparameters
+    # Set theta hyperparameters
     lengthscale_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate]
     # Initiate kernel
     kernel = Kernel(
-        varphi=lengthscale_0,
+        theta=lengthscale_0,
         variance=signal_variance_0,
-        varphi_hyperparameters=lengthscale_hyperparameters)
+        theta_hyperparameters=lengthscale_hyperparameters)
     M = None
     if approximation == "EP":
         # steps is the number of swipes over the data until check convergence
@@ -156,8 +156,8 @@ def main():
             # plt.scatter(X[np.where(y==2), 0], X[np.where(y==2), 1], marker='o', s=25,  c='g')
             plt.savefig("data.png")
             plt.close()
-            # Set varphi hyperparameters
-            varphi_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate]) on lengthscale
+            # Set theta hyperparameters
+            theta_hyperparameters = np.array([1.0, np.sqrt(D)])  # [shape, rate]) on lengthscale
             noise_std_hyperparameters = np.array([1.2, 1./0.1])
             # noise_std_hyperparameters = None
             cutpoints_hyperparameters = None
@@ -166,7 +166,7 @@ def main():
             # trainables[0] = 0
             # Fix scale
             trainables[J] = 0
-            # Don't fix varphi
+            # Don't fix theta
             # trainables[-1] = 0
             # Fix cutpoints
             trainables[1:J] = 0
@@ -176,9 +176,9 @@ def main():
             # if approach in ["AA", "SA"]:
             #     # Initiate kernel
             #     kernel = Kernel(
-            #         varphi=lengthscale_0,
+            #         theta=lengthscale_0,
             #         variance=variance_0,
-            #         varphi_hyperparameters=varphi_hyperparameters)
+            #         theta_hyperparameters=theta_hyperparameters)
             #     sampler = EllipticalSliceGP(
             #         cutpoints_0, noise_variance_0,
             #         cutpoints_hyperparameters,
@@ -218,7 +218,7 @@ def main():
                             M=M, cutpoints=cutpoints_0,
                             noise_variance=noise_variance_0,
                             kernel=kernel, J=J, data=(X, y),
-                            varphi_hyperparameters = varphi_hyperparameters,
+                            theta_hyperparameters = theta_hyperparameters,
                             noise_std_hyperparameters = noise_std_hyperparameters,
                             cutpoints_hyperparameters = cutpoints_hyperparameters,
                             )

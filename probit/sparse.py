@@ -141,7 +141,7 @@ class SparseVBGP(VBGP):
             write=False):
         """
         Estimating the posterior means are a 3 step iteration over posterior_mean,
-        varphi and psi Eq.(8), (9), (10), respectively or,
+        theta and psi Eq.(8), (9), (10), respectively or,
         optionally, just an iteration over posterior_mean.
 
         :arg int steps: The number of iterations the Approximator takes.
@@ -161,7 +161,7 @@ class SparseVBGP(VBGP):
         """
         posterior_mean, containers = self._approximate_initiate(
             posterior_mean_0)
-        posterior_means, gs, varphis, psis, fxs = containers
+        posterior_means, gs, thetas, psis, fxs = containers
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples",
                         disable=True):
@@ -172,18 +172,18 @@ class SparseVBGP(VBGP):
                 p_, posterior_mean, self.noise_std)
             posterior_mean, weight = self._posterior_mean(
                     g, self.cov2, self.Kfu)
-            if self.kernel.varphi_hyperhyperparameters is not None:
+            if self.kernel.theta_hyperhyperparameters is not None:
                 # Posterior mean update for kernel hyperparameters
                 # Kernel hyperparameters are variables here
                 # TODO maybe this shouldn't be performed at every step.
-                varphi = self._varphi(
-                    posterior_mean, self.kernel.varphi_hyperparameters,
+                theta = self._theta(
+                    posterior_mean, self.kernel.theta_hyperparameters,
                     n_samples=10)
-                varphi_hyperparameters = self._varphi_hyperparameters(
-                    self.kernel.varphi)
+                theta_hyperparameters = self._theta_hyperparameters(
+                    self.kernel.theta)
                 self.hyperparameters_update(
-                    varphi=varphi,
-                    varphi_hyperparameters=varphi_hyperparameters)
+                    theta=theta,
+                    theta_hyperparameters=theta_hyperparameters)
             if write:
                 Z, *_ = truncated_norm_normalising_constant(
                     self.cutpoints_ts, self.cutpoints_tplus1s,
@@ -195,11 +195,11 @@ class SparseVBGP(VBGP):
                     self.log_det_cov)
                 posterior_means.append(posterior_mean)
                 gs.append(g)
-                if self.kernel.varphi_hyperparameters is not None:
-                    varphis.append(self.kernel.varphi)
-                    psis.append(self.kernel.varphi_hyperparameters)
+                if self.kernel.theta_hyperparameters is not None:
+                    thetas.append(self.kernel.theta)
+                    psis.append(self.kernel.theta_hyperparameters)
                 fxs.append(fx)
-        containers = (posterior_means, gs, varphis, psis, fxs)
+        containers = (posterior_means, gs, thetas, psis, fxs)
         return posterior_mean, weight, g, p, containers
 
     def _posterior_mean(self, g, cov, Kfu):
@@ -281,7 +281,7 @@ class SparseVBGP(VBGP):
         """
         if self.kernel._ARD:
             # This is the general case where there are hyper-parameters
-            # varphi (J, D) for all dimensions and classes.
+            # theta (J, D) for all dimensions and classes.
             raise ValueError(
                 "For the ordinal likelihood approximator,the kernel "
                 "must not be _ARD type (kernel._ARD=1), but"
@@ -303,7 +303,7 @@ class SparseVBGP(VBGP):
         return - weight.T @ K @ weight / 2 + np.sum(Z)
 
     # def objective_gradient(
-    #         self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, varphi,
+    #         self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, theta,
     #         noise_variance, noise_std,
     #         m, weight, posterior_cov_div_var, trace_posterior_cov_div_var,
     #         trace_cov, N, Z, norm_pdf_z1s, norm_pdf_z2s, trainables,
@@ -343,7 +343,7 @@ class SparseVBGP(VBGP):
             *_ )= truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean, self.EPS)
-            if self.kernel.varphi_hyperhyperparameters is not None:
+            if self.kernel.theta_hyperhyperparameters is not None:
                 fx = self.objective(
                     self.Kuu, weight, Z)
             else:
@@ -357,7 +357,7 @@ class SparseVBGP(VBGP):
         # gx = self.objective_gradient(
         #         gx.copy(), intervals, self.cutpoints_ts,
         #         self.cutpoints_tplus1s,
-        #         self.kernel.varphi, self.noise_variance, self.noise_std,
+        #         self.kernel.theta, self.noise_variance, self.noise_std,
         #         posterior_mean, weight, self.posterior_cov_div_var,
         #         self.trace_posterior_cov_div_var, self.trace_cov,
         #         self.N, Z, norm_pdf_z1s, norm_pdf_z2s, trainables,
@@ -366,10 +366,10 @@ class SparseVBGP(VBGP):
         if verbose:
             print(
                 "cutpoints={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
+                "theta={}\nfunction_eval={}".format(
                     self.cutpoints,
                     self.noise_variance,
-                    self.kernel.varphi,
+                    self.kernel.theta,
                     fx))
         if return_reparameterised is True:
             return fx, gx, weight, (
@@ -586,9 +586,9 @@ class SparseLaplaceGP(LaplaceGP):
 
             print(
                 "\ncutpoints={}, noise_variance={}, "
-                "varphi={}\nfunction_eval={}".format(
+                "theta={}\nfunction_eval={}".format(
                     self.cutpoints, self.noise_variance,
-                    self.kernel.varphi, fx))
+                    self.kernel.theta, fx))
         if return_reparameterised is True:
             return fx, gx, weight, (
                 cov, True)

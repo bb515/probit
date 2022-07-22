@@ -802,24 +802,24 @@ def log_multivariate_normal_pdf_vectorised(
         'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
         
 
-def sample_varphis(varphi_hyperparameter, n_samples):
+def sample_thetas(theta_hyperparameter, n_samples):
     """
-    Take n_samples of varphi, given the hyperparameter of varphi.
+    Take n_samples of theta, given the hyperparameter of theta.
 
-    varphi_hyperparameter is a rate parameter since, with an uninformative
+    theta_hyperparameter is a rate parameter since, with an uninformative
     prior (sigma=tau=0), then the posterior mean of Q(psi) is
-    psi_tilde = 1. / varphi_tilde. Therefore, by taking the expected value of
-    the prior on varphi ~ Exp(psi_tilde),
-    we expect to obtain varphi_tilde = 1. / psi_tilde. We get this if
+    psi_tilde = 1. / theta_tilde. Therefore, by taking the expected value of
+    the prior on theta ~ Exp(psi_tilde),
+    we expect to obtain theta_tilde = 1. / psi_tilde. We get this if
     psi_tilde is a rate.
 
     :arg psi: float (Array) of hyper-hyperparameter(s)
     :type psi: :class:`np.ndarray`
     :arg int n_samples: The number of samples for the importance sample.
     """
-    # scale = varphi_hyperparameter
-    scale = 1. / varphi_hyperparameter
-    shape = np.shape(varphi_hyperparameter)
+    # scale = theta_hyperparameter
+    scale = 1. / theta_hyperparameter
+    shape = np.shape(theta_hyperparameter)
     if shape == ():
         size = (n_samples,)
     else:
@@ -853,7 +853,7 @@ def _Z_far_tails(z):
     return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + _g(z))
 
 
-def dp_tails(self, z1, z2):
+def dp_tails(z1, z2):
     """Series expansion at infinity."""
     return (
         z1 * np.exp(-0.5 * z1**2) - z2 * np.exp(-0.5 * z2**2)) / (
@@ -1082,3 +1082,26 @@ def sample_g(g, f, y_train, cutpoints, noise_std, N):
         # Add sample to the Y vector
         g[i] = g_i
     return g
+
+
+class CutpointValueError(Exception):
+    """
+    An invalid cutpoint argument was used to construct the classifier model.
+    """
+
+    def __init__(self, cutpoint):
+        """
+        Construct the exception.
+
+        :arg cutpoint: The cutpoint parameters array.
+        :type cutpoint: :class:`numpy.array` or list
+
+        :rtype: :class:`CutpointValueError`
+        """
+        message = (
+                "The cutpoint list or array "
+                "must be in ascending order, "
+                f" {cutpoint} was given."
+                )
+
+        super().__init__(message)

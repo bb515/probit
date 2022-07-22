@@ -37,8 +37,8 @@ class Kernel(ABC):
     @abstractmethod
     def __init__(
             self, variance=1.0, variance_hyperparameters=None,
-            varphi=None, varphi_hyperparameters=None,
-            varphi_hyperhyperparameters=None):
+            theta=None, theta_hyperparameters=None,
+            theta_hyperhyperparameters=None):
         """
         Create an :class:`Kernel` object.
 
@@ -49,37 +49,37 @@ class Kernel(ABC):
             Default 1.0.
         :arg variance_hyperparameters:
         :type variance_hyperparameters: float or :class:`numpy.ndarray` or None
-        :arg varphi:
-        :type varphi: float or :class:`numpy.ndarray` or None
-        :arg varphi_hyperparameters:
-        :type varphi_hyperparameters: float or :class:`numpy.ndarray` or None
-        :arg varphi_hyperhyperparameters: The (K, ) array or float or None (location/ scale)
-            hyper-hyper-parameters that define varphi_hyperparameters prior. Not to be confused
+        :arg theta:
+        :type theta: float or :class:`numpy.ndarray` or None
+        :arg theta_hyperparameters:
+        :type theta_hyperparameters: float or :class:`numpy.ndarray` or None
+        :arg theta_hyperhyperparameters: The (K, ) array or float or None (location/ scale)
+            hyper-hyper-parameters that define theta_hyperparameters prior. Not to be confused
             with `Sigma`, which is a covariance matrix. Default None.
-        :type varphi_hyperhyperparameters: float or :class:`numpy.ndarray` or None
+        :type theta_hyperhyperparameters: float or :class:`numpy.ndarray` or None
 
         :returns: A :class:`Kernel` object
         """
         variance = np.float64(variance)
         self.variance = variance
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(
-                varphi)
+        if theta is not None:
+            self.theta, self.L, self.M = self._initialise_theta(
+                theta)
         else:
             raise ValueError(
-                "Kernel hyperparameters `varphi` must be provided "
+                "Kernel hyperparameters `theta` must be provided "
                 "(got {})".format(None))
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = self._initialise_hyperparameter(
-                self.varphi, varphi_hyperparameters)
-            if varphi_hyperhyperparameters is not None:
-                self.varphi_hyperhyperparameters = self._initialise_hyperparameter(
-                    self.varphi_hyperparameters, varphi_hyperhyperparameters)
+        if theta_hyperparameters is not None:
+            self.theta_hyperparameters = self._initialise_hyperparameter(
+                self.theta, theta_hyperparameters)
+            if theta_hyperhyperparameters is not None:
+                self.theta_hyperhyperparameters = self._initialise_hyperparameter(
+                    self.theta_hyperparameters, theta_hyperhyperparameters)
             else:
-                self.varphi_hyperhyperparameters = None
+                self.theta_hyperhyperparameters = None
         else:
-            self.varphi_hyperparameters = None
-            self.varphi_hyperhyperparameters = None
+            self.theta_hyperparameters = None
+            self.theta_hyperhyperparameters = None
         if variance_hyperparameters is not None:
             self.variance_hyperparameters = self._initialise_hyperparameter(
                 self.variance, variance_hyperparameters)
@@ -110,76 +110,76 @@ class Kernel(ABC):
         This method should be implemented in every concrete kernel.
         """
 
-    def kernel_matrices(self, X1, X2, varphis):
+    def kernel_matrices(self, X1, X2, thetas):
         """
-        Get Gaussian kernel matrices for varphi samples, varphis, as an array
+        Get Gaussian kernel matrices for theta samples, thetas, as an array
         of numpy arrays.
 
         :arg X1: (N1, D) data matrix.
         :type X1: class:`numpy.ndarray`
         :arg X2: (N2, D) data matrix. Can be the same as X1.
         :type X2: class:`numpy.ndarray`
-        :arg varphis: (n_samples,) array of hyperparameter samples.
-        :type varphis: class:`numpy.ndarray`
+        :arg thetas: (n_samples,) array of hyperparameter samples.
+        :type thetas: class:`numpy.ndarray`
         :return: Cs_samples (n_samples, N1, N2) array of n_samples * (N1, N2)
             Gram matrices.
         :rtype: class:`numpy.ndarray`
         """
-        n_samples = np.shape(varphis)[0]
+        n_samples = np.shape(thetas)[0]
         N1 = np.shape(X1)[0]
         N2 = np.shape(X2)[0]
         Cs_samples = np.empty((n_samples, N1, N2))
-        for i, varphi in enumerate(varphis):
-            self.update_hyperparameter(varphi=varphi)
+        for i, theta in enumerate(thetas):
+            self.update_hyperparameter(theta=theta)
             Cs_samples[i, :, :] = self.kernel_matrix(X1, X2)
         return Cs_samples
 
-    def _check_varphi_shape(self, varphi):
-        if ((type(varphi) is list) or
-                (type(varphi) is np.ndarray)):
-            if np.shape(varphi) == (1,):
+    def _check_theta_shape(self, theta):
+        if ((type(theta) is list) or
+                (type(theta) is np.ndarray)):
+            if np.shape(theta) == (1,):
                 # e.g. [[1]]
                 L = 1
                 M = 1
-            elif np.shape(varphi) == ():
+            elif np.shape(theta) == ():
                 # e.g. [1]
                 L = 1
                 M = 1
-            elif np.shape(varphi[0]) == (1,):
+            elif np.shape(theta[0]) == (1,):
                 # e.g. [[1],[2],[3]]
-                L = np.shape(varphi)[0]
+                L = np.shape(theta)[0]
                 M = 1
-            elif np.shape(varphi[0]) == ():
+            elif np.shape(theta[0]) == ():
                 # e.g. [1, 2, 3]
                 L = 1
-                M = np.shape(varphi)[0]
+                M = np.shape(theta)[0]
             else:
                 # e.g. [[1, 2], [3, 4], [5, 6]]
-                L = np.shape(varphi)[0]
-                M = np.shape(varphi)[1]
-        elif ((type(varphi) is float) or
-                (type(varphi) is np.float64)):
+                L = np.shape(theta)[0]
+                M = np.shape(theta)[1]
+        elif ((type(theta) is float) or
+                (type(theta) is np.float64)):
             # e.g. 1
             L = 1
             M = 1
         else:
             raise TypeError(
-                "Type of varphi is not supported "
+                "Type of theta is not supported "
                 "(expected {} or {}, got {})".format(
-                    float, np.ndarray, type(varphi)))
+                    float, np.ndarray, type(theta)))
         return L, M
 
-    def _initialise_varphi(self, varphi=None):
+    def _initialise_theta(self, theta=None):
         """
         Initialise as Matern type kernel
         (loosely defined here as a kernel with a length scale) 
         """
-        if varphi is not None:
-            L, M = self._check_varphi_shape(varphi)
+        if theta is not None:
+            L, M = self._check_theta_shape(theta)
         else:
             L = None
             M = None 
-        return varphi, L, M
+        return theta, L, M
 
     def _initialise_hyperparameter(self, parameter, hyperparameter):
         # if hyperparameter is not None:
@@ -187,30 +187,30 @@ class Kernel(ABC):
         #         raise TypeError(
         #             "The type of the kernel parameter {},"
         #             " should equal the type of the kernel hyperparameter {},"
-        #             " varphi (got {}, expected {})".format(
+        #             " theta (got {}, expected {})".format(
         #                 parameter, hyperparameter,
         #                 type(hyperparameter), type(parameter)))
         return hyperparameter
 
     def update_hyperparameter(
-            self, varphi=None, varphi_hyperparameters=None,
+            self, theta=None, theta_hyperparameters=None,
             variance=None, variance_hyperparameters=None,
-            varphi_hyperhyperparameters=None):
-        if varphi is not None:
-            self.varphi, self.L, self.M = self._initialise_varphi(
-                varphi)
-        if varphi_hyperparameters is not None:
-            self.varphi_hyperparameters = self._initialise_hyperparameter(
-                self.varphi, varphi_hyperparameters)
+            theta_hyperhyperparameters=None):
+        if theta is not None:
+            self.theta, self.L, self.M = self._initialise_theta(
+                theta)
+        if theta_hyperparameters is not None:
+            self.theta_hyperparameters = self._initialise_hyperparameter(
+                self.theta, theta_hyperparameters)
         if variance is not None:
             # Update variance
             self.variance = variance
         if variance_hyperparameters is not None:
             self.variance_hyperparameters = self._initialise_hyperparameter(
                 self.variance, variance_hyperparameters)
-        if varphi_hyperhyperparameters is not None:
-            # Update varphi hyperhyperparameter
-            self.varphi_hyperhyperparameters = varphi_hyperhyperparameters
+        if theta_hyperhyperparameters is not None:
+            # Update theta hyperhyperparameter
+            self.theta_hyperhyperparameters = theta_hyperhyperparameters
 
     def distance_mat(self, X1, X2):
         """
@@ -257,10 +257,10 @@ class Linear(Kernel):
         """
         Create an :class:`Linear` kernel object.
 
-        :arg varphi:
-        :type varphi: :class:`numpy.ndarray` or float
-        :arg varphi_hyperparameters:
-        :type varphi_hyperparameters: :class:`numpy.ndarray` or float
+        :arg theta:
+        :type theta: :class:`numpy.ndarray` or float
+        :arg theta_hyperparameters:
+        :type theta_hyperparameters: :class:`numpy.ndarray` or float
 
         :returns: An :class:`Linear` object
         """
@@ -268,21 +268,21 @@ class Linear(Kernel):
         # For this kernel, the shared and single kernel for each class 
         # (i.e. non general) and single lengthscale across
         # all data dims (i.e. non-ARD) is assumed.
-        if varphi is not None:
-            varphi, self.L = self._initialise_varphi(varphi)
+        if theta is not None:
+            theta, self.L = self._initialise_theta(theta)
             assert self.L == 2  # 2 hyperparameters for the linear kernel
         else:
             raise ValueError(
-                "Hyperparameters `varphi = [constant_variance, c]` must be "
+                "Hyperparameters `theta = [constant_variance, c]` must be "
                 "provided for the Linear kernel class (got {})".format(None))
-        self.constant_variance = varphi[0]
-        self.offset = varphi[1]
+        self.constant_variance = theta[0]
+        self.offset = theta[1]
         if self.constant_variance is None:
             self.constant_variance = 0.0
         elif not ((type(self.constant_variance) is float) or
                 (type(self.constant_variance) is np.float64)):
             if type(self.constant_variance) is np.ndarray:
-                if not np.shape(self.constant_variance) is ():
+                if np.shape(self.constant_variance) != ():
                     raise TypeError(
                     "Shape of constant_variance not supported "
                     "(expected float, got {} array)".format(
@@ -306,25 +306,25 @@ class Linear(Kernel):
         self.num_hyperparameters = np.size(
             self.constant_variance) + np.size(self.offset)
 
-    def _initialise_varphi(self, varphi):
+    def _initialise_theta(self, theta):
         """
         Initialise as Matern type kernel
         (loosely defined here as a kernel with a length scale) 
         """
-        if type(varphi) is list:
-            L = len(varphi)
-        elif type(varphi) is np.ndarray:
-            L = np.shape(varphi)[0]
-        elif ((type(varphi) is float) or
-                (type(varphi) is np.float64)):
+        if type(theta) is list:
+            L = len(theta)
+        elif type(theta) is np.ndarray:
+            L = np.shape(theta)[0]
+        elif ((type(theta) is float) or
+                (type(theta) is np.float64)):
             L = 1
-            varphi = np.float64(varphi)
+            theta = np.float64(theta)
         else:
             raise TypeError(
-                "Type of varphi is not supported "
+                "Type of theta is not supported "
                 "(expected {} or {}, got {})".format(
-                    float, np.ndarray, type(varphi)))
-        return varphi, L
+                    float, np.ndarray, type(theta)))
+        return theta, L
 
     def kernel(self, X_i, X_j):
         return (
@@ -365,7 +365,7 @@ class Linear(Kernel):
                 + X2[np.newaxis, :, :]
                 + 2 * self.c[np.newaxis, np.newaxis, :])
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_theta(self, X1, X2):
         # return [
         #     self.kernel_partial_derivative_constant_variance(X1, X2),
         #     self.kernel_partial_derivative_c(X1, X2)]
@@ -382,10 +382,10 @@ class LabEQ(Kernel):
     a.k.a squared exponential) kernel class.
 
     .. math::
-        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+        K(x_i, x_j) = s * \exp{- \theta * \norm{x_{i} - x_{j}}^2},
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
-    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the data point, :math:`x_{j}` is another data point, :math:`\theta` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
     def __repr__(self):
@@ -409,34 +409,34 @@ class LabEQ(Kernel):
             raise ValueError(
                 "You must supply a variance for the simple kernel "
                 "(expected {} type, got {})".format(float, self.variance))
-        self.num_hyperparameters = np.size(self.varphi)
+        self.num_hyperparameters = np.size(self.theta)
 
     def kernel(self, X_i, X_j):
         return (
             self.variance * B.exp(
-                -self.varphi * B.ew_dists2(
+                -self.theta * B.ew_dists2(
                     X_i.reshape(1, -1), X_j.reshape(1, -1)))[0, 0])
 
     def kernel_vector(self, x_new, X):
-        return self.variance * B.exp(-self.varphi * B.ew_dists2(
+        return self.variance * B.exp(-self.theta * B.ew_dists2(
             X, x_new.reshape(1, -1)))
 
     def kernel_prior_diagonal(self, X):
         return self.variance * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
-        return self.variance * B.exp(-self.varphi * B.ew_dists2(X1, X2))
+        return self.variance * B.exp(-self.theta * B.ew_dists2(X1, X2))
 
     def kernel_matrix(self, X1, X2):
-        return self.variance * B.exp(-self.varphi * B.pw_dists2(X1, X2))
+        return self.variance * B.exp(-self.theta * B.pw_dists2(X1, X2))
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_theta(self, X1, X2):
         distance_mat_2 = B.pw_dists2(X1, X2)
         return -B.multiply(
-            distance_mat_2, self.variance * B.exp(-self.varphi * distance_mat_2))
+            distance_mat_2, self.variance * B.exp(-self.theta * distance_mat_2))
 
     def kernel_partial_derivative_variance(self, X1, X2):
-        return B.exp(-self.varphi * B.pw_dists2(X1, X2))
+        return B.exp(-self.theta * B.pw_dists2(X1, X2))
 
 
 class SquaredExponential(Kernel):
@@ -445,10 +445,10 @@ class SquaredExponential(Kernel):
     a.k.a squared exponential) kernel class.
 
     .. math::
-        K(x_i, x_j) = s * \exp{- \norm{x_{i} - x_{j}}^2 / (2 * \varphi^{2})},
+        K(x_i, x_j) = s * \exp{- \norm{x_{i} - x_{j}}^2 / (2 * \theta^{2})},
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
-    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the data point, :math:`x_{j}` is another data point, :math:`\theta` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
 
@@ -465,15 +465,15 @@ class SquaredExponential(Kernel):
             raise ValueError(
                 "You must supply a variance for the simple kernel "
                 "(expected {} type, got {})".format(float, self.variance))
-        self.num_hyperparameters = np.size(self.varphi)
+        self.num_hyperparameters = np.size(self.theta)
 
-    def _initialise_varphi(self, varphi=None):
+    def _initialise_theta(self, theta=None):
         """
         Initialise as Matern type kernel
         (loosely defined here as a kernel with a length scale) 
         """
-        if varphi is not None:
-            L, M = self._check_varphi_shape(varphi)
+        if theta is not None:
+            L, M = self._check_theta_shape(theta)
             if L != 1:
                 raise ValueError(
                     "L wrong for simple kernel (expected {}, got {})".format(
@@ -482,41 +482,137 @@ class SquaredExponential(Kernel):
                 raise ValueError(
                     "M wrong for non-ARD kernel (expected {}, got {})".format(
                         1, self.M))
-            if varphi < 1e-09:
+            if theta < 1e-09:
                 # To prevent overflow
-                varphi = 1e-09
+                theta = 1e-09
         else:
             L = None
             M = None 
-        return varphi, L, M
+        return theta, L, M
 
     def kernel(self, X_i, X_j):
         return (
             self.variance * B.exp(
-                -1./(2 * self.varphi**2) * B.ew_dists2(
+                -1./(2 * self.theta**2) * B.ew_dists2(
                     X_i.reshape(1, -1), X_j.reshape(1, -1)))[0, 0])
 
     def kernel_vector(self, x_new, X):
-        return self.variance * B.exp(-1./(2 * self.varphi**2) * B.ew_dists2(
+        return self.variance * B.exp(-1./(2 * self.theta**2) * B.ew_dists2(
             X, x_new.reshape(1, -1)))
 
     def kernel_prior_diagonal(self, X):
         return self.variance * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
-        return self.variance * B.exp(-1./(2 * self.varphi**2) * B.ew_dists2(X1, X2))
+        return self.variance * B.exp(-1./(2 * self.theta**2) * B.ew_dists2(X1, X2))
 
     def kernel_matrix(self, X1, X2):
-        return self.variance * B.exp(-1./(2 * self.varphi**2) * B.pw_dists2(X1, X2))
+        return self.variance * B.exp(-1./(2 * self.theta**2) * B.pw_dists2(X1, X2))
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_theta(self, X1, X2):
         distance_mat_2 = B.pw_dists2(X1, X2)
-        return 1. / (self.varphi**3) * B.multiply(
+        return 1. / (self.theta**3) * B.multiply(
             distance_mat_2,
-            self.variance * B.exp(-1./(2 * self.varphi**2) * distance_mat_2))
+            self.variance * B.exp(-1./(2 * self.theta**2) * distance_mat_2))
 
     def kernel_partial_derivative_variance(self, X1, X2):
-        return B.exp(-1./(2 * self.varphi**2) * B.pw_dists2(X1, X2))
+        return B.exp(-1./(2 * self.theta**2) * B.pw_dists2(X1, X2))
+
+
+class SquaredExponentialARD(Kernel):
+    r"""
+    An automatic relevance detection (ARD) for a ordinal regression (single
+    and shared across all classes) radial basis function (a.k.a. exponentiated
+    quadratic, a.k.a squared exponential (SE)) kernel class.
+    .. math::
+        K(x_i, x_j) = s * \exp{- \sum_{d=1}^{D}(\theta_{d}
+            * (x_{id} - x_{jd})^2)},
+
+    where :math:`K(\cdot, \cdot)` is the kernel function for all the
+    :math:`K` classes, :math:`x_{i}` is the data point, :math:`x_{j}` is
+    another data point, :math:`\theta_{d}` is the lengthscale for the
+    :math:`d`th dimension, shared across all classes, and :math:`s` is the
+    variance.
+    """
+    @property
+    def _ARD(self):
+        return True
+
+    def __repr__(self):
+        return "SquaredEponentialARD"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # For this kernel, the ARD setting is assumed. This is not a
+        # general_kernel, since the covariance function
+        # is shared across classes. 
+        if self.variance is None:
+            raise ValueError(
+                "You must supply a variance for the simple kernel "
+                "(expected {} type, got {})".format(float, self.variance))
+        # TODO: needed?
+        self.D = self.M
+
+    def _initialise_theta(self, theta=None):
+        """
+        Initialise as Matern type kernel
+        (loosely defined here as a kernel with a length scale) 
+        """
+        # In the ordinal setting with a single and shared (D, )
+        # hyperparameter for each class case.
+        self.num_hyperparameters = np.size(theta)
+
+        if theta is not None:
+            L, M = self._check_theta_shape(theta)
+            if L != 1:
+                raise ValueError(
+                    "L wrong for simple kernel (expected {}, got {})".format(
+                        1, self.L))
+            if M <= 1:
+                raise ValueError(
+                    "M wrong for ARD kernel (expected {}, got {}, "
+                    "theta={})".format("more than 1", M, theta))
+            for d, ell in enumerate(theta):
+                if ell < 1e-09:
+                    # To prevent overflow
+                    theta[d] = 1e-09
+        else:
+            L = None
+            M = None 
+        return theta, L, M
+
+    def kernel(self, X_i, X_j):
+        return self.variance * np.exp(-1. * np.power(distance.minkowski(X_i, X_j, w=1./self.theta**2), 2))
+
+    def kernel_vector(self, x_new, X):
+        # TODO: this has been tested (scratch 4), but best to make sure it works
+        N = np.shape(X)[0]
+        Cs = np.empty((self.K, N))
+        x = x_new[0]
+        for i in range(N):
+            Cs[:, i] = self._kernel(X[i], x)
+        return self.variance * Cs
+
+    def kernel_matrix(self, X1, X2):
+        # TODO: this has been tested (scratch 4), but best to make sure it works
+        return self.variance * np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=1./self.theta**2), 2))
+
+    def kernel_partial_derivative_theta(self, X1, X2):
+        C = self.kernel_matrix(X1, X2)  # (N1, N2)
+        N1 = np.shape(X1)[0]
+        N2 = np.shape(X2)[0]
+        partial_C = np.empty((self.D, N1, N2))
+        # The general covariance function has a different length scale for each dimension.
+        for d in range(self.D):
+            X1d = X1[:, d].reshape(-1, 1)
+            X2d = X2[:, d].reshape(-1, 1)
+            # TODO: check this - unconfident in it.
+            partial_C[d, :, :] = 2./(self.theta[d]**3) * np.multiply(pow(distance_matrix(X1d, X2d), 2), C)
+        return partial_C
+
+    def kernel_partial_derivative_variance(self, X1, X2):
+        # TODO: this has been tested (scratch 4), but best to make sure it works
+        return np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=1./self.theta**2), 2))
 
 
 class LabSharpenedCosine(Kernel):
@@ -528,10 +624,10 @@ class LabSharpenedCosine(Kernel):
     a.k.a squared exponential) kernel class.
 
     .. math::
-        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+        K(x_i, x_j) = s * \exp{- \theta * \norm{x_{i} - x_{j}}^2},
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
-    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the data point, :math:`x_{j}` is another data point, :math:`\theta` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
 
@@ -555,54 +651,54 @@ class LabSharpenedCosine(Kernel):
             raise ValueError(
                 "You must supply a variance for the sharpened cosine kernel "
                 "(expected {} type, got {})".format(float, self.variance))
-        self.num_hyperparameters = np.size(self.varphi)
+        self.num_hyperparameters = np.size(self.theta)
 
     def kernel(self, X_i, X_j):
         # TODO: may need to reshape
-        return self.variance * B.matmul(X_i, X_j, tr_a=True)**self.varphi[1]
+        return self.variance * B.matmul(X_i, X_j, tr_a=True)**self.theta[1]
         # return self.variance * (np.dot(X_i, X_j) / (
-        #     (np.linalg.norm(X_i) + self.varphi[0])
-        #     * (np.linalg.norm(X_j) + self.varphi[0])))**self.varphi[1]
+        #     (np.linalg.norm(X_i) + self.theta[0])
+        #     * (np.linalg.norm(X_j) + self.theta[0])))**self.theta[1]
         # return (self.variance * B.matmul(B.transpose(X_i), X_j))
-        # return (self.variance * B.exp(-self.varphi * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
+        # return (self.variance * B.exp(-self.theta * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
 
     def kernel_vector(self, x_new, X):
-        return self.variance * B.einsum('k, ik -> i', x_new, X)**self.varphi[1]
+        return self.variance * B.einsum('k, ik -> i', x_new, X)**self.theta[1]
         # return self.variance * (np.einsum('k, ik -> i', x_new, X) / (
-        #     (np.linalg.norm(x_new) + self.varphi[0]) * (np.linalg.norm(X, axis=1) + self.varphi[0])))**self.varphi[1]
+        #     (np.linalg.norm(x_new) + self.theta[0]) * (np.linalg.norm(X, axis=1) + self.theta[0])))**self.theta[1]
 
     def kernel_prior_diagonal(self, X):
         return self.variance * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
-        return self.variance * B.einsum('ik, ik -> i', X1, X2)**self.varphi[1]
-        # return self.variance * np.einsum('ik, ik -> i', X1, X2)**self.varphi[1]
+        return self.variance * B.einsum('ik, ik -> i', X1, X2)**self.theta[1]
+        # return self.variance * np.einsum('ik, ik -> i', X1, X2)**self.theta[1]
         # return self.variance * (np.einsum('ik, ik -> i', X1, X2) / (
-        #     (np.linalg.norm(X1, axis=1) + self.varphi[0])
-        #     * (np.linalg.norm(X2, axis=1) + self.varphi[0])))**self.varphi[1]
-        # return self.variance * B.exp(-self.varphi * B.ew_dists2(X1, X2))
+        #     (np.linalg.norm(X1, axis=1) + self.theta[0])
+        #     * (np.linalg.norm(X2, axis=1) + self.theta[0])))**self.theta[1]
+        # return self.variance * B.exp(-self.theta * B.ew_dists2(X1, X2))
 
     def kernel_matrix(self, X1, X2):
-        return self.variance * B.matmul(X1, X2, tr_b=True)**self.varphi[1]
-        #return self.variance * B.outer(X1, X2)**self.varphi[1]
-        #return self.variance * np.einsum('ik, jk -> ij', X1, X2)**self.varphi[1]
+        return self.variance * B.matmul(X1, X2, tr_b=True)**self.theta[1]
+        #return self.variance * B.outer(X1, X2)**self.theta[1]
+        #return self.variance * np.einsum('ik, jk -> ij', X1, X2)**self.theta[1]
         # return self.variance * (np.einsum('ik, jk -> ij', X1, X2) / (
         #     np.outer(
-        #         (np.linalg.norm(X1, axis=1) + self.varphi[0]),
-        #         (np.linalg.norm(X2, axis=1) + self.varphi[1])
-        #         )))**self.varphi[1]
-        #return self.variance * B.exp(-self.varphi * B.pw_dists2(X1, X2))
+        #         (np.linalg.norm(X1, axis=1) + self.theta[0]),
+        #         (np.linalg.norm(X2, axis=1) + self.theta[1])
+        #         )))**self.theta[1]
+        #return self.variance * B.exp(-self.theta * B.pw_dists2(X1, X2))
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_theta(self, X1, X2):
         return np.zeros((len(X1), len(X1)))
 
     def kernel_partial_derivative_variance(self, X1, X2):
-        return B.einsum('ik, jk -> ij', X1, X2)**self.varphi[1]
+        return B.einsum('ik, jk -> ij', X1, X2)**self.theta[1]
         # return (np.einsum('ik, jk -> ij', X1, X2) / (
         #     np.outer(
-        #         (np.linalg.norm(X1, axis=1) + self.varphi[0]),
-        #         (np.linalg.norm(X2, axis=1) + self.varphi[1])
-        #         )))**self.varphi[1]
+        #         (np.linalg.norm(X1, axis=1) + self.theta[0]),
+        #         (np.linalg.norm(X2, axis=1) + self.theta[1])
+        #         )))**self.theta[1]
 
 
 class SEIso(Kernel):
@@ -611,10 +707,10 @@ class SEIso(Kernel):
     a.k.a squared exponential) kernel class.
 
     .. math::
-        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+        K(x_i, x_j) = s * \exp{- \theta * \norm{x_{i} - x_{j}}^2},
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
-    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the data point, :math:`x_{j}` is another data point, :math:`\theta` is
     the single, shared lengthscale and
     hyperparameter, :math:`s` is the variance.
 
@@ -642,11 +738,11 @@ class SEIso(Kernel):
             raise ValueError(
                 "You must supply a variance for the simple kernel "
                 "(expected {} type, got {})".format(float, self.variance))
-        self.num_hyperparameters = np.size(self.varphi)
+        self.num_hyperparameters = np.size(self.theta)
 
     def kernel(self, X_i, X_j):
         return self.variance * np.exp(
-            -1. * self.varphi * distance.sqeuclidean(X_i, X_j))
+            -1. * self.theta * distance.sqeuclidean(X_i, X_j))
 
     def kernel_vector(self, x_new, X):
         X_new = np.tile(x_new, (np.shape(X)[0], 1))
@@ -657,16 +753,16 @@ class SEIso(Kernel):
 
     def kernel_diagonal(self, X1, X2):
         X = X1 - X2
-        return self.variance * np.exp(-1. * self.varphi * np.einsum(
+        return self.variance * np.exp(-1. * self.theta * np.einsum(
             'ij, ij -> i', X, X))
 
     def kernel_matrix(self, X1, X2):
         distance_mat = self.distance_mat(X1, X2)
-        return self.variance * np.exp(-1. * self.varphi * distance_mat**2)
+        return self.variance * np.exp(-1. * self.theta * distance_mat**2)
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_theta(self, X1, X2):
         distance_mat_2 = self.distance_mat(X1, X2)**2
-        C = np.multiply(self.variance, np.exp(-1. * self.varphi * distance_mat_2))
+        C = np.multiply(self.variance, np.exp(-1. * self.theta * distance_mat_2))
         partial_C = -np.multiply(distance_mat_2, C)
         # D = np.shape(X1)[1]
         # # The general covariance function has a different length scale for each dimension.
@@ -677,7 +773,7 @@ class SEIso(Kernel):
 
     def kernel_partial_derivative_variance(self, X1, X2):
         # On a GPU, want to avoid storing the distance matrix, so recalculate
-        return np.exp(-1. * self.varphi * self.distance_mat(X1, X2)**2)
+        return np.exp(-1. * self.theta * self.distance_mat(X1, X2)**2)
 
 
 class Polynomial(Kernel):
@@ -689,10 +785,10 @@ class Polynomial(Kernel):
     a.k.a squared exponential) kernel class.
 
     .. math::
-        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+        K(x_i, x_j) = s * \exp{- \theta * \norm{x_{i} - x_{j}}^2},
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
-    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the data point, :math:`x_{j}` is another data point, :math:`\theta` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
 
@@ -713,37 +809,37 @@ class Polynomial(Kernel):
             raise ValueError(
                 "You must supply a variance for SumPolynomialSEIso kernel "
                 "(expected {} type, got {})".format(float, self.variance))
-        self.num_hyperparameters = np.size(self.varphi)
+        self.num_hyperparameters = np.size(self.theta)
 
     def kernel(self, X_i, X_j):
         return (
             (self.variance * B.matmul(X_i, X_j, tr_a=True)
-                + self.varphi[0])**self.varphi[1]
+                + self.theta[0])**self.theta[1]
         )
 
     def kernel_vector(self, x_new, X):
         return (
             (self.variance * B.einsum('k, ik -> i', x_new, X)
-                + self.varphi[0])**self.varphi[1]
+                + self.theta[0])**self.theta[1]
         )
 
     def kernel_prior_diagonal(self, X):
         return (
             (self.variance * B.einsum('ik, ik -> i', X, X)
-                + self.varphi[0])**self.varphi[1]
+                + self.theta[0])**self.theta[1]
             )
 
     def kernel_diagonal(self, X1, X2):
         return (
-            (self.variance * B.einsum('ik, ik -> i', X1, X2) + self.varphi[0])**self.varphi[1]
+            (self.variance * B.einsum('ik, ik -> i', X1, X2) + self.theta[0])**self.theta[1]
             )
 
     def kernel_matrix(self, X1, X2):
         return(
-            (self.variance * B.matmul(X1, X2, tr_b=True) + self.varphi[0])**self.varphi[1]
+            (self.variance * B.matmul(X1, X2, tr_b=True) + self.theta[0])**self.theta[1]
         )
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_theta(self, X1, X2):
         return np.zeros((len(X1), len(X1)))
 
     def kernel_partial_derivative_variance(self, X1, X2):
@@ -759,10 +855,10 @@ class SumPolynomialSEIso(Kernel):
     a.k.a squared exponential) kernel class.
 
     .. math::
-        K(x_i, x_j) = s * \exp{- \varphi * \norm{x_{i} - x_{j}}^2},
+        K(x_i, x_j) = s * \exp{- \theta * \norm{x_{i} - x_{j}}^2},
 
     where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
-    the data point, :math:`x_{j}` is another data point, :math:`\varphi` is
+    the data point, :math:`x_{j}` is another data point, :math:`\theta` is
     the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
     """
 
@@ -783,53 +879,53 @@ class SumPolynomialSEIso(Kernel):
             raise ValueError(
                 "You must supply a variance for SumPolynomialSEIso kernel "
                 "(expected {} type, got {})".format(float, self.variance))
-        self.num_hyperparameters = np.size(self.varphi)
+        self.num_hyperparameters = np.size(self.theta)
 
     def kernel(self, X_i, X_j):
         return (
             (self.variance[0] * B.matmul(X_i, X_j, tr_a=True)
-                + self.varphi[0])**self.varphi[1]
+                + self.theta[0])**self.theta[1]
             + self.variance[1] * B.exp(
                 -B.ew_dists2(
                     X_i.reshape(1, -1), X_j.reshape(1, -1))/
-                    (2. * self.varphi[2]**2)
+                    (2. * self.theta[2]**2)
                     )[0, 0] 
         )
 
     def kernel_vector(self, x_new, X):
         return (
             (self.variance[0] * B.einsum('k, ik -> i', x_new, X)
-                + self.varphi[0])**self.varphi[1]
+                + self.theta[0])**self.theta[1]
             + self.variance[1] * B.exp(
                 -B.ew_dists2(
                     X, x_new.reshape(1, -1)) /
-                (2. * self.varphi[2]**2)
+                (2. * self.theta[2]**2)
                 )
         )
 
     def kernel_prior_diagonal(self, X):
         return (
             (self.variance[0] * B.einsum('ik, ik -> i', X, X)
-                + self.varphi[0])**self.varphi[1]
+                + self.theta[0])**self.theta[1]
             + self.variance[1] * np.ones(np.shape(X)[0])
             )
 
     def kernel_diagonal(self, X1, X2):
         return (
-            (self.variance[0] * B.einsum('ik, ik -> i', X1, X2) + self.varphi[0])**self.varphi[1]
+            (self.variance[0] * B.einsum('ik, ik -> i', X1, X2) + self.theta[0])**self.theta[1]
             + self.variance[1] * B.exp(-B.eq_dists2(X1, X2) /
-            (2. * self.varphi[2]**2)
+            (2. * self.theta[2]**2)
             )
         )
 
     def kernel_matrix(self, X1, X2):
         return(
-            (self.variance[0] * B.matmul(X1, X2, tr_b=True) + self.varphi[0])**self.varphi[1]
+            (self.variance[0] * B.matmul(X1, X2, tr_b=True) + self.theta[0])**self.theta[1]
             + self.variance[1] * B.exp(-B.pw_dists2(X1, X2) /
-            (2. * self.varphi[2]**2))
+            (2. * self.theta[2]**2))
         )
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_theta(self, X1, X2):
         return np.zeros((len(X1), len(X1)))
 
     def kernel_partial_derivative_variance(self, X1, X2):
@@ -842,12 +938,12 @@ class SEARD(Kernel):
     and shared across all classes) radial basis function (a.k.a. exponentiated
     quadratic, a.k.a squared exponential (SE)) kernel class.
     .. math::
-        K(x_i, x_j) = s * \exp{- \sum_{d=1}^{D}(\varphi_{d}
+        K(x_i, x_j) = s * \exp{- \sum_{d=1}^{D}(\theta_{d}
             * (x_{id} - x_{jd})^2)},
 
     where :math:`K(\cdot, \cdot)` is the kernel function for all the
     :math:`K` classes, :math:`x_{i}` is the data point, :math:`x_{j}` is
-    another data point, :math:`\varphi_{d}` is the lengthscale for the
+    another data point, :math:`\theta_{d}` is the lengthscale for the
     :math:`d`th dimension, shared across all classes, and :math:`s` is the
     variance.
     """
@@ -858,7 +954,7 @@ class SEARD(Kernel):
     def __repr__(self):
         return "SEARD"
 
-    def __init__(self, varphi, varphi_hyperparameters=None, *args, **kwargs):
+    def __init__(self, theta, theta_hyperparameters=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # For this kernel, the ARD setting is assumed. This is not a
         # general_kernel, since the covariance function
@@ -880,13 +976,13 @@ class SEARD(Kernel):
         self.D = self.M
         # In the ordinal setting with a single and shared (D, )
         # hyperparameter for each class case.
-        self.num_hyperparameters = np.size(varphi)
+        self.num_hyperparameters = np.size(theta)
 
     def _kernel(self, X_i, X_j):
-        return np.exp(-1. * np.sum(np.multiply(self.varphi, np.power(X_i - X_j, 2)), axis=1))
+        return np.exp(-1. * np.sum(np.multiply(self.theta, np.power(X_i - X_j, 2)), axis=1))
 
     def kernel(self, X_i, X_j):
-        return self.variance * np.exp(-1. * np.power(distance.minkowski(X_i, X_j, w=self.varphi), 2))
+        return self.variance * np.exp(-1. * np.power(distance.minkowski(X_i, X_j, w=self.theta), 2))
 
     def kernel_vector(self, x_new, X):
         # TODO: this has been tested (scratch 4), but best to make sure it works
@@ -899,9 +995,9 @@ class SEARD(Kernel):
 
     def kernel_matrix(self, X1, X2):
         # TODO: this has been tested (scratch 4), but best to make sure it works
-        return self.variance * np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi), 2))
+        return self.variance * np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.theta), 2))
 
-    def kernel_partial_derivative_varphi(self, X1, X2):
+    def kernel_partial_derivative_theta(self, X1, X2):
         C = self.kernel_matrix(X1, X2)  # (N1, N2)
         N1 = np.shape(X1)[0]
         N2 = np.shape(X2)[0]
@@ -916,7 +1012,7 @@ class SEARD(Kernel):
 
     def kernel_partial_derivative_variance(self, X1, X2):
         # TODO: this has been tested (scratch 4), but best to make sure it works
-        return np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.varphi), 2))
+        return np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=self.theta), 2))
 
 
 class InvalidKernel(Exception):
@@ -947,6 +1043,8 @@ class KernelLoader(enum.Enum):
     se_iso = SEIso
     sum_polynomial_se_iso = SumPolynomialSEIso
     se_ard = SEARD
+    squared_exponential = SquaredExponential
+    squared_exponential_ARD = SquaredExponentialARD
 
 
 def load_kernel(

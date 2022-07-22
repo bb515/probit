@@ -139,7 +139,7 @@ def plot(sampler, m_0, cutpoints_0, burn_steps, steps, J, D, domain=None):
 #     plt.scatter(classifier.X, m_tilde)
 #     plt.plot(X_true, Y_true)
 #     plt.show()
-#     (ms, ys, varphis, psis, fxs) = containers
+#     (ms, ys, thetas, psis, fxs) = containers
 #     plt.plot(fxs)
 #     plt.title("Variational lower bound on the marginal likelihood")
 #     plt.show()
@@ -161,12 +161,12 @@ def plot(sampler, m_0, cutpoints_0, burn_steps, steps, J, D, domain=None):
 #         x = np.linspace(x_lims[0], x_lims[1], N)
 #         X_new = x.reshape((N, classifier.D))
 #         print("y", y_tilde)
-#         print("varphi", classifier.kernel.varphi)
+#         print("theta", classifier.kernel.theta)
 #         print("noisevar", classifier.noise_variance)
 #         (Z, posterior_predictive_m,
 #         posterior_std) = classifier.predict(
 #             classifier.cutpoints, classifier.cov, y_tilde,
-#             classifier.kernel.varphi,
+#             classifier.kernel.theta,
 #             classifier.noise_variance, X_new)
 #         print(np.sum(Z, axis=1), 'sum')
 #         plt.xlim(x_lims)
@@ -218,7 +218,7 @@ def plot(sampler, m_0, cutpoints_0, burn_steps, steps, J, D, domain=None):
 #         X_new = x.reshape((N, D))
 #         (Z, posterior_predictive_m,
 #         posterior_std) = classifier.predict(
-#             classifier.cutpoints, cov, y_tilde, classifier.kernel.varphi,
+#             classifier.cutpoints, cov, y_tilde, classifier.kernel.theta,
 #             classifier.noise_variance, X_new)
 #         print(np.sum(Z, axis=1), 'sum')
 #         plt.xlim(x_lims)
@@ -257,7 +257,7 @@ def plot(sampler, m_0, cutpoints_0, burn_steps, steps, J, D, domain=None):
 #         (Z,
 #         posterior_predictive_m,
 #         posterior_std) = classifier.predict(
-#             classifier.cutpoints, cov, y_tilde, classifier.kernel.varphi,
+#             classifier.cutpoints, cov, y_tilde, classifier.kernel.theta,
 #             classifier.noise_variance, X_new)
 #         print(np.sum(Z, axis=1), 'sum')
 #         plt.xlim(x_lims)
@@ -368,7 +368,7 @@ def plot(sampler, m_0, cutpoints_0, burn_steps, steps, J, D, domain=None):
 #         X_new_[:, :2] = X_new
 #         Z, posterior_predictive_m, posterior_std = classifier.predict(
 #             classifier.cutpoints, classifier.cov, y,
-#             classifier.kernel.varphi, classifier.noise_variance, X_new_)
+#             classifier.kernel.theta, classifier.noise_variance, X_new_)
 #         Z_new = Z.reshape((N, N, classifier.J))
 #         print(np.sum(Z, axis=1), 'sum')
 #         for j in range(classifier.J):

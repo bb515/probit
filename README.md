@@ -78,7 +78,7 @@ Features
 
 Planned Features
 --------
-- numpy linear alegbra operations will be converted to TensorFlow code
+- numpy linear alegbra operations will be converted to TensorFlow or PyTorch code
 
 
 Get started (preferred)
