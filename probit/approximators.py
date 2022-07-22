@@ -3502,16 +3502,27 @@ class LaplaceGP(Approximator):
             if trainables[J]:
                 raise ValueError("TODO")
             # For gx[J + 1] -- varphi
-            if trainables[J + 1]:
+            if self.kernel._ARD:
                 partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
                     X_train, X_train)
-                dmat = partial_K_varphi @ cov
-                t2 = (dmat @ weight) / precision
-                gx[J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
-                gx[J + 1] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
-                gx[J + 1] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
-                # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
-                # gx[J] -= 0.1 * varphi
+                for d in range(self.D):
+                    if trainables[J + 1][d]:
+                        dmat = partial_K_varphi[d] @ cov
+                        t2 = (dmat @ weight) / precision
+                        gx[J + 1 + d] -= varphi * 0.5 * weight.T @ partial_K_varphi[d] @ weight
+                        gx[J + 1 + d] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
+                        gx[J + 1 + d] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi[d]))
+            else:
+                if trainables[J + 1]:
+                    partial_K_varphi = self.kernel.kernel_partial_derivative_varphi(
+                        X_train, X_train)
+                    dmat = partial_K_varphi @ cov
+                    t2 = (dmat @ weight) / precision
+                    gx[J + 1] -= varphi * 0.5 * weight.T @ partial_K_varphi @ weight
+                    gx[J + 1] += varphi * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
+                    gx[J + 1] += varphi * 0.5 * np.sum(np.multiply(cov, partial_K_varphi))
+                    # ad-hoc Regularisation term - penalise large varphi, but Occam's term should do this already
+                    # gx[J] -= 0.1 * varphi
         return gx
 
     def _approximate_initiate(
