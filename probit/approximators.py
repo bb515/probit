@@ -384,7 +384,7 @@ class Approximator(ABC):
             there are in the most general case J * D parameters.
             If `None` then no hyperperameter update is performed.
         :type phi: :class:`numpy.ndarray`
-        :return: (intervals, steps, error, iteration, trainables_where, gx)
+        :return: (intervals, steps, error, iteration, gx_where, gx)
         :rtype: (6,) tuple
         """
         # Initiate at None since those that are None do not get updated        
@@ -458,8 +458,14 @@ class Approximator(ABC):
         intervals = self.cutpoints[2:self.J] - self.cutpoints[1:self.J - 1]
         error = np.inf
         iteration = 0
-        trainables_where = np.where(trainables)
-        return (intervals, error, iteration, trainables_where, gx)
+        from collections.abc import Iterable
+        def flatten(x):
+            if isinstance(x, Iterable):
+                return [a for i in x for a in flatten(i)]
+            else:
+                return [x]
+        gx_where = np.where(flatten(trainables))
+        return (intervals, error, iteration, gx_where, gx)
 
     def _load_cached_prior(self):
         """
@@ -1032,7 +1038,7 @@ class VBGP(Approximator):
         :rtype: float, `:class:numpy.ndarray`
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, error, iteration, trainables_where,
+        (intervals, error, iteration, gx_where,
         gx) = self._hyperparameter_training_step_initialise(
             phi, trainables, verbose=verbose)
         fx_old = np.inf
@@ -1079,7 +1085,7 @@ class VBGP(Approximator):
                     self.partial_K_theta, self.N, Z,
                     norm_pdf_z1s, norm_pdf_z2s, trainables,
                     numerical_stability=True, verbose=False)
-            gx = gx[trainables_where]
+            gx = gx[gx_where]
             if verbose:
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
@@ -1661,7 +1667,7 @@ class EPGP(Approximator):
         :return: fx the objective and gx the objective gradient
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, error, iteration, trainables_where,
+        (intervals, error, iteration, gx_where,
         gx) = self._hyperparameter_training_step_initialise(
             phi, trainables, verbose=verbose)
         posterior_mean = posterior_mean_0
@@ -1702,8 +1708,7 @@ class EPGP(Approximator):
             gx = self.objective_gradient(
                 gx, intervals, self.kernel.theta, self.noise_variance,
                 t2, t3, t4, t5, cov, weight, trainables)
-            # TODO: np.where(trainables) only works if 1D array or list
-            gx = gx[np.where(trainables)]
+            gx = gx[gx_where]
             if verbose:
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
@@ -2687,7 +2692,7 @@ class PEPGP(Approximator):
         :return: fx the objective and gx the objective gradient
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, error, iteration, trainables_where,
+        (intervals, error, iteration, gx_where,
         gx) = self._hyperparameter_training_step_initialise(
             phi, trainables, verbose=verbose)
         beta = beta_0
@@ -2723,7 +2728,7 @@ class PEPGP(Approximator):
                 gx = np.zeros(1 + self.J - 1 + 1 + 1)
             gx = self.objective_gradient(
                 gx, trainables)
-            gx = gx[np.where(trainables)]
+            gx = gx[gx_where]
             if verbose:
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
@@ -2762,7 +2767,7 @@ class PEPGP(Approximator):
         :return: fx the objective and gx the objective gradient
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, error, iteration, trainables_where,
+        (intervals, error, iteration, gx_where,
         gx) = self._hyperparameter_training_step_initialise(
             phi, trainables, verbose=verbose)
         beta = beta_0
@@ -2803,7 +2808,7 @@ class PEPGP(Approximator):
                 gx = np.zeros(1 + self.J - 1 + 1 + 1)
             gx = self.objective_gradient(
                 gx, trainables)
-            gx = gx[np.where(trainables)]
+            gx = gx[gx_where]
             if verbose:
                 print(
                     "\ncutpoints={}, noise_variance={}, "
@@ -3031,10 +3036,8 @@ class LaplaceGP(Approximator):
         return fx
 
     def objective_gradient(
-            self, gx, data, grid, J,
-            intervals, theta, noise_variance, noise_std,
-            w1, w2, g1, g2, v1, v2, q1, q2,
-            cov, weight, N, K, precision, trainables):
+            self, gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2,
+            cov, weight, precision, trainables):
         """
         Calculate gx, the jacobian of the variational lower bound of the
         log marginal likelihood at the EP equilibrium.
@@ -3049,18 +3052,8 @@ class LaplaceGP(Approximator):
 
         :arg gx: 
         :type gx:
-        :arg data:
-        :type data:
-        :arg grid:
-        :type grid:
-        :arg J:
-        :type J:
         :arg intervals:
         :type intervals:
-        :arg theta: The kernel hyper-parameters.
-        :type theta: :class:`numpy.ndarray` or float.
-        :arg float noise_variance: The noise variance.
-        :arg float noise_std:
         :arg w1:
         :type w1:
         :arg w2:
@@ -3081,10 +3074,6 @@ class LaplaceGP(Approximator):
         :type cov:
         :arg weight:
         :type weight:
-        :arg N:
-        :type N:
-        :arg K:
-        :type K:
         :arg precision:
         :type precision:
         :arg trainables:
@@ -3092,28 +3081,27 @@ class LaplaceGP(Approximator):
         :return: gx
         :rtype: float
         """
-        X_train, y_train = data
         if trainables is not None:
-            # compute a diagonal
-            dsigma = cov @ K
+            # diagonal of posterior covariance
+            dsigma = cov @ self.K
             diag = np.diag(dsigma) / precision
             # partial lambda / partial phi_b = - partial lambda / partial f (* SIGMA)
-            t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1) - 2.0 * (w2 - w1)**3 - (v2 - v1)) / noise_variance
+            t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1) - 2.0 * (w2 - w1)**3 - (v2 - v1)) / self.noise_variance
             # Update gx
             if trainables[0]:
                 # For gx[0] -- ln\sigma
-                cache = (w2 - w1) * ((g2 - g1) - (w2 - w1) + (v2 - v1)) / noise_variance
+                cache = ((w2 - w1) * (g2 - g1) - (w2 - w1) + (v2 - v1)) / self.noise_variance
                 # prepare D f / D delta_l
                 t2 = - dsigma @ cache / precision
                 tmp = (
                     - 2.0 * precision
-                    + 2.0 * (w2 - w1) * (v2 - v1)
+                    + (2.0 * (w2 - w1) * (v2 - v1)
                     + 2.0 * (w2 - w1)**2 * (g2 - g1)
                     - (g2 - g1)
                     + (g2 - g1)**2
-                    + (q2 - q1) / noise_variance)
+                    + (q2 - q1)) / self.noise_variance)
                 gx[0] = np.sum(g2 - g1 + 0.5 * (tmp - t2 * t1) * diag)
-                gx[0] = - gx[0] / 2.0 * noise_variance
+                gx[0] = - gx[0] / 2.0 * self.noise_variance
             # For gx[1] -- \b_1
             if trainables[1]:
                 # For gx[1], \phi_b^1
@@ -3121,17 +3109,17 @@ class LaplaceGP(Approximator):
                 t2 = t2 / precision
                 gx[1] -= np.sum(w2 - w1)
                 gx[1] += 0.5 * np.sum(t1 * (1 - t2) * diag)
-                gx[1] = gx[1] / noise_std
+                gx[1] = gx[1] / self.noise_std
             # For gx[2] -- ln\Delta^r
-            for j in range(2, J):
+            for j in range(2, self.J):
                 # Prepare D f / D delta_l
-                cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
-                cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
+                cache0 = -(g2 + (w2 - w1) * w2) / self.noise_variance
+                cache1 = - (g2 - g1 + (w2 - w1)**2) / self.noise_variance
                 if trainables[j]:
-                    idxj = np.where(y_train == j - 1)
-                    idxg = np.where(y_train > j - 1)
-                    idxl = np.where(y_train < j - 1)
-                    cache = np.zeros(N)
+                    idxj = np.where(self.y_train == j - 1)
+                    idxg = np.where(self.y_train > j - 1)
+                    idxl = np.where(self.y_train < j - 1)
+                    cache = np.zeros(self.N)
                     cache[idxj] = cache0[idxj]
                     cache[idxg] = cache1[idxg]
                     t2 = dsigma @ cache
@@ -3142,37 +3130,37 @@ class LaplaceGP(Approximator):
                         - 2.0 * (w2[idxj] - w1[idxj]) * g2[idxj]
                         - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
                         - v2[idxj]
-                        - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
+                        - (g2[idxj] - g1[idxj]) * w2[idxj]) / self.noise_variance
                     gx[j] += 0.5 * np.sum((temp - t2[idxj] * t1[idxj]) * diag[idxj])
                     gx[j] -= np.sum(w2[idxg] - w1[idxg])
                     gx[j] += 0.5 * np.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
                     gx[j] += 0.5 * np.sum(-t2[idxl] * t1[idxl] * diag[idxl])
-                    gx[j] = gx[j] * intervals[j - 2] / noise_std
+                    gx[j] = gx[j] * intervals[j - 2] / self.noise_std
             # For gx[J] -- variance
-            if trainables[J]:
+            if trainables[self.J]:
                 raise ValueError("TODO")
             # For gx[J + 1] -- theta
             if self.kernel._ARD:
                 partial_K_theta = self.kernel.kernel_partial_derivative_theta(
-                    X_train, X_train)
+                    self.X_train, self.X_train)
                 for d in range(self.D):
-                    if trainables[J + 1][d]:
+                    if trainables[self.J + 1][d]:
                         dmat = partial_K_theta[d] @ cov
                         t2 = (dmat @ weight) / precision
-                        gx[J + 1 + d] -= theta[d] * 0.5 * weight.T @ partial_K_theta[d] @ weight
-                        gx[J + 1 + d] += theta[d] * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
-                        gx[J + 1 + d] += theta[d] * 0.5 * np.sum(np.multiply(cov, partial_K_theta[d]))
-                        # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already
+                        gx[self.J + 1 + d] -= self.kernel.theta[d] * 0.5 * weight.T @ partial_K_theta[d] @ weight
+                        gx[self.J + 1 + d] += self.kernel.theta[d] * 0.5 * np.sum((-diag * t1 * t2) / (self.noise_std))
+                        gx[self.J + 1 + d] += self.kernel.theta[d] * 0.5 * np.sum(np.multiply(cov, partial_K_theta[d]))
+                        # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already. Or is it numerical stability
                         # gx[J] -= 0.1 * theta
             else:
-                if trainables[J + 1]:
+                if trainables[self.J + 1]:
                     partial_K_theta = self.kernel.kernel_partial_derivative_theta(
-                        X_train, X_train)
+                        self.X_train, self.X_train)
                     dmat = partial_K_theta @ cov
                     t2 = (dmat @ weight) / precision
-                    gx[J + 1] -= theta * 0.5 * weight.T @ partial_K_theta @ weight
-                    gx[J + 1] += theta * 0.5 * np.sum((-diag * t1 * t2) / (noise_std))
-                    gx[J + 1] += theta * 0.5 * np.sum(np.multiply(cov, partial_K_theta))
+                    gx[self.J + 1] -= self.kernel.theta * 0.5 * weight.T @ partial_K_theta @ weight
+                    gx[self.J + 1] += self.kernel.theta * 0.5 * np.sum((-diag * t1 * t2) / (self.noise_std))
+                    gx[self.J + 1] += self.kernel.theta * 0.5 * np.sum(np.multiply(cov, partial_K_theta))
                     # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already
                     # gx[J] -= 0.1 * theta
         return gx
@@ -3294,7 +3282,7 @@ class LaplaceGP(Approximator):
         :return:
         """
         # Update prior covariance and get hyperparameters from phi
-        (intervals, error, iteration, trainables_where,
+        (intervals, error, iteration, gx_where,
                 gx) = self._hyperparameter_training_step_initialise(
             phi, trainables, verbose=verbose)
         posterior_mean = posterior_mean_0
@@ -3324,12 +3312,9 @@ class LaplaceGP(Approximator):
             else:
                 gx = np.zeros(1 + self.J - 1 + 1 + 1)
             gx = self.objective_gradient(
-                gx, (self.X_train, self.y_train), self.grid,
-                self.J, intervals, self.kernel.theta, self.noise_variance,
-                self.noise_std,
-                w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
-                self.N, self.K, precision, trainables)
-            gx = gx[np.nonzero(trainables)]
+                gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
+                precision, trainables)
+            gx = gx[gx_where]
             if verbose:
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"

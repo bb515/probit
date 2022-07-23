@@ -132,9 +132,9 @@ def main():
         (X, f_, g_true, y,
         cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
         J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
-        # from probit.kernels import SquaredExponentialARD
-        # Kernel = SquaredExponentialARD
-        # theta_0 = np.array([1./np.sqrt(theta_0 / 2), 1./np.sqrt(theta_0 / 2)])
+        from probit.kernels import SquaredExponentialARD
+        Kernel = SquaredExponentialARD
+        theta_0 = np.array([theta_0, theta_0])
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
     N_train = np.shape(y)[0]
@@ -153,9 +153,9 @@ def main():
 
     trainables = [1] * (J + 2)
     if kernel._ARD:
-        trainables[-1] = [1] * int(D)
+        trainables[-1] = [1, 1]
         # Fix theta
-        trainables[-1] = [0] * int(D)
+        # trainables[-1] = [0] * int(D)
     else:
         trainables[-1] = 1
         # Fix theta
@@ -166,22 +166,21 @@ def main():
     trainables[J] = 0
     # Fix cutpoints
     trainables[1:J] = [0] * (J - 1)
-    trainables[J-1] = 1
-    trainables[J-2] = 1
+    # trainables[J-1] = 1
+    # trainables[J-2] = 1
 
-    print(trainables)
     # just theta
     # domain = ((-1, 1.3), None)
     # res = (20, None)
     # theta_0 and theta_1
-    # domain = ((-1, 1.3), (-1, 1.3))
-    # res = (20, 20)
+    domain = ((-1, 1.3), (-1, 1.3))
+    res = (20, 20)
     # #  just signal variance, domain is log_10(signal_std)
     # domain = ((0., 1.8), None)
     # res = (20, None)
     # just noise variance, domain is log_10(noise_std)
-    domain = ((-1., 0.1), (-1, 0.1))
-    res = (5, 5)
+    # domain = ((-1., 1.0), None)
+    # res = (100, None)
     # # theta and signal variance
     # domain = ((0, 2), (0, 2))
     # res = (100, None)
@@ -200,10 +199,7 @@ def main():
 
     grid_synthetic(classifier, domain, res, steps, trainables, show=True)
 
-    # plot_synthetic(
-    #     classifier, dataset, X_true, g_true, steps, colors=colors)
-
-    #plot_synthetic(classifier, dataset, X, Y, colors=colors)
+    # plot_synthetic(classifier, dataset, X_true, g_true, steps, colors=colors)
 
     # outer_loops(
     #     Approximator, Kernel, X_trains, y_trains, X_tests, y_tests, steps,

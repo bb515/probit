@@ -136,7 +136,6 @@ def grid(classifier, X_trains, y_trains,
             ax.set_aspect(1)
             ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
             ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
-            ax.plot(0.1, 30, 'm')
             ax.set_xscale(xscale)
             ax.set_yscale(yscale)
             ax.set_xlim(0.1, 10.0)
@@ -198,7 +197,6 @@ def grid(classifier, X_trains, y_trains,
         ax.set_aspect(1)
         ax.contourf(x, y, Z_av, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
-        ax.plot(0.1, 30, 'm')
         ax.set_xlim(0.1, 10.0)
         ax.set_ylim(0.1, 10.0)
         ax.set_xscale(xscale)
@@ -1123,6 +1121,22 @@ def grid_synthetic(
         plt.close()
 
     else:
+        #First derivatives: need to calculate them in the log domain
+        log_x = np.log(x1s)
+        log_y = np.log(x2s)
+        dlog_x = np.diff(log_x)
+        dlog_y = np.diff(log_y)
+        dZdlog_x = np.gradient(Z, log_x, axis=1)
+        dZdlog_y = np.gradient(Z, log_y, axis=0)
+        # d2Zlog_x2 = (Z[:, :-2] - 2 * Z[:, 1:-1] + Z[:, 2:]) / dlog_x ** 2
+        # d2Zlog_y2 = (Z[:-2, :] - 2 * Z[1:-1, :] + Z[2:, :]) / dlog_y ** 2
+        u_analytic_x = grad[:, 0].reshape((len(x1s), len(x2s)))
+        u_numerical_x = dZdlog_x
+        error_x = (u_numerical_x - u_analytic_x)
+        u_analytic_y = grad[:, 1].reshape((len(x1s), len(x2s)))
+        u_numerical_y = dZdlog_y
+        error_y = (u_numerical_y - u_analytic_y)
+
         fig = plt.figure()
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
@@ -1138,6 +1152,126 @@ def grid_synthetic(
         if show: plt.show()
         plt.close()
 
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.set_aspect(1)
+        CS = ax.contourf(x, y, u_analytic_x, 100, cmap='viridis', zorder=1)
+        ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
+        ax.set_xscale(xscale)
+        ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+        ax.set_ylim((10**domain[1][0], 10**domain[1][1]))
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        plt.tight_layout()
+        cbar = fig.colorbar(CS)
+        fig.savefig(
+            "grad analytic x.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        if show: plt.show()
+        plt.close()
+
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.set_aspect(1)
+        CS = ax.contourf(x, y, u_numerical_x, 100, cmap='viridis', zorder=1)
+        ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
+        ax.set_xscale(xscale)
+        ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+        ax.set_ylim((10**domain[1][0], 10**domain[1][1]))
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        plt.tight_layout()
+        cbar = fig.colorbar(CS)
+        fig.savefig(
+            "grad numerical x.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        if show: plt.show()
+        plt.close()
+
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.set_aspect(1)
+        CS = ax.contourf(x, y, u_analytic_y, 100, cmap='viridis', zorder=1)
+        ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
+        ax.set_xscale(xscale)
+        ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+        ax.set_ylim((10**domain[1][0], 10**domain[1][1]))
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        plt.tight_layout()
+        cbar = fig.colorbar(CS)
+        fig.savefig(
+            "grad analytic y.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        if show: plt.show()
+        plt.close()
+
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.set_aspect(1)
+        CS = ax.contourf(x, y, u_numerical_y, 100, cmap='viridis', zorder=1)
+        ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
+        ax.set_xscale(xscale)
+        ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+        ax.set_ylim((10**domain[1][0], 10**domain[1][1]))
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        plt.tight_layout()
+        cbar = fig.colorbar(CS)
+        fig.savefig(
+            "grad numerical y.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        if show: plt.show()
+        plt.close()
+
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.set_aspect(1)
+        CS = ax.contourf(x, y, error_x, 100, cmap='viridis', zorder=1)
+        ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
+        ax.set_xscale(xscale)
+        ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+        ax.set_ylim((10**domain[1][0], 10**domain[1][1]))
+        cbar = fig.colorbar(CS)
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        plt.tight_layout()
+        fig.savefig(
+            "grad error x.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        if show: plt.show()
+        plt.close()
+
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(0.0)
+        ax.set_aspect(1)
+        CS = ax.contourf(x, y, error_y, 100, cmap='viridis', zorder=1)
+        ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
+        ax.set_xscale(xscale)
+        ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+        ax.set_ylim((10**domain[1][0], 10**domain[1][1]))
+        cbar = fig.colorbar(CS)
+        ax.set_yscale(yscale)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+        plt.tight_layout()
+        fig.savefig(
+            "grad error y.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        if show: plt.show()
+        plt.close()
+
         norm = np.linalg.norm(np.array((grad[:, 0], grad[:, 1])), axis=0)
         u = grad[:, 0] / norm
         v = grad[:, 1] / norm
@@ -1148,7 +1282,6 @@ def grid_synthetic(
         ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.1, color='red')
         ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
-        ax.plot(0.1, 30, 'm')
         ax.set_xscale(xscale)
         ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
         ax.set_ylim((10**domain[1][0], 10**domain[1][1]))
