@@ -377,6 +377,8 @@ def train(classifier, method, trainables, verbose=True, steps=None, max_sec=5000
     minimize_stopper = MinimizeStopper(max_sec=max_sec)
     phi = classifier.get_phi(trainables)
     args = (trainables, steps)
+    print("phi", phi)
+
     res = minimize(
         classifier.approximate_posterior, phi,
         args, method=method, jac=True,
@@ -891,7 +893,6 @@ def _grid_over_hyperparameters_initiate(
         theta_0.append(np.exp(phi_0[index]))
         index += 1
     if trainables[1]:
-        phi_0 = np.exp(phi_0)
         # Grid over b_1, the first cutpoint
         label.append(r"$b_{}$".format(1))
         axis_scale.append("linear")
@@ -912,8 +913,8 @@ def _grid_over_hyperparameters_initiate(
             theta_0.append(np.exp(phi_0[index]))
             index += 1
     if trainables[classifier.J]:
-        # Grid over variance
-        label.append("$variance$")
+        # Grid over signal variance
+        label.append("$\sigma_{\theta}^{2}$")
         axis_scale.append("log")
         theta = np.logspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
@@ -974,7 +975,7 @@ def _grid_over_hyperparameters_initiate(
         label[0], label[1],
         axis_scale[0], axis_scale[1],
         meshgrid_theta[0], meshgrid_theta[1],
-        phis, fxs, gxs, np.array(theta_0))
+        phis, fxs, gxs, np.array(theta_0), phi_0)
 
 
 def grid_synthetic(
@@ -985,7 +986,7 @@ def grid_synthetic(
     xscale, yscale,
     xx, yy,
     phis, fxs,
-    gxs, theta_0) = _grid_over_hyperparameters_initiate(
+    gxs, theta_0, phi_0) = _grid_over_hyperparameters_initiate(
         classifier, res, domain, trainables)
     for i, phi in enumerate(phis):
         print(phi)
@@ -1015,11 +1016,16 @@ def grid_synthetic(
     print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         #Normalization:
-        #First derivatives: need to calculate them in the log domain
-        log_x = np.log(x)
-        dlog_x = np.diff(log_x)
-        dZ_ = np.gradient(Z, log_x)
-        dZ = np.diff(Z) / dlog_x
+        #First derivatives: need to calculate them in the log domain if theta is in log domain
+        if xscale == "log":
+            logx = np.log(x)
+            dx = np.diff(log_x)
+            dZ_ = np.gradient(Z, logx)
+            #dZ = np.diff(Z) / dlogx
+        elif xscale == "linear":
+            dx = np.diff(x)
+            dZ_ = np.gradient(Z, x)
+            #dZ = np.diff(Z) / dx
 
         fig = plt.figure()
         fig.patch.set_facecolor('white')
@@ -1032,17 +1038,22 @@ def grid_synthetic(
         if show: plt.show()
         plt.close()
 
+        idx_hat = np.argmin(Z)
         fig = plt.figure()
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
         ax.grid()
-        ax.plot(x, Z, 'b')
-        ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+        ax.plot(x, Z, 'b',  label=r"$\mathcal{F}}$")
+        ylim = ax.get_ylim()
+        ax.vlines(x[idx_hat], 0.99 * ylim[0], 0.99 * ylim[1], 'r',
+            alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
+        ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
             alpha=0.5, label=r"'true' $\theta$")
         ax.set_xlabel(xlabel)
         ax.set_xscale(xscale)
         ax.set_ylabel(r"$\mathcal{F}$")
+        ax.legend()
         fig.savefig("bound.png",
             facecolor=fig.get_facecolor(), edgecolor='none')
         if show: plt.show()
@@ -1078,14 +1089,14 @@ def grid_synthetic(
         ax = fig.add_subplot(111)
         ax.grid()
         ax.plot(
-            log_x, dZ_, 'r--',
+            x, dZ_, 'r--',
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
         ax.vlines(
-            np.log(theta_0), 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k', alpha=0.5,
+            phi_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k', alpha=0.5,
             label=r"'true' $\log \theta$")
         ax.set_ylim(ax.get_ylim())
         ax.plot(
-            log_x, grad, 'r',
+            x, grad, 'r',
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
         ax.set_xlabel("log " + xlabel)
         ax.set_ylabel(
@@ -1099,21 +1110,21 @@ def grid_synthetic(
         fig = plt.figure()
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
-        ax.grid()
         ax = fig.add_subplot(111)
-        ax.plot(log_x, Z, 'b', label=r"$\mathcal{F}}$")
-        ax.vlines(
-            np.log(theta_0), 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k', alpha=0.5,
-            label=r"'true' $\log \theta$")
+        ax.plot(x, Z, 'b', label=r"$\mathcal{F}}$")
         ax.plot(
-            log_x, dZ_, 'r--',
+            x, dZ_, 'r--',
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
         ax.set_ylim(ax.get_ylim())
+        ax.vlines(
+            phi_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k', alpha=0.5,
+            label=r"'true' $\log \theta$")
         ax.plot(
-            log_x, grad, 'r',
+            x, grad, 'r',
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
         ax.set_xlabel("log " + xlabel)
         ax.legend()
+        ax.grid()
         plt.tight_layout()
         fig.savefig(
             "bound_grad.png", facecolor=fig.get_facecolor(), edgecolor='none')

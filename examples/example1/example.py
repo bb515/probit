@@ -132,9 +132,9 @@ def main():
         (X, f_, g_true, y,
         cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
         J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
-        from probit.kernels import SquaredExponentialARD
-        Kernel = SquaredExponentialARD
-        theta_0 = np.array([theta_0, theta_0])
+        # from probit.kernels import SquaredExponentialARD
+        # Kernel = SquaredExponentialARD
+        # theta_0 = np.array([theta_0, theta_0])
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
     N_train = np.shape(y)[0]
@@ -155,49 +155,52 @@ def main():
     if kernel._ARD:
         trainables[-1] = [1, 1]
         # Fix theta
-        # trainables[-1] = [0] * int(D)
+        trainables[-1] = [0] * int(D)
     else:
         trainables[-1] = 1
         # Fix theta
         trainables[-1] = 0
-    # Fix noise variance
+    # Fix noise standard deviation
     trainables[0] = 0
-    # Fix signal variance
+    # Fix signal standard deviation
     trainables[J] = 0
     # Fix cutpoints
     trainables[1:J] = [0] * (J - 1)
+    trainables[1] = 1
     # trainables[J-1] = 1
     # trainables[J-2] = 1
-
+    print(trainables)
+    print(cutpoints_0)
+    print(signal_variance_0)
+    print(theta_0)
     # just theta
-    # domain = ((-1, 1.3), None)
-    # res = (20, None)
+    domain = ((-1, 1.3), None)
+    res = (30, None)
     # theta_0 and theta_1
-    domain = ((-1, 1.3), (-1, 1.3))
-    res = (20, 20)
-    # #  just signal variance, domain is log_10(signal_std)
+    # domain = ((-1, 1.3), (-1, 1.3))
+    # res = (20, 20)
+    # #  just signal standard deviation, domain is log_10(signal_std)
     # domain = ((0., 1.8), None)
     # res = (20, None)
-    # just noise variance, domain is log_10(noise_std)
+    # just noise std, domain is log_10(noise_std)
     # domain = ((-1., 1.0), None)
     # res = (100, None)
-    # # theta and signal variance
+    # # theta and signal std dev
     # domain = ((0, 2), (0, 2))
     # res = (100, None)
     # # cutpoints b_1 and b_2 - b_1
     # domain = ((-0.75, -0.5), (-1.0, 1.0))
     # res = (14, 14)
 
-    # grid_synthetic(classifier, domain, res, steps, trainables, show=False)
+    grid_synthetic(classifier, domain, res, steps, trainables, show=False)
 
     # plot(classifier, domain=None)
 
-    # classifier = train(classifier, method, trainables)
     # classifier = train(
     #     classifier, method, trainables, verbose=True, steps=steps)
     # test(classifier, X, y, g_true, steps)
 
-    grid_synthetic(classifier, domain, res, steps, trainables, show=True)
+    # grid_synthetic(classifier, domain, res, steps, trainables, show=True)
 
     # plot_synthetic(classifier, dataset, X_true, g_true, steps, colors=colors)
 

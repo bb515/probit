@@ -320,9 +320,12 @@ class Approximator(ABC):
         """
         if cutpoints is not None:
             self.cutpoints = check_cutpoints(cutpoints, self.J)
+            print("cutpoints", self.cutpoints)
             self.cutpoints_ts = self.cutpoints[self.y_train]
             self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
         if theta is not None or variance is not None:
+            print("theta", theta)
+            print("signal", np.sqrt(variance))
             self.kernel.update_hyperparameter(
                 theta=theta, variance=variance)
             # Update prior covariance
@@ -981,9 +984,15 @@ class VBGP(Approximator):
                 gx[2:self.J] *= intervals
                 if verbose:
                     print(gx[2:self.J])
-            # For gx[self.J] -- s
+            # For gx[J] -- s
             if trainables[self.J]:
-                raise ValueError("TODO")
+                partial_K_variance = self.kernel.kernel_partial_derivative_variance(
+                    self.X_train, self.X_train)
+                # VC * VC * a' * partial_K_theta * a / 2
+                gx[self.J] = self.kernel.variance * 0.5 * weight.T @ partial_K_variance @ weight  # That's wrong. not the same calculation.
+                # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
+                gx[self.J] -= self.kernel.variance * 0.5 * np.sum(np.multiply(partial_K_variance, cov))
+                gx[self.J] *= 2.0  # since theta = kappa / 2
             # For kernel parameters
             if self.kernel._ARD:
                 for d in range(self.D):
@@ -1010,6 +1019,7 @@ class VBGP(Approximator):
                         # Update gx[-1], the partial derivative of the lower bound
                         # wrt the lengthscale. Using matrix inversion Lemma
                         one = (theta / 2) * weight.T @ partial_K_theta @ weight
+                        # TODO: Seems to be missing a term that EP and LA have got!
                         # TODO: slower but what about @jit compile CPU or GPU?
                         # D = solve_triangular(
                         #     L_cov.T, partial_K_theta, lower=True)
@@ -1133,9 +1143,9 @@ class EPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        self.EPS = 1e-4
+        # self.EPS = 1e-3
         # self.EPS = 1e-4  # perhaps too large
-        # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
+        self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
         self.jitter = 1e-10
         # Initiate hyperparameters
@@ -1779,6 +1789,8 @@ class EPGP(Approximator):
                 self.cutpoints_tplus1s,
                 noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
         t5[self.indices_where_0] = 0.0
+        # print("t4", t4)
+        # print("t5", t5)
         return t1, t2, t3, t4, t5
 
     def objective(
@@ -1862,13 +1874,17 @@ class EPGP(Approximator):
         if trainables is not None:
             # Update gx
             if trainables[0]:
+                # TODO: Doesn't work due to numerical instability, also need to check for algebraic error
                 # For gx[0] -- ln\sigma
-                gx[0] = np.sum(t5 - t4)
+                # gx[0] -= 1 / np.sqrt(noise_variance) * np.sum(np.multiply(cov, self.K))
                 # gx[0] *= -0.5 * noise_variance  # This is a typo in the Chu code
-                gx[0] *= np.sqrt(noise_variance)
+                gx[0] = np.sum(t5 - t4)
+                #gx[0] *= np.sqrt(noise_variance) / 2.0
             # For gx[1] -- \b_1
             if trainables[1]:
                 gx[1] = np.sum(t3 - t2)
+                gx[1] *= self.cutpoints[1]
+                print("here", gx[1])
             # For gx[2] -- ln\Delta^r
             for j in range(2, self.J):
                 if trainables[j]:
@@ -1881,8 +1897,6 @@ class EPGP(Approximator):
             # For gx[self.J] -- variance
             if trainables[self.J]:
                 # For gx[self.J] -- s
-                # TODO: Need to check this is correct: is it directly analogous to
-                # gradient wrt log theta?
                 partial_K_variance = self.kernel.kernel_partial_derivative_variance(
                     self.X_train, self.X_train)
                 # VC * VC * a' * partial_K_theta * a / 2
@@ -1892,7 +1906,6 @@ class EPGP(Approximator):
                 # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already
                 # gx[self.J] -= 0.1 * theta
                 gx[self.J] *= 2.0  # since theta = kappa / 2
-                print(gx[self.J])
             # For gx[self.J + 1] -- theta
             if self.kernel._ARD:
                 if trainables[self.J + 1]:
@@ -2024,7 +2037,7 @@ class PEPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        self.EPS = 1e-4  # perhaps too large
+        # self.EPS = 1e-4  # perhaps too large
         # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
         self.EPS_2 = self.EPS**2
         self.jitter = 1e-6  # 1e-10  # was 1e-10
@@ -2702,15 +2715,12 @@ class PEPGP(Approximator):
         # random permutation of data
         indices = np.arange(self.N)
         while error / (steps * self.N) > self.EPS**2:
-        # for _ in range(10):
             iteration += 1
             (error, beta, gamma, mean_EP, variance_EP,
                 log_lik, grads) = self.run_pep_parallel(
             indices, steps, beta=beta, gamma=gamma,
             mean_EP=mean_EP, variance_EP=variance_EP, write=False)
             print("{}/iterations, error={}".format(iteration, error))
-        # TODO: Why not just directly calculate gradients given states
-        # TODO: A: because it requires a whole loop
         # Compute posterior TODO: does it need to be done twice?
         (posterior_mean, posterior_cov) = self._compute_posterior(
             self.Kuu, gamma, beta)
@@ -3106,8 +3116,8 @@ class LaplaceGP(Approximator):
             if trainables[1]:
                 # For gx[1], \phi_b^1
                 t2 = dsigma @ precision
-                t2 = t2 / precision
-                gx[1] -= np.sum(w2 - w1)
+                # t2 = t2 / precision
+                gx[1] = np.sum(w1 - w2)
                 gx[1] += 0.5 * np.sum(t1 * (1 - t2) * diag)
                 gx[1] = gx[1] / self.noise_std
             # For gx[2] -- ln\Delta^r
@@ -3138,7 +3148,15 @@ class LaplaceGP(Approximator):
                     gx[j] = gx[j] * intervals[j - 2] / self.noise_std
             # For gx[J] -- variance
             if trainables[self.J]:
-                raise ValueError("TODO")
+                partial_K_variance = self.kernel.kernel_partial_derivative_variance(
+                    self.X_train, self.X_train)
+                dmat = partial_K_variance @ cov
+                t2 = (dmat @ weight) / precision
+                # VC * VC * a' * partial_K_theta * a / 2
+                gx[self.J] = -self.kernel.variance * 0.5 * weight.T @ partial_K_variance @ weight  # That's wrong. not the same calculation.
+                # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
+                gx[self.J] += self.kernel.variance * 0.5 * np.trace(dmat)
+                gx[self.J] *= 2.0  # since theta = kappa / 2
             # For gx[J + 1] -- theta
             if self.kernel._ARD:
                 partial_K_theta = self.kernel.kernel_partial_derivative_theta(
@@ -3150,8 +3168,6 @@ class LaplaceGP(Approximator):
                         gx[self.J + 1 + d] -= self.kernel.theta[d] * 0.5 * weight.T @ partial_K_theta[d] @ weight
                         gx[self.J + 1 + d] += self.kernel.theta[d] * 0.5 * np.sum((-diag * t1 * t2) / (self.noise_std))
                         gx[self.J + 1 + d] += self.kernel.theta[d] * 0.5 * np.sum(np.multiply(cov, partial_K_theta[d]))
-                        # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already. Or is it numerical stability
-                        # gx[J] -= 0.1 * theta
             else:
                 if trainables[self.J + 1]:
                     partial_K_theta = self.kernel.kernel_partial_derivative_theta(
@@ -3161,8 +3177,6 @@ class LaplaceGP(Approximator):
                     gx[self.J + 1] -= self.kernel.theta * 0.5 * weight.T @ partial_K_theta @ weight
                     gx[self.J + 1] += self.kernel.theta * 0.5 * np.sum((-diag * t1 * t2) / (self.noise_std))
                     gx[self.J + 1] += self.kernel.theta * 0.5 * np.sum(np.multiply(cov, partial_K_theta))
-                    # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already
-                    # gx[J] -= 0.1 * theta
         return gx
 
     def _approximate_initiate(

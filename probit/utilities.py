@@ -468,12 +468,12 @@ def fromb_t4_vector(
     y[0, :] = h * (
         fromb_fft4_vector(
             a, mean, sigma, posterior_mean, posterior_covariance,
-            noise_variance, noise_std,
+            noise_std, noise_variance,
             cutpoints_t, cutpoints_tplus1,
             EPS_2)
         + fromb_fft4_vector(
             b, mean, sigma, posterior_mean, posterior_covariance,
-            noise_variance, noise_std,
+            noise_std, noise_variance,
             cutpoints_t, cutpoints_tplus1,
             EPS_2)
     ) / 2.0
@@ -486,7 +486,7 @@ def fromb_t4_vector(
             x = a + (i + 0.5) * h
             p = p + fromb_fft4_vector(
                 x, mean, sigma, posterior_mean, posterior_covariance,
-                noise_variance, noise_std,
+                noise_std, noise_variance,
                 cutpoints_t, cutpoints_tplus1,
                 EPS_2)
         p = (y[0, :] + h * p) / 2.0
