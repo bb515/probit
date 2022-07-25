@@ -10,7 +10,6 @@ from probit.utilities import (
     check_cutpoints, norm_z_pdf, norm_cdf, sample_g,
     truncated_norm_normalising_constant, log_multivariate_normal_pdf,
     log_multivariate_normal_pdf_vectorised)
-import numba_scipy  # Numba overloads for scipy and scipy.special
 from scipy.stats import norm, uniform, expon
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from tqdm import trange

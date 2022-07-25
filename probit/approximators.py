@@ -24,10 +24,6 @@ from probit.utilities import (
     ordinal_dlogZtilted_dm_vector,
     ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
-# NOTE Usually the numba implementation is not faster
-# from .numba.utilities import (
-#     fromb_t1_vector, fromb_t2_vector,
-#     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 
 
