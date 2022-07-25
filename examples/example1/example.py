@@ -1,6 +1,7 @@
 """Ordinal regression concrete examples. Approximate inference."""
 # Make sure to limit CPU usage
 import os
+from probit.kernels import LabSharpenedCosine
 
 from probit.utilities import dp
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
@@ -97,7 +98,9 @@ def main():
     parser.add_argument(
         "dataset_name", help="run example on a given dataset name")
     parser.add_argument(
-        "bins", help="e.g., 13, 53, 101, etc.")
+        "J", help="e.g., 13, 53, 101, etc.")
+    parser.add_argument(
+        "D", help="number of classes")
     parser.add_argument(
         "method", help="L-BFGS-B or CG or Newton-CG or BFGS")
     parser.add_argument(
@@ -106,7 +109,8 @@ def main():
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
     dataset = args.dataset_name
-    bins = int(args.bins)
+    J = int(args.J)
+    D = int(args.D)
     method = args.method
     approximation = args.approximation
     write_path = pathlib.Path(__file__).parent.absolute()
@@ -120,18 +124,22 @@ def main():
         X_true, g_tests,
         cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
         J, D, Kernel) = load_data(
-            dataset, bins)
+            dataset, J)
         X = X_trains[2]
         y = y_trains[2]
     elif dataset in datasets["synthetic"]:
         (X, y,
         X_true, g_true,
         cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
-        J, D, colors, Kernel) = load_data_synthetic(dataset, bins)
+        J, D, colors, Kernel) = load_data_synthetic(dataset, J)
     elif dataset in datasets["paper"]:
         (X, f_, g_true, y,
         cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
-        J, D, colors, Kernel) = load_data_paper(dataset, plot=True)
+        J, D, colors, Kernel) = load_data_paper(
+            dataset, J=J, D=D, ARD=False, plot=True)
+        from probit.kernels import LabSharpenedCosine
+        Kernel = LabSharpenedCosine
+        theta_0 = np.array([0.0, 6])
         # from probit.kernels import SquaredExponentialARD
         # Kernel = SquaredExponentialARD
         # theta_0 = np.array([theta_0, theta_0])
@@ -166,15 +174,12 @@ def main():
     trainables[J] = 0
     # Fix cutpoints
     trainables[1:J] = [0] * (J - 1)
-    trainables[1] = 1
+    trainables[2] = 1
     # trainables[J-1] = 1
     # trainables[J-2] = 1
     print(trainables)
-    print(cutpoints_0)
-    print(signal_variance_0)
-    print(theta_0)
     # just theta
-    domain = ((-1, 1.3), None)
+    domain = ((-2, 1.3), None)
     res = (30, None)
     # theta_0 and theta_1
     # domain = ((-1, 1.3), (-1, 1.3))
@@ -192,7 +197,7 @@ def main():
     # domain = ((-0.75, -0.5), (-1.0, 1.0))
     # res = (14, 14)
 
-    grid_synthetic(classifier, domain, res, steps, trainables, show=False)
+    # grid_synthetic(classifier, domain, res, steps, trainables, show=False)
 
     # plot(classifier, domain=None)
 
@@ -200,9 +205,9 @@ def main():
     #     classifier, method, trainables, verbose=True, steps=steps)
     # test(classifier, X, y, g_true, steps)
 
-    # grid_synthetic(classifier, domain, res, steps, trainables, show=True)
+    grid_synthetic(classifier, domain, res, steps, trainables, show=True)
 
-    # plot_synthetic(classifier, dataset, X_true, g_true, steps, colors=colors)
+    #plot_synthetic(classifier, dataset, X_true, g_true, steps, colors=colors)
 
     # outer_loops(
     #     Approximator, Kernel, X_trains, y_trains, X_tests, y_tests, steps,
