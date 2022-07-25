@@ -987,18 +987,11 @@ def grid_synthetic(
     gxs, theta_0, phi_0) = _grid_over_hyperparameters_initiate(
         classifier, res, domain, trainables)
     for i, phi in enumerate(phis):
-        print(phi)
-        fx, gx = classifier.approximate_posterior(phi, trainables, steps)
+        fx, gx = classifier.approximate_posterior(
+            phi, trainables, steps, verbose=verbose)
         fxs[i] = fx
         gxs[i] = gx
-        if verbose:
-            print(
-            "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
-            "\nfunction_eval={}, \nfunction_grad={}".format(
-                classifier.cutpoints, classifier.kernel.theta,
-                classifier.noise_variance, classifier.kernel.variance,
-                fx, gxs[i]))
-    # TODO: tidy up this code
+
     if x2s is not None:
         (Z, grad,
         x, y,
@@ -1011,7 +1004,6 @@ def grid_synthetic(
         xlabel, ylabel,
         xscale, yscale) = (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
-    print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         #Normalization:
         #First derivatives: need to calculate them in the log domain if theta is in log domain
