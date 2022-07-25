@@ -39,7 +39,7 @@ write_path = pathlib.Path()
 
 
 # Initiate classifier
-gibbs_classifier = GibbsOrderedGPTemp(K, X, t, kernel)
+gibbs_classifier = GibbsOrderedGPTemp(K, X, y, kernel)
 steps_burn = 100
 steps = 5000
 
@@ -53,14 +53,14 @@ steps = 5000
 
 # Plot from the binned arrays
 
-plt.scatter(X[np.where(t == 1)][:, 0], X[np.where(t == 1)][:, 1])
-plt.scatter(X[np.where(t == 2)][:, 0], X[np.where(t == 2)][:, 1])
-plt.scatter(X[np.where(t == 3)][:, 0], X[np.where(t == 3)][:, 1])
-plt.scatter(X[np.where(t == 4)][:, 0], X[np.where(t == 4)][:, 1])
-plt.scatter(X[np.where(t == 5)][:, 0], X[np.where(t == 5)][:, 1])
+plt.scatter(X[np.where(y == 1)][:, 0], X[np.where(y == 1)][:, 1])
+plt.scatter(X[np.where(y == 2)][:, 0], X[np.where(y == 2)][:, 1])
+plt.scatter(X[np.where(y == 3)][:, 0], X[np.where(y == 3)][:, 1])
+plt.scatter(X[np.where(y == 4)][:, 0], X[np.where(y == 4)][:, 1])
+plt.scatter(X[np.where(y == 5)][:, 0], X[np.where(y == 5)][:, 1])
 
 # for k in range(K):
-#     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$t={}$".format(k))
+#     plt.scatter(X_k[k], Y_true_k[k], color=colors[k], label=r"$y={}$".format(k))
 # plt.title("N_total={}, K={}, D={} Ordinal response data".format(N_total, K, D))
 plt.legend()
 plt.xlabel(r"$x_1$", fontsize=16)
@@ -71,30 +71,30 @@ plt.show()
 # Problem with this is that the intial guess must be close to the true values
 # As a result we have to approximate the latent function.
 if argument in ["diabetes_quantile", "stocks_quantile"]:
-    m_0 = Y_true
-    y_0 = Y_true
-elif argument == "tertile":
-    y_0 = t.flatten()
-    m_0 = y_0
-elif argument == "septile":
-    y_0 = t.flatten()
-    m_0 = y_0
+    f_0 = g_true
+    g_0 = g_true
+elif argumeny == "tertile":
+    f_0 = y.flatten()
+    m_0 = g_0
+elif argumeny == "septile":
+    f_0 = y.flatten()
+    m_0 = g_0
 
 # Burn in
-m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample(m_0, y_0, cutpoints_0, steps_burn)
-#m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, cutpoints_0, 0.5, steps_burn)
-m_0_burned = m_samples[-1]
-y_0_burned = y_samples[-1]
+f_samples, g_samples, cutpoints_samples = gibbs_classifier.sample(m_0, g_0, cutpoints_0, steps_burn)
+#g_samples, g_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(f_0, g_0, cutpoints_0, 0.5, steps_burn)
+g_0_burned = f_samples[-1]
+g_0_burned = g_samples[-1]
 cutpoints_0_burned = cutpoints_samples[-1]
 
 # Sample
-m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample(m_0_burned, y_0_burned, cutpoints_0_burned, steps)
-#m_samples, y_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(m_0, y_0, cutpoints_0, 0.5, steps)
-m_tilde = np.mean(m_samples, axis=0)
-y_tilde = np.mean(y_samples, axis=0)
+f_samples, g_samples, cutpoints_samples = gibbs_classifier.sample(f_0_burned, g_0_burned, cutpoints_0_burned, steps)
+#f_samples, g_samples, cutpoints_samples = gibbs_classifier.sample_metropolis_within_gibbs(f_0, g_0, cutpoints_0, 0.5, steps)
+f_tilde = np.mean(f_samples, axis=0)
+g_tilde = np.mean(g_samples, axis=0)
 cutpoints_tilde = np.mean(cutpoints_samples, axis=0)
 
-if argument == "diabetes_quantile" or argument == "stocks_quantile":
+if argumeny == "diabetes_quantile" or argumeny == "stocks_quantile":
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     ax[0].plot(cutpoints_samples[:, 1])
     ax[0].set_ylabel(r"$b_1$", fontsize=16)
@@ -136,9 +136,9 @@ if argument == "diabetes_quantile" or argument == "stocks_quantile":
 
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     m_star = -1. * np.ones(3)
-    n0, m00, patches = ax[0].hist(m_samples[:, 0], 20, density="probability", histtype='stepfilled')
-    n1, m01, patches = ax[1].hist(m_samples[:, 1], 20, density="probability", histtype='stepfilled')
-    n2, m20, patches = ax[2].hist(m_samples[:, 2], 20, density="probability", histtype='stepfilled')
+    n0, m00, patches = ax[0].hist(f_samples[:, 0], 20, density="probability", histtype='stepfilled')
+    n1, m01, patches = ax[1].hist(f_samples[:, 1], 20, density="probability", histtype='stepfilled')
+    n2, m20, patches = ax[2].hist(f_samples[:, 2], 20, density="probability", histtype='stepfilled')
     m_star[0] = m00[np.argmax(n0)]
     m_star[1] = m01[np.argmax(n1)]
     m_star[2] = m20[np.argmax(n2)]
@@ -156,9 +156,9 @@ if argument == "diabetes_quantile" or argument == "stocks_quantile":
 
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     y_star = -1. * np.ones(3)
-    n0, y00, patches = ax[0].hist(y_samples[:, 0], 20, density="probability", histtype='stepfilled')
-    n1, y01, patches = ax[1].hist(y_samples[:, 1], 20, density="probability", histtype='stepfilled')
-    n2, y20, patches = ax[2].hist(y_samples[:, 2], 20, density="probability", histtype='stepfilled')
+    n0, y00, patches = ax[0].hist(g_samples[:, 0], 20, density="probability", histtype='stepfilled')
+    n1, y01, patches = ax[1].hist(g_samples[:, 1], 20, density="probability", histtype='stepfilled')
+    n2, y20, patches = ax[2].hist(g_samples[:, 2], 20, density="probability", histtype='stepfilled')
     y_star[0] = y00[np.argmax(n0)]
     y_star[1] = y01[np.argmax(n1)]
     y_star[2] = y20[np.argmax(n2)]
@@ -174,20 +174,20 @@ if argument == "diabetes_quantile" or argument == "stocks_quantile":
     plt.title(r"$y$ posterior samples")
     plt.show()
 
-    # plt.scatter(X[np.where(t == 0)], m_tilde[np.where(t == 0)], color=colors[0], label=r"$t={}$".format(1))
-    # plt.scatter(X[np.where(t == 1)], m_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
-    # plt.scatter(X[np.where(t == 2)], m_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
+    # plt.scatter(X[np.where(y == 0)], f_tilde[np.where(y == 0)], color=colors[0], label=r"$y={}$".format(1))
+    # plt.scatter(X[np.where(y == 1)], f_tilde[np.where(y == 1)], color=colors[1], label=r"$y={}$".format(2))
+    # plt.scatter(X[np.where(y == 2)], f_tilde[np.where(y == 2)], color=colors[2], label=r"$y={}$".format(3))
     # plt.xlabel(r"$x$", fontsize=16)
-    # plt.ylabel(r"$\tilde{m}$", fontsize=16)
-    # plt.title("GP regression posterior sample mean mbar, plotted against x")
+    # plt.ylabel(r"$\tilde{f}$", fontsize=16)
+    # plt.title("GP regression posterior sample mean fbar, plotted against x")
     # plt.show()
     #
-    # plt.scatter(X[np.where(t == 0)], y_tilde[np.where(t == 0)], color=colors[0], label=r"$t={}$".format(1))
-    # plt.scatter(X[np.where(t == 1)], y_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
-    # plt.scatter(X[np.where(t == 2)], y_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
+    # plt.scatter(X[np.where(y == 0)], g_tilde[np.where(y == 0)], color=colors[0], label=r"$y={}$".format(1))
+    # plt.scatter(X[np.where(y == 1)], g_tilde[np.where(y == 1)], color=colors[1], label=r"$y={}$".format(2))
+    # plt.scatter(X[np.where(y == 2)], g_tilde[np.where(y == 2)], color=colors[2], label=r"$y={}$".format(3))
     # plt.xlabel(r"$x$", fontsize=16)
-    # plt.ylabel(r"$\tilde{y}$", fontsize=16)
-    # plt.title("Latent variable posterior sample mean ybar, plotted against x")
+    # plt.ylabel(r"$\tilde{g}$", fontsize=16)
+    # plt.title("Latent variable posterior sample mean gbar, plotted against x")
     # plt.show()
 
     lower_x1 = 0.0
@@ -202,32 +202,32 @@ if argument == "diabetes_quantile" or argument == "stocks_quantile":
     X_new = X_new.reshape((N * N, D))
 
     # Test
-    Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_test, vectorised=True)  # (n_test, K)
+    Z = gibbs_classifier.predict(g_samples, cutpoints_samples, X_test, vectorised=True)  # (n_test, K)
 
     # Mean zero-one error
-    t_star = np.argmax(Z, axis=1)
-    print(t_star)
-    print(t_test)
-    zero_one = np.logical_and(t_star, t_test)
+    y_star = np.argmax(Z, axis=1)
+    print(y_star)
+    print(y_tesy)
+    zero_one = np.logical_and(y_star, y_tesy)
     mean_zero_one = zero_one * 1
-    mean_zero_one = np.sum(mean_zero_one) / len(t_test)
+    mean_zero_one = np.sum(mean_zero_one) / len(y_tesy)
     print(mean_zero_one)
 
     # X_new = x.reshape((N, D))
     print(np.shape(cutpoints_samples), 'shape cutpoints')
-    Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
+    Z = gibbs_classifier.predict(g_samples, cutpoints_samples, X_new, vectorised=True)
     Z_new = Z.reshape((N, N, K))
     print(np.sum(Z, axis=1), 'sum')
 
     for i in range(6):
         fig, axs = plt.subplots(1, figsize=(6, 6))
         plt.contourf(x1, x2, Z_new[:, :, i], zorder=1)
-        plt.scatter(X[np.where(t == i)][:, 0], X[np.where(t == i)][:, 1], color='red')
-        plt.scatter(X[np.where(t == i + 1)][:, 0], X[np.where(t == i + 1)][:, 1], color='blue')
-        # plt.scatter(X[np.where(t == 2)][:, 0], X[np.where(t == 2)][:, 1])
-        # plt.scatter(X[np.where(t == 3)][:, 0], X[np.where(t == 3)][:, 1])
-        # plt.scatter(X[np.where(t == 4)][:, 0], X[np.where(t == 4)][:, 1])
-        # plt.scatter(X[np.where(t == 5)][:, 0], X[np.where(t == 5)][:, 1])
+        plt.scatter(X[np.where(y == i)][:, 0], X[np.where(y == i)][:, 1], color='red')
+        plt.scatter(X[np.where(y == i + 1)][:, 0], X[np.where(y == i + 1)][:, 1], color='blue')
+        # plt.scatter(X[np.where(y == 2)][:, 0], X[np.where(y == 2)][:, 1])
+        # plt.scatter(X[np.where(y == 3)][:, 0], X[np.where(y == 3)][:, 1])
+        # plt.scatter(X[np.where(y == 4)][:, 0], X[np.where(y == 4)][:, 1])
+        # plt.scatter(X[np.where(y == 5)][:, 0], X[np.where(y == 5)][:, 1])
 
         # plt.xlim(0, 2)
         # plt.ylim(0, 2)
@@ -240,23 +240,23 @@ if argument == "diabetes_quantile" or argument == "stocks_quantile":
     # plt.xlim(lower_x, upper_x)
     # plt.ylim(0.0, 1.0)
     # plt.xlabel(r"$x$", fontsize=16)
-    # plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
+    # plt.ylabel(r"$p(y={}|x, X, y)$", fontsize=16)
     # plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
     #           .format(lower_x, upper_x))
     # plt.stackplot(x, Z.T,
     #               labels=(
-    #                   r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$"),
+    #                   r"$p(y=0|x, X, y)$", r"$p(y=1|x, X, y)$", r"$p(y=2|x, X, y)$"),
     #               colors=(
     #                   colors[0], colors[1], colors[2])
     #               )
     # plt.legend()
     # val = 0.5  # this is the value where you want the data to appear on the y-axis.
-    # plt.scatter(X[np.where(t == 0)], np.zeros_like(X[np.where(t == 0)]) + val, facecolors=colors[0], edgecolors='white')
-    # plt.scatter(X[np.where(t == 1)], np.zeros_like(X[np.where(t == 1)]) + val, facecolors=colors[1], edgecolors='white')
-    # plt.scatter(X[np.where(t == 2)], np.zeros_like(X[np.where(t == 2)]) + val, facecolors=colors[2], edgecolors='white')
+    # plt.scatter(X[np.where(y == 0)], np.zeros_like(X[np.where(y == 0)]) + val, facecolors=colors[0], edgecolors='white')
+    # plt.scatter(X[np.where(y == 1)], np.zeros_like(X[np.where(y == 1)]) + val, facecolors=colors[1], edgecolors='white')
+    # plt.scatter(X[np.where(y == 2)], np.zeros_like(X[np.where(y == 2)]) + val, facecolors=colors[2], edgecolors='white')
     # plt.show()
 
-elif argument == "tertile":
+elif argumeny == "tertile":
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     ax[0].plot(cutpoints_samples[:, 1])
     ax[0].set_ylabel(r"$b_1$", fontsize=16)
@@ -282,9 +282,9 @@ elif argument == "tertile":
 
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     m_star = -1. * np.ones(3)
-    n0, m00, patches = ax[0].hist(m_samples[:, 0], 20, density="probability", histtype='stepfilled')
-    n1, m01, patches = ax[1].hist(m_samples[:, 1], 20, density="probability", histtype='stepfilled')
-    n2, m20, patches = ax[2].hist(m_samples[:, 2], 20, density="probability", histtype='stepfilled')
+    n0, m00, patches = ax[0].hist(f_samples[:, 0], 20, density="probability", histtype='stepfilled')
+    n1, m01, patches = ax[1].hist(f_samples[:, 1], 20, density="probability", histtype='stepfilled')
+    n2, m20, patches = ax[2].hist(f_samples[:, 2], 20, density="probability", histtype='stepfilled')
     m_star[0] = m00[np.argmax(n0)]
     m_star[1] = m01[np.argmax(n1)]
     m_star[2] = m20[np.argmax(n2)]
@@ -302,9 +302,9 @@ elif argument == "tertile":
 
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     y_star = -1. * np.ones(3)
-    n0, y00, patches = ax[0].hist(y_samples[:, 0], 20, density="probability", histtype='stepfilled')
-    n1, y01, patches = ax[1].hist(y_samples[:, 1], 20, density="probability", histtype='stepfilled')
-    n2, y20, patches = ax[2].hist(y_samples[:, 2], 20, density="probability", histtype='stepfilled')
+    n0, y00, patches = ax[0].hist(g_samples[:, 0], 20, density="probability", histtype='stepfilled')
+    n1, y01, patches = ax[1].hist(g_samples[:, 1], 20, density="probability", histtype='stepfilled')
+    n2, y20, patches = ax[2].hist(g_samples[:, 2], 20, density="probability", histtype='stepfilled')
     y_star[0] = y00[np.argmax(n0)]
     y_star[1] = y01[np.argmax(n1)]
     y_star[2] = y20[np.argmax(n2)]
@@ -320,17 +320,17 @@ elif argument == "tertile":
     plt.title(r"$y$ posterior samples")
     plt.show()
 
-    plt.scatter(X[np.where(t == 0)], m_tilde[np.where(t == 0)], color=colors[0], label=r"$t={}$".format(1))
-    plt.scatter(X[np.where(t == 1)], m_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
-    plt.scatter(X[np.where(t == 2)], m_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
+    plt.scatter(X[np.where(y == 0)], f_tilde[np.where(y == 0)], color=colors[0], label=r"$y={}$".format(1))
+    plt.scatter(X[np.where(y == 1)], f_tilde[np.where(y == 1)], color=colors[1], label=r"$y={}$".format(2))
+    plt.scatter(X[np.where(y == 2)], f_tilde[np.where(y == 2)], color=colors[2], label=r"$y={}$".format(3))
     plt.xlabel(r"$x$", fontsize=16)
     plt.ylabel(r"$\tilde{m}$", fontsize=16)
     plt.title("GP regression posterior sample mean mbar, plotted against x")
     plt.show()
 
-    plt.scatter(X[np.where(t == 0)], y_tilde[np.where(t == 0)], color=colors[0], label=r"$t={}$".format(1))
-    plt.scatter(X[np.where(t == 1)], y_tilde[np.where(t == 1)], color=colors[1], label=r"$t={}$".format(2))
-    plt.scatter(X[np.where(t == 2)], y_tilde[np.where(t == 2)], color=colors[2], label=r"$t={}$".format(3))
+    plt.scatter(X[np.where(y == 0)], g_tilde[np.where(y == 0)], color=colors[0], label=r"$y={}$".format(1))
+    plt.scatter(X[np.where(y == 1)], g_tilde[np.where(y == 1)], color=colors[1], label=r"$y={}$".format(2))
+    plt.scatter(X[np.where(y == 2)], g_tilde[np.where(y == 2)], color=colors[2], label=r"$y={}$".format(3))
     plt.xlabel(r"$x$", fontsize=16)
     plt.ylabel(r"$\tilde{y}$", fontsize=16)
     plt.title("Latent variable posterior sample mean ybar, plotted against x")
@@ -342,27 +342,27 @@ elif argument == "tertile":
     x = np.linspace(lower_x, upper_x, N)
     X_new = x.reshape((N, D))
     print(np.shape(cutpoints_samples), 'shape cutpoints')
-    Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
+    Z = gibbs_classifier.predict(g_samples, cutpoints_samples, X_new, vectorised=True)
     print(np.sum(Z, axis=1), 'sum')
     plt.xlim(lower_x, upper_x)
     plt.ylim(0.0, 1.0)
     plt.xlabel(r"$x$", fontsize=16)
-    plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
+    plt.ylabel(r"$p(y={}|x, X, y)$", fontsize=16)
     plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
               .format(lower_x, upper_x))
     plt.stackplot(x, Z.T,
                   labels=(
-                      r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$"),
+                      r"$p(y=0|x, X, y)$", r"$p(y=1|x, X, y)$", r"$p(t=2|x, X, y)$"),
                   colors=(
                       colors[0], colors[1], colors[2])
                   )
     plt.legend()
     val = 0.5  # this is the value where you want the data to appear on the y-axis.
-    plt.scatter(X[np.where(t == 0)], np.zeros_like(X[np.where(t == 0)]) + val, facecolors=colors[0], edgecolors='white')
-    plt.scatter(X[np.where(t == 1)], np.zeros_like(X[np.where(t == 1)]) + val, facecolors=colors[1], edgecolors='white')
-    plt.scatter(X[np.where(t == 2)], np.zeros_like(X[np.where(t == 2)]) + val, facecolors=colors[2], edgecolors='white')
+    plt.scatter(X[np.where(y == 0)], np.zeros_like(X[np.where(y == 0)]) + val, facecolors=colors[0], edgecolors='white')
+    plt.scatter(X[np.where(y == 1)], np.zeros_like(X[np.where(y == 1)]) + val, facecolors=colors[1], edgecolors='white')
+    plt.scatter(X[np.where(y == 2)], np.zeros_like(X[np.where(y == 2)]) + val, facecolors=colors[2], edgecolors='white')
     plt.show()
-elif argument == "septile":
+elif argumeny == "septile":
     fig, ax = plt.subplots(1, 6, figsize=(30, 5))
     for i in range(6):
         ax[i].plot(cutpoints_samples[:, i + 1])
@@ -372,7 +372,7 @@ elif argument == "septile":
 
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     for i in range(3):
-        ax[i].plot(m_samples[:, i])
+        ax[i].plot(f_samples[:, i])
         ax[i].set_ylabel(r"$m{}$".format(i), fontsize=16)
     plt.title('Mixing for GP posterior samples $m$')
     plt.show()
@@ -391,7 +391,7 @@ elif argument == "septile":
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     m_star = -1. * np.ones(3)
     for i in range(3):
-        ni, mi, patches = ax[i].hist(m_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
+        ni, mi, patches = ax[i].hist(f_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
         m_star[i] = mi[np.argmax(ni)]
         ax[i].axvline(m_star[i], color='k', label=r"Maximum $m_{}$".format(i + 1))
         ax[i].set_xlabel(r"$m_{}$ posterior samples".format(i + 1), fontsize=16)
@@ -402,7 +402,7 @@ elif argument == "septile":
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     y_star = -1. * np.ones(3)
     for i in range(3):
-        ni, yi, patches = ax[i].hist(y_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
+        ni, yi, patches = ax[i].hist(g_samples[:, i + 1], 20, density="probability", histtype='stepfilled')
         y_star[i] = yi[np.argmax(ni)]
         ax[i].axvline(y_star[i], color='k', label=r"Maximum $y_{}$".format(i + 1))
         ax[i].set_xlabel(r"$y_{}$ posterior samples".format(i + 1), fontsize=16)
@@ -410,10 +410,10 @@ elif argument == "septile":
     plt.title(r"$y$ posterior samples")
     plt.show()
 
-    #plt.scatter(X, m_tilde)
-    #plt.scatter(X[np.where(t == 1)], m_tilde[np.where(t == 1)])
+    #plt.scatter(X, f_tilde)
+    #plt.scatter(X[np.where(y == 1)], f_tilde[np.where(y == 1)])
     for i in range(7):
-        plt.scatter(X[np.where(t == i)], m_tilde[np.where(t == i)], color=colors[i], label=r"$t={}$".format(i + 1))
+        plt.scatter(X[np.where(y == i)], f_tilde[np.where(y == i)], color=colors[i], label=r"$y={}$".format(i + 1))
     plt.xlabel(r"$x$", fontsize=16)
     plt.ylabel(r"$\tilde{m}$", fontsize=16)
     plt.title("GP regression posterior sample mean mbar, plotted against x")
@@ -421,7 +421,7 @@ elif argument == "septile":
     plt.show()
 
     for i in range(7):
-        plt.scatter(X[np.where(t == i)], y_tilde[np.where(t == i)], color=colors[i], label=r"$t={}$".format(i))
+        plt.scatter(X[np.where(y == i)], g_tilde[np.where(y == i)], color=colors[i], label=r"$y={}$".format(i))
     plt.xlabel(r"$x$", fontsize=16)
     plt.ylabel(r"$\tilde{y}$", fontsize=16)
     plt.title("Latent variable posterior sample mean ybar, plotted against x")
@@ -434,25 +434,25 @@ elif argument == "septile":
     x = np.linspace(lower_x, upper_x, N)
     X_new = x.reshape((N, D))
     print(np.shape(cutpoints_samples), 'shape cutpoints')
-    Z = gibbs_classifier.predict(y_samples, cutpoints_samples, X_new, vectorised=True)
+    Z = gibbs_classifier.predict(g_samples, cutpoints_samples, X_new, vectorised=True)
     print(np.sum(Z, axis=1), 'sum')
     plt.xlim(lower_x, upper_x)
     plt.ylim(0.0, 1.0)
     plt.xlabel(r"$x$", fontsize=16)
-    plt.ylabel(r"$p(t={}|x, X, t)$", fontsize=16)
+    plt.ylabel(r"$p(y={}|x, X, y)$", fontsize=16)
     plt.title(" Ordered Gibbs Cumulative distribution plot of\nclass distributions for x_new=[{}, {}] and the data"
               .format(lower_x, upper_x))
     plt.stackplot(x, Z.T,
                   labels=(
-                      r"$p(t=0|x, X, t)$", r"$p(t=1|x, X, t)$", r"$p(t=2|x, X, t)$", r"$p(t=3|x, X, t)$",
-                      r"$p(t=4|x, X, t)$", r"$p(t=5|x, X, t)$", r"$p(t=6|x, X, t)$"),
+                      r"$p(y=0|x, X, y)$", r"$p(y=1|x, X, y)$", r"$p(t=2|x, X, y)$", r"$p(t=3|x, X, y)$",
+                      r"$p(y=4|x, X, y)$", r"$p(y=5|x, X, y)$", r"$p(t=6|x, X, y)$"),
                   colors=(
                       colors[0], colors[1], colors[2], colors[3], colors[4], colors[5], colors[6])
                   )
     plt.legend()
     val = 0.5  # this is the value where you want the data to appear on the y-axis.
     for i in range(7):
-        plt.scatter(X[np.where(t == i)], np.zeros_like(X[np.where(t == i)]) + val, facecolors=colors[i], edgecolors='white')
+        plt.scatter(X[np.where(y == i)], np.zeros_like(X[np.where(y == i)]) + val, facecolors=colors[i], edgecolors='white')
     plt.show()
 
 
@@ -473,9 +473,9 @@ elif argument == "septile":
 
 # for k in range(K):
 #     _ = plt.subplots(1, figsize=(6, 6))
-#     plt.scatter(X0[:, 0], X0[:, 1], color='b', label=r"$t=0$", zorder=10)
-#     plt.scatter(X1[:, 0], X1[:, 1], color='r', label=r"$t=1$", zorder=10)
-#     plt.scatter(X2[:, 0], X2[:, 1], color='g', label=r"$t=2$", zorder=10)
+#     plt.scatter(X0[:, 0], X0[:, 1], color='b', label=r"$y=0$", zorder=10)
+#     plt.scatter(X1[:, 0], X1[:, 1], color='r', label=r"$y=1$", zorder=10)
+#     plt.scatter(X2[:, 0], X2[:, 1], color='g', label=r"$y=2$", zorder=10)
 #     plt.contourf(x, y, Z[k], zorder=1)
 #     plt.xlim(0, 2)
 #     plt.ylim(0, 2)

@@ -24,10 +24,6 @@ from probit.utilities import (
     ordinal_dlogZtilted_dm_vector,
     ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
-# NOTE Usually the numba implementation is not faster
-# from .numba.utilities import (
-#     fromb_t1_vector, fromb_t2_vector,
-#     fromb_t3_vector, fromb_t4_vector, fromb_t5_vector)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 
 
@@ -103,10 +99,17 @@ class Approximator(ABC):
         else:
             self.read_path = pathlib.Path(read_path)
 
-        # Numerical stability
-        # See GPML by Williams et al. for a good explanation of jitter
-        self.jitter = 1e-10
-    
+        # Numerical stability when taking Cholesky decomposition
+        # See GPML by Williams et al. for an explanation of jitter
+        self.epsilon = 1e-12  # Default regularisation TODO: may be too small, try 1e-10
+        # self.epsilon = 1e-8  # Strong regularisation
+
+        # Decreasing tolerance will lead to more accurate solutions up to a
+        # point but a longer convergence time. Acts as a machine tolerance.
+        self.tolerance = 1e-4  
+        # self.tolerance = 1e-6  # Probably wouldn't go much smaller than this
+        self.tolerance = self.tolerance**2
+
         # Threshold of single sided standard deviations that
         # normal cdf can be approximated to 0 or 1
         # More than this + redundancy leads to numerical instability
@@ -235,11 +238,9 @@ class Approximator(ABC):
         N_test = np.shape(X_test)[0]
         Kss = self.kernel.kernel_prior_diagonal(X_test)
         Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-
         temp = cov @ Kfs
         posterior_variance = Kss - np.einsum(
-        'ij, ij -> j', Kfs, temp)
-
+            'ij, ij -> j', Kfs, temp)
         posterior_std = np.sqrt(posterior_variance)
         posterior_pred_mean = Kfs.T @ weight
         posterior_pred_variance = posterior_variance + noise_variance
@@ -262,7 +263,7 @@ class Approximator(ABC):
         """
         Z, *_ = truncated_norm_normalising_constant(
             self.cutpoints_ts, self.cutpoints_tplus1s,
-            self.noise_std, m, self.EPS,
+            self.noise_std, m, self.tolerance,
             upper_bound=self.upper_bound,
             # upper_bound2=self.upper_bound2,  # optional
             # numerically_stable=True  # optional
@@ -525,18 +526,6 @@ class VBGP(Approximator):
         :returns: A :class:`VBGP` object.
         """
         super().__init__(*args, **kwargs)
-        #self.EPS = 0.000001  # Acts as a machine tolerance, controls error
-        #self.EPS = 0.0000001  # Probably wouldn't go much smaller than this
-        self.EPS = 1e-3
-        # self.EPS = 1e-4  # perhaps not low enough.
-        # self.EPS = 1e-8
-        #self.EPS_2 = 1e-7
-        self.EPS_2 = self.EPS**2
-        #self.EPS = 0.001  # probably too large, will affect convergence 
-        # Tends to work well in practice - should it be made smaller?
-        # Just keep it consistent
-        #self.jitter = 1e-6
-        self.jitter = 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(
             cutpoints=cutpoints, noise_variance=noise_variance)
@@ -667,7 +656,7 @@ class VBGP(Approximator):
                         disable=True):
             p_ = p(
                 posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
-                self.noise_std, self.EPS, self.upper_bound, self.upper_bound2)
+                self.noise_std, self.tolerance, self.upper_bound, self.upper_bound2)
             g = self._g(
                 p_, posterior_mean, self.noise_std)
             posterior_mean, weight = self._posterior_mean(
@@ -687,7 +676,7 @@ class VBGP(Approximator):
             if write:
                 Z, *_ = truncated_norm_normalising_constant(
                     self.cutpoints_ts, self.cutpoints_tplus1s,
-                    self.noise_std, posterior_mean, self.EPS)
+                    self.noise_std, posterior_mean, self.tolerance)
                 fx = self.objective(
                     self.N, posterior_mean, weight, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
@@ -745,7 +734,7 @@ class VBGP(Approximator):
         log_thetas = np.log(thetas)
         Ks_samples = self.kernel.kernel_matrices(
             self.X_train, self.X_train, thetas)  # (n_samples, N, N)
-        Ks_samples = np.add(Ks_samples, self.jitter * np.eye(self.N))
+        Ks_samples = np.add(Ks_samples, self.epsilon * np.eye(self.N))
         if vectorised:
             raise ValueError("TODO")
         else:
@@ -1049,7 +1038,7 @@ class VBGP(Approximator):
             phi, trainables, verbose=verbose)
         fx_old = np.inf
         posterior_mean = None
-        while error / steps > self.EPS_2:
+        while error / steps > self.tolerance:
             iteration += 1
             (posterior_mean, weight, *_) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
@@ -1057,7 +1046,7 @@ class VBGP(Approximator):
             (Z, norm_pdf_z1s, norm_pdf_z2s,
                     *_ )= truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
-                posterior_mean, self.EPS)
+                posterior_mean, self.tolerance)
             if self.kernel.theta_hyperhyperparameters is not None:
                 fx = self.objective(
                     self.N, posterior_mean, weight, self.trace_cov,
@@ -1139,11 +1128,6 @@ class EPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # self.EPS = 1e-3
-        # self.EPS = 1e-4  # perhaps too large
-        self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
-        self.EPS_2 = self.EPS**2
-        self.jitter = 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(
             cutpoints=cutpoints, noise_variance=noise_variance)
@@ -1299,8 +1283,8 @@ class EPGP(Approximator):
                     # Update EP weight (alpha)
                     dlogZ_dcavity_mean[index] = dlogZ_dcavity_mean_n
                     diff = precision_EP_n - precision_EP_n_old
-                    if (np.abs(diff) > self.EPS
-                            and Z_n > self.EPS
+                    if (np.abs(diff) > self.tolerance
+                            and Z_n > self.tolerance
                             and precision_EP_n > 0.0
                             and posterior_covariance_n_new > 0.0):
                         posterior_mean, posterior_cov = self._update(
@@ -1389,7 +1373,7 @@ class EPGP(Approximator):
                     norm_pdf_z1, norm_pdf_z2, dlogZ_dcavity_variance_n,
                     dlogZ_dcavity_mean_n))
             raise ValueError("nu_n must be positive (got {})".format(nu_n))
-        if nu_n > 1.0 / variance + self.EPS:
+        if nu_n > 1.0 / variance + self.tolerance:
             print(
                 "cavity_mean_n={} \n"
                 "cavity_variance_n={} \n"
@@ -1466,8 +1450,8 @@ class EPGP(Approximator):
             Z_n = norm_cdf(z1) - norm_cdf(z2)
             norm_pdf_z1 = norm_z_pdf(z1)
             norm_pdf_z2 = norm_z_pdf(z2)
-        if Z_n < self.EPS:
-            if np.abs(np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0) > self.EPS**2:
+        if Z_n < self.tolerance:
+            if np.abs(np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0) > self.tolerance2:
                 dlogZ_dcavity_mean_n = (z1 * np.exp(
                         -0.5*z1**2 + 0.5*z2**2) - z2**2) / (
                     (
@@ -1488,17 +1472,17 @@ class EPGP(Approximator):
                 dlogZ_dcavity_mean_n = 0.0
                 dlogZ_dcavity_mean_n_2 = 0.0
                 dlogZ_dcavity_variance_n = -(
-                    1.0 - self.EPS)/(2.0 * variance)
-                nu_n = (1.0 - self.EPS) / variance
+                    1.0 - self.tolerance)/(2.0 * variance)
+                nu_n = (1.0 - self.tolerance) / variance
                 warnings.warn(
                     "Z_n must be greater than tolerance={} (got {}): "
                     "SETTING to Z_n to approximate value\n"
                     "z1={}, z2={}".format(
-                        self.EPS, Z_n, z1, z2))
+                        self.tolerance, Z_n, z1, z2))
             if nu_n >= 1.0 / variance:
-                nu_n = (1.0 - self.EPS) / variance
+                nu_n = (1.0 - self.tolerance) / variance
             if nu_n <= 0.0:
-                nu_n = self.EPS * variance
+                nu_n = self.tolerance * variance
         else:
             dlogZ_dcavity_variance_n = (
                 - z1 * norm_pdf_z1 + z2 * norm_pdf_z2) / (
@@ -1683,7 +1667,7 @@ class EPGP(Approximator):
         amplitude_EP = amplitude_EP_0
         # random permutation of data
         indices = np.arange(self.N)
-        while error / (steps * self.N) > self.EPS_2:
+        while error / (steps * self.N) > self.tolerance:
             iteration += 1
             (error, dlogZ_dcavity_mean, posterior_mean, posterior_cov,
             mean_EP, precision_EP, amplitude_EP) = self.run_ep_sequential(
@@ -1748,7 +1732,7 @@ class EPGP(Approximator):
         t1 = fromb_t1_vector(
                 y_0.copy(), posterior_mean, posterior_variance,
                 self.cutpoints_ts, self.cutpoints_tplus1s,
-                noise_std, self.EPS, self.EPS_2, self.N)
+                noise_std, self.tolerance, self.tolerance2, self.N)
         t2 = fromb_t2_vector(
                 y_0.copy(), mean_ts, sigma,
                 a_ts, b_ts, h_ts,
@@ -1756,7 +1740,8 @@ class EPGP(Approximator):
                 posterior_variance,
                 self.cutpoints_ts,
                 self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
+                noise_variance, noise_std, self.tolerance, self.tolerance2,
+                self.N)
         t2[self.indices_where_0] = 0.0
         t3 = fromb_t3_vector(
                 y_0.copy(), mean_tplus1s, sigma,
@@ -1765,7 +1750,8 @@ class EPGP(Approximator):
                 posterior_variance,
                 self.cutpoints_ts,
                 self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
+                noise_variance, noise_std, self.tolerance, self.tolerance2,
+                self.N)
         t3[self.indices_where_J_1] = 0.0
         t4 = fromb_t4_vector(
                 y_0.copy(), mean_tplus1s, sigma,
@@ -1774,7 +1760,8 @@ class EPGP(Approximator):
                 posterior_variance,
                 self.cutpoints_ts,
                 self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
+                noise_variance, noise_std, self.tolerance, self.tolerance2,
+                self.N)
         t4[self.indices_where_J_1] = 0.0
         t5 = fromb_t5_vector(
                 y_0.copy(), mean_ts, sigma,
@@ -1783,7 +1770,8 @@ class EPGP(Approximator):
                 posterior_variance,
                 self.cutpoints_ts,
                 self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.EPS, self.EPS_2, self.N)
+                noise_variance, noise_std, self.tolerance, self.tolerance2,
+                self.N)
         t5[self.indices_where_0] = 0.0
         # print("t4", t4)
         # print("t5", t5)
@@ -1819,7 +1807,7 @@ class EPGP(Approximator):
         :rtype: float
         """
         # Fill possible zeros in with machine precision
-        precision_EP[precision_EP == 0.0] = self.EPS * self.EPS
+        precision_EP[precision_EP == 0.0] = self.tolerance2
         fx = -np.sum(np.log(np.diag(L_cov)))  # log det cov
         fx -= 0.5 * posterior_mean.T @ weights
         fx -= 0.5 * np.sum(np.log(precision_EP))
@@ -1964,7 +1952,7 @@ class EPGP(Approximator):
         if np.any(precision_EP == 0.0):
             # TODO: Only check for equilibrium if it has been updated in this swipe
             warnings.warn("Some sample(s) have not been updated.\n")
-            precision_EP[precision_EP == 0.0] = self.EPS * self.EPS
+            precision_EP[precision_EP == 0.0] = self.tolerance2
         Pi_inv = np.diag(1. / precision_EP)
         if L_cov is None or cov is None:
             (L_cov, lower) = cho_factor(
@@ -1984,7 +1972,7 @@ class EPGP(Approximator):
         else:
             weight = cov @ mean_EP
         if np.any(
-            np.abs(weight - dlogZ_dcavity_mean) > np.sqrt(self.EPS)):
+            np.abs(weight - dlogZ_dcavity_mean) > np.sqrt(self.tolerance)):
             warnings.warn("Fatal error: the weights are not in equilibrium wit"
                 "h the gradients".format(
                     weight, dlogZ_dcavity_mean))
@@ -2033,10 +2021,6 @@ class PEPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # self.EPS = 1e-4  # perhaps too large
-        # self.EPS = 1e-6  # Decreasing EPS will lead to more accurate solutions but a longer convergence time.
-        self.EPS_2 = self.EPS**2
-        self.jitter = 1e-6  # 1e-10  # was 1e-10
         # Initiate hyperparameters
         self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
         if minibatch_size is None:
@@ -2059,7 +2043,7 @@ class PEPGP(Approximator):
         self.K = self.Kuu
         self.Kfu = self.Kuu
         self.Kfdiag = self.kernel.kernel_prior_diagonal(self.X_train)
-        # (self.L_K, lower) = cho_factor(self.Kuu + self.jitter * np.eye(self.N))
+        # (self.L_K, lower) = cho_factor(self.Kuu + self.epsilon * np.eye(self.N))
         # L_KT_inv = solve_triangular(
         #     self.L_K.T, np.eye(self.N), lower=True)
         # self.Kuuinv = solve_triangular(self.L_K, L_KT_inv, lower=False)
@@ -2125,7 +2109,7 @@ class PEPGP(Approximator):
 
     def _compute_phi_mvg(self, m, V):
         """TODO: does this need a numerically stable version."""
-        (L_V, lower) = cho_factor(V + self.jitter * np.eye(np.shape(V)[0]))
+        (L_V, lower) = cho_factor(V + self.epsilon * np.eye(np.shape(V)[0]))
         half_log_det_V = - np.sum(np.log(np.diag(L_V)))
         L_VT_inv = solve_triangular(
             L_V.T, np.eye(self.M), lower=True)
@@ -2711,7 +2695,7 @@ class PEPGP(Approximator):
         variance_EP = variance_EP_0
         # random permutation of data
         indices = np.arange(self.N)
-        while error / (steps * self.N) > self.EPS**2:
+        while error / (steps * self.N) > self.tolerance2:
             iteration += 1
             (error, beta, gamma, mean_EP, variance_EP,
                 log_lik, grads) = self.run_pep_parallel(
@@ -2783,7 +2767,7 @@ class PEPGP(Approximator):
         variance_EP = variance_EP_0
         # random permutation of data
         indices = np.arange(self.N)
-        while error / (steps * self.N) > self.EPS**2:
+        while error / (steps * self.N) > self.tolerance2:
         #for _ in range(10):
             iteration += 1
             (error, beta, gamma, mean_EP, variance_EP,
@@ -2930,14 +2914,6 @@ class LaplaceGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # self.EPS = 0.001  # Acts as a machine tolerance
-        # self.EPS = 1e-4
-        self.EPS = 1e-3
-        # self.EPS = 1e-6
-        self.EPS_2 = self.EPS**2
-        # self.jitter = 1e-4  # Try increasing the noise variance if jitter has to be this large
-        # self.jitter = 1e-6  # 1e-10 was too small when the noise variance is very low, resulting in infs or nans in chol
-        self.jitter = 1e-10  # 1e-8, 1e-10 was too small for covariance parameterisation
         # Initiate hyperparameters
         self.hyperparameters_update(
             cutpoints=cutpoints, noise_variance=noise_variance)
@@ -2980,7 +2956,6 @@ class LaplaceGP(Approximator):
             z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
             ) / Z / noise_variance
         m = - self.K @ weight + posterior_mean
-        # TODO: temp
         L_cov, _ = cho_factor(self.K + np.diag(1. / precision))
         L_covT_inv = solve_triangular(
             L_cov.T, np.eye(self.N), lower=True)
@@ -3027,7 +3002,7 @@ class LaplaceGP(Approximator):
             (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
                     _, _) = truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
-                posterior_mean, self.EPS, upper_bound=self.upper_bound,
+                posterior_mean, self.tolerance, upper_bound=self.upper_bound,
                 )
                 #upper_bound2=self.upper_bound2)  # TODO Turn this off!
             error, weight, posterior_mean = self._update_posterior(
@@ -3063,20 +3038,18 @@ class LaplaceGP(Approximator):
                 gx) = self._hyperparameter_training_step_initialise(
             phi, trainables, verbose=verbose)
         posterior_mean = posterior_mean_0
-        while error / steps > self.EPS_2:
+        while error / steps > self.tolerance:
             iteration += 1
             (error, weight, posterior_mean, containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean, write=False)
             if verbose:
                 print("({}), error={}".format(iteration, error))
-        # Calculates weights and matrix inverses one more time.
         (weight, precision,
         w1, w2, g1, g2, v1, v2, q1, q2,
         L_cov, cov, Z) = self.compute_weights(
             posterior_mean)
         fx = 0
         if return_reparameterised is True:
-            # TODO: Double check that weight = K^{-1}posterior_mean
             return fx, gx, weight, (cov, True)
         if return_reparameterised is False:
             log_det_cov = -2 * np.sum(np.log(np.diag(L_cov)))
@@ -3088,7 +3061,6 @@ class LaplaceGP(Approximator):
                 gx = np.zeros(1 + self.J - 1 + 1 + self.D)
             else:
                 gx = np.zeros(1 + self.J - 1 + 1 + 1)
-            # TODO: Warning... turned gradient calculation off
             gx = self.objective_gradient(
                 gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
                 precision, trainables)
