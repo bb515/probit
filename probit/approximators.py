@@ -238,11 +238,9 @@ class Approximator(ABC):
         N_test = np.shape(X_test)[0]
         Kss = self.kernel.kernel_prior_diagonal(X_test)
         Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-
         temp = cov @ Kfs
         posterior_variance = Kss - np.einsum(
-        'ij, ij -> j', Kfs, temp)
-
+            'ij, ij -> j', Kfs, temp)
         posterior_std = np.sqrt(posterior_variance)
         posterior_pred_mean = Kfs.T @ weight
         posterior_pred_variance = posterior_variance + noise_variance
