@@ -615,6 +615,78 @@ class SquaredExponentialARD(Kernel):
         return np.exp(-1. * np.power(distance.cdist(X1, X2, 'minkowski', p=2, w=1./self.theta**2), 2))
 
 
+class SharpenedCosine(Kernel):
+    r"""
+    Uses numpy.
+
+    An isometric radial basis function (a.k.a. exponentiated quadratic,
+    a.k.a squared exponential) kernel class.
+
+    .. math::
+        K(x_i, x_j) = s * \exp{- \theta * \norm{x_{i} - x_{j}}^2},
+
+    where :math:`K(\cdot, \cdot)` is the kernel function, :math:`x_{i}` is
+    the data point, :math:`x_{j}` is another data point, :math:`\theta` is
+    the single, shared lengthscale and hyperparameter, :math:`s` is the variance.
+    """
+
+    def __repr__(self):
+        return "SharpenedCosine"
+
+    def __init__(self,  *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # For this kernel, the shared and single kernel for each class
+        # (i.e. non general) and single lengthscale across
+        # all data dims (i.e. non ARD) is assumed.
+        if self.L != 1:
+            raise ValueError(
+                "L wrong for sharpened cosine kernel (expected {}, got {})".format(
+                    1, self.L))
+        if self.M != 1:
+            raise ValueError(
+                "M wrong for sharpened cosine kernel (expected {}, got {})".format(
+                    1, self.M))
+        if self.variance is None:
+            raise ValueError(
+                "You must supply a variance for the sharpened cosine kernel "
+                "(expected {} type, got {})".format(float, self.variance))
+        self.num_hyperparameters = np.size(self.theta)
+
+    def kernel(self, X_i, X_j):
+        return self.variance * (np.dot(X_i, X_j)**self.theta[1])
+
+    def kernel_vector(self, x_new, X):
+        return self.variance * (X @ x_new) ** self.theta
+
+    def kernel_prior_diagonal(self, X):
+        return self.variance * np.ones(np.shape(X)[0])
+
+    def kernel_diagonal(self, X1, X2):
+        return self.variance * np.einsum('ik, ik -> i', X1, X2)**self.theta
+
+    def kernel_matrix(self, X1, X2):
+        return self.variance * B.matmul(X1, X2, tr_b=True)**self.theta[1]
+        #return self.variance * B.outer(X1, X2)**self.theta[1]
+        #return self.variance * np.einsum('ik, jk -> ij', X1, X2)**self.theta[1]
+        # return self.variance * (np.einsum('ik, jk -> ij', X1, X2) / (
+        #     np.outer(
+        #         (np.linalg.norm(X1, axis=1) + self.theta[0]),
+        #         (np.linalg.norm(X2, axis=1) + self.theta[1])
+        #         )))**self.theta[1]
+        #return self.variance * B.exp(-self.theta * B.pw_dists2(X1, X2))
+
+    def kernel_partial_derivative_theta(self, X1, X2):
+        return np.zeros((len(X1), len(X1)))
+
+    def kernel_partial_derivative_variance(self, X1, X2):
+        return B.einsum('ik, jk -> ij', X1, X2)**self.theta
+        # return (np.einsum('ik, jk -> ij', X1, X2) / (
+        #     np.outer(
+        #         (np.linalg.norm(X1, axis=1) + self.theta[0]),
+        #         (np.linalg.norm(X2, axis=1) + self.theta[1])
+        #         )))**self.theta[1]
+
+
 class LabSharpenedCosine(Kernel):
     r"""
     Uses BLab by WesselB, which is an generic interface for linear algebra
@@ -643,10 +715,10 @@ class LabSharpenedCosine(Kernel):
             raise ValueError(
                 "L wrong for sharpened cosine kernel (expected {}, got {})".format(
                     1, self.L))
-        if self.M != 2:
+        if self.M != 1:
             raise ValueError(
                 "M wrong for sharpened cosine kernel (expected {}, got {})".format(
-                    2, self.M))
+                    1, self.M))
         if self.variance is None:
             raise ValueError(
                 "You must supply a variance for the sharpened cosine kernel "
@@ -654,51 +726,25 @@ class LabSharpenedCosine(Kernel):
         self.num_hyperparameters = np.size(self.theta)
 
     def kernel(self, X_i, X_j):
-        # TODO: may need to reshape
-        return self.variance * B.matmul(X_i, X_j, tr_a=True)**self.theta[1]
-        # return self.variance * (np.dot(X_i, X_j) / (
-        #     (np.linalg.norm(X_i) + self.theta[0])
-        #     * (np.linalg.norm(X_j) + self.theta[0])))**self.theta[1]
-        # return (self.variance * B.matmul(B.transpose(X_i), X_j))
-        # return (self.variance * B.exp(-self.theta * B.ew_dists2(X_i.reshape(1, -1), X_j.reshape(1, -1))))[0, 0]
+        return self.variance * B.matmul(X_i, X_j, tr_a=True)**self.theta
 
     def kernel_vector(self, x_new, X):
-        return self.variance * B.einsum('k, ik -> i', x_new, X)**self.theta[1]
-        # return self.variance * (np.einsum('k, ik -> i', x_new, X) / (
-        #     (np.linalg.norm(x_new) + self.theta[0]) * (np.linalg.norm(X, axis=1) + self.theta[0])))**self.theta[1]
+        return self.variance * B.einsum('k, ik -> i', x_new, X)**self.theta
 
     def kernel_prior_diagonal(self, X):
         return self.variance * np.ones(np.shape(X)[0])
 
     def kernel_diagonal(self, X1, X2):
-        return self.variance * B.einsum('ik, ik -> i', X1, X2)**self.theta[1]
-        # return self.variance * np.einsum('ik, ik -> i', X1, X2)**self.theta[1]
-        # return self.variance * (np.einsum('ik, ik -> i', X1, X2) / (
-        #     (np.linalg.norm(X1, axis=1) + self.theta[0])
-        #     * (np.linalg.norm(X2, axis=1) + self.theta[0])))**self.theta[1]
-        # return self.variance * B.exp(-self.theta * B.ew_dists2(X1, X2))
+        return self.variance * B.einsum('ik, ik -> i', X1, X2)**self.theta
 
     def kernel_matrix(self, X1, X2):
-        return self.variance * B.matmul(X1, X2, tr_b=True)**self.theta[1]
-        #return self.variance * B.outer(X1, X2)**self.theta[1]
-        #return self.variance * np.einsum('ik, jk -> ij', X1, X2)**self.theta[1]
-        # return self.variance * (np.einsum('ik, jk -> ij', X1, X2) / (
-        #     np.outer(
-        #         (np.linalg.norm(X1, axis=1) + self.theta[0]),
-        #         (np.linalg.norm(X2, axis=1) + self.theta[1])
-        #         )))**self.theta[1]
-        #return self.variance * B.exp(-self.theta * B.pw_dists2(X1, X2))
+        return self.variance * B.matmul(X1, X2, tr_b=True)**self.theta
 
     def kernel_partial_derivative_theta(self, X1, X2):
         return np.zeros((len(X1), len(X1)))
 
     def kernel_partial_derivative_variance(self, X1, X2):
-        return B.einsum('ik, jk -> ij', X1, X2)**self.theta[1]
-        # return (np.einsum('ik, jk -> ij', X1, X2) / (
-        #     np.outer(
-        #         (np.linalg.norm(X1, axis=1) + self.theta[0]),
-        #         (np.linalg.norm(X2, axis=1) + self.theta[1])
-        #         )))**self.theta[1]
+        return B.einsum('ik, jk -> ij', X1, X2)**self.theta
 
 
 class SEIso(Kernel):
