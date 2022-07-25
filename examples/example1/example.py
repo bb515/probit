@@ -137,9 +137,6 @@ def main():
         cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
         J, D, colors, Kernel) = load_data_paper(
             dataset, J=J, D=D, ARD=False, plot=True)
-        from probit.kernels import LabSharpenedCosine
-        Kernel = LabSharpenedCosine
-        theta_0 = np.array([0.0, 6])
         # from probit.kernels import SquaredExponentialARD
         # Kernel = SquaredExponentialARD
         # theta_0 = np.array([theta_0, theta_0])
@@ -171,10 +168,10 @@ def main():
     # Fix noise standard deviation
     trainables[0] = 0
     # Fix signal standard deviation
-    trainables[J] = 0
+    trainables[J] = 1
     # Fix cutpoints
     trainables[1:J] = [0] * (J - 1)
-    trainables[2] = 1
+    # trainables[1] = 1
     # trainables[J-1] = 1
     # trainables[J-2] = 1
     print(trainables)
