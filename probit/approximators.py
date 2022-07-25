@@ -320,12 +320,9 @@ class Approximator(ABC):
         """
         if cutpoints is not None:
             self.cutpoints = check_cutpoints(cutpoints, self.J)
-            print("cutpoints", self.cutpoints)
             self.cutpoints_ts = self.cutpoints[self.y_train]
             self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
         if theta is not None or variance is not None:
-            print("theta", theta)
-            print("signal", np.sqrt(variance))
             self.kernel.update_hyperparameter(
                 theta=theta, variance=variance)
             # Update prior covariance
@@ -429,7 +426,6 @@ class Approximator(ABC):
                     if trainables[j]:
                         phi_cutpoints[j - 1] = phi[index]
                         index += 1
-                print(phi_cutpoints)
                 # update cutpoints
                 cutpoints[1] = phi_cutpoints[0]
                 for j in range(2, self.J):
@@ -1035,8 +1031,8 @@ class VBGP(Approximator):
         return -gx
 
     def approximate_posterior(
-            self, phi, trainables, steps,
-            return_reparameterised=None, verbose=False):
+            self, phi, trainables, steps, verbose=False,
+            return_reparameterised=None):
         """
         Optimisation routine for hyperparameters.
 
@@ -1647,10 +1643,10 @@ class EPGP(Approximator):
             mean_EP, precision_EP, amplitude_EP)
 
     def approximate_posterior(
-            self, phi, trainables, steps,
-            posterior_mean_0=None, return_reparameterised=None,
+            self, phi, trainables, steps, verbose=False,
+            return_reparameterised=None, posterior_mean_0=None,
             posterior_cov_0=None, mean_EP_0=None, precision_EP_0=None,
-            amplitude_EP_0=None, verbose=False):
+            amplitude_EP_0=None):
         """
         Optimisation routine for hyperparameters.
 
@@ -2676,9 +2672,10 @@ class PEPGP(Approximator):
                 log_lik, grads_logZtilted)
 
     def approximate_posterior(
-            self, phi, trainables, steps,
-            beta_0=None, gamma_0=None, return_reparameterised=None,
-            mean_EP_0=None, variance_EP_0=None, verbose=False):
+            self, phi, trainables, steps, verbose=False,
+            return_reparameterised=None,
+            beta_0=None, gamma_0=None,
+            mean_EP_0=None, variance_EP_0=None):
         """
         Optimisation routine for hyperparameters.
 
@@ -2748,9 +2745,9 @@ class PEPGP(Approximator):
             return fx, gx
 
     def approximate_posterior_(
-            self, phi, trainables, steps,
-            beta_0=None, gamma_0=None, return_reparameterised=None,
-            mean_EP_0=None, variance_EP_0=None, verbose=False):
+            self, phi, trainables, steps, verbose=False,
+            return_reparameterised=None, beta_0=None, gamma_0=None,
+            mean_EP_0=None, variance_EP_0=None):
         """
         Optimisation routine for hyperparameters.
 
@@ -3042,7 +3039,6 @@ class LaplaceGP(Approximator):
         fx += 0.5 * posterior_mean.T @ weight
         fx += np.sum(np.log(np.diag(L_cov)))
         fx += 0.5 * np.sum(np.log(precision))
-        # fx = -fx
         return fx
 
     def objective_gradient(
@@ -3277,8 +3273,8 @@ class LaplaceGP(Approximator):
         return error, weight, posterior_mean, containers
 
     def approximate_posterior(
-            self, phi, trainables, steps, posterior_mean_0=None,
-            return_reparameterised=None, verbose=False):
+            self, phi, trainables, steps, verbose=False,
+            return_reparameterised=None, posterior_mean_0=None):
         """
         Newton-Raphson procedure for convex optimization to find MAP point and
         curvature.
@@ -3325,6 +3321,7 @@ class LaplaceGP(Approximator):
                 gx = np.zeros(1 + self.J - 1 + 1 + self.D)
             else:
                 gx = np.zeros(1 + self.J - 1 + 1 + 1)
+            # TODO: Warning... turned gradient calculation off
             gx = self.objective_gradient(
                 gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
                 precision, trainables)

@@ -376,9 +376,7 @@ def train(classifier, method, trainables, verbose=True, steps=None, max_sec=5000
     """
     minimize_stopper = MinimizeStopper(max_sec=max_sec)
     phi = classifier.get_phi(trainables)
-    args = (trainables, steps)
-    print("phi", phi)
-
+    args = (trainables, steps, verbose)
     res = minimize(
         classifier.approximate_posterior, phi,
         args, method=method, jac=True,
@@ -786,13 +784,13 @@ def outer_loops_Rogers(
         fx_Z = fx_Z.reshape((N, N))
         metrics_Z = metrics_Z.reshape((N, N, np.shape(metrics_Z)[1]))
         if plot==True:
-            fig, axs = plt.subplots(1, figsize=(6, 6))
+            fig, ax = plt.subplots(1, figsize=(6, 6))
             ax.contourf(x1, x2, predictive_likelihood_Z)
             ax.scatter(
                 X_new[argmax_predictive_likelihood, 0],
                 X_new[argmax_predictive_likelihood, 1], c='r')
-            axs.set_xscale('log')
-            axs.set_yscale('log')
+            ax.set_xscale('log')
+            ax.set_yscale('log')
             ax.set_xlabel(r"$\log{\theta}$", fontsize=16)
             ax.set_ylabel(r"$\log{s}$", fontsize=16)
             fig.savefig("Contour plot - Predictive likelihood of test set.png",
@@ -802,8 +800,8 @@ def outer_loops_Rogers(
             fig, axs = plt.subplots(1, figsize=(6, 6))
             ax.contourf(x1, x2, bounds_Z)
             ax.scatter(X_new[argmax_bound, 0], X_new[argmax_bound, 0], c='r')
-            axs.set_xscale('log')
-            axs.set_yscale('log')
+            ax.set_xscale('log')
+            ax.set_yscale('log')
             ax.set_xlabel(r"$\log{\theta}$", fontsize=16)
             ax.set_ylabel(r"$\log{s}$", fontsize=16)
             fig.savefig("Contour plot - Variational lower bound.png",
@@ -813,8 +811,8 @@ def outer_loops_Rogers(
             fig, axs = plt.subplots(1, figsize=(6, 6))
             ax.contourf(x1, x2, zero_one_Z)
             ax.scatter(X_new[argmax_zero_one, 0], X_new[argmax_zero_one, 0], c='r')
-            axs.set_xscale('log')
-            axs.set_yscale('log')
+            ax.set_xscale('log')
+            ax.set_yscale('log')
             ax.set_xlabel(r"$\log{\theta}$", fontsize=16)
             ax.set_ylabel(r"$\log{s}$", fontsize=16)
             ax.savefig("Contour plot - mean zero-one accuracy.png",
@@ -914,7 +912,7 @@ def _grid_over_hyperparameters_initiate(
             index += 1
     if trainables[classifier.J]:
         # Grid over signal variance
-        label.append("$\sigma_{\theta}^{2}$")
+        label.append(r"$\sigma_{\theta}^{ 2}$")
         axis_scale.append("log")
         theta = np.logspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
@@ -989,18 +987,11 @@ def grid_synthetic(
     gxs, theta_0, phi_0) = _grid_over_hyperparameters_initiate(
         classifier, res, domain, trainables)
     for i, phi in enumerate(phis):
-        print(phi)
-        fx, gx = classifier.approximate_posterior(phi, trainables, steps)
+        fx, gx = classifier.approximate_posterior(
+            phi, trainables, steps, verbose=verbose)
         fxs[i] = fx
         gxs[i] = gx
-        if verbose:
-            print(
-            "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
-            "\nfunction_eval={}, \nfunction_grad={}".format(
-                classifier.cutpoints, classifier.kernel.theta,
-                classifier.noise_variance, classifier.kernel.variance,
-                fx, gxs[i]))
-    # TODO: tidy up this code
+
     if x2s is not None:
         (Z, grad,
         x, y,
@@ -1013,19 +1004,19 @@ def grid_synthetic(
         xlabel, ylabel,
         xscale, yscale) = (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
-    print("xscale={}, yscale={}".format(xscale, yscale))
     if ylabel is None:
         #Normalization:
         #First derivatives: need to calculate them in the log domain if theta is in log domain
         if xscale == "log":
-            logx = np.log(x)
-            dx = np.diff(logx)
-            dZ_ = np.gradient(Z, logx)
-            #dZ = np.diff(Z) / dlogx
+            log_x = np.log(x)
+            dx = np.diff(log_x)
+            dZ_ = np.gradient(Z, log_x)
+            #dZ = np.diff(Z) / dlog_x
         elif xscale == "linear":
             dx = np.diff(x)
             dZ_ = np.gradient(Z, x)
             #dZ = np.diff(Z) / dx
+        idx_hat = np.argmin(Z)
 
         fig = plt.figure()
         fig.patch.set_facecolor('white')
@@ -1038,7 +1029,6 @@ def grid_synthetic(
         if show: plt.show()
         plt.close()
 
-        idx_hat = np.argmin(Z)
         fig = plt.figure()
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
@@ -1071,9 +1061,10 @@ def grid_synthetic(
         ax.plot(
             x, grad, 'b', alpha=0.7,
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
-        print(grad, "GRAD")
         ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
             alpha=0.5, label=r"'true' $\theta$")
+        ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
+            alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
         ax.set_xscale(xscale)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
@@ -1087,38 +1078,16 @@ def grid_synthetic(
         fig.patch.set_facecolor('white')
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
-        ax.grid()
-        ax.plot(
-            x, dZ_, 'r--',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
-        ax.vlines(
-            phi_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k', alpha=0.5,
-            label=r"'true' $\log \theta$")
-        ax.set_ylim(ax.get_ylim())
-        ax.plot(
-            x, grad, 'r',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
-        ax.set_xlabel("log " + xlabel)
-        ax.set_ylabel(
-            r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
-        ax.legend()
-        fig.savefig("both.png")
-        plt.tight_layout()
-        if show: plt.show()
-        plt.close()
-
-        fig = plt.figure()
-        fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
-        ax = fig.add_subplot(111)
         ax.plot(x, Z, 'b', label=r"$\mathcal{F}}$")
         ax.plot(
             x, dZ_, 'r--',
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
         ax.set_ylim(ax.get_ylim())
-        ax.vlines(
-            phi_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k', alpha=0.5,
-            label=r"'true' $\log \theta$")
+        ax.set_xscale(xscale)
+        ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+            alpha=0.5, label=r"'true' $\theta$")
+        ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
+            alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
         ax.plot(
             x, grad, 'r',
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
