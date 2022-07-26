@@ -950,6 +950,7 @@ def _grid_over_hyperparameters_initiate(
         phis = phis.reshape((len(space[0]) * len(space[1]), 2))
         fxs = np.empty(len(phis))
         gxs = np.empty((len(phis), 2))
+        theta_0 = np.array(theta_0)
     elif index == 1:
         meshgrid_theta = (space[0], None)
         space.append(None)
@@ -959,6 +960,7 @@ def _grid_over_hyperparameters_initiate(
         phis = phi_space[0].reshape(-1, 1)
         fxs = np.empty(len(phis))
         gxs = np.empty(len(phis))
+        theta_0 = theta_0[0]
     else:
         raise ValueError(
             "Too few or too many independent variables to plot objective over!"
@@ -973,7 +975,7 @@ def _grid_over_hyperparameters_initiate(
         label[0], label[1],
         axis_scale[0], axis_scale[1],
         meshgrid_theta[0], meshgrid_theta[1],
-        phis, fxs, gxs, np.array(theta_0), phi_0)
+        phis, fxs, gxs, theta_0, phi_0)
 
 
 def grid_synthetic(
@@ -1039,7 +1041,7 @@ def grid_synthetic(
         ax.vlines(x[idx_hat], 0.99 * ylim[0], 0.99 * ylim[1], 'r',
             alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
         ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
-            alpha=0.5, label=r"'true' $\theta$")
+            alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
         ax.set_xlabel(xlabel)
         ax.set_xscale(xscale)
         ax.set_ylabel(r"$\mathcal{F}$")
@@ -1062,7 +1064,7 @@ def grid_synthetic(
             x, grad, 'b', alpha=0.7,
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
         ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-            alpha=0.5, label=r"'true' $\theta$")
+            alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
         ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
             alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
         ax.set_xscale(xscale)
@@ -1085,7 +1087,7 @@ def grid_synthetic(
         ax.set_ylim(ax.get_ylim())
         ax.set_xscale(xscale)
         ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-            alpha=0.5, label=r"'true' $\theta$")
+            alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
         ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
             alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
         ax.plot(

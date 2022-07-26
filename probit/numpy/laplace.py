@@ -44,13 +44,13 @@ def posterior_covariance(K, cov, precision):
 
 def compute_weights(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        noise_variance, EPS, upper_bound, upper_bound2, N, K):
+        noise_variance, epsilon, upper_bound, upper_bound2, N, K):
     # Numerically stable calculation of ordinal likelihood!
     (Z,
     norm_pdf_z1s, norm_pdf_z2s,
     z1s, z2s, *_) = truncated_norm_normalising_constant(
         cutpoints_ts, cutpoints_tplus1s, noise_std,
-        posterior_mean, EPS,
+        posterior_mean, epsilon,
         upper_bound=upper_bound,
         upper_bound2=upper_bound2)
     w1 = norm_pdf_z1s / Z
@@ -71,7 +71,9 @@ def compute_weights(
         L_cov.T, np.eye(N), lower=True)
     # TODO: Necessary to calculate? probably only for marginals. or maybe not
     cov = solve_triangular(L_cov, L_covT_inv, lower=False)
-    return weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, cov, Z
+    log_det_cov = -2 * np.sum(np.log(np.diag(L_cov)))
+    return (weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, cov, Z,
+        log_det_cov)
 
 
 def objective(weight, posterior_mean, precision, L_cov, Z):
