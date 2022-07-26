@@ -17,6 +17,31 @@ from probit.utilities import (
     # probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers
     )
 
+
+def update_posterior(Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+        noise_std, noise_variance, posterior_mean, K, N):
+    """Update Laplace approximation posterior covariance in Newton step."""
+    weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
+    z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
+    z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
+    precision  = weight**2 + (
+        z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
+        ) / Z / noise_variance
+    m = - K @ weight + posterior_mean
+    L_cov, _ = cho_factor(K + np.diag(1. / precision))
+    L_covT_inv = solve_triangular(
+        L_cov.T, np.eye(N), lower=True)
+    cov = solve_triangular(L_cov, L_covT_inv, lower=False)
+    t1 = - (cov @ m) / precision
+    posterior_mean += t1
+    error = np.abs(max(t1.min(), t1.max(), key=abs))
+    return error, weight, posterior_mean
+
+
+def posterior_covariance(K, cov, precision):
+    return K @ cov @ np.diag(1./precision)
+
+
 def compute_weights(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
         noise_variance, EPS, upper_bound, upper_bound2, N, K):
@@ -48,6 +73,7 @@ def compute_weights(
     cov = solve_triangular(L_cov, L_covT_inv, lower=False)
     return weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, cov, Z
 
+
 def objective(weight, posterior_mean, precision, L_cov, Z):
     fx = -np.sum(np.log(Z))
     fx += 0.5 * posterior_mean.T @ weight
@@ -55,11 +81,12 @@ def objective(weight, posterior_mean, precision, L_cov, Z):
     fx += 0.5 * np.sum(np.log(precision))
     return fx
 
+
 def objective_gradient(
-        self, gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2,
+        gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2,
         cov, weight, precision, y_train, trainables, K, partial_K_theta,
         partial_K_variance, noise_std, noise_variance, theta, variance,
-        N, J, D):
+        N, J, D, ARD):
     if trainables is not None:
         # diagonal of posterior covariance
         dsigma = cov @ K
@@ -109,14 +136,14 @@ def objective_gradient(
                     - 2.0 * (w2[idxj] - w1[idxj]) * g2[idxj]
                     - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
                     - v2[idxj]
-                    - (g2[idxj] - g1[idxj]) * w2[idxj]) / self.noise_variance
+                    - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
                 gx[j] += 0.5 * np.sum((temp - t2[idxj] * t1[idxj]) * diag[idxj])
                 gx[j] -= np.sum(w2[idxg] - w1[idxg])
                 gx[j] += 0.5 * np.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
                 gx[j] += 0.5 * np.sum(-t2[idxl] * t1[idxl] * diag[idxl])
-                gx[j] = gx[j] * intervals[j - 2] / self.noise_std
+                gx[j] = gx[j] * intervals[j - 2] / noise_std
         # For gx[J] -- variance
-        if trainables[self.J]:
+        if trainables[J]:
             dmat = partial_K_variance @ cov
             t2 = (dmat @ weight) / precision
             # VC * VC * a' * partial_K_theta * a / 2
@@ -125,7 +152,7 @@ def objective_gradient(
             gx[J] += variance * 0.5 * np.trace(dmat)
             gx[J] *= 2.0  # since theta = kappa / 2
         # For gx[J + 1] -- theta
-        if self.kernel._ARD:
+        if ARD:
             for d in range(D):
                 if trainables[J + 1][d]:
                     dmat = partial_K_theta[d] @ cov

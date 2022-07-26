@@ -25,6 +25,8 @@ from probit.utilities import (
     ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
+from probit.numpy.laplace import (update_posterior, posterior_covariance,
+    compute_weights, objective, objective_gradient)
 
 
 class Approximator(ABC):
@@ -2946,28 +2948,6 @@ class LaplaceGP(Approximator):
         containers = (posterior_means, posterior_precisions)
         return (posterior_mean_0, containers, error)
 
-    def _update_posterior(self, Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-            noise_std, noise_variance, posterior_mean):
-        """Update Laplace approximation posterior covariance in Newton step."""
-        weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
-        z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-        z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
-        precision  = weight**2 + (
-            z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
-            ) / Z / noise_variance
-        m = - self.K @ weight + posterior_mean
-        L_cov, _ = cho_factor(self.K + np.diag(1. / precision))
-        L_covT_inv = solve_triangular(
-            L_cov.T, np.eye(self.N), lower=True)
-        cov = solve_triangular(L_cov, L_covT_inv, lower=False)
-        t1 = - (cov @ m) / precision
-        posterior_mean += t1
-        error = np.abs(max(t1.min(), t1.max(), key=abs))
-        return error, weight, posterior_mean
-
-    def _posterior_covariance(self, K, cov, precision):
-        return K @ cov @ np.diag(1./precision)
-
     def approximate(
             self, steps, posterior_mean_0=None, write=False):
         """
@@ -3008,9 +2988,10 @@ class LaplaceGP(Approximator):
                 posterior_mean, self.tolerance, upper_bound=self.upper_bound,
                 )
                 #upper_bound2=self.upper_bound2)  # TODO Turn this off!
-            error, weight, posterior_mean = self._update_posterior(
+            error, weight, posterior_mean = update_posterior(
                 Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-                self.noise_std, self.noise_variance, posterior_mean)
+                self.noise_std, self.noise_variance, posterior_mean, self.K,
+                self.N)
             if write is True:
                 posterior_means.append(posterior_mean)
                 posterior_precisions.append(posterior_precisions)
@@ -3049,25 +3030,25 @@ class LaplaceGP(Approximator):
                 print("({}), error={}".format(iteration, error))
         (weight, precision,
         w1, w2, g1, g2, v1, v2, q1, q2,
-        L_cov, cov, Z, log_det_cov) = self.compute_weights(
-            posterior_mean)
-        fx = 0
+        L_cov, cov, Z, log_det_cov) = compute_weights(
+            posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
+            self.noise_std, self.noise_variance, self.EPS, self.upper_bound,
+            self.upper_bound2, self.N, self.K)
         if return_reparameterised is True:
-            return fx, gx, weight, (cov, True)
+            return None, None, weight, (cov, True)
         if return_reparameterised is False:
-            posterior_covariance = self._posterior_covariance(
+            posterior_covariance = posterior_covariance(
                 self.K, cov, precision)
-            return fx, gx, log_det_cov, weight, precision, posterior_mean, (
+            return None, None, log_det_cov, weight, precision, posterior_mean, (
                 posterior_covariance, False)
         elif return_reparameterised is None:
-            fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
-            if self.kernel._ARD:
-                gx = np.zeros(1 + self.J - 1 + 1 + self.D)
-            else:
-                gx = np.zeros(1 + self.J - 1 + 1 + 1)
-            gx = self.objective_gradient(
+            fx = objective(weight, posterior_mean, precision, L_cov, Z)
+            gx = objective_gradient(
                 gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
-                precision, trainables)
+                precision, self.y_train, trainables, self.K,
+                self.partial_K_theta, self.noise_std, self.noise_variance,
+                self.theta, self.kernel.variance, self.N, self.J, self.D,
+                self.kernel._ARD)
             gx = gx[gx_where]
             if verbose:
                 print(
