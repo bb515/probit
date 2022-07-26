@@ -901,7 +901,7 @@ class VBGP(Approximator):
     def objective_gradient(
             self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, theta,
             noise_variance, noise_std,
-            m, weight, cov, trace_cov, partial_K_theta, N,
+            m, weight, cov, trace_cov, partial_K_theta, partial_K_variance, N,
             Z, norm_pdf_z1s, norm_pdf_z2s, trainables,
             numerical_stability=True, verbose=False):
         """
@@ -971,8 +971,6 @@ class VBGP(Approximator):
                     print(gx[2:self.J])
             # For gx[J] -- s
             if trainables[self.J]:
-                partial_K_variance = self.kernel.kernel_partial_derivative_variance(
-                    self.X_train, self.X_train)
                 # VC * VC * a' * partial_K_theta * a / 2
                 gx[self.J] = self.kernel.variance * 0.5 * weight.T @ partial_K_variance @ weight  # That's wrong. not the same calculation.
                 # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
@@ -1077,7 +1075,7 @@ class VBGP(Approximator):
                     self.cutpoints_tplus1s,
                     self.kernel.theta, self.noise_variance, self.noise_std,
                     posterior_mean, weight, self.cov, self.trace_cov,
-                    self.partial_K_theta, self.N, Z,
+                    self.partial_K_theta, self.partial_K_variance, self.N, Z,
                     norm_pdf_z1s, norm_pdf_z2s, trainables,
                     numerical_stability=True, verbose=False)
             gx = gx[gx_where]
@@ -1697,7 +1695,8 @@ class EPGP(Approximator):
                 gx = np.zeros(1 + self.J - 1 + 1 + 1)
             gx = self.objective_gradient(
                 gx, intervals, self.kernel.theta, self.noise_variance,
-                t2, t3, t4, t5, cov, weight, trainables)
+                t2, t3, t4, t5, cov, weight, trainables, self.partial_K_theta,
+                self.partial_K_variance)
             gx = gx[gx_where]
             if verbose:
                 print(
@@ -1821,7 +1820,8 @@ class EPGP(Approximator):
 
     def objective_gradient(
             self, gx, intervals, theta, noise_variance,
-            t2, t3, t4, t5, cov, weights, trainables):
+            t2, t3, t4, t5, cov, weights, trainables,
+            partial_K_theta, partial_K_variance):
         """
         Calculate gx, the jacobian of the variational lower bound of the
         log marginal likelihood at the EP equilibrium.
@@ -1881,8 +1881,6 @@ class EPGP(Approximator):
             # For gx[self.J] -- variance
             if trainables[self.J]:
                 # For gx[self.J] -- s
-                partial_K_variance = self.kernel.kernel_partial_derivative_variance(
-                    self.X_train, self.X_train)
                 # VC * VC * a' * partial_K_theta * a / 2
                 gx[self.J] = self.kernel.variance * 0.5 * weights.T @ partial_K_variance @ weights  # That's wrong. not the same calculation.
                 # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
@@ -1892,17 +1890,12 @@ class EPGP(Approximator):
                 gx[self.J] *= 2.0  # since theta = kappa / 2
             # For gx[self.J + 1] -- theta
             if self.kernel._ARD:
-                if trainables[self.J + 1]:
-                    partial_K_theta = self.kernel.kernel_partial_derivative_theta(
-                            self.X_train, self.X_train)
                 for d in range(self.D):
                     if trainables[self.J + 1][d]:
                         gx[self.J + 1 + d] = theta[d] * 0.5 * weights.T @ partial_K_theta[d] @ weights
                         gx[self.J + 1 + d] -= theta[d] * 0.5 * np.sum(np.multiply(cov, partial_K_theta[d]))
             else:
                 if trainables[self.J + 1]:
-                    partial_K_theta = self.kernel.kernel_partial_derivative_theta(
-                        self.X_train, self.X_train)
                     # elif 1:
                     #     gx[self.J + 1] = theta * 0.5 * weights.T @ partial_K_theta @ weights
                     # TODO: This needs fixing/ checking vs original code
@@ -2985,7 +2978,8 @@ class LaplaceGP(Approximator):
 
     def objective_gradient(
             self, gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2,
-            cov, weight, precision, trainables):
+            cov, weight, precision, trainables,
+            partial_K_theta, partial_K_variance):
         """
         Calculate gx, the jacobian of the variational lower bound of the
         log marginal likelihood at the EP equilibrium.
@@ -3087,8 +3081,6 @@ class LaplaceGP(Approximator):
                     gx[j] = gx[j] * intervals[j - 2] / self.noise_std
             # For gx[J] -- variance
             if trainables[self.J]:
-                partial_K_variance = self.kernel.kernel_partial_derivative_variance(
-                    self.X_train, self.X_train)
                 dmat = partial_K_variance @ cov
                 t2 = (dmat @ weight) / precision
                 # VC * VC * a' * partial_K_theta * a / 2
@@ -3098,8 +3090,6 @@ class LaplaceGP(Approximator):
                 gx[self.J] *= 2.0  # since theta = kappa / 2
             # For gx[J + 1] -- theta
             if self.kernel._ARD:
-                partial_K_theta = self.kernel.kernel_partial_derivative_theta(
-                    self.X_train, self.X_train)
                 for d in range(self.D):
                     if trainables[self.J + 1][d]:
                         dmat = partial_K_theta[d] @ cov
@@ -3109,8 +3099,6 @@ class LaplaceGP(Approximator):
                         gx[self.J + 1 + d] += self.kernel.theta[d] * 0.5 * np.sum(np.multiply(cov, partial_K_theta[d]))
             else:
                 if trainables[self.J + 1]:
-                    partial_K_theta = self.kernel.kernel_partial_derivative_theta(
-                        self.X_train, self.X_train)
                     dmat = partial_K_theta @ cov
                     t2 = (dmat @ weight) / precision
                     gx[self.J + 1] -= self.kernel.theta * 0.5 * weight.T @ partial_K_theta @ weight
@@ -3251,23 +3239,19 @@ class LaplaceGP(Approximator):
         w1, w2, g1, g2, v1, v2, q1, q2,
         L_cov, cov, Z, log_det_cov) = self.compute_weights(
             posterior_mean)
-        fx = 0
         if return_reparameterised is True:
-            return fx, gx, weight, (cov, True)
+            return None, None, weight, (cov, True)
         if return_reparameterised is False:
             posterior_covariance = self._posterior_covariance(
                 self.K, cov, precision)
-            return fx, gx, log_det_cov, weight, precision, posterior_mean, (
-                posterior_covariance, False)
+            return (None, None, log_det_cov, weight, precision, posterior_mean,
+                (posterior_covariance, False))
         elif return_reparameterised is None:
             fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
-            if self.kernel._ARD:
-                gx = np.zeros(1 + self.J - 1 + 1 + self.D)
-            else:
-                gx = np.zeros(1 + self.J - 1 + 1 + 1)
             gx = self.objective_gradient(
                 gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
-                precision, trainables)
+                precision, trainables, self.partial_K_theta,
+                self.partial_K_variance)
             gx = gx[gx_where]
             if verbose:
                 print(

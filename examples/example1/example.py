@@ -164,19 +164,16 @@ def main():
     else:
         trainables[-1] = 1
         # Fix theta
-        trainables[-1] = 0
+        #trainables[-1] = 0
     # Fix noise standard deviation
     trainables[0] = 0
     # Fix signal standard deviation
-    trainables[J] = 1
+    trainables[J] = 0
     # Fix cutpoints
     trainables[1:J] = [0] * (J - 1)
-    # trainables[1] = 1
-    # trainables[J-1] = 1
-    # trainables[J-2] = 1
-    print(trainables)
+    print("trainables = {}".format(trainables))
     # just theta
-    domain = ((-2, 1.3), None)
+    domain = ((-2, 1), None)
     res = (30, None)
     # theta_0 and theta_1
     # domain = ((-1, 1.3), (-1, 1.3))
@@ -202,7 +199,8 @@ def main():
     #     classifier, method, trainables, verbose=True, steps=steps)
     # test(classifier, X, y, g_true, steps)
 
-    grid_synthetic(classifier, domain, res, steps, trainables, show=True)
+    grid_synthetic(
+        classifier, domain, res, steps, trainables, show=True, verbose=True)
 
     #plot_synthetic(classifier, dataset, X_true, g_true, steps, colors=colors)
 
