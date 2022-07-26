@@ -2965,6 +2965,9 @@ class LaplaceGP(Approximator):
         error = np.abs(max(t1.min(), t1.max(), key=abs))
         return error, weight, posterior_mean
 
+    def _posterior_covariance(self, K, cov, precision):
+        return K @ cov @ np.diag(1./precision)
+
     def approximate(
             self, steps, posterior_mean_0=None, write=False):
         """
@@ -3046,15 +3049,16 @@ class LaplaceGP(Approximator):
                 print("({}), error={}".format(iteration, error))
         (weight, precision,
         w1, w2, g1, g2, v1, v2, q1, q2,
-        L_cov, cov, Z) = self.compute_weights(
+        L_cov, cov, Z, log_det_cov) = self.compute_weights(
             posterior_mean)
         fx = 0
         if return_reparameterised is True:
             return fx, gx, weight, (cov, True)
         if return_reparameterised is False:
-            log_det_cov = -2 * np.sum(np.log(np.diag(L_cov)))
+            posterior_covariance = self._posterior_covariance(
+                self.K, cov, precision)
             return fx, gx, log_det_cov, weight, precision, posterior_mean, (
-                self.K @ cov @ np.diag(1./precision), False)
+                posterior_covariance, False)
         elif return_reparameterised is None:
             fx = self.objective(weight, posterior_mean, precision, L_cov, Z)
             if self.kernel._ARD:
