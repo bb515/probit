@@ -1,9 +1,19 @@
 """Utility functions for probit."""
 import numpy as np
 from scipy.stats import expon
+from scipy.linalg import cholesky, solve_triangular
 from scipy.special import ndtr, log_ndtr, erf
 import warnings
 import h5py
+
+
+def matrix_inverse(matrix, N):
+    "another version"
+    L_cov = cholesky(matrix, lower=True)
+    L_covT_inv = solve_triangular(
+        L_cov, np.eye(N), lower=True)
+    cov = solve_triangular(L_cov.T, L_covT_inv, lower=False)
+    return cov, L_cov
 
 
 def check_cutpoints(cutpoints, J):
@@ -843,14 +853,14 @@ def _Z_tails(z1, z2):
 
     Even for z1, z2 >= 4 this is accurate to three decimal places.
     """
-    return 1/np.sqrt(2 * np.pi) * (
+    return over_sqrt_2_pi * (
     1 / z1 * np.exp(-0.5 * z1**2 + _g(z1)) - 1 / z2 * np.exp(
         -0.5 * z2**2 + _g(z2)))
 
 
 def _Z_far_tails(z):
     """Prevents overflow at large z."""
-    return 1 / (z * np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2 + _g(z))
+    return over_sqrt_2_pi / z * np.exp(-0.5 * z**2 + _g(z))
 
 
 def dp_tails(z1, z2):

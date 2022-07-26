@@ -25,7 +25,7 @@ from probit.utilities import (
     ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
-from probit.numpy.laplace import (update_posterior, posterior_covariance,
+from probit.jax.laplace import (update_posterior, posterior_covariance,
     compute_weights, objective, objective_gradient)
 
 
@@ -108,9 +108,11 @@ class Approximator(ABC):
 
         # Decreasing tolerance will lead to more accurate solutions up to a
         # point but a longer convergence time. Acts as a machine tolerance.
-        self.tolerance = 1e-4  
+        # Single precision linear algebra libraries
+        # won't converge smaller than tolerance = 1e-3
+        self.tolerance = 1e-3
         # self.tolerance = 1e-6  # Probably wouldn't go much smaller than this
-        self.tolerance = self.tolerance**2
+        self.tolerance2 = self.tolerance**2
 
         # Threshold of single sided standard deviations that
         # normal cdf can be approximated to 0 or 1
@@ -2937,8 +2939,7 @@ class LaplaceGP(Approximator):
                 self.indices_where_0]
         error = 0.0
         posterior_means = []
-        posterior_precisions = []
-        containers = (posterior_means, posterior_precisions)
+        containers = (posterior_means)
         return (posterior_mean_0, containers, error)
 
     def approximate(
@@ -2971,25 +2972,20 @@ class LaplaceGP(Approximator):
         """
         (posterior_mean, containers, error) = self._approximate_initiate(
             posterior_mean_0)
-        (posterior_means, posterior_precisions) = containers
+        (posterior_means) = containers
         for _ in trange(1, 1 + steps,
                         desc="Laplace GP approximator progress",
                         unit="iterations", disable=True):
-            (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-                    _, _) = truncated_norm_normalising_constant(
-                self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
-                posterior_mean, self.tolerance, upper_bound=self.upper_bound,
-                )
-                #upper_bound2=self.upper_bound2)  # TODO Turn this off!
-            error, weight, posterior_mean = update_posterior(
-                Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-                self.noise_std, self.noise_variance, posterior_mean, self.K,
-                self.N)
+            (error, weight, precision, cov, log_det_cov,
+                    posterior_mean) = update_posterior(
+                self.noise_std, self.noise_variance, posterior_mean,
+                self.cutpoints_ts, self.cutpoints_tplus1s, self.K, self.N,
+                self.tolerance, self.upper_bound, self.upper_bound2)
             if write is True:
                 posterior_means.append(posterior_mean)
-                posterior_precisions.append(posterior_precisions)
-        containers = (posterior_means, posterior_precisions)
-        return error, weight, posterior_mean, containers
+        containers = (posterior_means)
+        return (error, weight, precision, cov, log_det_cov, posterior_mean,
+            containers)
 
     def approximate_posterior(
             self, phi, trainables, steps, verbose=False,
@@ -3017,16 +3013,11 @@ class LaplaceGP(Approximator):
         posterior_mean = posterior_mean_0
         while error / steps > self.tolerance:
             iteration += 1
-            (error, weight, posterior_mean, containers) = self.approximate(
+            (error, weight, precision, cov, log_det_cov, posterior_mean,
+                    containers) = self.approximate(
                 steps, posterior_mean_0=posterior_mean, write=False)
             if verbose:
                 print("({}), error={}".format(iteration, error))
-        (weight, precision,
-        w1, w2, g1, g2, v1, v2, q1, q2,
-        L_cov, cov, Z, log_det_cov) = compute_weights(
-            posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
-            self.noise_std, self.noise_variance, self.epsilon,
-            self.upper_bound, self.upper_bound2, self.N, self.K)
         if return_reparameterised is True:
             return None, None, weight, (cov, True)
         if return_reparameterised is False:
@@ -3035,6 +3026,12 @@ class LaplaceGP(Approximator):
             return None, None, log_det_cov, weight, precision, posterior_mean, (
                 posterior_covariance, False)
         elif return_reparameterised is None:
+            (weight, precision,
+            w1, w2, g1, g2, v1, v2, q1, q2,
+            L_cov, cov, Z, log_det_cov) = compute_weights(
+                posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
+                self.noise_std, self.noise_variance, self.epsilon,
+                self.upper_bound, self.upper_bound2, self.N, self.K)
             fx = objective(weight, posterior_mean, precision, L_cov, Z)
             gx = objective_gradient(
                 gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,

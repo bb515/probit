@@ -1,22 +1,6 @@
 import numpy as np
-from scipy.linalg import cho_solve, cho_factor, solve_triangular
 from probit.utilities import (
-    # check_cutpoints,
-    # read_array,
-    # norm_z_pdf, norm_cdf,
-    truncated_norm_normalising_constant,
-    # p, dp,
-    # sample_thetas,
-    # fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
-    # fromb_t5_vector,
-    # probit_logZtilted, probit_dlogZtilted_dm, probit_dlogZtilted_dm2,
-    # probit_logZtilted_vector, probit_dlogZtilted_dm_vector,
-    # probit_dlogZtilted_dm2_vector,
-    # ordinal_dlogZtilted_dm_vector,
-    # ordinal_dlogZtilted_dm2_vector,
-    # probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers
-    )
-
+    truncated_norm_normalising_constant, matrix_inverse)
 
 def update_posterior(Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
         noise_std, noise_variance, posterior_mean, K, N):
@@ -28,10 +12,7 @@ def update_posterior(Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_variance
     m = - K @ weight + posterior_mean
-    L_cov, _ = cho_factor(K + np.diag(1. / precision))
-    L_covT_inv = solve_triangular(
-        L_cov.T, np.eye(N), lower=True)
-    cov = solve_triangular(L_cov, L_covT_inv, lower=False)
+    cov, _ = matrix_inverse(K + np.diag(1. / precision), N)
     t1 = - (cov @ m) / precision
     posterior_mean += t1
     error = np.abs(max(t1.min(), t1.max(), key=abs))
@@ -65,12 +46,7 @@ def compute_weights(
     q2 = z2s * v2
     weight = (w1 - w2) / noise_std
     precision = weight**2 + (g2 - g1) / noise_variance
-    (L_cov, lower) = cho_factor(
-        np.diag(1./ precision) + K)
-    L_covT_inv = solve_triangular(
-        L_cov.T, np.eye(N), lower=True)
-    # TODO: Necessary to calculate? probably only for marginals. or maybe not
-    cov = solve_triangular(L_cov, L_covT_inv, lower=False)
+    cov, L_cov = matrix_inverse(K + np.diag(1./ precision), N)
     log_det_cov = -2 * np.sum(np.log(np.diag(L_cov)))
     return (weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, cov, Z,
         log_det_cov)
