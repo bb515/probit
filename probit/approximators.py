@@ -25,7 +25,7 @@ from probit.utilities import (
     ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
-from probit.lab.laplace import (update_posterior,
+from probit.numpy.laplace import (update_posterior,
     compute_weights, objective, objective_gradient)
 
 
@@ -271,10 +271,10 @@ class Approximator(ABC):
         """
         Z, *_ = truncated_norm_normalising_constant(
             self.cutpoints_ts, self.cutpoints_tplus1s,
-            self.noise_std, m, self.tolerance,
+            self.noise_std, m,
             upper_bound=self.upper_bound,
             # upper_bound2=self.upper_bound2,  # optional
-            # numerically_stable=True  # optional
+            # tolerance=self.tolerance  # optional
             )
         if np.ndim(m) == 2:
             return np.sum(np.log(Z), axis=1)  # (num_samples,)
@@ -684,7 +684,7 @@ class VBGP(Approximator):
             if write:
                 Z, *_ = truncated_norm_normalising_constant(
                     self.cutpoints_ts, self.cutpoints_tplus1s,
-                    self.noise_std, posterior_mean, self.tolerance)
+                    self.noise_std, posterior_mean)
                 fx = self.objective(
                     self.N, posterior_mean, weight, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
@@ -1052,7 +1052,7 @@ class VBGP(Approximator):
             (Z, norm_pdf_z1s, norm_pdf_z2s,
                     *_ )= truncated_norm_normalising_constant(
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
-                posterior_mean, self.tolerance)
+                posterior_mean)
             if self.kernel.theta_hyperhyperparameters is not None:
                 fx = self.objective(
                     self.N, posterior_mean, weight, self.trace_cov,

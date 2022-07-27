@@ -2,21 +2,30 @@ import numpy as np
 from probit.utilities import (
     truncated_norm_normalising_constant, matrix_inverse)
 
-def update_posterior(Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-        noise_std, noise_variance, posterior_mean, K, N):
+
+def update_posterior(noise_std, noise_variance, posterior_mean,
+        cutpoints_ts, cutpoints_tplus1s, K, N,
+        upper_bound, upper_bound2):
     """Update Laplace approximation posterior covariance in Newton step."""
+    (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+        _, _) = truncated_norm_normalising_constant(
+            cutpoints_ts, cutpoints_tplus1s, noise_std,
+            posterior_mean,
+            upper_bound=upper_bound, upper_bound2=upper_bound2)
     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
+    # This is not for numerical stability, it is mathematically correct
     z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
     z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
     precision  = weight**2 + (
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_variance
     m = - K @ weight + posterior_mean
-    cov, _ = matrix_inverse(K + np.diag(1. / precision), N)
+    cov, L_cov = matrix_inverse(K + np.diag(1. / precision), N)
+    log_det_cov = -2 * np.sum(np.log(np.diag(L_cov)))
     t1 = - (cov @ m) / precision
     posterior_mean += t1
-    error = np.abs(max(t1.min(), t1.max(), key=abs))
-    return error, weight, posterior_mean
+    error = np.max(np.abs(t1))
+    return error, weight, precision, cov, log_det_cov, posterior_mean
 
 
 def posterior_covariance(K, cov, precision):
@@ -25,13 +34,13 @@ def posterior_covariance(K, cov, precision):
 
 def compute_weights(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        noise_variance, epsilon, upper_bound, upper_bound2, N, K):
+        noise_variance, upper_bound, upper_bound2, N, K):
     # Numerically stable calculation of ordinal likelihood!
     (Z,
     norm_pdf_z1s, norm_pdf_z2s,
     z1s, z2s, *_) = truncated_norm_normalising_constant(
         cutpoints_ts, cutpoints_tplus1s, noise_std,
-        posterior_mean, epsilon,
+        posterior_mean,
         upper_bound=upper_bound,
         upper_bound2=upper_bound2)
     w1 = norm_pdf_z1s / Z

@@ -893,8 +893,8 @@ def p_far_tails(z):
 
 
 def truncated_norm_normalising_constant(
-        cutpoints_ts, cutpoints_tplus1s, noise_std, m, EPS,
-        upper_bound=None, upper_bound2=None, numerically_stable=False):
+        cutpoints_ts, cutpoints_tplus1s, noise_std, m,
+        upper_bound=None, upper_bound2=None, tolerance=None):
     """
     Return the normalising constants for the truncated normal distribution
     in a numerically stable manner.
@@ -941,8 +941,6 @@ def truncated_norm_normalising_constant(
         # Using series expansion approximations
         indices1 = np.where(z1s > upper_bound)
         indices2 = np.where(z2s < -upper_bound)
-        #print(indices1)
-        #print(indices2)
         if np.ndim(z1s) == 1:
             indices = np.union1d(indices1, indices2)
         elif np.ndim(z1s) == 2:  # m is (num_samples, N). This is a quick (but not dirty) hack.
@@ -960,16 +958,16 @@ def truncated_norm_normalising_constant(
             z2_indices = z2s[indices]
             Z[indices] = _Z_far_tails(
                 -z2_indices)
-    if numerically_stable is True:
-        small_densities = np.where(Z < EPS)
+    if tolerance is not None:
+        small_densities = np.where(Z < tolerance)
         if np.size(small_densities) != 0:
             warnings.warn(
                 "Z (normalising constants for truncated norma"
                 "l random variables) must be greater than"
                 " tolerance={} (got {}): SETTING to"
                 " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
-                    EPS, Z, z1s, z2s))
-            Z[small_densities] = EPS
+                    tolerance, Z, z1s, z2s))
+            Z[small_densities] = tolerance
     return (
         Z,
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
