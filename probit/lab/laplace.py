@@ -7,6 +7,11 @@ import lab.jax
 import warnings
 
 
+over_sqrt_2_pi = 1. / B.sqrt(2 * B.pi)
+log_over_sqrt_2_pi = B.log(over_sqrt_2_pi)
+sqrt_2 = B.sqrt(2)
+
+
 def matrix_inverse(matrix, N):
     "another version"
     L_cov = cholesky(matrix)
@@ -15,15 +20,13 @@ def matrix_inverse(matrix, N):
     cov = solve_triangular(L_cov.T, L_covT_inv, lower_a=False)
     return cov, L_cov
 
-over_sqrt_2_pi = 1. / B.sqrt(2 * B.pi)
-log_over_sqrt_2_pi = B.log(over_sqrt_2_pi)
-sqrt_2 = B.sqrt(2)
 
 def ndtr(z):
     return 0.5 * (1 + erf(z/sqrt_2))
 
+
 def norm_z_pdf(z):
-    return over_sqrt_2_pi * B.exp(- z**2 / 2.0 )
+    return over_sqrt_2_pi * B.exp(-z**2 / 2.0)
 
 
 def norm_pdf(x, loc=0.0, scale=1.0):
@@ -62,16 +65,12 @@ def _Z_far_tails(z):
 
 
 def truncated_norm_normalising_constant(
-        cutpoints_ts, cutpoints_tplus1s, noise_std, m, EPS,
-        upper_bound=None, upper_bound2=None, numerically_stable=False):
+        cutpoints_ts, cutpoints_tplus1s, noise_std, m,
+        upper_bound=None, upper_bound2=None, tolerance=None):
     """
     Return the normalising constants for the truncated normal distribution
     in a numerically stable manner.
 
-    TODO: Could a numba version, shouldn't be difficult, but will have to be
-        parallelised scalar (due to the boolean logic).
-    TODO: There is no way to calculate this in the log domain (unless expansion
-    approximations are used). Could investigate only using approximations here.
     :arg cutpoints_ts: cutpoints[y_train] (N, ) array of cutpoints
     :type cutpoints_ts: :class:`numpy.ndarray`
     :arg cutpoints_tplus1s: cutpoints[y_train + 1] (N, ) array of cutpoints
@@ -106,59 +105,69 @@ def truncated_norm_normalising_constant(
     norm_cdf_z1s = norm_cdf(z1s)
     norm_cdf_z2s = norm_cdf(z2s)
     Z = norm_cdf_z2s - norm_cdf_z1s
-    if upper_bound is not None:
-        # Using series expansion approximations
-        indices1 = B.where(z1s > upper_bound)
-        indices2 = B.where(z2s < -upper_bound)
-        #print(indices1)
-        #print(indices2)
-        if B.ndim(z1s) == 1:
-            indices = B.union1d(indices1, indices2)
-        elif B.ndim(z1s) == 2:  # m is (num_samples, N). This is a quick (but not dirty) hack.
-            indices = (B.append(indices1[0], indices2[0]), B.append(indices1[1], indices2[1]))
-        z1_indices = z1s[indices]
-        z2_indices = z2s[indices]
-        Z[indices] = _Z_tails(
-            z1_indices, z2_indices)
-        if upper_bound2 is not None:
-            indices = B.where(z1s > upper_bound2)
-            z1_indices = z1s[indices]
-            Z[indices] = _Z_far_tails(
-                z1_indices)
-            indices = B.where(z2s < -upper_bound2)
-            z2_indices = z2s[indices]
-            Z[indices] = _Z_far_tails(
-                -z2_indices)
-    if numerically_stable is True:
-        small_densities = B.where(Z < EPS)
-        if B.size(small_densities) != 0:
-            warnings.warn(
-                "Z (normalising constants for truncated norma"
-                "l random variables) must be greater than"
-                " tolerance={} (got {}): SETTING to"
-                " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
-                    EPS, Z, z1s, z2s))
-            Z[small_densities] = EPS
+    # if upper_bound is not None:
+    #     # Using series expansion approximations
+    #     # TODO: Is this the correct way to use where?
+    #     indices1 = B.where(z1s > upper_bound)
+    #     indices2 = B.where(z2s < -upper_bound)
+    #     if B.ndim(z1s) == 1:
+    #         indices = B.union1d(indices1, indices2)
+    #     elif B.ndim(z1s) == 2:
+    #         # f is (num_samples, N). This is quick (but not dirty) hack.
+    #         indices = (B.append(indices1[0], indices2[0]),
+    #             B.append(indices1[1], indices2[1]))
+    #     z1_indices = z1s[indices]
+    #     z2_indices = z2s[indices]
+    #     # TODO: do I need to do set here?
+    #     Z[indices] = _Z_tails(
+    #         z1_indices, z2_indices)
+    #     if upper_bound2 is not None:
+    #         indices = B.where(z1s > upper_bound2)
+    #         z1_indices = z1s[indices]
+    #         Z[indices] = _Z_far_tails(
+    #             z1_indices)
+    #         indices = B.where(z2s < -upper_bound2)
+    #         z2_indices = z2s[indices]
+    #         Z[indices] = _Z_far_tails(
+    #             -z2_indices)
+    # if tolerance is not None:
+    #     small_densities = B.where(Z < tolerance)
+    #     if B.size(small_densities) != 0:
+    #         warnings.warn(
+    #             "Z (normalising constants for truncated norma"
+    #             "l random variables) must be greater than"
+    #             " tolerance={} (got {}): SETTING to"
+    #             " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
+    #                 tolerance, Z, z1s, z2s))
+    #         Z[small_densities] = tolerance
     return (
         Z,
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
-def update_posterior(Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-        noise_std, noise_variance, posterior_mean, K, N):
+def update_posterior(noise_std, noise_variance, posterior_mean,
+        cutpoints_ts, cutpoints_tplus1s, K, N,
+        upper_bound, upper_bound2):
     """Update Laplace approximation posterior covariance in Newton step."""
+    (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
+        _, _) = truncated_norm_normalising_constant(
+            cutpoints_ts, cutpoints_tplus1s, noise_std,
+            posterior_mean,
+            upper_bound=upper_bound, upper_bound2=upper_bound2)
     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
+    # This is not for numerical stability, it is mathematically correct
     z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
     z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
     precision  = weight**2 + (
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_variance
     m = - K @ weight + posterior_mean
-    cov, _ = matrix_inverse(K + B.diag(1. / precision), N)
+    cov, L_cov = matrix_inverse(K + B.diag(1. / precision), N)
+    log_det_cov = -2 * jnp.sum(B.log(B.diag(L_cov)))
     t1 = - (cov @ m) / precision
     posterior_mean += t1
-    error = B.abs(max(t1.min(), t1.max(), key=abs))
-    return error, weight, posterior_mean
+    error = B.max(B.abs(t1))
+    return error, weight, precision, cov, log_det_cov, posterior_mean
 
 
 def posterior_covariance(K, cov, precision):
@@ -167,19 +176,18 @@ def posterior_covariance(K, cov, precision):
 
 def compute_weights(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        noise_variance, epsilon, upper_bound, upper_bound2, N, K):
+        noise_variance, upper_bound, upper_bound2, N, K):
     # Numerically stable calculation of ordinal likelihood!
     (Z,
     norm_pdf_z1s, norm_pdf_z2s,
     z1s, z2s, *_) = truncated_norm_normalising_constant(
         cutpoints_ts, cutpoints_tplus1s, noise_std,
-        posterior_mean, epsilon)
+        posterior_mean, upper_bound=upper_bound, upper_bound2=upper_bound2)
     w1 = norm_pdf_z1s / Z
     w2 = norm_pdf_z2s / Z
+    # Could use nanprod instead, here
     z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
     z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
-    # z1s = B.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-    # z2s = B.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
     g1 = z1s * w1
     g2 = z2s * w2
     v1 = z1s * g1

@@ -1059,14 +1059,14 @@ def grid_synthetic(
         ax.plot(
             x, dZ_, 'r--',
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
-        ax.set_ylim(ax.get_ylim())
+        #ax.set_ylim(ax.get_ylim())
         ax.plot(
             x, grad, 'b', alpha=0.7,
             label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
-        ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-            alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
-        ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
-            alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
+        # ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+        #     alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
+        # ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
+        #     alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
         ax.set_xscale(xscale)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
@@ -1081,10 +1081,10 @@ def grid_synthetic(
         fig.patch.set_alpha(0.0)
         ax = fig.add_subplot(111)
         ax.plot(x, Z, 'b', label=r"$\mathcal{F}}$")
-        ax.plot(
-            x, dZ_, 'r--',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
-        ax.set_ylim(ax.get_ylim())
+        # ax.plot(
+        #     x, dZ_, 'r--',
+        #     label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numeric")
+        #ax.set_ylim(ax.get_ylim())
         ax.set_xscale(xscale)
         ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
             alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))

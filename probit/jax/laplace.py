@@ -8,16 +8,17 @@ from jax.scipy.special import ndtr
 from jax.scipy.linalg import solve_triangular
 import warnings
 
+
+over_sqrt_2_pi = 1. / jnp.sqrt(2 * jnp.pi)
+log_over_sqrt_2_pi = jnp.log(over_sqrt_2_pi)
+
+
 def matrix_inverse(matrix, N):
-    "another version"
     L_cov = cholesky(matrix, lower=True)
     L_covT_inv = solve_triangular(
         L_cov, jnp.eye(N), lower=True)
     cov = solve_triangular(L_cov.T, L_covT_inv, lower=False)
     return cov, L_cov
-
-over_sqrt_2_pi = 1. / jnp.sqrt(2 * jnp.pi)
-log_over_sqrt_2_pi = jnp.log(over_sqrt_2_pi)
 
 
 def norm_z_pdf(z):
@@ -60,15 +61,12 @@ def _Z_far_tails(z):
 
 
 def truncated_norm_normalising_constant(
-        cutpoints_ts, cutpoints_tplus1s, noise_std, f, tolerance,
-        upper_bound=None, upper_bound2=None, numerically_stable=False):
+        cutpoints_ts, cutpoints_tplus1s, noise_std, f,
+        upper_bound=None, upper_bound2=None, tolerance=None):
     """
     Return the normalising constants for the truncated normal distribution
     in a numerically stable manner.
 
-    TODO: Could a numba version, shouldn't be difficult, but will have to be
-        parallelised scalar (due to the boolean logic).
-    TODO: There is no way to calculate this in the log domain (unless expansion
     approximations are used). Could investigate only using approximations here.
     :arg cutpoints_ts: cutpoints[y_train] (N, ) array of cutpoints
     :type cutpoints_ts: :class:`numpy.ndarray`
@@ -109,56 +107,55 @@ def truncated_norm_normalising_constant(
         indices1 = jnp.where(z1s > upper_bound)
         indices2 = jnp.where(z2s < -upper_bound)
         if jnp.size(indices1) > 0 or jnp.size(indices2) > 0:
-            #print(indices1)
-            #print(indices2)
+            print(indices1)
+            print(indices2)
             if jnp.ndim(z1s) == 1:
-                print(indices1)
-                print(indices2)
-                indices = jnp.union1d(indices1, indices2)
+                indices = jnp.union1d(indices1[0], indices2[0])
             elif jnp.ndim(z1s) == 2:
-                # m is (num_samples, N). This is a quick (but not dirty) hack.
+                # f is (num_samples, N). This is quick (but not dirty) hack.
                 indices = (jnp.append(indices1[0], indices2[0]),
                     jnp.append(indices1[1], indices2[1]))
             z1_indices = z1s[indices]
             z2_indices = z2s[indices]
-            Z[indices] = _Z_tails(
-                z1_indices, z2_indices)
+            Z = Z.at[indices].set(_Z_tails(
+                z1_indices, z2_indices))
             if upper_bound2 is not None:
                 indices = jnp.where(z1s > upper_bound2)
                 z1_indices = z1s[indices]
-                Z[indices] = _Z_far_tails(
-                    z1_indices)
+                Z = Z.at[indices].set(_Z_far_tails(
+                    z1_indices))
                 indices = jnp.where(z2s < -upper_bound2)
                 z2_indices = z2s[indices]
-                Z[indices] = _Z_far_tails(
-                    -z2_indices)
-    if numerically_stable is True:
-        small_densities = jnp.where(Z < tolerance**2)
+                Z = Z.at[indices].set(_Z_far_tails(
+                    -z2_indices))
+    if tolerance is not None:
+        small_densities = jnp.where(Z < tolerance)
         if jnp.size(small_densities) != 0:
             warnings.warn(
                 "Z (normalising constants for truncated norma"
                 "l random variables) must be greater than"
                 " tolerance={} (got {}): SETTING to"
                 " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
-                    tolerance**2, Z, z1s, z2s))
-            Z[small_densities] = tolerance**2
+                    tolerance, Z, z1s, z2s))
+            Z = Z.at[small_densities].set(tolerance)
     return (
         Z,
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
 def update_posterior(noise_std, noise_variance, posterior_mean,
-        cutpoints_ts, cutpoints_tplus1s, K, N, tolerance,
+        cutpoints_ts, cutpoints_tplus1s, K, N,
         upper_bound, upper_bound2):
     """Update Laplace approximation posterior covariance in Newton step."""
     (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
         _, _) = truncated_norm_normalising_constant(
             cutpoints_ts, cutpoints_tplus1s, noise_std,
-            posterior_mean, tolerance, upper_bound=upper_bound,
-            upper_bound2=upper_bound2)  # TODO Turn this off!
+            posterior_mean,
+            upper_bound=upper_bound, upper_bound2=upper_bound2)
     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
-    # z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-    # z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
+    # This is not for numerical stability, it is mathematically correct
+    z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
+    z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
     precision  = weight**2 + (
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_variance
@@ -167,6 +164,7 @@ def update_posterior(noise_std, noise_variance, posterior_mean,
     log_det_cov = -2 * jnp.sum(jnp.log(jnp.diag(L_cov)))
     t1 = - (cov @ m) / precision
     posterior_mean += t1
+    # TODO: there is a better way of doing this
     error = jnp.abs(max(t1.min(), t1.max(), key=abs))
     return error, weight, precision, cov, log_det_cov, posterior_mean
 
@@ -177,18 +175,18 @@ def posterior_covariance(K, cov, precision):
 
 def compute_weights(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        noise_variance, tolerance, upper_bound, upper_bound2, N, K):
+        noise_variance, upper_bound, upper_bound2, N, K):
     # Numerically stable calculation of ordinal likelihood!
     (Z,
     norm_pdf_z1s, norm_pdf_z2s,
     z1s, z2s, *_) = truncated_norm_normalising_constant(
         cutpoints_ts, cutpoints_tplus1s, noise_std,
-        posterior_mean, tolerance, upper_bound, upper_bound2,
-        numerically_stable=True)
+        posterior_mean, upper_bound=upper_bound, upper_bound2=upper_bound2)
     w1 = norm_pdf_z1s / Z
     w2 = norm_pdf_z2s / Z
-    # z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-    # z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
+    # This is not for numerical stability, it is mathematically correct
+    z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
+    z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
     g1 = z1s * w1
     g2 = z2s * w2
     v1 = z1s * g1

@@ -25,8 +25,9 @@ from probit.utilities import (
     ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
-from probit.jax.laplace import (update_posterior, posterior_covariance,
+from probit.lab.laplace import (update_posterior,
     compute_weights, objective, objective_gradient)
+
 
 
 class Approximator(ABC):
@@ -108,10 +109,10 @@ class Approximator(ABC):
 
         # Decreasing tolerance will lead to more accurate solutions up to a
         # point but a longer convergence time. Acts as a machine tolerance.
-        # Single precision linear algebra libraries
-        # won't converge smaller than tolerance = 1e-3
-        self.tolerance = 1e-3
-        # self.tolerance = 1e-6  # Probably wouldn't go much smaller than this
+        # Single precision linear algebra libraries won't converge smaller than
+        # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
+        self.tolerance = 1e-3  # Single precision
+        # self.tolerance = 1e-6  # Double precision
         self.tolerance2 = self.tolerance**2
 
         # Threshold of single sided standard deviations that
@@ -121,14 +122,17 @@ class Approximator(ABC):
         # Less than this leads to a poor approximation due to series
         # expansion at infinity truncation
         # Good values found between 4 and 6
-        self.upper_bound = 6
+        # self.upper_bound = 4  # For single precision
+        self.upper_bound = 6  # For double precision
 
         # More than this + redundancy leads to numerical
         # instability due to overflow
         # Less than this results in poor approximation due to
         # neglected probability mass in the tails
         # Good values found between 18 and 30
-        self.upper_bound2 = 30  # Try decreasing if experiencing infs or NaNs
+        # Try decreasing if experiencing infs or NaNs
+        # self.upper_bound = 18  # For single precision
+        self.upper_bound2 = 30  # For double precision
 
         # Get data and calculate the prior
         if data is not None:
@@ -2980,7 +2984,7 @@ class LaplaceGP(Approximator):
                     posterior_mean) = update_posterior(
                 self.noise_std, self.noise_variance, posterior_mean,
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.K, self.N,
-                self.tolerance, self.upper_bound, self.upper_bound2)
+                self.upper_bound, self.upper_bound2)
             if write is True:
                 posterior_means.append(posterior_mean)
         containers = (posterior_means)
@@ -3030,7 +3034,7 @@ class LaplaceGP(Approximator):
             w1, w2, g1, g2, v1, v2, q1, q2,
             L_cov, cov, Z, log_det_cov) = compute_weights(
                 posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
-                self.noise_std, self.noise_variance, self.epsilon,
+                self.noise_std, self.noise_variance,
                 self.upper_bound, self.upper_bound2, self.N, self.K)
             fx = objective(weight, posterior_mean, precision, L_cov, Z)
             gx = objective_gradient(
