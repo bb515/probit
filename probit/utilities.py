@@ -1,10 +1,14 @@
 """Utility functions for probit."""
 import numpy as np
-from scipy.stats import expon
 from scipy.linalg import cholesky, solve_triangular
 from scipy.special import ndtr, log_ndtr, erf
 import warnings
 import h5py
+
+
+over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
+log_over_sqrt_2_pi = -0.5 * np.log(2 * np.pi)
+sqrt_2 = np.sqrt(2)
 
 
 def matrix_inverse(matrix, N):
@@ -14,6 +18,10 @@ def matrix_inverse(matrix, N):
         L_cov, np.eye(N), lower=True)
     cov = solve_triangular(L_cov.T, L_covT_inv, lower=False)
     return cov, L_cov
+
+
+def posterior_covariance(K, cov, precision):
+    return K @ cov @ np.diag(1./precision)
 
 
 def check_cutpoints(cutpoints, J):
@@ -812,32 +820,7 @@ def log_multivariate_normal_pdf_vectorised(
         'kj, kj -> k', np.einsum('ij, ki -> kj', cov_inv, xs), xs)
         
 
-def sample_thetas(theta_hyperparameter, n_samples):
-    """
-    Take n_samples of theta, given the hyperparameter of theta.
-
-    theta_hyperparameter is a rate parameter since, with an uninformative
-    prior (sigma=tau=0), then the posterior mean of Q(psi) is
-    psi_tilde = 1. / theta_tilde. Therefore, by taking the expected value of
-    the prior on theta ~ Exp(psi_tilde),
-    we expect to obtain theta_tilde = 1. / psi_tilde. We get this if
-    psi_tilde is a rate.
-
-    :arg psi: float (Array) of hyper-hyperparameter(s)
-    :type psi: :class:`np.ndarray`
-    :arg int n_samples: The number of samples for the importance sample.
-    """
-    # scale = theta_hyperparameter
-    scale = 1. / theta_hyperparameter
-    shape = np.shape(theta_hyperparameter)
-    if shape == ():
-        size = (n_samples,)
-    else:
-        size = (n_samples, shape[0], shape[1])
-    return expon.rvs(scale=scale, size=size)
-
-
-def _g(x):
+def h(x):
     """
     Polynomial part of a series expansion for log survival function for a
     normal random variable. With the third term, for x>4, this is accurate
@@ -854,42 +837,14 @@ def _Z_tails(z1, z2):
     Even for z1, z2 >= 4 this is accurate to three decimal places.
     """
     return over_sqrt_2_pi * (
-    1 / z1 * np.exp(-0.5 * z1**2 + _g(z1)) - 1 / z2 * np.exp(
-        -0.5 * z2**2 + _g(z2)))
+    1 / z1 * np.exp(-0.5 * z1**2 + h(z1)) - 1 / z2 * np.exp(
+        -0.5 * z2**2 + h(z2)))
 
 
 def _Z_far_tails(z):
     """Prevents overflow at large z."""
-    return over_sqrt_2_pi / z * np.exp(-0.5 * z**2 + _g(z))
+    return over_sqrt_2_pi / z * np.exp(-0.5 * z**2 + h(z))
 
-
-def dp_tails(z1, z2):
-    """Series expansion at infinity."""
-    return (
-        z1 * np.exp(-0.5 * z1**2) - z2 * np.exp(-0.5 * z2**2)) / (
-            1 / z1 * np.exp(-0.5 * z1**2)* np.exp(_g(z1))
-            - 1 / z2 * np.exp(-0.5 * z2**2) * np.exp(_g(z2)))
-
-
-def dp_far_tails(z):
-    """Prevents overflow at large z."""
-    return z**2 * np.exp(-_g(z))
-
-
-def p_tails(z1, z2):
-    """
-    Series expansion at infinity. Even for z1, z2 >= 4,
-    this is accurate to three decimal places.
-    """
-    return (
-        np.exp(-0.5 * z1**2) - np.exp(-0.5 * z2**2)) / (
-            1 / z1 * np.exp(-0.5 * z1**2)* np.exp(_g(z1))
-            - 1 / z2 * np.exp(-0.5 * z2**2) * np.exp(_g(z2)))
-
-
-def p_far_tails(z):
-    """Prevents overflow at large z."""
-    return z * np.exp(-_g(z))
 
 
 def truncated_norm_normalising_constant(
@@ -899,8 +854,6 @@ def truncated_norm_normalising_constant(
     Return the normalising constants for the truncated normal distribution
     in a numerically stable manner.
 
-    TODO: Could a numba version, shouldn't be difficult, but will have to be
-        parallelised scalar (due to the boolean logic).
     TODO: There is no way to calculate this in the log domain (unless expansion
     approximations are used). Could investigate only using approximations here.
     :arg cutpoints_ts: cutpoints[y_train] (N, ) array of cutpoints
@@ -971,111 +924,6 @@ def truncated_norm_normalising_constant(
     return (
         Z,
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
-
-
-def p(m, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        EPS, upper_bound, upper_bound2):
-    """
-    The rightmost term of 2021 Page Eq.(),
-        correction terms that squish the function value m
-        between the two cutpoints for that particle.
-
-    :arg m: The current posterior mean estimate.
-    :type m: :class:`numpy.ndarray`
-    :arg cutpoints_ts: cutpoints[y_train] (N, ) array of cutpoints
-    :type cutpoints_ts: :class:`numpy.ndarray`
-    :arg cutpoints_tplus1s: cutpoints[y_train + 1] (N, ) array of cutpoints
-    :type cutpoints_ts: :class:`numpy.ndarray`
-    :arg float noise_std: The noise standard deviation.
-    :arg float EPS: The tolerated absolute error.
-    :arg float upper_bound: Threshold of single sided standard
-        deviations that the normal cdf can be approximated to 0 or 1.
-    :arg float upper_bound2: Optional threshold to be robust agains
-        numerical overflow. Default `None`.
-
-    :returns: p
-    :rtype: :class:`numpy.ndarray`
-    """
-    (Z,
-    norm_pdf_z1s, norm_pdf_z2s,
-    z1s, z2s,
-    *_) = truncated_norm_normalising_constant(
-        cutpoints_ts, cutpoints_tplus1s, noise_std, m, EPS)
-    p = (norm_pdf_z1s - norm_pdf_z2s) / Z
-    # Need to deal with the tails to prevent catestrophic cancellation
-    indices1 = np.where(z1s > upper_bound)
-    indices2 = np.where(z2s < -upper_bound)
-    indices = np.union1d(indices1, indices2)
-    z1_indices = z1s[indices]
-    z2_indices = z2s[indices]
-    p[indices] = p_tails(z1_indices, z2_indices)
-    # Finally, get the far tails for the non-infinity case to prevent overflow
-    if upper_bound2:
-        indices = np.where(z1s > upper_bound2)
-        z1_indices = z1s[indices]
-        p[indices] = p_far_tails(z1_indices)
-        indices = np.where(z2s < -upper_bound2)
-        z2_indices = z2s[indices]
-        p[indices] = p_far_tails(z2_indices)
-    return p
-
-
-def dp(m, cutpoints_ts, cutpoints_tplus1s, noise_std, EPS,
-        upper_bound, upper_bound2=None):
-    """
-    The analytic derivative of :meth:`p` (p are the correction
-        terms that squish the function value m
-        between the two cutpoints for that particle).
-
-    :arg m: The current posterior mean estimate.
-    :type m: :class:`numpy.ndarray`
-    :arg cutpoints_ts: cutpoints[y_train] (N, ) array of cutpoints
-    :type cutpoints_ts: :class:`numpy.ndarray`
-    :arg cutpoints_tplus1s: cutpoints[y_train + 1] (N, ) array of cutpoints
-    :type cutpoints_ts: :class:`numpy.ndarray`
-    :arg float noise_std: The noise standard deviation.
-    :arg float EPS: The tolerated absolute error.
-    :arg float upper_bound: Threshold of single sided standard
-        deviations that the normal cdf can be approximated to 0 or 1.
-    :arg float upper_bound2: Optional threshold to be robust agains
-        numerical overflow. Default `None`.
-
-    :returns: dp
-    :rtype: :class:`numpy.ndarray`
-    """
-    (Z,
-    norm_pdf_z1s, norm_pdf_z2s,
-    z1s, z2s,
-    *_) = truncated_norm_normalising_constant(
-        cutpoints_ts, cutpoints_tplus1s, noise_std, m, EPS)
-    sigma_dp = (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / Z
-    # Need to deal with the tails to prevent catestrophic cancellation
-    indices1 = np.where(z1s > upper_bound)
-    indices2 = np.where(z2s < -upper_bound)
-    indices = np.union1d(indices1, indices2)
-    z1_indices = z1s[indices]
-    z2_indices = z2s[indices]
-    sigma_dp[indices] = dp_tails(z1_indices, z2_indices)
-    # The derivative when (z2/z1) take a value of (+/-)infinity
-    indices = np.where(z1s==-np.inf)
-    sigma_dp[indices] = (- z2s[indices] * norm_pdf_z2s[indices]
-        / Z[indices])
-    indices = np.intersect1d(indices, indices2)
-    sigma_dp[indices] = dp_far_tails(z2s[indices])
-    indices = np.where(z2s==np.inf)
-    sigma_dp[indices] = (z1s[indices] * norm_pdf_z1s[indices]
-        / Z[indices])
-    indices = np.intersect1d(indices, indices1)
-    sigma_dp[indices] = dp_far_tails(z1s[indices])
-    # Get the far tails for the non-infinity case to prevent overflow
-    if upper_bound2 is not None:
-        indices = np.where(z1s > upper_bound2)
-        z1_indices = z1s[indices]
-        sigma_dp[indices] = dp_far_tails(z1_indices)
-        indices = np.where(z2s < -upper_bound2)
-        z2_indices = z2s[indices]
-        sigma_dp[indices] = dp_far_tails(z2_indices)
-    return sigma_dp
 
 
 def sample_g(g, f, y_train, cutpoints, noise_std, N):

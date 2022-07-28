@@ -3,7 +3,6 @@
 import os
 from probit.kernels import LabSharpenedCosine
 
-from probit.utilities import dp
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
 os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
@@ -164,11 +163,11 @@ def main():
     else:
         trainables[-1] = 1
         # Fix theta
-        # trainables[-1] = 0
+        trainables[-1] = 0
     # Fix noise standard deviation
     trainables[0] = 0
     # Fix signal standard deviation
-    trainables[J] = 0
+    trainables[J] = 1
     # Fix cutpoints
     trainables[1:J] = [0] * (J - 1)
     # trainables[2] = 1
