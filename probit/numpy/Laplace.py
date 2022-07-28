@@ -1,9 +1,9 @@
 import numpy as np
 from probit.utilities import (
-    truncated_norm_normalising_constant, matrix_inverse)
+    truncated_norm_normalising_constant, matrix_inverse, posterior_covariance)
 
 
-def update_posterior(noise_std, noise_variance, posterior_mean,
+def update_LA_posterior(noise_std, noise_variance, posterior_mean,
         cutpoints_ts, cutpoints_tplus1s, K, N,
         upper_bound, upper_bound2):
     """Update Laplace approximation posterior covariance in Newton step."""
@@ -26,10 +26,6 @@ def update_posterior(noise_std, noise_variance, posterior_mean,
     posterior_mean += t1
     error = np.max(np.abs(t1))
     return error, weight, precision, cov, log_det_cov, posterior_mean
-
-
-def posterior_covariance(K, cov, precision):
-    return K @ cov @ np.diag(1./precision)
 
 
 def compute_weights(

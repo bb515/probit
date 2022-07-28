@@ -18,8 +18,8 @@ from .utilities import (
     read_scalar,
     #norm_z_pdf,
     norm_cdf,
-    truncated_norm_normalising_constant,
-    p)  # , dp)
+    truncated_norm_normalising_constant)
+from probit.numpy.VB import _p
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
 
 
@@ -165,11 +165,11 @@ class SparseVBGP(VBGP):
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples",
                         disable=True):
-            p_ = p(
+            p = _p(
                 posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
                 self.noise_std, self.EPS, self.upper_bound, self.upper_bound2)
             g = self._g(
-                p_, posterior_mean, self.noise_std)
+                p, posterior_mean, self.noise_std)
             posterior_mean, weight = self._posterior_mean(
                     g, self.cov2, self.Kfu)
             if self.kernel.theta_hyperhyperparameters is not None:

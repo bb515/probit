@@ -145,7 +145,7 @@ def truncated_norm_normalising_constant(
         norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
-def update_posterior(noise_std, noise_variance, posterior_mean,
+def update_posterior_LA(noise_std, noise_variance, posterior_mean,
         cutpoints_ts, cutpoints_tplus1s, K, N,
         upper_bound, upper_bound2):
     """Update Laplace approximation posterior covariance in Newton step."""
@@ -174,7 +174,7 @@ def posterior_covariance(K, cov, precision):
     return K @ cov @ B.diag(1./precision)
 
 
-def compute_weights(
+def compute_weights_LA(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
         noise_variance, upper_bound, upper_bound2, N, K):
     # Numerically stable calculation of ordinal likelihood!
@@ -202,15 +202,14 @@ def compute_weights(
         log_det_cov)
 
 
-def objective(weight, posterior_mean, precision, L_cov, Z):
-    fx = -B.sum(B.log(Z))
-    fx += 0.5 * posterior_mean.T @ weight
-    fx += B.sum(B.log(B.diag(L_cov)))
-    fx += 0.5 * B.sum(B.log(precision))
-    return fx
+def objective_LA(weight, posterior_mean, precision, L_cov, Z):
+    return (-B.sum(B.log(Z))
+        + 0.5 * posterior_mean.T @ weight
+        + B.sum(B.log(B.diag(L_cov)))
+        + 0.5 * B.sum(B.log(precision)))
 
 
-def objective_gradient(
+def objective_gradient_LA(
         gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2,
         cov, weight, precision, y_train, trainables, K, partial_K_theta,
         partial_K_variance, noise_std, noise_variance, theta, variance,

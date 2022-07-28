@@ -1,9 +1,7 @@
 from abc import ABC, abstractmethod
-from ast import Index
 import enum
 from probit.kernels import Kernel, InvalidKernel
 import pathlib
-import random
 from tqdm import trange
 import warnings
 import math
@@ -12,10 +10,9 @@ import numpy as np
 from probit.utilities import (
     check_cutpoints,
     read_array,
+    posterior_covariance,
     norm_z_pdf, norm_cdf,
     truncated_norm_normalising_constant,
-    p, dp,
-    sample_thetas,
     fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
     fromb_t5_vector,
     probit_logZtilted, probit_dlogZtilted_dm, probit_dlogZtilted_dm2,
@@ -25,9 +22,11 @@ from probit.utilities import (
     ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
-from probit.jax.laplace import (update_posterior,
-    compute_weights, objective, objective_gradient)
-
+from probit.jax.Laplace import (update_posterior_LA,
+    compute_weights_LA, objective_LA, objective_gradient_LA)
+from probit.numpy.VB import (update_posterior_mean_VB,
+    update_posterior_covariance_VB, update_hyperparameter_posterior_VB,
+    objective_VB, objective_gradient_VB)
 
 
 class Approximator(ABC):
@@ -538,47 +537,6 @@ class VBGP(Approximator):
         self.hyperparameters_update(
             cutpoints=cutpoints, noise_variance=noise_variance)
 
-    def _update_posterior(self):
-        """Update posterior covariances."""
-        # Note that this scipy implementation returns an upper triangular matrix
-        # whereas numpy, tf, scipy.cholesky return a lower triangular,
-        # then the position of the matrix transpose in the code would change.
-        (self.L_cov, self.lower) = cho_factor(
-            self.noise_variance * np.eye(self.N) + self.K)
-
-        # cho_solve defaults as upper triangular, whereas
-        # linalg.cholesky is lower triangular by default.
-        # Therefore I don't need any transpose in my algorithm.
-        # But if I revert to a lower triangular cholesky decomp,
-        # then I will exactly follow e.g., gpflow.
-
-        # Using scipy.linalg.cholesky() and scipy.linalg.cho_factor()
-        # probably uses the same code.
-        # If the same cholesky is computed twice,
-        # then the second time the result is cached (?) and will take no time to
-        # evaluate (scipy will just point to the memory object that it has
-        # already calculated)
-
-        # TODO: If jax @jit works really well with the GPU for cho_solve,
-        # it is worth not storing this matrix - due to storage cost, and it
-        # will be faster. See alternative implementation on feature/cho_solve
-        # For the CPU, storing self.cov saves solving for the gradient and the
-        # fx. Maybe have it as part of a seperate method.
-        # TODO: should be using  cho_solve and not solve_triangular, unless I used it because that is what is used
-        # in tensorflow for whatever reason (maybe tensorflow has no cho_solve)
-        # Note that Tensorflow uses tf.linalg.triangular_solve
-        L_covT_inv = solve_triangular(
-            self.L_cov.T, np.eye(self.N), lower=True)
-        # TODO Is it necessary to do this triangular solve, or can it be done each step instead of matmul. A: This is 3-4 times slower on CPU, what about with jit compiled CPU or GPU?
-        self.cov = solve_triangular(self.L_cov, L_covT_inv, lower=False)
-
-        # log det (\sigma^{2}I + K)^{-1} = -2 * trace(log(L)),
-        # where LL^{T} = (\sigma^{2}I + K)
-        self.log_det_cov = -2 * np.sum(np.log(np.diag(self.L_cov)))
-        self.trace_cov = np.sum(np.diag(self.cov))
-        self.trace_posterior_cov_div_var = np.einsum(
-            'ij, ij -> ', self.K, self.cov)
-
     def hyperparameters_update(
         self, cutpoints=None, theta=None, variance=None, noise_variance=None,
         theta_hyperparameters=None):
@@ -612,7 +570,9 @@ class VBGP(Approximator):
                 theta_hyperparameters=theta_hyperparameters)
         # Update posterior covariance
         warnings.warn("Updating posterior covariance.")
-        self._update_posterior()
+        (self.L_cov, self.cov, self.log_det_cov, self.trace_cov,
+        self.trace_posterior_cov_div_var) = update_posterior_covariance_VB(
+            self.noise_variance, self.N, self.K)
         warnings.warn("Done updating posterior covariance.")
 
     def _approximate_initiate(self, posterior_mean_0):
@@ -626,12 +586,11 @@ class VBGP(Approximator):
         if posterior_mean_0 is None:
             # posterior_mean_0 = np.random.rand(self.N)  # TODO: justification for this?
             posterior_mean_0 = np.zeros(self.N)
-        gs = []
         posterior_means = []
         thetas = []
         psis = []
         fxs = []
-        containers = (posterior_means, gs, thetas, psis, fxs)
+        containers = (posterior_means, thetas, psis, fxs)
         return posterior_mean_0, containers
 
     def approximate(
@@ -658,26 +617,21 @@ class VBGP(Approximator):
         """
         posterior_mean, containers = self._approximate_initiate(
             posterior_mean_0)
-        posterior_means, gs, thetas, psis, fxs = containers
+        posterior_means, thetas, psis, fxs = containers
         for _ in trange(1, 1 + steps,
                         desc="VB GP approximator progress", unit="samples",
                         disable=True):
-            p_ = p(
-                posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
-                self.noise_std, self.tolerance, self.upper_bound, self.upper_bound2)
-            g = self._g(
-                p_, posterior_mean, self.noise_std)
-            posterior_mean, weight = self._posterior_mean(
-                g, self.cov, self.K)
+            posterior_mean, weight = update_posterior_mean_VB(
+                self.noise_std, posterior_mean, self.cov,
+                self.cutpoints_ts, self.cutpoints_tplus1s, self.K,
+                self.upper_bound, self.upper_bound2)
             if self.kernel.theta_hyperhyperparameters is not None:
-                # Posterior mean update for kernel hyperparameters
-                # Kernel hyperparameters are variables here
+                # Variational Bayes update for kernel hyperparameters
+                # Kernel hyperparameters are treated as latent variables here
                 # TODO maybe this shouldn't be performed at every step.
-                theta = self._theta(
-                    posterior_mean, self.kernel.theta_hyperparameters,
-                    n_samples=10)
-                theta_hyperparameters = self._theta_hyperparameters(
-                    self.kernel.theta)
+                (theta,
+                theta_hyperparameters) = update_hyperparameter_posterior_VB(
+                    posterior_mean, theta, theta_hyperparameters)
                 self.hyperparameters_update(
                     theta=theta,
                     theta_hyperparameters=theta_hyperparameters)
@@ -685,345 +639,17 @@ class VBGP(Approximator):
                 Z, *_ = truncated_norm_normalising_constant(
                     self.cutpoints_ts, self.cutpoints_tplus1s,
                     self.noise_std, posterior_mean)
-                fx = self.objective(
+                fx = objective_VB(
                     self.N, posterior_mean, weight, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
-                    self.noise_variance,
-                    self.log_det_cov)
+                    self.noise_variance, self.log_det_cov)
                 posterior_means.append(posterior_mean)
-                gs.append(g)
                 if self.kernel.theta_hyperparameters is not None:
                     thetas.append(self.kernel.theta)
                     psis.append(self.kernel.theta_hyperparameters)
                 fxs.append(fx)
-        containers = (posterior_means, gs, thetas, psis, fxs)
-        return posterior_mean, weight, g, p, containers
-
-    def _theta_hyperparameters(self, theta):
-        """
-        Return the approximate posterior mean of the kernel
-        theta hyperparameters.
-
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial
-        Probit Regression with Gaussian Process Priors," in Neural Computation,
-        vol. 18, no. 8, pp. 1790-1817, Aug. 2006,
-        doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(10).
-
-        :arg theta: Posterior mean approximate of theta.
-        :type theta: :class:`numpy.ndarray`
-        :return: The approximate posterior mean of the hyperhyperparameters psi
-            Girolami and Rogers Page 9 Eq.(10).
-        """
-        return np.divide(
-            np.add(1, self.kernel.theta_hyperhyperparameters[0]),
-            np.add(self.kernel.theta_hyperhyperparameters[1], theta))
-
-    def _theta(
-            self, posterior_mean, theta_hyperparameters, n_samples=10,
-            vectorised=False):
-        """
-        Return the weights of the importance sampler for theta.
-
-        Reference: M. Girolami and S. Rogers, "Variational Bayesian Multinomial
-        Probit Regression with Gaussian Process Priors," in Neural Computation,
-        vol. 18, no. 8, pp. 1790-1817, Aug. 2006,
-        doi: 10.1162/neco.2006.18.8.1790.2005 Page 9 Eq.(9).
-
-        :arg posterior_mean: approximate posterior mean.
-        :arg theta_hyperparameters: approximate posterior mean of the kernel
-            hyperparameters.
-        :arg int n_samples: The number of samples for the importance sampling
-            estimate, 500 is used in 2005 Page 13.
-        """
-        # (n_samples, N, N) for ISO case. Depends on the shape of psi.
-        thetas = sample_thetas(
-            theta_hyperparameters, n_samples)  # (n_samples, )
-        print(thetas)
-        log_thetas = np.log(thetas)
-        Ks_samples = self.kernel.kernel_matrices(
-            self.X_train, self.X_train, thetas)  # (n_samples, N, N)
-        Ks_samples = np.add(Ks_samples, self.epsilon * np.eye(self.N))
-        if vectorised:
-            raise ValueError("TODO")
-        else:
-            log_ws = np.empty((n_samples,))
-            # Scalar version
-            for i in range(n_samples):
-                (prior_L, lower) = cho_factor(
-                    Ks_samples[i])
-                half_log_det_prior_cov = np.sum(np.log(np.diag(prior_L)))
-                # weight = cho_solve(
-                #     (prior_L, lower), posterior_mean)
-                # print(posterior_mean.T @ weight)
-                # TODO something not quite right - converges to zero
-                prior_LT_inv = solve_triangular(
-                    prior_L.T, np.eye(self.N), lower=True)
-                K_inv = solve_triangular(
-                    prior_L, prior_LT_inv, lower=False)
-                log_ws[i] = -0.5 * np.log(2 * np.pi) - half_log_det_prior_cov\
-                    - 0.5 * posterior_mean.T @ K_inv @ posterior_mean
-        # Normalise the w vectors
-        max_log_ws = np.max(log_ws)
-        log_normalising_constant = max_log_ws + np.log(
-            np.sum(np.exp(log_ws - max_log_ws), axis=0))
-        log_ws = np.subtract(log_ws, log_normalising_constant)
-        print(np.sum(np.exp(log_ws)))
-        element_prod = np.add(log_thetas, log_ws)
-        element_prod = np.exp(element_prod)
-        return np.sum(element_prod, axis=0)
-
-    def _posterior_mean(self, g, cov, K):
-        """
-        Return the approximate posterior mean of m.
-
-        2021 Page Eq.()
-
-        :arg y: (N,) array
-        :type y: :class:`numpy.ndarray`
-        :arg cov:
-        :type cov:
-        :arg K:
-        :type K:
-        """
-        weight = cov @ g
-        ## TODO: This is 3-4 times slower on CPU, what about with jit compiled CPU or GPU?
-        # weight = cho_solve((self.L_cov, self.lower), y)
-        return K @ weight, weight  # (N,), (N,)
-
-    def _g(self, p, posterior_mean, noise_std):
-        """
-        Calculate y elements 2021 Page Eq.().
-
-        :arg p:
-        :type p:
-        :arg posterior_mean:
-        :type posterior_mean:
-        :arg float noise_std: The square root of the noise variance.
-        """
-        return np.add(posterior_mean, noise_std * p)
-
-    def objective(
-        self, N, posterior_mean, weight, trace_cov,
-        trace_posterior_cov_div_var, Z, noise_variance,
-        log_det_cov, verbose=False):
-        """
-        # TODO: tidy
-        Calculate fx, the variational lower bound of the log marginal
-        likelihood.
-
-        .. math::
-                \mathcal{F(	heta)} =,
-
-            where :math:`F(\theta)` is the variational lower bound of the log
-                marginal likelihood at the EP equilibrium,
-            :math:`h`, :math:`\Pi`, :math:`K`. #TODO
-
-        :arg int N: The number of datapoints.
-        :arg m: The posterior mean.
-        :type m: :class:`numpy.ndarray`
-        :arg y: The posterior mean.
-        :type y: :class:`numpy.ndarray`
-        :arg K: The prior covariance.
-        :type K: :class:`numpy.ndarray`
-        :arg float noise_variance: The noise variance.
-        :arg float log_det_cov: The log determinant of (a factor in) the
-            posterior covariance.
-        :arg Z: The array of normalising constants.
-        :type Z: :class:`numpy.ndarray`
-        :return: fx
-        :rtype: float
-
-        """
-        trace_K_inv_posterior_cov = noise_variance * trace_cov
-        one = - trace_posterior_cov_div_var / 2
-        three = - trace_K_inv_posterior_cov / 2
-        four = - posterior_mean.T @ weight / 2
-        five = (N * np.log(noise_variance) + log_det_cov) / 2
-        six = N / 2
-        seven = np.sum(Z)
-        fx = one + three + four + five + six  + seven
-        if verbose:
-            print("one ", one)
-            print("three ", three)
-            print("four ", four)  # Sometimes largest contribution
-            print("five ", five)
-            print("six ", six)
-            print("seven ", seven)
-            print('fx = {}'.format(fx))
-        return -fx
-
-    def objectiveSS(
-            self, N, posterior_mean, weight, trace_cov, trace_posterior_cov_div_var, Z,
-            noise_variance,
-            log_det_K, log_det_cov, verbose=False):
-        """
-        # TODO log_det_K cancels out of this calculation!!!
-        Calculate fx, the variational lower bound of the log marginal
-        likelihood.
-
-        .. math::
-                \mathcal{F(\theta)} =,
-
-            where :math:`F(\theta)` is the variational lower bound of the log
-                marginal likelihood at the EP equilibrium,
-            :math:`h`, :math:`\Pi`, :math:`K`. #TODO
-
-        :arg int N: The number of datapoints.
-        :arg m: The posterior mean.
-        :type m: :class:`numpy.ndarray`
-        :arg y: The posterior mean.
-        :type y: :class:`numpy.ndarray`
-        :arg K: The prior covariance.
-        :type K: :class:`numpy.ndarray`
-        :arg float noise_variance: The noise variance.
-        :arg float log_det_K: The log determinant of the prior covariance.
-        :arg float log_det_cov: The log determinant of (a factor in) the
-            posterior covariance.
-        :arg Z: The array of normalising constants.
-        :type Z: :class:`numpy.ndarray`
-        :return: fx
-        :rtype: float
-        """
-        trace_K_inv_posterior_cov = noise_variance * trace_cov
-        log_det_posterior_cov = log_det_K + N * np.log(noise_variance)\
-            + log_det_cov  # or should this be negative?
-        one = - trace_posterior_cov_div_var / 2
-        two = - log_det_K / 2
-        three = - trace_K_inv_posterior_cov / 2
-        four = - posterior_mean.T @ weight / 2
-        five = log_det_posterior_cov / 2
-        six = N / 2
-        seven = np.sum(Z)
-        fx = one + two + three + four + five + six  + seven
-        if verbose:
-            print("one ", one)
-            print("two ", two)
-            print("three ", three)
-            print("four ", four)  # Sometimes largest contribution
-            print("five ", five)
-            print("six ", six)
-            print("seven ", seven)
-            print('fx = {}'.format(fx))
-        return -fx
-
-    def objective_gradient(
-            self, gx, intervals, cutpoints_ts, cutpoints_tplus1s, theta,
-            noise_variance, noise_std,
-            m, weight, cov, trace_cov, partial_K_theta, partial_K_variance, N,
-            Z, norm_pdf_z1s, norm_pdf_z2s, trainables,
-            numerical_stability=True, verbose=False):
-        """
-        Calculate gx, the jacobian of the variational lower bound of the log
-        marginal likelihood at the VB equilibrium,
-
-        .. math::
-                \mathcal{\frac{\partial F(\theta)}{\partial \theta}}
-
-            where :math:`F(\theta)` is the variational lower bound of the log
-            marginal likelihood at the EP equilibrium,
-            :math:`\theta` is the set of hyperparameters, :math:`h`,
-            :math:`\Pi`, :math:`K`. #TODO
-
-        :arg intervals: The vector of the first cutpoint and the intervals
-            between cutpoints for unconstrained optimisation of the cutpoint
-            parameters.
-        :type intervals: :class:`numpy.ndarray`
-        :arg theta: The kernel hyper-parameters.
-        :type theta: :class:`numpy.ndarray` or float.
-        :arg float noise_variance: The noise variance.
-        :arg float noise_std:
-        :arg m: The posterior mean.
-        :type m: :class:`numpy.ndarray`
-        :arg cov: An intermediate matrix in calculating the posterior
-            covariance, posterior_cov.
-        :type cov: :class:`numpy.ndarray`
-        :arg posterior_cov: The posterior covariance.
-        :type posterior_cov: :class:`numpy.ndarray`
-        :arg K_inv: The inverse of the prior covariance.
-        :type K_inv: :class:`numpy.ndarray`
-        :arg Z: The array of normalising constants.
-        :type Z: :class:`numpy.ndarray`
-        :arg bool numerical_stability: If the function is evaluated in a
-            numerically stable way, default `True`.
-        :return: fx
-        :rtype: float
-        """
-        if trainables is not None:
-            # For gx[0] -- ln\sigma  # TODO: currently seems analytically incorrect
-            if trainables[0]:
-                one = N - noise_variance * trace_cov
-                sigma_dp = dp(m, cutpoints_ts, cutpoints_tplus1s, noise_std,
-                    self.upper_bound, self.upper_bound2)
-                two = - (1. / noise_std) * np.sum(sigma_dp)
-                if verbose:
-                    print("one ", one)
-                    print("two ", two)
-                    print("gx_sigma = ", one + two)
-                gx[0] = one + two
-            # For gx[1] -- \b_1
-            if np.any(trainables[1:self.J]):  # TODO: analytic and numeric gradients do not match
-                # TODO: treat these with numerical stability, or fix them
-                temp_1s = np.divide(norm_pdf_z1s, Z)
-                temp_2s = np.divide(norm_pdf_z2s, Z)
-                idx = np.where(self.y_train == 0)  # TODO factor out
-                gx[1] += np.sum(temp_1s[idx])
-                for j in range(2, self.J):
-                    idx = np.where(self.y_train == j - 1)  # TODO: factor it out seems inefficient. Is there a better way?
-                    gx[j - 1] -= np.sum(temp_2s[idx])
-                    gx[j] += np.sum(temp_1s[idx])
-                # gx[self.J] -= 0  # Since J is number of classes
-                gx[1:self.J] /= noise_std
-                # For gx[2:self.J] -- ln\Delta^r
-                gx[2:self.J] *= intervals
-                if verbose:
-                    print(gx[2:self.J])
-            # For gx[J] -- s
-            if trainables[self.J]:
-                # VC * VC * a' * partial_K_theta * a / 2
-                gx[self.J] = self.kernel.variance * 0.5 * weight.T @ partial_K_variance @ weight  # That's wrong. not the same calculation.
-                # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
-                gx[self.J] -= self.kernel.variance * 0.5 * np.sum(np.multiply(partial_K_variance, cov))
-                gx[self.J] *= 2.0  # since theta = kappa / 2
-            # For kernel parameters
-            if self.kernel._ARD:
-                for d in range(self.D):
-                    if trainables[self.J + 1][d]:
-                        if numerical_stability is True:
-                            # Update gx[-1], the partial derivative of the lower bound
-                            # wrt the lengthscale. Using matrix inversion Lemma
-                            one = (theta[d] / 2) * weight.T @ partial_K_theta[d] @ weight
-                            # TODO: slower but what about @jit compile CPU or GPU?
-                            # D = solve_triangular(
-                            #     L_cov.T, partial_K_theta, lower=True)
-                            # D_inv = solve_triangular(L_cov, D, lower=False)
-                            # two = - (theta / 2) * np.trace(D_inv)
-                            two = - (theta[d] / 2) * np.einsum(
-                                'ij, ji ->', partial_K_theta[d], cov)
-                            gx[self.J + 1 + d] = one + two
-                            if verbose:
-                                print("one", one)
-                                print("two", two)
-                                print("gx = {}".format(gx[self.J + 1 + d]))
-            else:
-                if trainables[self.J + 1]:
-                    if numerical_stability is True:
-                        # Update gx[-1], the partial derivative of the lower bound
-                        # wrt the lengthscale. Using matrix inversion Lemma
-                        one = (theta / 2) * weight.T @ partial_K_theta @ weight
-                        # TODO: Seems to be missing a term that EP and LA have got!
-                        # TODO: slower but what about @jit compile CPU or GPU?
-                        # D = solve_triangular(
-                        #     L_cov.T, partial_K_theta, lower=True)
-                        # D_inv = solve_triangular(L_cov, D, lower=False)
-                        # two = - (theta / 2) * np.trace(D_inv)
-                        two = - (theta / 2) * np.einsum(
-                            'ij, ji ->', partial_K_theta, cov)
-                        gx[self.J + 1] = one + two
-                        if verbose:
-                            print("one", one)
-                            print("two", two)
-                            print("gx = {}".format(gx[self.J + 1]))
-        return -gx
+        containers = (posterior_means, thetas, psis, fxs)
+        return posterior_mean, weight, containers
 
     def approximate_posterior(
             self, phi, trainables, steps, verbose=False,
@@ -1065,28 +691,29 @@ class VBGP(Approximator):
             fx_old = fx
             if verbose:
                 print("({}), error={}".format(iteration, error))
+        fx = objective_VB(
+                    self.N, posterior_mean, weight, self.trace_cov,
+                    self.trace_posterior_cov_div_var, Z,
+                    self.noise_variance, self.log_det_cov)
+        gx = objective_gradient_VB(
+                gx.copy(), intervals, self.cutpoints_ts,
+                self.cutpoints_tplus1s,
+                self.kernel.theta, self.kernel.variance,
+                self.noise_variance, self.noise_std,
+                self.y_train, posterior_mean, weight, self.cov, self.trace_cov,
+                self.partial_K_theta, self.partial_K_variance,
+                self.N, self.J, self.D, self.kernel._ARD,
+                self.upper_bound, self.upper_bound2, Z,
+                norm_pdf_z1s, norm_pdf_z2s, trainables,
+                numerical_stability=True, verbose=False)
+        gx = gx[gx_where]
         if return_reparameterised is True:
-            fx = 0
             return fx, gx, weight, (self.cov, True)
         elif return_reparameterised is False:
-            fx = 0
             precision = np.ones(self.N) / self.noise_variance
             return fx, gx, self.log_det_cov, weight, precision, posterior_mean, (
                 self.noise_variance * self.K @ self.cov, False)
         elif return_reparameterised is None:
-            fx = self.objective(
-                        self.N, posterior_mean, weight, self.trace_cov,
-                        self.trace_posterior_cov_div_var, Z,
-                        self.noise_variance, self.log_det_cov)
-            gx = self.objective_gradient(
-                    gx.copy(), intervals, self.cutpoints_ts,
-                    self.cutpoints_tplus1s,
-                    self.kernel.theta, self.noise_variance, self.noise_std,
-                    posterior_mean, weight, self.cov, self.trace_cov,
-                    self.partial_K_theta, self.partial_K_variance, self.N, Z,
-                    norm_pdf_z1s, norm_pdf_z2s, trainables,
-                    numerical_stability=True, verbose=False)
-            gx = gx[gx_where]
             if verbose:
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
@@ -2981,7 +2608,7 @@ class LaplaceGP(Approximator):
                         desc="Laplace GP approximator progress",
                         unit="iterations", disable=True):
             (error, weight, precision, cov, log_det_cov,
-                    posterior_mean) = update_posterior(
+                    posterior_mean) = update_posterior_LA(
                 self.noise_std, self.noise_variance, posterior_mean,
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.K, self.N,
                 self.upper_bound, self.upper_bound2)
@@ -3024,12 +2651,12 @@ class LaplaceGP(Approximator):
                 print("({}), error={}".format(iteration, error))
         (weight, precision,
         w1, w2, g1, g2, v1, v2, q1, q2,
-        L_cov, cov, Z, log_det_cov) = compute_weights(
+        L_cov, cov, Z, log_det_cov) = compute_weights_LA(
             posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
             self.noise_std, self.noise_variance,
             self.upper_bound, self.upper_bound2, self.N, self.K)
-        fx = objective(weight, posterior_mean, precision, L_cov, Z)
-        gx = objective_gradient(
+        fx = objective_LA(weight, posterior_mean, precision, L_cov, Z)
+        gx = objective_gradient_LA(
             gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
             precision, self.y_train, trainables, self.K,
             self.partial_K_theta, self.partial_K_variance,
@@ -3040,10 +2667,10 @@ class LaplaceGP(Approximator):
         if return_reparameterised is True:
             return fx, gx, weight, (cov, True)
         if return_reparameterised is False:
-            posterior_covariance = posterior_covariance(
+            posterior_covariance_ = posterior_covariance(
                 self.K, cov, precision)
-            return fx, gx, log_det_cov, weight, precision, posterior_mean, (
-                posterior_covariance, False)
+            return None, None, log_det_cov, weight, precision, posterior_mean, (
+                posterior_covariance_, False)
         elif return_reparameterised is None:
             if verbose:
                 print(

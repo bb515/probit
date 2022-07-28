@@ -1375,12 +1375,12 @@ def plot_synthetic(
                 ax.set_xlim(x_lims)
                 ax.set_ylim(0.0, 1.0)
                 ax.set_xlabel(r"$x$", fontsize=16)
-                ax.set_ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
+                ax.set_ylabel(r"$p(y|x, X, y)$", fontsize=16)
                 ax.stackplot(x, Z.T,
                             labels=(
-                                r"$p(\omega=0|x, X, t)$",
-                                r"$p(\omega=1|x, X, t)$",
-                                r"$p(\omega=2|x, X, t)$"),
+                                r"$p(y=0|x, X, y)$",
+                                r"$p(y=1|x, X, y)$",
+                                r"$p(y=2|x, X, y)$"),
                             colors=(
                                 colors[0], colors[1], colors[2])
                             )
@@ -1447,17 +1447,17 @@ def plot_synthetic(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
                     Z.T[0, :].reshape(N, N), alpha=0.4, color=colors[0],
-                        label=r"$p(\omega=0|x, X, t)$")
+                        label=r"$p(y=0|x, X, t)$")
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
                     Z.T[1, :].reshape(N, N), alpha=0.4, color=colors[1],
-                        label=r"$p(\omega=1|x, X, t)$")
+                        label=r"$p(y=1|x, X, t)$")
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
                     Z.T[2, :].reshape(N, N), alpha=0.4, color=colors[2],
-                        label=r"$p(\omega=2|x, X, t)$")
+                        label=r"$p(y=2|x, X, t)$")
                 cmap = plt.cm.get_cmap('viridis', classifier.J)
                 import matplotlib as mpl
                 fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
@@ -1477,12 +1477,12 @@ def plot_synthetic(
                 # ax.set_ylim(y_lims)
                 # ax.set_ylim(0.0, 1.0)
                 # ax.set_xlabel(r"$x$", fontsize=16)
-                # ax.set_ylabel(r"$p(\omega|x, X, \omega)$", fontsize=16)
+                # ax.set_ylabel(r"$p(y|x, X, y)$", fontsize=16)
                 # ax.stackplot(x, Z.T,
                 #             labels=(
-                #                 r"$p(\omega=0|x, X, t)$",
-                #                 r"$p(\omega=1|x, X, t)$",
-                #                 r"$p(\omega=2|x, X, t)$"),
+                #                 r"$p(y=0|x, X, t)$",
+                #                 r"$p(y=1|x, X, t)$",
+                #                 r"$p(y=2|x, X, t)$"),
                 #             colors=(
                 #                 colors[0], colors[1], colors[2])
                 #             )
@@ -1522,23 +1522,23 @@ def plot_synthetic(
             ax.set_xlim(x_lims)
             ax.set_ylim(0.0, 1.0)
             ax.set_xlabel(r"$x$", fontsize=16)
-            ax.set_ylabel(r"$p(\omega_{*}={}|x, X, \omega)$", fontsize=16)
+            ax.set_ylabel(r"$p(y_{*}={}|x, X, y)$", fontsize=16)
             if classifier.J == 13:
                 plt.stackplot(x, Z.T,
                                 labels=(
-                                r"$p(\omega_{*}=0|x, X, \omega)$",
-                                r"$p(\omega_{*}=1|x, X, \omega)$",
-                                r"$p(\omega_{*}=2|x, X, \omega)$",
-                                r"$p(\omega_{*}=3|x, X, \omega)$",
-                                r"$p(\omega_{*}=4|x, X, \omega)$",
-                                r"$p(\omega_{*}=5|x, X, \omega)$",
-                                r"$p(\omega_{*}=6|x, X, \omega)$",
-                                r"$p(\omega_{*}=7|x, X, \omega)$",
-                                r"$p(\omega_{*}=8|x, X, \omega)$",
-                                r"$p(\omega_{*}=9|x, X, \omega)$",
-                                r"$p(\omega_{*}=10|x, X, \omega)$",
-                                r"$p(\omega_{*}=11|x, X, \omega)$",
-                                r"$p(\omega_{*}=12|x, X, \omega)$"),
+                                r"$p(y_{*}=0|x, X, y)$",
+                                r"$p(y_{*}=1|x, X, y)$",
+                                r"$p(y_{*}=2|x, X, y)$",
+                                r"$p(y_{*}=3|x, X, y)$",
+                                r"$p(y_{*}=4|x, X, y)$",
+                                r"$p(y_{*}=5|x, X, y)$",
+                                r"$p(y_{*}=6|x, X, y)$",
+                                r"$p(y_{*}=7|x, X, y)$",
+                                r"$p(y_{*}=8|x, X, y)$",
+                                r"$p(y_{*}=9|x, X, y)$",
+                                r"$p(y_{*}=10|x, X, y)$",
+                                r"$p(y_{*}=11|x, X, y)$",
+                                r"$p(y_{*}=12|x, X, y)$"),
                             colors=colors
                             )
             else:
