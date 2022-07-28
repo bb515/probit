@@ -1,6 +1,6 @@
-# # Enable double precision
-# from jax.config import config
-# config.update("jax_enable_x64", True)
+# Enable double precision
+from jax.config import config
+config.update("jax_enable_x64", True)
 
 import jax
 from functools import partial
@@ -142,8 +142,7 @@ def truncated_norm_normalising_constant(
                     tolerance, Z, z1s, z2s))
             Z = Z.at[small_densities].set(tolerance)
     return (
-        Z,
-        norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
+        Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
 def update_posterior(noise_std, noise_variance, posterior_mean,

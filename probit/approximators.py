@@ -3022,29 +3022,29 @@ class LaplaceGP(Approximator):
                 steps, posterior_mean_0=posterior_mean, write=False)
             if verbose:
                 print("({}), error={}".format(iteration, error))
+        (weight, precision,
+        w1, w2, g1, g2, v1, v2, q1, q2,
+        L_cov, cov, Z, log_det_cov) = compute_weights(
+            posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
+            self.noise_std, self.noise_variance,
+            self.upper_bound, self.upper_bound2, self.N, self.K)
+        fx = objective(weight, posterior_mean, precision, L_cov, Z)
+        gx = objective_gradient(
+            gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
+            precision, self.y_train, trainables, self.K,
+            self.partial_K_theta, self.partial_K_variance,
+            self.noise_std, self.noise_variance,
+            self.kernel.theta, self.kernel.variance,
+            self.N, self.J, self.D, self.kernel._ARD)
+        gx = gx[gx_where]
         if return_reparameterised is True:
-            return None, None, weight, (cov, True)
+            return fx, gx, weight, (cov, True)
         if return_reparameterised is False:
             posterior_covariance = posterior_covariance(
                 self.K, cov, precision)
-            return None, None, log_det_cov, weight, precision, posterior_mean, (
+            return fx, gx, log_det_cov, weight, precision, posterior_mean, (
                 posterior_covariance, False)
         elif return_reparameterised is None:
-            (weight, precision,
-            w1, w2, g1, g2, v1, v2, q1, q2,
-            L_cov, cov, Z, log_det_cov) = compute_weights(
-                posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
-                self.noise_std, self.noise_variance,
-                self.upper_bound, self.upper_bound2, self.N, self.K)
-            fx = objective(weight, posterior_mean, precision, L_cov, Z)
-            gx = objective_gradient(
-                gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
-                precision, self.y_train, trainables, self.K,
-                self.partial_K_theta, self.partial_K_variance,
-                self.noise_std, self.noise_variance,
-                self.kernel.theta, self.kernel.variance,
-                self.N, self.J, self.D, self.kernel._ARD)
-            gx = gx[gx_where]
             if verbose:
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
