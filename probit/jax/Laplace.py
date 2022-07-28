@@ -177,13 +177,14 @@ def posterior_covariance(K, cov, precision):
 
 def compute_weights_LA(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        noise_variance, upper_bound, upper_bound2, N, K):
+        noise_variance, upper_bound, upper_bound2, tolerance, N, K):
     # Numerically stable calculation of ordinal likelihood!
     (Z,
     norm_pdf_z1s, norm_pdf_z2s,
     z1s, z2s, *_) = truncated_norm_normalising_constant(
         cutpoints_ts, cutpoints_tplus1s, noise_std,
-        posterior_mean, upper_bound=upper_bound, upper_bound2=upper_bound2)
+        posterior_mean, upper_bound=upper_bound, upper_bound2=upper_bound2,
+        tolerance=tolerance)
     w1 = norm_pdf_z1s / Z
     w2 = norm_pdf_z2s / Z
     # This is not for numerical stability, it is mathematically correct

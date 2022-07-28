@@ -30,7 +30,7 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
 
 def compute_weights_LA(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        noise_variance, upper_bound, upper_bound2, N, K):
+        noise_variance, upper_bound, upper_bound2, tolerance, N, K):
     # Numerically stable calculation of ordinal likelihood!
     (Z,
     norm_pdf_z1s, norm_pdf_z2s,
@@ -38,7 +38,8 @@ def compute_weights_LA(
         cutpoints_ts, cutpoints_tplus1s, noise_std,
         posterior_mean,
         upper_bound=upper_bound,
-        upper_bound2=upper_bound2)
+        upper_bound2=upper_bound2,
+        tolerance=tolerance)
     w1 = norm_pdf_z1s / Z
     w2 = norm_pdf_z2s / Z
     z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
