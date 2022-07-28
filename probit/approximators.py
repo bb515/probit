@@ -25,7 +25,7 @@ from probit.utilities import (
     ordinal_dlogZtilted_dm2_vector,
     probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
-from probit.numpy.laplace import (update_posterior,
+from probit.jax.laplace import (update_posterior,
     compute_weights, objective, objective_gradient)
 
 
