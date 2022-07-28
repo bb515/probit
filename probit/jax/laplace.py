@@ -2,6 +2,9 @@
 # from jax.config import config
 # config.update("jax_enable_x64", True)
 
+import jax
+from functools import partial
+
 import jax.numpy as jnp
 from jax.scipy.linalg import cholesky
 from jax.scipy.special import ndtr
@@ -13,6 +16,7 @@ over_sqrt_2_pi = 1. / jnp.sqrt(2 * jnp.pi)
 log_over_sqrt_2_pi = jnp.log(over_sqrt_2_pi)
 
 
+@partial(jax.jit, static_argnames=['N'])
 def matrix_inverse(matrix, N):
     L_cov = cholesky(matrix, lower=True)
     L_covT_inv = solve_triangular(
