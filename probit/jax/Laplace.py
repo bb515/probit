@@ -3,7 +3,6 @@ from probit.jax.utilities import (
     truncated_norm_normalising_constant, matrix_inverse)
 
 
-
 def update_posterior_LA(noise_std, noise_variance, posterior_mean,
         cutpoints_ts, cutpoints_tplus1s, K, N,
         upper_bound=None, upper_bound2=None, tolerance=None):
