@@ -20,12 +20,19 @@ def matrix_inverse(matrix, N):
     return cov, L_cov
 
 
+def return_prob_vector(b, cutpoints_t, cutpoints_tplus1, noise_std):
+    return ndtr(
+        (cutpoints_tplus1 - b) / noise_std) - ndtr(
+            (cutpoints_t - b) / noise_std)
+
+
 def posterior_covariance(K, cov, precision):
     return K @ cov @ np.diag(1./precision)
 
 
 def check_cutpoints(cutpoints, J):
     """
+    TODO: this will not be compatable with autodiff
     Check that the cutpoints are compatible with this class.
 
     :arg cutpoints: (J + 1, ) array of the cutpoints.

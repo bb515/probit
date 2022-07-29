@@ -4,23 +4,15 @@ Sparse GPs
 TODO: Laplace currently doesn't work.
 """
 from probit.approximators import PEPGP, VBGP, LaplaceGP
-#import enum
-#from .kernels import Kernel, InvalidKernel
-#import pathlib
-#import random
 from tqdm import trange
 import warnings
-#import math
-import matplotlib.pyplot as plt
 import numpy as np
-from .utilities import (
+from probit.numpy.utilities import (
     read_array,
     read_scalar,
-    #norm_z_pdf,
-    norm_cdf,
     truncated_norm_normalising_constant)
 from probit.numpy.VB import _p
-from scipy.linalg import cho_solve, cho_factor, solve_triangular
+from scipy.linalg import cholesky, solve_triangular
 
 
 class SparseVBGP(VBGP):
@@ -103,14 +95,14 @@ class SparseVBGP(VBGP):
         Now, to obtain a better conditioned matrix for inversion, we rotate by :math:`L`, where :math:`LL^{T} = K_{mm}`.
         """
         # Seems to be necessary to take this cho factor
-        (L, lower) = cho_factor(
+        (L, lower) = cholesky(
             self.Kuu + self.jitter * np.eye(self.M), lower=True)
         Linv = solve_triangular(L, np.eye(self.M), lower=True)
         LinvT = Linv.T
         A = solve_triangular(L, self.Kfu.T, lower=True) / self.noise_std
         AAT = A @ A.T
         B = AAT + np.eye(self.M)  # cache qinv
-        (LB, lower) = cho_factor(B)
+        (LB, lower) = cholesky(B)
         LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)
         Binv = solve_triangular(LB, LBTinv, lower=False)
         tmp = np.eye(self.M) - Binv
@@ -212,13 +204,13 @@ class SparseVBGP(VBGP):
         Predict using the predictive variance from the subset regressors
         approximate method.
         """
-        (L, lower) = cho_factor(
+        (L, lower) = cholesky(
             self.Kuu + self.jitter * np.eye(self.M), lower=True)
         Linv = solve_triangular(L, np.eye(self.M), lower=True)
         A = solve_triangular(L, self.Kfu.T, lower=True) / self.noise_std
         AAT = A @ A.T
         B = AAT + np.eye(self.M)  # cache qinv
-        (LB, lower) = cho_factor(B)
+        (LB, lower) = cholesky(B)
         LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)
         Binv = solve_triangular(LB, LBTinv, lower=False)
         return np.einsum('ij, ij -> j', Kus, Linv.T @ Binv @ Linv @ Kus)
@@ -454,12 +446,12 @@ class SparseLaplaceGP(LaplaceGP):
             z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
             ) / Z / noise_variance
         # Seems to be necessary to take this cho factor
-        (L, lower) = cho_factor(
+        (L, lower) = cholesky(
             self.Kuu + self.jitter * np.eye(self.M), lower=True)
         A = solve_triangular(L, self.Kfu.T, lower=True)  # TODO can this be done by not transposing.
         ALambdaAT = A @ np.diag(precision) @ A.T
         B = ALambdaAT + np.eye(self.M)  # cache qinv
-        (LB, lower) = cho_factor(B)
+        (LB, lower) = cholesky(B)
         # Perhaps not necessary to do this solve
         LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)
         Binv = solve_triangular(LB, LBTinv, lower=False)
@@ -529,12 +521,12 @@ class SparseLaplaceGP(LaplaceGP):
         precision = weight**2 + (g2 - g1) / self.noise_variance
 
         # Seems to be necessary to take this cho factor
-        (L, lower) = cho_factor(
+        (L, lower) = cholesky(
             self.Kuu + self.jitter * np.eye(self.M), lower=True)
         A = solve_triangular(L, self.Kfu.T, lower=True)
         ALambdaAT = A @ np.diag(precision) @ A.T
         B = ALambdaAT + np.eye(self.M)  # cache qinv
-        (LB, lower) = cho_factor(B)
+        (LB, lower) = cholesky(B)
         # Perhaps not necessary to do this solve
         LBTinv = solve_triangular(LB.T, np.eye(self.M), lower=True)
         Binv = solve_triangular(LB, LBTinv, lower=False)
@@ -712,7 +704,7 @@ class SparsePEPGP(PEPGP):
         self.Kfdiag = self.kernel.kernel_prior_diagonal(self.X_train)
         self.Kuu = self.kernel.kernel_matrix(self.Z, self.Z)
         self.Kfu = self.kernel.kernel_matrix(self.X_train, self.Z)
-        (L_K, lower) = cho_factor(self.Kuu + self.jitter * np.eye(self.N))
+        (L_K, lower) = cholesky(self.Kuu + self.jitter * np.eye(self.N))
         L_KT_inv = solve_triangular(
             L_K.T, np.eye(self.N), lower=True)
         self.Kuuinv = solve_triangular(L_K, L_KT_inv, lower=False)
@@ -726,7 +718,7 @@ class SparsePEPGP(PEPGP):
         T2u = (self.KuuinvKuf / variances) @ self.KuuinvKuf.T
         T1u = self.KuuinvKuf @ (means / variances)
         Vinv = self.Kuuinv + T2u
-        (L_Vinv, lower) = cho_factor(Vinv + self.jitter * np.eye(self.N))
+        (L_Vinv, lower) = cholesky(Vinv + self.jitter * np.eye(self.N))
         L_VinvT_inv = solve_triangular(L_Vinv.T, np.eye(self.N), lower=True)
         V = solve_triangular(L_Vinv, L_VinvT_inv, lower=False)
         half_log_det_V = np.sum(np.log(np.diag(L_Vinv)))  # TODO: check this is the case

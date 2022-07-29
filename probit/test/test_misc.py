@@ -1,7 +1,7 @@
 """Test file for the miscellaneous tests for the gibbs sampler."""
 import numpy as np
 from scipy.stats import norm
-from probit.utilities import (
+from probit.numpy.utilities import (
    matrix_of_differences, matrix_of_differencess,
    matrix_of_VB_differences, matrix_of_VB_differencess,
    sample_U, sample_varphis, sample_Us)

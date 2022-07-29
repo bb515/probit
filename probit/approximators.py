@@ -3,18 +3,20 @@ import pathlib
 from tqdm import trange
 import warnings
 import numpy as np
-from probit.utilities import (
+from probit.numpy.utilities import (
     check_cutpoints,
     read_array,
     posterior_covariance,
     norm_cdf,
     truncated_norm_normalising_constant)
+
+# Change probit.<linalg backend>.<Approximator>, as appropriate
 from probit.jax.Laplace import (update_posterior_LA,
     compute_weights_LA, objective_LA, objective_gradient_LA)
 from probit.numpy.VB import (update_posterior_mean_VB,
     update_posterior_covariance_VB, update_hyperparameter_posterior_VB,
     objective_VB, objective_gradient_VB)
-from probit.numpy.EP import (update_posterior_EP,
+from probit.jax.EP import (update_posterior_EP,
     objective_EP, objective_gradient_EP,
     compute_weights_EP, compute_integrals_vector_EP)
 from probit.numpy.PEP import (update_posterior_parallel_PEP,
@@ -601,7 +603,10 @@ class LaplaceGP(Approximator):
                     posterior_mean) = update_posterior_LA(
                 self.noise_std, self.noise_variance, posterior_mean,
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.K, self.N,
-                self.upper_bound, self.upper_bound2)
+                # upper_bound=self.upper_bound,  # optional
+                # upper_bound=self.upper_bound2,  # optional
+                # tolerance=self.tolerance  # not recommended
+                )
             if write is True:
                 posterior_means.append(posterior_mean)
         containers = (posterior_means)
@@ -644,8 +649,11 @@ class LaplaceGP(Approximator):
         L_cov, cov, Z, log_det_cov) = compute_weights_LA(
             posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
             self.noise_std, self.noise_variance,
-            self.upper_bound, self.upper_bound2, self.tolerance2,
-            self.N, self.K)
+            self.N, self.K,
+            # upper_bound=self.upper_bound,  # optional
+            # upper_bound2=self.upper_bound2,  # optional
+            # tolerance=self.tolerance2,  # not recommended
+            )
         fx = objective_LA(weight, posterior_mean, precision, L_cov, Z)
         gx = objective_gradient_LA(
             gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
@@ -691,7 +699,6 @@ class VBGP(Approximator):
 
     def __init__(
             self, cutpoints, noise_variance, *args, **kwargs):
-            #cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`VBGP` Approximator object.
 
@@ -895,8 +902,7 @@ class VBGP(Approximator):
 
 class EPGP(Approximator):
     """
-    A GP classifier for ordinal likelihood using the Expectation Propagation
-    (EP) approximation.
+    A GP classifier for ordinal likelihood using Expectation Propagation (EP).
 
     Inherits the Approximator ABC.
 
@@ -1206,26 +1212,22 @@ class PEPGP(Approximator):
         """
         Update prior covariances with inducing points.
         """
-        # # # Use full GP
+        # Use full GP
         self.M = self.N
-        # self.Z = self.X_train
-        # warnings.warn(
-        #     "Updating prior covariance")
+        warnings.warn(
+            "Updating prior covariance")
         self.Kuu = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.K = self.Kuu
         self.Kfu = self.Kuu
         self.Kfdiag = self.kernel.kernel_prior_diagonal(self.X_train)
-        # (self.L_K, lower) = cho_factor(self.Kuu + self.epsilon * np.eye(self.N))
-        # L_KT_inv = solve_triangular(
-        #     self.L_K.T, np.eye(self.N), lower=True)
-        # self.Kuuinv = solve_triangular(self.L_K, L_KT_inv, lower=False)
+        # self.Kuuinv, self.L_K = matrix_inverse(self.Kuu + self.epsilon * np.eye(self.N))
         self.KuuinvKuf = np.eye(self.N)
-        # self.partial_K_theta = self.kernel.kernel_partial_derivative_theta(
-        #     self.X_train, self.X_train)
-        # self.partial_K_variance = self.kernel.kernel_partial_derivative_variance(
-        #     self.X_train, self.X_train)
-        # warnings.warn(
-        #     "Done updating prior covariance")
+        self.partial_K_theta = self.kernel.kernel_partial_derivative_theta(
+            self.X_train, self.X_train)
+        self.partial_K_variance = self.kernel.kernel_partial_derivative_variance(
+            self.X_train, self.X_train)
+        warnings.warn(
+            "Done updating prior covariance")
 
     def approximate(
             self, sequential, indices, steps, beta_0, gamma_0, mean_EP_0,
@@ -1416,86 +1418,6 @@ class PEPGP(Approximator):
             return fx, gx, posterior_mean, (posterior_cov, False)
         elif return_reparameterised is None:
             return fx, gx
-
-    def approximate_posterior_(
-            self, phi, trainables, steps, verbose=False,
-            return_reparameterised=None, beta_0=None, gamma_0=None,
-            mean_EP_0=None, variance_EP_0=None):
-        """
-        Optimisation routine for hyperparameters.
-
-        :arg phi: (log-)hyperparameters to be optimised.
-        :type phi:
-        :arg trainables:
-        :type trainables:
-        :arg steps:
-        :type steps:
-        :arg posterior_mean_0:
-        :type posterior_mean_0:
-        :arg return_reparameterised:
-        :type return_reparameterised:
-        :arg posterior_cov_0:
-        :type posterior_cov_0:
-        :arg mean_EP_0:
-        :type mean_EP_0:
-        :arg precision_EP_0:
-        :type precision_EP_0:
-        :arg amplitude_EP_0:
-        :type amplitude_EP_0:
-        :arg bool write:
-        :arg bool verbose:
-        :return: fx the objective and gx the objective gradient
-        """
-        # Update prior covariance and get hyperparameters from phi
-        (intervals, error, iteration, gx_where,
-        gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables, verbose=verbose)
-        beta = beta_0
-        gamma = gamma_0
-        mean_EP = mean_EP_0
-        variance_EP = variance_EP_0
-        # random permutation of data
-        indices = np.arange(self.N)
-        while error / (steps * self.N) > self.tolerance2:
-        #for _ in range(10):
-            iteration += 1
-            (error, beta, gamma, mean_EP, variance_EP,
-                log_lik, grads_logZtilted) = self.approximate_sequential(
-            indices, steps, beta=beta, gamma=gamma,
-            mean_EP=mean_EP, variance_EP=variance_EP, write=False)
-            print("{}/iterations, error={}".format(iteration, error))
-        # TODO: Why not just directly calculate gradients given states
-        # TODO: A: because it requires a whole loop
-        # Compute gradients of the hyperparameters
-        # (error, beta, gamma, mean_EP, variance_EP,
-        #         log_lik, grads_logZtilted) = self.approximate_sequential(
-        #     indices, steps, beta=beta, gamma=gamma,
-        #     mean_EP=mean_EP, variance_EP=variance_EP, write=True)
-        # Compute posterior TODO: does it need to be done twice?
-        (posterior_mean, posterior_cov) = self._compute_posterior(
-            self.Kuu, gamma, beta)
-        fx = objective_PEP(self.N, self.alpha, self.minibatch_size,
-            posterior_mean, posterior_cov, log_lik)
-        if self.kernel._ARD:
-            gx = np.zeros(1 + self.J - 1 + 1 + self.D)
-        else:
-            gx = np.zeros(1 + self.J - 1 + 1 + 1)
-        gx = objective_gradient_PEP(
-            gx, trainables)
-        gx = gx[gx_where]
-        if return_reparameterised is True:
-            return fx, gx, gamma, (beta, True)
-        elif return_reparameterised is False:
-            return fx, gx, posterior_mean, (posterior_cov, False)
-        elif return_reparameterised is None:
-            if verbose:
-                print(
-                    "\ncutpoints={}, noise_variance={}, "
-                    "theta={}\nfunction_eval={}".format(
-                        self.cutpoints, self.noise_variance,
-                        self.kernel.theta, fx))
-            return fx, gx
-
 
 
 class InvalidApproximator(Exception):

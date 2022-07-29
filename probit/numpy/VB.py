@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.linalg import cholesky
 from scipy.stats import expon
-from probit.utilities import (
+from probit.numpy.utilities import (
     h, truncated_norm_normalising_constant, matrix_inverse, log_over_sqrt_2_pi)
 
 

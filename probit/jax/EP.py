@@ -1,9 +1,13 @@
-import numpy as np
-from scipy.linalg import solve_triangular
-from probit.numpy.utilities import (
-    norm_z_pdf, norm_pdf, norm_cdf, matrix_inverse, return_prob_vector)
-import warnings
+# Enable double precision
+from jax.config import config
+config.update("jax_enable_x64", True)
+
+import jax.numpy as jnp
+from jax.scipy.linalg import solve_triangular
+from probit.jax.utilities import (
+    norm_cdf, norm_pdf, norm_z_pdf, matrix_inverse, return_prob_vector)
 import math
+import warnings
 
 
 def objective_EP(
@@ -36,18 +40,15 @@ def objective_EP(
     :rtype: float
     """
     # TODO: necessary?
-    # # Fill possible zeros in with machine precision
+    # Fill possible zeros in with machine precision
     # precision_EP[precision_EP == 0.0] = tolerance2
-    fx = -np.sum(np.log(np.diag(L_cov)))  # log det cov
+    fx = -jnp.sum(jnp.log(jnp.diag(L_cov)))  # log det cov
     fx -= 0.5 * posterior_mean.T @ weights
-    fx -= 0.5 * np.sum(np.log(precision_EP))
-    # cov = L^{-1} L^{-T}  # requires a backsolve with the identity
-    # TODO: check if there is a simpler calculation that can be done
-    fx -= 0.5 * np.sum(np.divide(np.diag(cov), precision_EP))
-    fx += np.sum(t1)
-    # Regularisation - penalise large theta (overfitting)
-    # fx -= 0.1 * theta
+    fx -= 0.5 * jnp.sum(jnp.log(precision_EP))
+    fx -= 0.5 * jnp.sum(jnp.divide(jnp.diag(cov), precision_EP))
+    fx += jnp.sum(t1)
     return -fx
+
 
 def objective_gradient_EP(
         gx, intervals, theta, variance, noise_variance, cutpoints,
@@ -93,20 +94,20 @@ def objective_gradient_EP(
             # For gx[0] -- ln\sigma
             # gx[0] -= 1 / np.sqrt(noise_variance) * np.sum(np.multiply(cov, K))
             # gx[0] *= -0.5 * noise_variance  # This is a typo in the Chu code
-            gx[0] = np.sum(t5 - t4)
+            gx[0] = jnp.sum(t5 - t4)
             #gx[0] *= np.sqrt(noise_variance) / 2.0
         # For gx[1] -- \b_1
         if trainables[1]:
-            gx[1] = np.sum(t3 - t2)
+            gx[1] = jnp.sum(t3 - t2)
             gx[1] *= cutpoints[1]
         # For gx[2] -- ln\Delta^r
         for j in range(2, J):
             if trainables[j]:
                 targets = y_train
-                gx[j] = np.sum(t3[targets == j - 1])
-                gx[j] -= np.sum(t2[targets == J - 1])
+                gx[j] = jnp.sum(t3[targets == j - 1])
+                gx[j] -= jnp.sum(t2[targets == J - 1])
                 # TODO: check this, since it may be an `else` condition!!!!
-                gx[j] += np.sum(t3[targets > j - 1] - t2[targets > j - 1])
+                gx[j] += jnp.sum(t3[targets > j - 1] - t2[targets > j - 1])
                 gx[j] *= intervals[j - 2]
         # For gx[J] -- variance
         if trainables[J]:
@@ -114,7 +115,7 @@ def objective_gradient_EP(
             # VC * VC * a' * partial_K_theta * a / 2
             gx[J] = variance * 0.5 * weights.T @ partial_K_variance @ weights  # That's wrong. not the same calculation.
             # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
-            gx[J] -= variance * 0.5 * np.sum(np.multiply(cov, partial_K_variance))
+            gx[J] -= variance * 0.5 * jnp.sum(jnp.multiply(cov, partial_K_variance))
             # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already
             # gx[J] -= 0.1 * theta
             gx[J] *= 2.0  # since theta = kappa / 2
@@ -123,7 +124,7 @@ def objective_gradient_EP(
             for d in range(D):
                 if trainables[J + 1][d]:
                     gx[J + 1 + d] = theta[d] * 0.5 * weights.T @ partial_K_theta[d] @ weights
-                    gx[J + 1 + d] -= theta[d] * 0.5 * np.sum(np.multiply(cov, partial_K_theta[d]))
+                    gx[J + 1 + d] -= theta[d] * 0.5 * jnp.sum(jnp.multiply(cov, partial_K_theta[d]))
         else:
             if trainables[J + 1]:
                 # elif 1:
@@ -132,7 +133,9 @@ def objective_gradient_EP(
                 # VC * VC * a' * partial_K_theta * a / 2
                 gx[J + 1] = theta * 0.5 * weights.T @ partial_K_theta @ weights  # That's wrong. not the same calculation.
                 # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
-                gx[J + 1] -= theta * 0.5 * np.sum(np.multiply(cov, partial_K_theta))
+                gx[J + 1] -= theta * 0.5 * jnp.sum(jnp.multiply(cov, partial_K_theta))
+                # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already
+                # gx[J] -= 0.1 * theta
     return -gx
 
 
@@ -169,7 +172,7 @@ def update_posterior_EP(indices, posterior_mean, posterior_cov,
                 # Update EP weight (alpha)
                 dlogZ_dcavity_mean[index] = dlogZ_dcavity_mean_n
                 diff = precision_EP_n - precision_EP_n_old
-                if (np.abs(diff) > tolerance
+                if (jnp.abs(diff) > tolerance
                         and Z_n > tolerance
                         and precision_EP_n > 0.0
                         and posterior_covariance_n_new > 0.0):
@@ -295,7 +298,7 @@ def _include(
         site states.
     """
     variance = cavity_variance_n + noise_variance
-    std_dev = np.sqrt(variance)
+    std_dev = jnp.sqrt(variance)
     # Compute Z
     norm_cdf_z2 = 0.0
     norm_cdf_z1 = 1.0
@@ -305,16 +308,16 @@ def _include(
     z2 = 0.0
     if target == 0:
         z1 = (cutpoints_tplus1 - cavity_mean_n) / std_dev
-        z1_abs = np.abs(z1)
+        z1_abs = jnp.abs(z1)
         if z1_abs > upper_bound:
-            z1 = np.sign(z1) * upper_bound
+            z1 = jnp.sign(z1) * upper_bound
         Z_n = norm_cdf(z1) - norm_cdf_z2
         norm_pdf_z1 = norm_z_pdf(z1)
     elif target == J - 1:
         z2 = (cutpoints_t - cavity_mean_n) / std_dev
-        z2_abs = np.abs(z2)
+        z2_abs = jnp.abs(z2)
         if z2_abs > upper_bound:
-            z2 = np.sign(z2) * upper_bound
+            z2 = jnp.sign(z2) * upper_bound
         Z_n = norm_cdf_z1 - norm_cdf(z2)
         norm_pdf_z2 = norm_z_pdf(z2)
     else:
@@ -324,17 +327,17 @@ def _include(
         norm_pdf_z1 = norm_z_pdf(z1)
         norm_pdf_z2 = norm_z_pdf(z2)
     if Z_n < tolerance:
-        if np.abs(np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0) > tolerance2:
-            dlogZ_dcavity_mean_n = (z1 * np.exp(
+        if jnp.abs(jnp.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0) > tolerance2:
+            dlogZ_dcavity_mean_n = (z1 * jnp.exp(
                     -0.5*z1**2 + 0.5*z2**2) - z2**2) / (
                 (
-                    (np.exp(-0.5 * z1 ** 2) + 0.5 * z2 ** 2) - 1.0)
+                    (jnp.exp(-0.5 * z1 ** 2) + 0.5 * z2 ** 2) - 1.0)
                     * variance
             )
             dlogZ_dcavity_variance_n = (
                 -1.0 + (z1**2 + 0.5 * z2**2) - z2**2) / (
                 (
-                    (np.exp(-0.5*z1**2 + 0.5 * z2**2) - 1.0)
+                    (jnp.exp(-0.5*z1**2 + 0.5 * z2**2) - 1.0)
                     * 2.0 * variance)
             )
             dlogZ_dcavity_mean_n_2 = dlogZ_dcavity_mean_n**2
@@ -379,8 +382,8 @@ def _include(
         cavity_variance_n - cavity_variance_n**2 * nu_n)
     precision_EP_n = nu_n / (1.0 - cavity_variance_n * nu_n)
     mean_EP_n = cavity_mean_n + dlogZ_dcavity_mean_n / nu_n
-    amplitude_EP_n = Z_n * np.sqrt(
-        cavity_variance_n * precision_EP_n + 1.0) * np.exp(
+    amplitude_EP_n = Z_n * jnp.sqrt(
+        cavity_variance_n * precision_EP_n + 1.0) * jnp.exp(
             0.5 * dlogZ_dcavity_mean_n_2 / nu_n)
     return (
         mean_EP_n, precision_EP_n, amplitude_EP_n, Z_n,
@@ -431,7 +434,7 @@ def _update(
     # Update posterior mean and rank-1 covariance
     a_n = posterior_cov[:, index]
     posterior_mean += eta * a_n
-    posterior_cov = posterior_cov - rho * np.outer(
+    posterior_cov = posterior_cov - rho * jnp.outer(
         a_n, a_n) 
     return posterior_mean, posterior_cov
 
@@ -444,14 +447,14 @@ def approximate_evidence_EP(mean_EP, precision_EP, amplitude_EP,
 
     :return:
     """
-    temp = np.multiply(mean_EP, precision_EP)
-    B = temp.T @ posterior_cov @ temp - np.multiply(
+    temp = jnp.multiply(mean_EP, precision_EP)
+    B = temp.T @ posterior_cov @ temp - jnp.multiply(
         temp, mean_EP)
-    Pi_inv = np.diag(1. / precision_EP)
+    Pi_inv = jnp.diag(1. / precision_EP)
     return (
-        np.prod(
-            amplitude_EP) * np.sqrt(np.linalg.det(Pi_inv)) * np.exp(B / 2)
-            / np.sqrt(np.linalg.det(np.add(Pi_inv, K))))
+        jnp.prod(
+            amplitude_EP) * jnp.sqrt(jnp.linalg.det(Pi_inv)) * jnp.exp(B / 2)
+            / jnp.sqrt(jnp.linalg.det(jnp.add(Pi_inv, K))))
 
 
 def compute_weights_EP(
@@ -474,11 +477,11 @@ def compute_weights_EP(
     :arg L_cov: . Default `None`.
     :arg cov: . Default `None`.
     """
-    if np.any(precision_EP == 0.0):
+    if jnp.any(precision_EP == 0.0):
         # TODO: Only check for equilibrium if it has been updated in this swipe
         warnings.warn("Some sample(s) have not been updated.\n")
         precision_EP[precision_EP == 0.0] = tolerance2
-    Pi_inv = np.diag(1. / precision_EP)
+    Pi_inv = jnp.diag(1. / precision_EP)
     if L_cov is None or cov is None:
         # TODO It is necessary to do this triangular solve to get
         # diag(cov) for the lower bound on the marginal likelihood
@@ -493,8 +496,8 @@ def compute_weights_EP(
         weight = solve_triangular(L_cov.T, g, lower=True)
     else:
         weight = cov @ mean_EP
-    if np.any(
-        np.abs(weight - dlogZ_dcavity_mean) > np.sqrt(tolerance)):
+    if jnp.any(
+        jnp.abs(weight - dlogZ_dcavity_mean) > jnp.sqrt(tolerance)):
         warnings.warn("Fatal error: the weights are not in equilibrium wit"
             "h the gradients".format(
                 weight, dlogZ_dcavity_mean))
@@ -519,34 +522,34 @@ def approximate_log_marginal_likelihood_EP(
     :arg bool numerical_stability: If the calculation is made in a
         numerically stable manner.
     """
-    precision_matrix = np.diag(precision_EP)
+    precision_matrix = jnp.diag(precision_EP)
     inverse_precision_matrix = 1. / precision_matrix  # Since it is a diagonal, this is the inverse.
-    log_amplitude_EP = np.log(amplitude_EP)
-    temp = np.multiply(mean_EP, precision_EP)
+    log_amplitude_EP = jnp.log(amplitude_EP)
+    temp = jnp.multiply(mean_EP, precision_EP)
     B = temp.T @ posterior_cov @ temp\
             - temp.T @ mean_EP
     if numerical_stability is True:
-        approximate_marginal_likelihood = np.add(
-            log_amplitude_EP, 0.5 * np.trace(
-                np.log(inverse_precision_matrix)))
-        approximate_marginal_likelihood = np.add(
+        approximate_marginal_likelihood = jnp.add(
+            log_amplitude_EP, 0.5 * jnp.trace(
+                jnp.log(inverse_precision_matrix)))
+        approximate_marginal_likelihood = jnp.add(
                 approximate_marginal_likelihood, B/2)
-        approximate_marginal_likelihood = np.subtract(
-            approximate_marginal_likelihood, 0.5 * np.trace(
-                np.log(K + inverse_precision_matrix)))
-        return np.sum(approximate_marginal_likelihood)
+        approximate_marginal_likelihood = jnp.subtract(
+            approximate_marginal_likelihood, 0.5 * jnp.trace(
+                jnp.log(K + inverse_precision_matrix)))
+        return jnp.sum(approximate_marginal_likelihood)
     else:
-        approximate_marginal_likelihood = np.add(
-            log_amplitude_EP, 0.5 * np.log(np.linalg.det(
+        approximate_marginal_likelihood = jnp.add(
+            log_amplitude_EP, 0.5 * jnp.log(jnp.linalg.det(
                 inverse_precision_matrix)))  # TODO: use log det C trick
-        approximate_marginal_likelihood = np.add(
+        approximate_marginal_likelihood = jnp.add(
             approximate_marginal_likelihood, B/2
         )
-        approximate_marginal_likelihood = np.add(
-            approximate_marginal_likelihood, 0.5 * np.log(
-                np.linalg.det(K + inverse_precision_matrix))
+        approximate_marginal_likelihood = jnp.add(
+            approximate_marginal_likelihood, 0.5 * jnp.log(
+                jnp.linalg.det(K + inverse_precision_matrix))
         )  # TODO: use log det C trick
-        return np.sum(approximate_marginal_likelihood)
+        return jnp.sum(approximate_marginal_likelihood)
 
 
 def compute_integrals_vector_EP(
@@ -556,14 +559,14 @@ def compute_integrals_vector_EP(
     """
     Compute the integrals required for the gradient evaluation.
     """
-    noise_std = np.sqrt(noise_variance)
+    noise_std = jnp.sqrt(noise_variance)
     mean_ts = (posterior_mean * noise_variance
         + posterior_variance * cutpoints_ts) / (
             noise_variance + posterior_variance)
     mean_tplus1s = (posterior_mean * noise_variance
         + posterior_variance * cutpoints_tplus1s) / (
             noise_variance + posterior_variance)
-    sigma = np.sqrt(
+    sigma = jnp.sqrt(
         (noise_variance * posterior_variance) / (
         noise_variance + posterior_variance))
     a_ts = mean_ts - 5.0 * sigma
@@ -572,7 +575,7 @@ def compute_integrals_vector_EP(
     a_tplus1s = mean_tplus1s - 5.0 * sigma
     b_tplus1s = mean_tplus1s + 5.0 * sigma
     h_tplus1s = b_tplus1s - a_tplus1s
-    y_0 = np.zeros((20, N))
+    y_0 = jnp.zeros((20, N))
     t1 = fromb_t1_vector(
             y_0.copy(), posterior_mean, posterior_variance,
             cutpoints_ts, cutpoints_tplus1s,
@@ -640,8 +643,8 @@ def fromb_fft1_vector(
     """
     prob = return_prob_vector(
         b, cutpoints_t, cutpoints_tplus1, noise_std)
-    prob[prob < EPS_2] = EPS_2
-    return norm_pdf(b, loc=mean, scale=sigma) * np.log(prob)
+    prob = prob.at[prob < EPS_2].set(EPS_2)
+    return norm_pdf(b, loc=mean, scale=sigma) * jnp.log(prob)
 
 
 def fromb_t1_vector(
@@ -664,7 +667,7 @@ def fromb_t1_vector(
     :return: fromberg numerical integral vector.
     :rtype: float
     """
-    posterior_std = np.sqrt(posterior_covariance)
+    posterior_std = jnp.sqrt(posterior_covariance)
     a = posterior_mean - 5.0 * posterior_std
     b = posterior_mean + 5.0 * posterior_std
     h = b - a
@@ -681,7 +684,7 @@ def fromb_t1_vector(
     m = 1
     n = 1
     ep = EPS + 1.0
-    while (np.any(ep>=EPS) and m <=19):
+    while (jnp.any(ep>=EPS) and m <=19):
         p = 0.0
         for i in range(n):
             x = a + (i + 0.5) * h
@@ -696,7 +699,7 @@ def fromb_t1_vector(
             q = (s * p - y[k, :]) / (s - 1.0)
             y[k, :] = p
             p = q
-        ep = np.abs(q - y[m - 1, :])
+        ep = jnp.abs(q - y[m - 1, :])
         m += 1
         y[m - 1, :] = q
         n += n
@@ -723,9 +726,9 @@ def fromb_fft2_vector(
     """
     prob = return_prob_vector(
         b, cutpoints_t, cutpoints_tplus1, noise_std)
-    prob[prob < EPS_2] = EPS_2
+    prob = prob.at[prob < EPS_2].set(EPS_2)
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
-        posterior_mean, loc=cutpoints_t, scale=np.sqrt(
+        posterior_mean, loc=cutpoints_t, scale=jnp.sqrt(
         noise_variance + posterior_covariance))
 
 
@@ -765,7 +768,7 @@ def fromb_t2_vector(
     m = 1
     n = 1
     ep = EPS + 1.0
-    while (np.any(ep>=EPS) and m <=19):
+    while (jnp.any(ep>=EPS) and m <=19):
         p = 0.0
         for i in range(n):
             x = a + (i + 0.5) * h
@@ -781,7 +784,7 @@ def fromb_t2_vector(
             q = (s * p - y[k, :]) / (s - 1.0)
             y[k, :] = p
             p = q
-        ep = np.abs(q - y[m - 1, :])
+        ep = jnp.abs(q - y[m - 1, :])
         m += 1
         y[m - 1, :] = q
         n += n
@@ -809,9 +812,9 @@ def fromb_fft3_vector(
     """
     prob = return_prob_vector(
         b, cutpoints_t, cutpoints_tplus1, noise_std)
-    prob[prob < EPS_2] = EPS_2
+    prob = prob.at[prob < EPS_2].set(EPS_2)
     return  norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
-        posterior_mean, loc=cutpoints_tplus1, scale=np.sqrt(
+        posterior_mean, loc=cutpoints_tplus1, scale=jnp.sqrt(
         noise_variance + posterior_covariance))
 
 
@@ -845,7 +848,7 @@ def fromb_t3_vector(
     m = 1
     n = 1
     ep = EPS + 1.0
-    while (np.any(ep>=EPS) and m <=19):
+    while (jnp.any(ep>=EPS) and m <=19):
         p = 0.0
         for i in range(n):
             x = a + (i + 0.5) * h
@@ -861,7 +864,7 @@ def fromb_t3_vector(
             q = (s * p - y[k]) / (s - 1.0)
             y[k, :] = p
             p = q
-        ep = np.abs(q - y[m - 1, :])
+        ep = jnp.abs(q - y[m - 1, :])
         m += 1
         y[m - 1, :] = q
         n += n
@@ -888,9 +891,9 @@ def fromb_fft4_vector(
     """
     prob = return_prob_vector(
         b, cutpoints_t, cutpoints_tplus1, noise_std)
-    prob[prob < EPS_2] = EPS_2
+    prob = prob.at[prob < EPS_2].set(EPS_2)
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
-        posterior_mean, loc=cutpoints_tplus1, scale=np.sqrt(
+        posterior_mean, loc=cutpoints_tplus1, scale=jnp.sqrt(
         noise_variance + posterior_covariance)) * (cutpoints_tplus1 - b)
 
 
@@ -927,7 +930,7 @@ def fromb_t4_vector(
     m = 1
     n = 1
     ep = EPS + 1.0
-    while (np.any(ep>=EPS) and m <=19):
+    while (jnp.any(ep>=EPS) and m <=19):
         p = 0.0
         for i in range(n):
             x = a + (i + 0.5) * h
@@ -943,7 +946,7 @@ def fromb_t4_vector(
             q = (s * p - y[k, :]) / (s - 1.0)
             y[k, :] = p
             p = q
-        ep = np.abs(q - y[m - 1, :])
+        ep = jnp.abs(q - y[m - 1, :])
         m += 1
         y[m - 1, :] = q
         n += n
@@ -971,9 +974,9 @@ def fromb_fft5_vector(
     """
     prob = return_prob_vector(
         b, cutpoints_t, cutpoints_tplus1, noise_std)
-    prob[prob < EPS_2] = EPS_2
+    prob = prob.at[prob < EPS_2].set(EPS_2)
     return norm_pdf(b, loc=mean, scale=sigma) / prob * norm_pdf(
-        posterior_mean, loc=cutpoints_t, scale=np.sqrt(
+        posterior_mean, loc=cutpoints_t, scale=jnp.sqrt(
         noise_variance + posterior_covariance)) * (cutpoints_t - b)
 
 
@@ -1010,7 +1013,7 @@ def fromb_t5_vector(
     m = 1
     n = 1
     ep = EPS + 1.0
-    while (np.any(ep>=EPS) and m <=19):
+    while (jnp.any(ep>=EPS) and m <=19):
         p = 0.0
         for i in range(n):
             x = a + (i + 0.5) * h
@@ -1026,7 +1029,7 @@ def fromb_t5_vector(
             q = (s * p - y[k, :]) / (s - 1.0)
             y[k, :] = p
             p = q
-        ep = np.abs(q - y[m - 1, :])
+        ep = jnp.abs(q - y[m - 1, :])
         m += 1
         y[m - 1, :] = q
         n += n
