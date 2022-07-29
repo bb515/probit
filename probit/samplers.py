@@ -6,7 +6,7 @@ from probit.proposals import proposal, proposal_reparameterised, proposal_initia
 from probit.kernels import Kernel, InvalidKernel
 import pathlib
 import numpy as np
-from probit.utilities import (
+from probit.numpy.utilities import (
     check_cutpoints, norm_z_pdf, norm_cdf, sample_g,
     truncated_norm_normalising_constant, log_multivariate_normal_pdf,
     log_multivariate_normal_pdf_vectorised)

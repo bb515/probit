@@ -1,37 +1,31 @@
 from abc import ABC, abstractmethod
-import enum
-from probit.kernels import Kernel, InvalidKernel
 import pathlib
 from tqdm import trange
 import warnings
-import math
-import matplotlib.pyplot as plt
 import numpy as np
-from probit.utilities import (
+from probit.numpy.utilities import (
     check_cutpoints,
     read_array,
     posterior_covariance,
-    norm_z_pdf, norm_cdf,
-    truncated_norm_normalising_constant,
-    fromb_t1_vector, fromb_t2_vector, fromb_t3_vector, fromb_t4_vector,
-    fromb_t5_vector,
-    probit_logZtilted, probit_dlogZtilted_dm, probit_dlogZtilted_dm2,
-    probit_logZtilted_vector, probit_dlogZtilted_dm_vector,
-    probit_dlogZtilted_dm2_vector,
-    ordinal_dlogZtilted_dm_vector,
-    ordinal_dlogZtilted_dm2_vector,
-    probit_dlogZtilted_dv, probit_dlogZtilted_dsn, d_trace_MKzz_dhypers)
-from scipy.linalg import cho_solve, cho_factor, solve_triangular
+    norm_cdf,
+    truncated_norm_normalising_constant)
+
+# Change probit.<linalg backend>.<Approximator>, as appropriate
 from probit.jax.Laplace import (update_posterior_LA,
     compute_weights_LA, objective_LA, objective_gradient_LA)
 from probit.numpy.VB import (update_posterior_mean_VB,
     update_posterior_covariance_VB, update_hyperparameter_posterior_VB,
     objective_VB, objective_gradient_VB)
+from probit.numpy.EP import (update_posterior_EP,
+    objective_EP, objective_gradient_EP,
+    compute_weights_EP, compute_integrals_vector_EP)
+from probit.numpy.PEP import (update_posterior_parallel_PEP,
+    update_posterior_sequential_PEP, objective_PEP, objective_gradient_PEP)
 
 
 class Approximator(ABC):
     """
-    Base class for variational Bayes approximators.
+    Base class for GP classification approximators.
 
     This class allows users to define a classification problem,
     get predictions using an approximate Bayesian inference. Here, N is the
@@ -502,6 +496,190 @@ class Approximator(ABC):
         #     # or by a manual function. I have chosen to evaluate manually.
 
 
+class LaplaceGP(Approximator):
+    """
+    A GP classifier for ordinal likelihood using the Laplace
+    approximation.
+
+    Inherits the Approximator ABC.
+
+    Evidence maximization algorithm as written in Appendix A
+    Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes for Ordinal
+    Regression.. Journal of Machine Learning Research. 6. 1019-1041.
+
+    This class allows users to define a classification problem and get
+    predictions using approximate Bayesian inference. It is for ordinal
+    likelihood.
+
+    For this a :class:`probit.kernels.Kernel` is required for the Gaussian
+    Process.
+    """
+    def __repr__(self):
+        """
+        Return a string representation of this class, used to import the class
+        from the string.
+        """
+        return "LaplaceGP"
+
+    def __init__(
+            self, cutpoints, noise_variance, *args, **kwargs):
+        """
+        Create an :class:`LaplaceGP` Approximator object.
+
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg float noise_variance: Initialisation of noise variance. If `None`
+            then initialised to one, default `None`.
+
+        :returns: An :class:`EPGP` object.
+        """
+        super().__init__(*args, **kwargs)
+        # Initiate hyperparameters
+        self.hyperparameters_update(
+            cutpoints=cutpoints, noise_variance=noise_variance)
+
+    def _approximate_initiate(
+            self, posterior_mean_0=None):
+        """
+        Initialise the Approximator.
+
+        Need to make sure that the prior covariance is changed!
+
+        :arg int steps: The number of steps in the Approximator.
+        :arg posterior_mean_0: The initial state of the posterior mean (N,). If
+             `None` then initialised to zeros, default `None`.
+        :type posterior_mean_0: :class:`numpy.ndarray`
+        :arg psi_0: Initialisation of hyperhyperparameters. If `None`
+            then initialised to ones, default `None`.
+        :type psi_0: :class:`numpy.ndarray` or float
+        :return: Containers for the approximate posterior means of parameters and
+            hyperparameters.
+        :rtype: (12,) tuple.
+        """
+        if posterior_mean_0 is None:
+            posterior_mean_0 = self.cutpoints_ts.copy()
+            posterior_mean_0[self.indices_where_0] = self.cutpoints_tplus1s[
+                self.indices_where_0]
+        error = 0.0
+        posterior_means = []
+        containers = (posterior_means)
+        return (posterior_mean_0, containers, error)
+
+    def approximate(
+            self, steps, posterior_mean_0=None, write=False):
+        """
+        Estimating the posterior means and posterior covariance (and marginal
+        likelihood) via Laplace approximation via Newton-Raphson iteration as
+        written in
+        Appendix A Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes
+        for Ordinal Regression.. Journal of Machine Learning
+        Research. 6. 1019-1041.
+
+        Laplace imposes an inverse covariance for the approximating Gaussian
+        equal to the negative Hessian of the log of the target density.
+
+        :arg int steps: The number of iterations the Approximator takes.
+        :arg posterior_mean_0: The initial state of the approximate posterior
+            mean (N,). If `None` then initialised to zeros, default `None`.
+        :type posterior_mean_0: :class:`numpy.ndarray`
+        :arg bool write: Boolean variable to store and write arrays of
+            interest. If set to "True", the method will output non-empty
+            containers of evolution of the statistics over the steps.
+            If set to "False", statistics will not be written and those
+            containers will remain empty.
+        :return: convergence error, the regression weights and
+            approximate posterior mean. Containers for write values.
+        :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
+            posterior means, other statistics and tuple of lists of per-step
+            evolution of those statistics.
+        """
+        (posterior_mean, containers, error) = self._approximate_initiate(
+            posterior_mean_0)
+        (posterior_means) = containers
+        for _ in trange(1, 1 + steps,
+                        desc="Laplace GP approximator progress",
+                        unit="iterations", disable=True):
+            (error, weight, precision, cov, log_det_cov,
+                    posterior_mean) = update_posterior_LA(
+                self.noise_std, self.noise_variance, posterior_mean,
+                self.cutpoints_ts, self.cutpoints_tplus1s, self.K, self.N,
+                # upper_bound=self.upper_bound,  # optional
+                # upper_bound=self.upper_bound2,  # optional
+                # tolerance=self.tolerance  # not recommended
+                )
+            if write is True:
+                posterior_means.append(posterior_mean)
+        containers = (posterior_means)
+        return (error, weight, precision, cov, log_det_cov, posterior_mean,
+            containers)
+
+    def approximate_posterior(
+            self, phi, trainables, steps, verbose=False,
+            return_reparameterised=None, posterior_mean_0=None):
+        """
+        Newton-Raphson procedure for convex optimization to find MAP point and
+        curvature.
+
+        :arg phi: (log-)hyperparameters to be optimised.
+        :type phi:
+        :arg trainables:
+        :type trainables:
+        :arg steps:
+        :type steps:
+        :arg posterior_mean_0:
+        :type posterior_mean_0:
+        :arg bool write:
+        :arg bool verbose:
+        :return:
+        """
+        # Update prior covariance and get hyperparameters from phi
+        (intervals, error, iteration, gx_where,
+                gx) = self._hyperparameter_training_step_initialise(
+            phi, trainables, verbose=verbose)
+        posterior_mean = posterior_mean_0
+        while error / steps > self.tolerance:
+            iteration += 1
+            (error, weight, precision, cov, log_det_cov, posterior_mean,
+                    containers) = self.approximate(
+                steps, posterior_mean_0=posterior_mean, write=False)
+            if verbose:
+                print("({}), error={}".format(iteration, error))
+        (weight, precision,
+        w1, w2, g1, g2, v1, v2, q1, q2,
+        L_cov, cov, Z, log_det_cov) = compute_weights_LA(
+            posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
+            self.noise_std, self.noise_variance,
+            self.N, self.K,
+            # upper_bound=self.upper_bound,  # optional
+            # upper_bound2=self.upper_bound2,  # optional
+            # tolerance=self.tolerance2,  # not recommended
+            )
+        fx = objective_LA(weight, posterior_mean, precision, L_cov, Z)
+        gx = objective_gradient_LA(
+            gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
+            precision, self.y_train, trainables, self.K,
+            self.partial_K_theta, self.partial_K_variance,
+            self.noise_std, self.noise_variance,
+            self.kernel.theta, self.kernel.variance,
+            self.N, self.J, self.D, self.kernel._ARD)
+        gx = gx[gx_where]
+        if return_reparameterised is True:
+            return fx, gx, weight, (cov, True)
+        if return_reparameterised is False:
+            posterior_covariance_ = posterior_covariance(
+                self.K, cov, precision)
+            return None, None, log_det_cov, weight, precision, posterior_mean, (
+                posterior_covariance_, False)
+        elif return_reparameterised is None:
+            if verbose:
+                print(
+                "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
+                "\nfunction_eval={}, \nfunction_grad={}".format(
+                    self.cutpoints, self.kernel.theta, self.noise_variance,
+                    self.kernel.variance, fx, gx))
+            return fx, gx
+
+
 class VBGP(Approximator):
     """
     A GP classifier for ordinal likelihood using the Variational Bayes (VB)
@@ -521,7 +699,6 @@ class VBGP(Approximator):
 
     def __init__(
             self, cutpoints, noise_variance, *args, **kwargs):
-            #cutpoints_hyperparameters=None, noise_std_hyperparameters=None, *args, **kwargs):
         """
         Create an :class:`VBGP` Approximator object.
 
@@ -680,7 +857,7 @@ class VBGP(Approximator):
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
                 posterior_mean)
             if self.kernel.theta_hyperhyperparameters is not None:
-                fx = self.objective(
+                fx = objective_VB(
                     self.N, posterior_mean, weight, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
                     self.noise_variance, self.log_det_cov)
@@ -725,8 +902,7 @@ class VBGP(Approximator):
 
 class EPGP(Approximator):
     """
-    A GP classifier for ordinal likelihood using the Expectation Propagation
-    (EP) approximation.
+    A GP classifier for ordinal likelihood using Expectation Propagation (EP).
 
     Inherits the Approximator ABC.
 
@@ -831,10 +1007,9 @@ class EPGP(Approximator):
                 precision_EP_0, amplitude_EP_0, dlogZ_dcavity_mean_0,
                 containers, error)
 
-    def approximate(
-            self, indices, posterior_mean_0=None, posterior_cov_0=None,
-            mean_EP_0=None, precision_EP_0=None, amplitude_EP_0=None,
-            write=False):
+    def approximate(self, indices, steps, posterior_mean_0=None,
+            posterior_cov_0=None, mean_EP_0=None, precision_EP_0=None,
+            amplitude_EP_0=None):
         """
         Estimating the posterior means and posterior covariance (and marginal
         likelihood) via Expectation propagation iteration as written in
@@ -880,382 +1055,19 @@ class EPGP(Approximator):
             posterior means, other statistics and tuple of lists of per-step
             evolution of those statistics.
         """
-        (posterior_mean, posterior_cov, mean_EP, precision_EP,
-                amplitude_EP, dlogZ_dcavity_mean,
-                containers, error) = self._approximate_initiate(
+        for _ in range(steps):
+            (posterior_mean, posterior_cov, mean_EP, precision_EP,
+                amplitude_EP, dlogZ_dcavity_mean, containers,
+                error) = self._approximate_initiate(
             posterior_mean_0, posterior_cov_0, mean_EP_0, precision_EP_0,
             amplitude_EP_0)
-        (posterior_means, posterior_covs, mean_EPs, precision_EPs,
-            amplitude_EPs, approximate_log_marginal_likelihoods) = containers
-        for index in indices:
-            if (index + 1) % 1000 == 0: print(index)
-            target = self.y_train[index]
-            posterior_variance_n = posterior_cov[index, index]
-            precision_EP_n_old = precision_EP[index]
-            mean_EP_n_old = mean_EP[index]
-            posterior_mean_n = posterior_mean[index]
-            amplitude_EP_n_old = amplitude_EP[index]
-            if posterior_variance_n > 0:
-                cavity_variance_n = posterior_variance_n / (
-                    1 - posterior_variance_n * precision_EP_n_old)
-                if cavity_variance_n > 0:
-                    # Remove
-                    # Calculate the product of approximate posterior factors
-                    # with the current index removed. This is called the cavity
-                    # distribution, "a bit like leaving a hole in the dataset"
-                    cavity_mean_n = (posterior_mean_n
-                        + cavity_variance_n * precision_EP_n_old * (
-                            posterior_mean_n - mean_EP_n_old))
-                    # Tilt/ moment match
-                    (mean_EP_n, precision_EP_n, amplitude_EP_n, Z_n,
-                    dlogZ_dcavity_mean_n, posterior_covariance_n_new,
-                    z1, z2, nu_n) = self._include(
-                        target, cavity_mean_n, cavity_variance_n,
-                        self.cutpoints[target], self.cutpoints[target + 1],
-                        self.noise_variance)
-                    # Update EP weight (alpha)
-                    dlogZ_dcavity_mean[index] = dlogZ_dcavity_mean_n
-                    diff = precision_EP_n - precision_EP_n_old
-                    if (np.abs(diff) > self.tolerance
-                            and Z_n > self.tolerance
-                            and precision_EP_n > 0.0
-                            and posterior_covariance_n_new > 0.0):
-                        posterior_mean, posterior_cov = self._update(
-                            index, posterior_mean, posterior_cov,
-                            posterior_mean_n, posterior_variance_n,
-                            mean_EP_n_old, precision_EP_n_old,
-                            dlogZ_dcavity_mean_n, diff)
-                        # Update EP parameters
-                        error += (diff**2
-                                + (mean_EP_n - mean_EP_n_old)**2
-                                + (amplitude_EP_n - amplitude_EP_n_old)**2)
-                        precision_EP[index] = precision_EP_n
-                        mean_EP[index] = mean_EP_n
-                        amplitude_EP[index] = amplitude_EP_n
-                        if write:
-                            # approximate_log_marginal_likelihood = \
-                            # self._approximate_log_marginal_likelihood(
-                            # posterior_cov, precision_EP, mean_EP)
-                            # posterior_means.append(posterior_mean)
-                            # posterior_covs.append(posterior_cov)
-                            # mean_EPs.append(mean_EP)
-                            # precision_EPs.append(precision_EP)
-                            # amplitude_EPs.append(amplitude_EP)
-                            # approximate_log_marginal_likelihood.append(
-                            #   approximate_marginal_log_likelihood)
-                            pass
-                    else:
-                        if precision_EP_n < 0.0 or posterior_covariance_n_new < 0.0:
-                            print(
-                                "Skip {} update z1={}, z2={}, nu={} p_new={},"
-                                " p_old={}.\n".format(
-                                index, z1, z2, nu_n,
-                                precision_EP_n, precision_EP_n_old))
-        containers = (posterior_means, posterior_covs, mean_EPs, precision_EPs,
-                      amplitude_EPs, approximate_log_marginal_likelihoods)
-        return (
-            error, dlogZ_dcavity_mean, posterior_mean, posterior_cov,
-            mean_EP, precision_EP, amplitude_EP, containers)
-
-    def _assert_valid_values(self, nu_n, variance, cavity_mean_n,
-            cavity_variance_n, target, z1, z2, Z_n, norm_pdf_z1, norm_pdf_z2,
-            dlogZ_dcavity_variance_n, dlogZ_dcavity_mean_n):
-        if math.isnan(dlogZ_dcavity_mean_n):
-            print(
-                "cavity_mean_n={} \n"
-                "cavity_variance_n={} \n"
-                "target={} \n"
-                "z1 = {} z2 = {} \n"
-                "Z_n = {} \n"
-                "norm_pdf_z1 = {} \n"
-                "norm_pdf_z2 = {} \n"
-                "beta = {} alpha = {}".format(
-                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n,
-                    norm_pdf_z1, norm_pdf_z2, dlogZ_dcavity_variance_n,
-                    dlogZ_dcavity_mean_n))
-            raise ValueError(
-                "dlogZ_dcavity_mean is nan (got {})".format(
-                dlogZ_dcavity_mean_n))
-        if math.isnan(dlogZ_dcavity_variance_n):
-            print(
-                "cavity_mean_n={} \n"
-                "cavity_variance_n={} \n"
-                "target={} \n"
-                "z1 = {} z2 = {} \n"
-                "Z_n = {} \n"
-                "norm_pdf_z1 = {} \n"
-                "norm_pdf_z2 = {} \n"
-                "beta = {} alpha = {}".format(
-                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n,
-                    norm_pdf_z1, norm_pdf_z2, dlogZ_dcavity_variance_n,
-                    dlogZ_dcavity_mean_n))
-            raise ValueError(
-                "dlogZ_dcavity_variance is nan (got {})".format(
-                    dlogZ_dcavity_variance_n))
-        if nu_n <= 0:
-            print(
-                "cavity_mean_n={} \n"
-                "cavity_variance_n={} \n"
-                "target={} \n"
-                "z1 = {} z2 = {} \n"
-                "Z_n = {} \n"
-                "norm_pdf_z1 = {} \n"
-                "norm_pdf_z2 = {} \n"
-                "beta = {} alpha = {}".format(
-                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n,
-                    norm_pdf_z1, norm_pdf_z2, dlogZ_dcavity_variance_n,
-                    dlogZ_dcavity_mean_n))
-            raise ValueError("nu_n must be positive (got {})".format(nu_n))
-        if nu_n > 1.0 / variance + self.tolerance:
-            print(
-                "cavity_mean_n={} \n"
-                "cavity_variance_n={} \n"
-                "target={} \n"
-                "z1 = {} z2 = {} \n"
-                "Z_n = {} \n"
-                "norm_pdf_z1 = {} \n"
-                "norm_pdf_z2 = {} \n"
-                "beta = {} alpha = {}".format(
-                    cavity_mean_n, cavity_variance_n, target, z1, z2, Z_n,
-                    norm_pdf_z1, norm_pdf_z2, dlogZ_dcavity_variance_n,
-                    dlogZ_dcavity_mean_n))
-            raise ValueError(
-                "nu_n must be less than 1.0 / (cavity_variance_n + "
-                "noise_variance) = {}, got {}".format(
-                    1.0 / variance, nu_n))
-
-    def _include(
-            self, target, cavity_mean_n, cavity_variance_n,
-            cutpoints_t, cutpoints_tplus1, noise_variance,
-            numerically_stable=False):
-        """
-        Update the approximate posterior by incorporating the message
-        p(t_i|m_i) into Q^{\i}(\bm{f}).
-        Wei Chu, Zoubin Ghahramani 2005 page 20, Eq. (23)
-        This includes one true-observation likelihood, and 'tilts' the
-        approximation towards the true posterior. It updates the approximation
-        to the true posterior by minimising a moment-matching KL divergence
-        between the tilted distribution and the posterior distribution. This
-        gives us an approximate posterior in the approximating family. The
-        update to posterior_cov is a rank-1 update (see the outer product of
-        two 1d vectors), and so it essentially constructs a piecewise low rank
-        approximation to the GP posterior covariance matrix, until convergence
-        (by which point it will no longer be low rank).
-        :arg int target: The ordinal class index of the current site
-            (the class of the datapoint that is "left out").
-        :arg float cavity_mean_n: The cavity mean of the current site.
-        :arg float cavity_variance_n: The cavity variance of the current site.
-        :arg float cutpoints_t: The upper cutpoint parameters.
-        :arg float cutpoints_tplus1: The lower cutpoint parameter.
-        :arg float noise_variance: Initialisation of noise variance. If
-            `None` then initialised to one, default `None`.
-        :arg bool numerically_stable: Boolean variable for assert valid
-            numerical values. Default `False'.
-        :returns: A (10,) tuple containing cavity mean and variance, and old
-            site states.
-        """
-        variance = cavity_variance_n + noise_variance
-        std_dev = np.sqrt(variance)
-        # Compute Z
-        norm_cdf_z2 = 0.0
-        norm_cdf_z1 = 1.0
-        norm_pdf_z1 = 0.0
-        norm_pdf_z2 = 0.0
-        z1 = 0.0
-        z2 = 0.0
-        if target == 0:
-            z1 = (cutpoints_tplus1 - cavity_mean_n) / std_dev
-            z1_abs = np.abs(z1)
-            if z1_abs > self.upper_bound:
-                z1 = np.sign(z1) * self.upper_bound
-            Z_n = norm_cdf(z1) - norm_cdf_z2
-            norm_pdf_z1 = norm_z_pdf(z1)
-        elif target == self.J - 1:
-            z2 = (cutpoints_t - cavity_mean_n) / std_dev
-            z2_abs = np.abs(z2)
-            if z2_abs > self.upper_bound:
-                z2 = np.sign(z2) * self.upper_bound
-            Z_n = norm_cdf_z1 - norm_cdf(z2)
-            norm_pdf_z2 = norm_z_pdf(z2)
-        else:
-            z1 = (cutpoints_tplus1 - cavity_mean_n) / std_dev
-            z2 = (cutpoints_t - cavity_mean_n) / std_dev
-            Z_n = norm_cdf(z1) - norm_cdf(z2)
-            norm_pdf_z1 = norm_z_pdf(z1)
-            norm_pdf_z2 = norm_z_pdf(z2)
-        if Z_n < self.tolerance:
-            if np.abs(np.exp(-0.5*z1**2 + 0.5*z2**2) - 1.0) > self.tolerance2:
-                dlogZ_dcavity_mean_n = (z1 * np.exp(
-                        -0.5*z1**2 + 0.5*z2**2) - z2**2) / (
-                    (
-                        (np.exp(-0.5 * z1 ** 2) + 0.5 * z2 ** 2) - 1.0)
-                        * variance
-                )
-                dlogZ_dcavity_variance_n = (
-                    -1.0 + (z1**2 + 0.5 * z2**2) - z2**2) / (
-                    (
-                        (np.exp(-0.5*z1**2 + 0.5 * z2**2) - 1.0)
-                        * 2.0 * variance)
-                )
-                dlogZ_dcavity_mean_n_2 = dlogZ_dcavity_mean_n**2
-                nu_n = (
-                    dlogZ_dcavity_mean_n_2
-                    - 2.0 * dlogZ_dcavity_variance_n)
-            else:
-                dlogZ_dcavity_mean_n = 0.0
-                dlogZ_dcavity_mean_n_2 = 0.0
-                dlogZ_dcavity_variance_n = -(
-                    1.0 - self.tolerance)/(2.0 * variance)
-                nu_n = (1.0 - self.tolerance) / variance
-                warnings.warn(
-                    "Z_n must be greater than tolerance={} (got {}): "
-                    "SETTING to Z_n to approximate value\n"
-                    "z1={}, z2={}".format(
-                        self.tolerance, Z_n, z1, z2))
-            if nu_n >= 1.0 / variance:
-                nu_n = (1.0 - self.tolerance) / variance
-            if nu_n <= 0.0:
-                nu_n = self.tolerance * variance
-        else:
-            dlogZ_dcavity_variance_n = (
-                - z1 * norm_pdf_z1 + z2 * norm_pdf_z2) / (
-                    2.0 * variance * Z_n)  # beta
-            dlogZ_dcavity_mean_n = (
-                - norm_pdf_z1 + norm_pdf_z2) / (
-                    std_dev * Z_n)  # alpha/gamma
-            dlogZ_dcavity_mean_n_2 = dlogZ_dcavity_mean_n**2
-            nu_n = (dlogZ_dcavity_mean_n_2
-                - 2.0 * dlogZ_dcavity_variance_n)
-        # Update alphas
-        if numerically_stable:
-            self._assert_valid_values(
-                nu_n, variance, cavity_mean_n, cavity_variance_n, target,
-                z1, z2, Z_n, norm_pdf_z1,
-                norm_pdf_z2, dlogZ_dcavity_variance_n,
-                dlogZ_dcavity_mean_n)
-        # posterior_mean_n_new = (  # Not used for anything
-        #     cavity_mean_n + cavity_variance_n * dlogZ_dcavity_mean_n)
-        posterior_covariance_n_new = (
-            cavity_variance_n - cavity_variance_n**2 * nu_n)
-        precision_EP_n = nu_n / (1.0 - cavity_variance_n * nu_n)
-        mean_EP_n = cavity_mean_n + dlogZ_dcavity_mean_n / nu_n
-        amplitude_EP_n = Z_n * np.sqrt(
-            cavity_variance_n * precision_EP_n + 1.0) * np.exp(
-                0.5 * dlogZ_dcavity_mean_n_2 / nu_n)
-        return (
-            mean_EP_n, precision_EP_n, amplitude_EP_n, Z_n,
-            dlogZ_dcavity_mean_n,
-            posterior_covariance_n_new, z1, z2, nu_n)
-
-    def _update(
-            self, index, posterior_mean, posterior_cov,
-            posterior_mean_n, posterior_variance_n,
-            mean_EP_n_old, precision_EP_n_old,
-            dlogZ_dcavity_mean_n, diff):
-        """
-        Update the posterior mean and covariance.
-
-        Projects the tilted distribution on to an approximating family.
-        The update for the t_n is a rank-1 update. Constructs a low rank
-        approximation to the GP posterior covariance matrix.
-
-        :arg int index: The index of the current likelihood (the index of the
-            datapoint that is "left out").
-        :arg float mean_EP_n_old: The state of the individual (site) mean (N,).
-        :arg posterior_cov: The current approximate posterior covariance
-            (N, N).
-        :type posterior_cov: :class:`numpy.ndarray`
-        :arg float posterior_variance_n: The current approximate posterior
-            site variance.
-        :arg float posterior_mean_n: The current site approximate posterior
-            mean.
-        :arg float precision_EP_n_old: The state of the individual (site)
-            variance (N,).
-        :arg float dlogZ_dcavity_mean_n: The gradient of the log
-            normalising constant with respect to the site cavity mean
-            (The EP "weight").
-        :arg float posterior_mean_n_new: The state of the site approximate
-            posterior mean.
-        :arg float posterior_covariance_n_new: The state of the site
-            approximate posterior variance.
-        :arg float diff: The differance between precision_EP_n and
-            precision_EP_n_old.
-        :returns: The updated approximate posterior mean and covariance.
-        :rtype: tuple (`numpy.ndarray`, `numpy.ndarray`)
-        """
-        rho = diff / (1 + diff * posterior_variance_n)
-        eta = (
-            dlogZ_dcavity_mean_n
-            + precision_EP_n_old * (posterior_mean_n - mean_EP_n_old)) / (
-                1.0 - posterior_variance_n * precision_EP_n_old)
-        # Update posterior mean and rank-1 covariance
-        a_n = posterior_cov[:, index]
-        posterior_mean += eta * a_n
-        posterior_cov = posterior_cov - rho * np.outer(
-            a_n, a_n) 
-        return posterior_mean, posterior_cov
-
-    def _approximate_log_marginal_likelihood(
-            self, posterior_cov, precision_EP, amplitude_EP, mean_EP,
-            numerical_stability):
-        """
-        Calculate the approximate log marginal likelihood.
-        TODO: need to finish this. Probably not useful if using EP.
-
-        :arg posterior_cov: The approximate posterior covariance.
-        :type posterior_cov:
-        :arg precision_EP: The state of the individual (site) variance (N,).
-        :type precision_EP:
-        :arg amplitude_EP: The state of the individual (site) amplitudes (N,).
-        :type amplitude EP:
-        :arg mean_EP: The state of the individual (site) mean (N,).
-        :type mean_EP:
-        :arg bool numerical_stability: If the calculation is made in a
-            numerically stable manner.
-        """
-        precision_matrix = np.diag(precision_EP)
-        inverse_precision_matrix = 1. / precision_matrix  # Since it is a diagonal, this is the inverse.
-        log_amplitude_EP = np.log(amplitude_EP)
-        temp = np.multiply(mean_EP, precision_EP)
-        B = temp.T @ posterior_cov @ temp\
-                - temp.T @ mean_EP
-        if numerical_stability is True:
-            approximate_marginal_likelihood = np.add(
-                log_amplitude_EP, 0.5 * np.trace(
-                    np.log(inverse_precision_matrix)))
-            approximate_marginal_likelihood = np.add(
-                    approximate_marginal_likelihood, B/2)
-            approximate_marginal_likelihood = np.subtract(
-                approximate_marginal_likelihood, 0.5 * np.trace(
-                    np.log(self.K + inverse_precision_matrix)))
-            return np.sum(approximate_marginal_likelihood)
-        else:
-            approximate_marginal_likelihood = np.add(
-                log_amplitude_EP, 0.5 * np.log(np.linalg.det(
-                    inverse_precision_matrix)))  # TODO: use log det C trick
-            approximate_marginal_likelihood = np.add(
-                approximate_marginal_likelihood, B/2
-            )
-            approximate_marginal_likelihood = np.add(
-                approximate_marginal_likelihood, 0.5 * np.log(
-                    np.linalg.det(self.K + inverse_precision_matrix))
-            )  # TODO: use log det C trick
-            return np.sum(approximate_marginal_likelihood)
-
-    def run_ep_sequential(self, indices, n_sweeps,
-            posterior_mean_0=None,
-            posterior_cov_0=None, mean_EP_0=None,
-            precision_EP_0=None,
-            amplitude_EP_0=None):
-        for _ in range(n_sweeps):
-            (error, dlogZ_dcavity_mean, posterior_mean, posterior_cov,
-            mean_EP, precision_EP, amplitude_EP,
-            _) = self.approximate(
-                indices, posterior_mean_0=posterior_mean_0,
-                posterior_cov_0=posterior_cov_0, mean_EP_0=mean_EP_0,
-                precision_EP_0=precision_EP_0,
-                amplitude_EP_0=amplitude_EP_0,
-                write=False)
+            (posterior_mean, posterior_cov, mean_EP, precision_EP,
+                amplitude_EP, dlogZ_dcavity_mean, error) = update_posterior_EP(
+                    indices, posterior_mean, posterior_cov,
+                    mean_EP, precision_EP, amplitude_EP, dlogZ_dcavity_mean,
+                    error,
+                    self.y_train, self.cutpoints, self.noise_variance, self.J,
+                    self.upper_bound, self.tolerance, self.tolerance2)
         return (error, dlogZ_dcavity_mean, posterior_mean, posterior_cov,
             mean_EP, precision_EP, amplitude_EP)
 
@@ -1303,15 +1115,32 @@ class EPGP(Approximator):
         while error / (steps * self.N) > self.tolerance:
             iteration += 1
             (error, dlogZ_dcavity_mean, posterior_mean, posterior_cov,
-            mean_EP, precision_EP, amplitude_EP) = self.run_ep_sequential(
+            mean_EP, precision_EP, amplitude_EP) = self.approximate(
                 indices, steps, posterior_mean_0=posterior_mean,
                 posterior_cov_0=posterior_cov, mean_EP_0=mean_EP,
                 precision_EP_0=precision_EP, amplitude_EP_0=amplitude_EP)
             if verbose:
                 print("error = {}".format(error))
-        (weight, precision_EP, L_cov, cov) = self.compute_weights(
-            precision_EP, mean_EP, dlogZ_dcavity_mean)
-        fx = 0
+        (weight, precision_EP, L_cov, cov) = compute_weights_EP(
+            precision_EP, mean_EP, dlogZ_dcavity_mean, self.K, self.tolerance,
+            self.tolerance2, self.N)
+        # Compute gradients of the hyperparameters
+        t1, t2, t3, t4, t5 = compute_integrals_vector_EP(
+            np.diag(posterior_cov), posterior_mean, self.noise_variance,
+            self.cutpoints_ts, self.cutpoints_tplus1s, self.indices_where_J_1,
+            self.indices_where_0, self.N, self.tolerance, self.tolerance2)
+        fx = objective_EP(precision_EP, posterior_mean, t1,
+            L_cov, cov, weight, self.tolerance2)
+        if self.kernel._ARD:
+            gx = np.zeros(1 + self.J - 1 + 1 + self.D)
+        else:
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        gx = objective_gradient_EP(
+            gx, intervals, self.kernel.theta, self.kernel.variance,
+            self.noise_variance, self.cutpoints, t2, t3, t4, t5, self.y_train,
+            cov, weight, trainables, self.partial_K_theta,
+            self.partial_K_variance, self.J, self.D, self.kernel._ARD)
+        gx = gx[gx_where]
         if return_reparameterised is True:
             return fx, gx, weight, (cov, True)
         elif return_reparameterised is False:
@@ -1319,20 +1148,6 @@ class EPGP(Approximator):
             return fx, gx, log_det_cov, weight, precision_EP, posterior_mean, (
                 posterior_cov, False)
         elif return_reparameterised is None:
-            # Compute gradients of the hyperparameters
-            t1, t2, t3, t4, t5 = self.compute_integrals_vector(
-                np.diag(posterior_cov), posterior_mean, self.noise_variance)
-            fx = self.objective(precision_EP, posterior_mean, t1,
-                L_cov, cov, weight)
-            if self.kernel._ARD:
-                gx = np.zeros(1 + self.J - 1 + 1 + self.D)
-            else:
-                gx = np.zeros(1 + self.J - 1 + 1 + 1)
-            gx = self.objective_gradient(
-                gx, intervals, self.kernel.theta, self.noise_variance,
-                t2, t3, t4, t5, cov, weight, trainables, self.partial_K_theta,
-                self.partial_K_variance)
-            gx = gx[gx_where]
             if verbose:
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
@@ -1340,271 +1155,6 @@ class EPGP(Approximator):
                     self.cutpoints, self.kernel.theta, self.noise_variance,
                     self.kernel.variance, fx, gx))
             return fx, gx
-
-    def compute_integrals_vector(
-            self, posterior_variance, posterior_mean, noise_variance):
-        """
-        Compute the integrals required for the gradient evaluation.
-        """
-        noise_std = np.sqrt(noise_variance)
-        mean_ts = (posterior_mean * noise_variance
-            + posterior_variance * self.cutpoints_ts) / (
-                noise_variance + posterior_variance)
-        mean_tplus1s = (posterior_mean * noise_variance
-            + posterior_variance * self.cutpoints_tplus1s) / (
-                noise_variance + posterior_variance)
-        sigma = np.sqrt(
-            (noise_variance * posterior_variance) / (
-            noise_variance + posterior_variance))
-        a_ts = mean_ts - 5.0 * sigma
-        b_ts = mean_ts + 5.0 * sigma
-        h_ts = b_ts - a_ts
-        a_tplus1s = mean_tplus1s - 5.0 * sigma
-        b_tplus1s = mean_tplus1s + 5.0 * sigma
-        h_tplus1s = b_tplus1s - a_tplus1s
-        y_0 = np.zeros((20, self.N))
-        t1 = fromb_t1_vector(
-                y_0.copy(), posterior_mean, posterior_variance,
-                self.cutpoints_ts, self.cutpoints_tplus1s,
-                noise_std, self.tolerance, self.tolerance2, self.N)
-        t2 = fromb_t2_vector(
-                y_0.copy(), mean_ts, sigma,
-                a_ts, b_ts, h_ts,
-                posterior_mean,
-                posterior_variance,
-                self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.tolerance, self.tolerance2,
-                self.N)
-        t2[self.indices_where_0] = 0.0
-        t3 = fromb_t3_vector(
-                y_0.copy(), mean_tplus1s, sigma,
-                a_tplus1s, b_tplus1s,
-                h_tplus1s, posterior_mean,
-                posterior_variance,
-                self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.tolerance, self.tolerance2,
-                self.N)
-        t3[self.indices_where_J_1] = 0.0
-        t4 = fromb_t4_vector(
-                y_0.copy(), mean_tplus1s, sigma,
-                a_tplus1s, b_tplus1s,
-                h_tplus1s, posterior_mean,
-                posterior_variance,
-                self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.tolerance, self.tolerance2,
-                self.N)
-        t4[self.indices_where_J_1] = 0.0
-        t5 = fromb_t5_vector(
-                y_0.copy(), mean_ts, sigma,
-                a_ts, b_ts, h_ts,
-                posterior_mean,
-                posterior_variance,
-                self.cutpoints_ts,
-                self.cutpoints_tplus1s,
-                noise_variance, noise_std, self.tolerance, self.tolerance2,
-                self.N)
-        t5[self.indices_where_0] = 0.0
-        # print("t4", t4)
-        # print("t5", t5)
-        return t1, t2, t3, t4, t5
-
-    def objective(
-            self, precision_EP, posterior_mean, t1, L_cov, cov,
-            weights):
-        """
-        Calculate fx, the variational lower bound of the log marginal
-        likelihood at the EP equilibrium.
-
-        .. math::
-                \mathcal{F(\theta)} =,
-
-            where :math:`F(\theta)` is the variational lower bound of the log
-            marginal likelihood at the EP equilibrium,
-            :math:`h`, :math:`\Pi`, :math:`K`. #TODO
-
-        :arg precision_EP:
-        :type precision_EP:
-        :arg posterior_mean:
-        :type posterior_mean:
-        :arg t1:
-        :type t1:
-        :arg L_cov:
-        :type L_cov:
-        :arg cov:
-        :type cov:
-        :arg weights:
-        :type weights:
-        :returns: fx
-        :rtype: float
-        """
-        # Fill possible zeros in with machine precision
-        precision_EP[precision_EP == 0.0] = self.tolerance2
-        fx = -np.sum(np.log(np.diag(L_cov)))  # log det cov
-        fx -= 0.5 * posterior_mean.T @ weights
-        fx -= 0.5 * np.sum(np.log(precision_EP))
-        # cov = L^{-1} L^{-T}  # requires a backsolve with the identity
-        # TODO: check if there is a simpler calculation that can be done
-        fx -= 0.5 * np.sum(np.divide(np.diag(cov), precision_EP))
-        fx += np.sum(t1)
-        # Regularisation - penalise large theta (overfitting)
-        # fx -= 0.1 * self.kernel.theta
-        return -fx
-
-    def objective_gradient(
-            self, gx, intervals, theta, noise_variance,
-            t2, t3, t4, t5, cov, weights, trainables,
-            partial_K_theta, partial_K_variance):
-        """
-        Calculate gx, the jacobian of the variational lower bound of the
-        log marginal likelihood at the EP equilibrium.
-
-        .. math::
-                \mathcal{\frac{\partial F(\theta)}{\partial \theta}}
-
-            where :math:`F(\theta)` is the variational lower bound of the 
-            log marginal likelihood at the EP equilibrium,
-            :math:`\theta` is the set of hyperparameters,
-            :math:`h`, :math:`\Pi`, :math:`K`.  #TODO
-
-        :arg intervals:
-        :type intervals:
-        :arg theta: The kernel hyper-parameters.
-        :type theta: :class:`numpy.ndarray` or float.
-        :arg theta: The kernel hyper-parameters.
-        :type theta: :class:`numpy.ndarray` or float.
-        :arg t2:
-        :type t2:
-        :arg t3:
-        :type t3:
-        :arg t4:
-        :type t4:
-        :arg t5:
-        :type t5:
-        :arg cov:
-        :type cov:
-        :arg weights:
-        :type weights:
-        :return: gx
-        :rtype: float
-        """
-        if trainables is not None:
-            # Update gx
-            if trainables[0]:
-                # TODO: Doesn't work due to numerical instability, also need to check for algebraic error
-                # For gx[0] -- ln\sigma
-                # gx[0] -= 1 / np.sqrt(noise_variance) * np.sum(np.multiply(cov, self.K))
-                # gx[0] *= -0.5 * noise_variance  # This is a typo in the Chu code
-                gx[0] = np.sum(t5 - t4)
-                #gx[0] *= np.sqrt(noise_variance) / 2.0
-            # For gx[1] -- \b_1
-            if trainables[1]:
-                gx[1] = np.sum(t3 - t2)
-                gx[1] *= self.cutpoints[1]
-                print("here", gx[1])
-            # For gx[2] -- ln\Delta^r
-            for j in range(2, self.J):
-                if trainables[j]:
-                    targets = self.y_train[self.grid]
-                    gx[j] = np.sum(t3[targets == j - 1])
-                    gx[j] -= np.sum(t2[targets == self.J - 1])
-                    # TODO: check this, since it may be an `else` condition!!!!
-                    gx[j] += np.sum(t3[targets > j - 1] - t2[targets > j - 1])
-                    gx[j] *= intervals[j - 2]
-            # For gx[self.J] -- variance
-            if trainables[self.J]:
-                # For gx[self.J] -- s
-                # VC * VC * a' * partial_K_theta * a / 2
-                gx[self.J] = self.kernel.variance * 0.5 * weights.T @ partial_K_variance @ weights  # That's wrong. not the same calculation.
-                # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
-                gx[self.J] -= self.kernel.variance * 0.5 * np.sum(np.multiply(cov, partial_K_variance))
-                # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already
-                # gx[self.J] -= 0.1 * theta
-                gx[self.J] *= 2.0  # since theta = kappa / 2
-            # For gx[self.J + 1] -- theta
-            if self.kernel._ARD:
-                for d in range(self.D):
-                    if trainables[self.J + 1][d]:
-                        gx[self.J + 1 + d] = theta[d] * 0.5 * weights.T @ partial_K_theta[d] @ weights
-                        gx[self.J + 1 + d] -= theta[d] * 0.5 * np.sum(np.multiply(cov, partial_K_theta[d]))
-            else:
-                if trainables[self.J + 1]:
-                    # elif 1:
-                    #     gx[self.J + 1] = theta * 0.5 * weights.T @ partial_K_theta @ weights
-                    # TODO: This needs fixing/ checking vs original code
-                    # VC * VC * a' * partial_K_theta * a / 2
-                    gx[self.J + 1] = theta * 0.5 * weights.T @ partial_K_theta @ weights  # That's wrong. not the same calculation.
-                    # equivalent to -= theta * 0.5 * np.trace(cov @ partial_K_theta)
-                    gx[self.J + 1] -= theta * 0.5 * np.sum(np.multiply(cov, partial_K_theta))
-                    # ad-hoc Regularisation term - penalise large theta, but Occam's term should do this already
-                    # gx[self.J] -= 0.1 * theta
-        return -gx
-
-    def approximate_evidence(self, mean_EP, precision_EP, amplitude_EP, posterior_cov):
-        """
-        TODO: check and return line could be at risk of overflow
-        Compute the approximate evidence at the EP solution.
-
-        :return:
-        """
-        temp = np.multiply(mean_EP, precision_EP)
-        B = temp.T @ posterior_cov @ temp - np.multiply(
-            temp, mean_EP)
-        Pi_inv = np.diag(1. / precision_EP)
-        return (
-            np.prod(
-                amplitude_EP) * np.sqrt(np.linalg.det(Pi_inv)) * np.exp(B / 2)
-                / np.sqrt(np.linalg.det(np.add(Pi_inv, self.K))))
-
-    def compute_weights(
-            self, precision_EP, mean_EP, dlogZ_dcavity_mean,
-            L_cov=None, cov=None, numerically_stable=False):
-        """
-        TODO: There may be an issue, where dlogZ_dcavity_mean is updated
-        when it shouldn't be, on line 2045.
-
-        Compute the regression weights required for the gradient evaluation,
-        and check that they are in equilibrium with
-        the gradients of Z wrt cavity means.
-
-        A matrix inverse is always required to evaluate fx.
-
-        :arg precision_EP:
-        :arg mean_EP:
-        :arg dlogZ_dcavity_mean:
-        :arg L_cov: . Default `None`.
-        :arg cov: . Default `None`.
-        """
-        if np.any(precision_EP == 0.0):
-            # TODO: Only check for equilibrium if it has been updated in this swipe
-            warnings.warn("Some sample(s) have not been updated.\n")
-            precision_EP[precision_EP == 0.0] = self.tolerance2
-        Pi_inv = np.diag(1. / precision_EP)
-        if L_cov is None or cov is None:
-            (L_cov, lower) = cho_factor(
-                Pi_inv + self.K)
-            L_covT_inv = solve_triangular(
-                L_cov.T, np.eye(self.N), lower=True)
-            # TODO It is necessary to do this triangular solve to get
-            # diag(cov) for the lower bound on the marginal likelihood
-            # calculation. Note no tf implementation for diag(A^{-1}) yet.
-            cov = solve_triangular(L_cov, L_covT_inv, lower=False)
-        if numerically_stable:
-            # This is 3-4 times slower on CPU,
-            # what about with jit compiled CPU or GPU?
-            # Is this ever more stable than a matmul by the inverse?
-            g = cho_solve((L_cov, False), mean_EP)
-            weight = cho_solve((L_cov.T, True), g)
-        else:
-            weight = cov @ mean_EP
-        if np.any(
-            np.abs(weight - dlogZ_dcavity_mean) > np.sqrt(self.tolerance)):
-            warnings.warn("Fatal error: the weights are not in equilibrium wit"
-                "h the gradients".format(
-                    weight, dlogZ_dcavity_mean))
-        return weight, precision_EP, L_cov, cov
 
 
 class PEPGP(Approximator):
@@ -1662,200 +1212,44 @@ class PEPGP(Approximator):
         """
         Update prior covariances with inducing points.
         """
-        # # # Use full GP
+        # Use full GP
         self.M = self.N
-        # self.Z = self.X_train
-        # warnings.warn(
-        #     "Updating prior covariance")
+        warnings.warn(
+            "Updating prior covariance")
         self.Kuu = self.kernel.kernel_matrix(self.X_train, self.X_train)
         self.K = self.Kuu
         self.Kfu = self.Kuu
         self.Kfdiag = self.kernel.kernel_prior_diagonal(self.X_train)
-        # (self.L_K, lower) = cho_factor(self.Kuu + self.epsilon * np.eye(self.N))
-        # L_KT_inv = solve_triangular(
-        #     self.L_K.T, np.eye(self.N), lower=True)
-        # self.Kuuinv = solve_triangular(self.L_K, L_KT_inv, lower=False)
+        # self.Kuuinv, self.L_K = matrix_inverse(self.Kuu + self.epsilon * np.eye(self.N))
         self.KuuinvKuf = np.eye(self.N)
-        # self.partial_K_theta = self.kernel.kernel_partial_derivative_theta(
-        #     self.X_train, self.X_train)
-        # self.partial_K_variance = self.kernel.kernel_partial_derivative_variance(
-        #     self.X_train, self.X_train)
-        # warnings.warn(
-        #     "Done updating prior covariance")
+        self.partial_K_theta = self.kernel.kernel_partial_derivative_theta(
+            self.X_train, self.X_train)
+        self.partial_K_variance = self.kernel.kernel_partial_derivative_variance(
+            self.X_train, self.X_train)
+        warnings.warn(
+            "Done updating prior covariance")
 
-    def _update_posterior(self, mean_EP, variance_EP):
-        means = mean_EP[:, 0]
-        variances = variance_EP[:, 0]
-
-        T2u = np.diag(1./ variances)
-
-        # stds = np.sqrt(variances)
-        # Lambda_halfinv = np.diag(1./stds)
-        # Lambda_half = np.diag(stds)
-        # Lambda = np.diag(variances)
-        # (L, lower) = cho_factor(Lambda_halfinv @ self.Kuu @ Lambda_halfinv +
-        #     np.eye(self.M))
-        # LTinv = solve_triangular(L.T, np.eye(self.M), lower=True)
-        # Ainv = solve_triangular(L, LTinv, lower=False)
-        # V = Lambda - Lambda_half @ Ainv @ Lambda_half
-        # cov = Lambda_halfinv @ Ainv @ Lambda_halfinv
-        # T1u = means / variances
-        # m = V @ T1u
-        # gamma = cov @ means
-        # beta = cov
-
-        Lambda = np.diag(variances)
-        (L, lower) = cho_factor(
-            self.Kuu + Lambda)
-        half_log_det_cov = -2 * np.sum(np.log(np.diag(L)))
-        LTinv = solve_triangular(L.T, np.eye(self.M), lower=True)
-        cov = solve_triangular(L, LTinv, lower=False)
-        gamma = cov @ means
-        beta = cov
-        # V = Lambda - Lambda @ cov @ Lambda
-        # T1u = means / variances
-        # m = V @ T1u
-
-        # V = matrixInverse(Vinv)
-        #half_log_det_V = 0
-        # # half_log_det_V = np.sum(np.log(np.diag(L_Vinv)))  # TODO: check this is the case
-        # Vinv = self.Kuuinv + T2u
-        # T2u = (self.KuuinvKuf / variances) @ self.KuuinvKuf.T
-        # T1u = self.KuuinvKuf @ (means / variances)
-        # m = V @ T1u
-        # gamma = self.Kuuinv @ m
-        # beta = self.Kuuinv @ (self.Kuu - V) @ self.Kuuinv
-        return gamma, beta
-
-    def _update_pep_variables(self, Kuuinv, posterior_mean, posterior_cov):
-        """TODO: collapse"""
-        return Kuuinv @ posterior_mean, Kuuinv @ (Kuuinv - posterior_cov)
-
-    def _compute_posterior(self, Kuu, gamma, beta):
-        """TODO: collapse"""
-        return Kuu @ gamma, Kuu - Kuu @ (beta @ Kuu)
-
-    def _compute_phi_mvg(self, m, V):
-        """TODO: does this need a numerically stable version."""
-        (L_V, lower) = cho_factor(V + self.epsilon * np.eye(np.shape(V)[0]))
-        half_log_det_V = - np.sum(np.log(np.diag(L_V)))
-        L_VT_inv = solve_triangular(
-            L_V.T, np.eye(self.M), lower=True)
-        V_inv = solve_triangular(L_V, L_VT_inv, lower=False)
-        return half_log_det_V + 0.5 * m.T @ V_inv @ m + 0.5 * self.M * np.log(2 * np.pi)
-
-    def _delete(
-            self, p_i, k_i, alpha, beta, gamma, mean_i, variance_i):
-        # Note h_si for the deletion uses the non \i version of beta
-        h_si = p_i - np.dot(beta, k_i)
-        dlogZd_dmi2 = 1.0 / (variance_i / alpha - np.dot(k_i, h_si))
-        dlogZd_dmi = -dlogZd_dmi2 * (mean_i - np.dot(k_i, gamma))
-        gamma_si = gamma + h_si * dlogZd_dmi
-        beta_si = beta - np.outer(h_si, h_si)*dlogZd_dmi2
-        return beta_si, gamma_si  # , p_i, k_i, h_si
-
-    def _project(
-            self, y_i, p_i, k_i, alpha, beta_si, gamma_si, Kff_ii):
-        h = p_i - np.dot(beta_si, k_i)
-        m_si_i = np.dot(k_i, gamma_si)
-        v_si_ii = Kff_ii - np.dot(np.dot(k_i, beta_si), k_i)
-        dlogZ_dmi = probit_dlogZtilted_dm(
-            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points,
-            self.noise_variance)
-        dlogZ_dmi2 = probit_dlogZtilted_dm2(
-            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points,
-            self.noise_variance)
-        gamma_new = gamma_si + h * dlogZ_dmi
-        beta_new = beta_si - np.outer(h, h) * dlogZ_dmi2
-        return  h, m_si_i, v_si_ii, dlogZ_dmi, dlogZ_dmi2, beta_new, gamma_new
-
-    def _include(
-            self, h, m_si_i, dlogZ_dmi, dlogZ_dmi2, p_i, k_i, alpha,
-            mean_i, variance_i):
-        var_i_new = - 1.0 / dlogZ_dmi2 - np.dot(k_i, h)
-        mean_i_new = m_si_i - dlogZ_dmi / dlogZ_dmi2
-        var_new = 1 / (1 / var_i_new + 1 / variance_i * (1 - alpha))
-        mean_div_var_i_new = (mean_i_new / var_i_new + 
-                mean_i / variance_i * (1 - alpha))
-        mean_new = mean_div_var_i_new * var_new
-        return mean_new, var_new
-
-    def _compute_logZ(
-            self, p_i, alpha, beta_si, gamma_si, x_i, y_i, k_i, m_si_i,
-            v_si_ii, dlogZ_dmi):
-        (m_cav, V_cav) = self._compute_posterior(self.Kuu, gamma_si, beta_si)
-        phi_cav = self._compute_phi_mvg(m_cav, V_cav)
-        logZtilted = probit_logZtilted(
-            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points)
-        dlogZ_dvi = probit_dlogZtilted_dv(
-            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points)
-        KuuinvMcav = self.Kuuinv @ m_cav
-        dlogZtilted_dKuu_via_mi = -np.outer(dlogZ_dmi * KuuinvMcav, p_i)
-        KuuinvVcavKuuinvKufi = self.Kuuinv @ V_cav @ p_i
-        temp1 = -np.outer(KuuinvVcavKuuinvKufi, p_i*dlogZ_dvi)
-        temp2 = temp1.T
-        temp3 = np.outer(p_i, p_i*dlogZ_dvi)
-        dlogZtilted_dKuu_via_vi = temp1 + temp2 + temp3
-        dlogZtilted_dKuu = dlogZtilted_dKuu_via_mi + dlogZtilted_dKuu_via_vi
-        dlogZtilted_dKfu_via_mi = dlogZ_dmi * KuuinvMcav
-        dlogZtilted_dKfu_via_vi = 2 * dlogZ_dvi * (-p_i + KuuinvVcavKuuinvKufi)
-        dlogZtilted_dKfu = dlogZtilted_dKfu_via_mi + dlogZtilted_dKfu_via_vi
-
-        # TODO: sf and ls will exist in kernel or more likely theta. This implementation assumes ARD.
-        sf = np.log(self.kernel.variance) / 2
-        ls = np.log(self.kernel.theta) / 2
-
-        dlogZtilted_dsf = (2*np.sum(dlogZtilted_dKfu * k_i) 
-                + 2*dlogZ_dvi*np.exp(2*sf))
-        ls2 = np.exp(2*ls)  # TODO BB if ls is log ell then this is exp(ell^2)
-        ones_M = np.ones((self.M, ))
-        ones_D = np.ones((self.D, ))
-        # TODO: I think this may be a kernel calculation.
-        xi_minus_zu = np.outer(ones_M, x_i) - self.Z
-        temp1 = np.outer(k_i, ones_D) * 0.5 * xi_minus_zu**2
-        dlogZtilted_dls = 2*np.dot(dlogZtilted_dKfu, temp1) * 1.0 / ls2
-        temp2 = xi_minus_zu * np.outer(ones_M, 1.0 / ls2 )
-        dlogZtilted_dzu = np.outer(dlogZtilted_dKfu * k_i, ones_D) * temp2
-        dlogZtilted_dsn = probit_dlogZtilted_dsn(
-            y_i, m_si_i, v_si_ii, alpha, self.gauss_hermite_points)
-        dlogZtilted = 0
-        # dlogZtilted = {
-        #         'ls': dlogZtilted_dls, 
-        #         'sf': dlogZtilted_dsf,
-        #         'sn': dlogZtilted_dsn, 
-        #         'zu': dlogZtilted_dzu, 
-        #         'Kuu': dlogZtilted_dKuu}
-        return logZtilted, dlogZtilted, phi_cav
-
-    # def run_pep(self, indices, no_ep_sweeps,
-    #         beta=None, gamma=None, mean_EP=None, variance_EP=None, write=False,
-    #         sequential=False):
-    #     if sequential:
-    #         return self.run_pep_sequential(indices, no_ep_sweeps,
-    #             beta, gamma, mean_EP, variance_EP, write)
-    #     else:
-    #         return self.run_pep_parallel(indices, no_ep_sweeps,
-    #             beta, gamma, mean_EP, variance_EP, write)
-
-    def run_pep_sequential(
-            self, indices, n_sweeps,
-            beta, gamma, mean_EP, variance_EP, write):
-        for _ in range(n_sweeps):
-            (error, beta, gamma, mean_EP, variance_EP,
-                log_lik, grads_logZtilted) = self.approximate_sequential(
-                indices, beta_0=beta, gamma_0=gamma, mean_EP_0=mean_EP,
-                variance_EP_0=variance_EP, write=write)
-        return (error, beta, gamma, mean_EP, variance_EP,
-            log_lik, grads_logZtilted)
-
-    def run_pep_parallel(
-            self, indices, n_sweeps,
-            beta, gamma, mean_EP, variance_EP, write):
-        for _ in range(n_sweeps):
-            (error, beta, gamma, mean_EP, variance_EP, log_lik,
-                grads_logZtilted) = self.approximate_parallel(
-                    indices, beta_0=beta, gamma_0=gamma, mean_EP_0=mean_EP,
-                    variance_EP_0=variance_EP, write=write)
+    def approximate(
+            self, sequential, indices, steps, beta_0, gamma_0, mean_EP_0,
+            variance_EP_0, write):
+        if sequential:
+            for _ in range(steps):
+                (beta, gamma, mean_EP, variance_EP, log_lik, grads_logZtilted,
+                containers, error) = self._approximate_initiate(
+                    beta_0, gamma_0, mean_EP_0, variance_EP_0)
+                (error, beta, gamma, mean_EP, variance_EP,log_lik,
+                    grads_logZtilted) = update_posterior_sequential_PEP(
+                        indices, beta_0=beta, gamma_0=gamma, mean_EP_0=mean_EP,
+                        variance_EP_0=variance_EP, write=write)
+        else:
+            for _ in range(steps):
+                (beta, gamma, mean_EP, variance_EP, log_lik, grads,
+                    containers, error) = self._approximate_parallel_initiate(
+                    beta_0, gamma_0, mean_EP_0, variance_EP_0)
+                (error, beta, gamma, mean_EP, variance_EP, log_lik,
+                    grads_logZtilted) = update_posterior_parallel_PEP(
+                        indices, beta_0=beta, gamma_0=gamma, mean_EP_0=mean_EP,
+                        variance_EP_0=variance_EP, write=write)
         return (error, beta, gamma, mean_EP, variance_EP,
             log_lik, grads_logZtilted)
 
@@ -1953,341 +1347,11 @@ class PEPGP(Approximator):
         return (beta_0, gamma_0, mean_EP_0, variance_EP_0,
             log_like_0, grads_0, containers, error)
 
-    def compute_logZ_parallel(self, beta_si, gamma_si, betacavKuu,
-            V, Vinv, m, var_new_parallel, mean_new_parallel, p_i, k_i, m_si_i,
-            v_si_ii, logZtilted, Xbatch, ybatch, dlogZ_dmi, dlogZ_dvi):
-         # compute cavity covariance
-        betacavKuu = np.einsum('abc,cd->abd', beta_si, self.Kuu)
-        mcav = np.einsum('bc,acd->abd', self.Kuu, gamma_si)
-        Vcav = self.Kuu - np.einsum('bc,acd->abd', self.Kuu, betacavKuu)
-
-        signV, logdetV = np.linalg.slogdet(V)
-        signKuu, logdetKuu = np.linalg.slogdet(self.Kuu)
-        Vinvm = np.dot(Vinv, m)
-        term1 = 0.5 * (logdetV - logdetKuu + np.dot(m, Vinvm))
-
-        tn = 1.0 / var_new_parallel
-        gn = mean_new_parallel
-        wnVcav = np.einsum('abc,abd->adc', p_i, Vcav)
-        wnVcavwn = np.einsum('abc,abd->ac', wnVcav, p_i)
-        wnVcavVinvm = np.sum(wnVcav * Vinvm[:, self.newaxis], axis=1)
-        wnV = np.einsum('abc,bd->adc', p_i, V)
-        wnVwn = np.sum(wnV * p_i, axis=1)
-        mwn = np.einsum('b,abc->ac', m, p_i)
-        oneminuswnVwn = 1 - self.alpha * tn * wnVwn
-
-        term2a = 0.5 * self.alpha * tn**2 * gn**2 * wnVcavwn
-        term2b = - gn * tn * wnVcavVinvm
-        term2c = 0.5 * tn * mwn**2 / oneminuswnVwn
-        term2d = -0.5 / self.alpha * np.log(oneminuswnVwn)
-        term2 = self.N / self.minibatch_size * np.sum(
-            term2a + term2b + term2c + term2d)
-
-        scale_logZtilted = self.N / self.minibatch_size / self.alpha
-        term3 = scale_logZtilted * np.sum(logZtilted)
-
-        log_lik = term1 + term2 + term3
-
-        KuuinvMcav = np.einsum('bc,acd->abd', self.Kuuinv, mcav)
-        dlogZt_dmiKuuinvMcav = dlogZ_dmi[:, self.newaxis, :] * KuuinvMcav
-        dlogZt_dKuu_via_mi = -np.einsum('abc,adc->abd', dlogZt_dmiKuuinvMcav, p_i)
-        
-        VcavKuuinvKufi = np.einsum('abc,acd->abd', Vcav, p_i)
-        KuuinvVcavKuuinvKufi = np.einsum('bc,acd->abd', self.Kuuinv, VcavKuuinvKufi)
-        p_idlogZ_dvi = p_i * dlogZ_dvi[:, self.newaxis, :]
-        temp1 = - np.einsum('abc,adc->abd', KuuinvVcavKuuinvKufi, p_idlogZ_dvi)
-        temp2 = np.transpose(temp1, [0, 2, 1])
-        temp3 = np.einsum('abc,adc->abd', p_i, p_idlogZ_dvi)
-        dlogZt_dKuu_via_vi = temp1 + temp2 + temp3
-        dlogZt_dKuu = np.sum(dlogZt_dKuu_via_mi + dlogZt_dKuu_via_vi, axis=0)
-
-        dlogZt_dKfu_via_mi = dlogZt_dmiKuuinvMcav
-        dlogZt_dKfu_via_vi = 2 * dlogZ_dvi[:, self.newaxis, :] * (-p_i + KuuinvVcavKuuinvKufi)
-        dlogZt_dKfu = dlogZt_dKfu_via_mi + dlogZt_dKfu_via_vi
-        dlogZt_dsf = (2*np.sum(dlogZt_dKfu * k_i) 
-            + 2*np.sum(dlogZ_dvi*np.exp(2*self.sf)))
-        ls2 = np.exp(2*self.ls)
-        ones_M = np.ones((self.minibatch_size, self.M))
-        ones_D = np.ones((self.minibatch_size, self.D))
-        xi_minus_zu = np.einsum('km,kd->kmd', ones_M, Xbatch) - self.zu
-        
-        temp1 = np.einsum('kma,kd->kmd', k_i, ones_D) * 0.5 * xi_minus_zu**2
-        dlogZt_dls = 2.0*np.sum(dlogZt_dKfu * temp1) / ls2
-        temp2 = xi_minus_zu * np.einsum('km,d->kmd', ones_M, 1.0 / ls2 )
-        dlogZt_dzu = np.sum(np.einsum('kma,kd->kmd', dlogZt_dKfu * k_i, ones_D) * temp2, axis=0)
-
-        dlogZt_dsn = 0
-        for i in range(m_si_i.shape[0]):
-            dlogZt_dsn += self.dlogZtilted_dsn(ybatch[i], m_si_i[i], 
-                v_si_ii[i], self.alpha)
-
-        self.log_lik = log_lik
-
-        # compute the gradients
-        Vmm = V + np.outer(m, m)
-        S = - self.Kuuinv + np.dot(
-            self.Kuuinv, np.dot(Vmm, self.Kuuinv))
-        S = S + 2*scale_logZtilted * dlogZt_dKuu
-        dhyp = d_trace_MKzz_dhypers(2*self.ls, 2*self.sf, self.zu, S, self.Kuu)
-        grads = {
-            'ls': dhyp[1] + scale_logZtilted * dlogZt_dls,
-            'sf': dhyp[0] + scale_logZtilted * dlogZt_dsf,
-            'sn': scale_logZtilted * dlogZt_dsn, 
-            'zu': dhyp[2]/2 + scale_logZtilted * dlogZt_dzu} 
-        return log_lik, grads
-
-    def approximate_parallel(
-            self, indices, beta_0=None, gamma_0=None, mean_EP_0=None,
-            variance_EP_0=None, write=False):
-        """Approximate with parallel PEP."""
-        (beta, gamma, mean_EP, variance_EP, log_lik, grads,
-        containers, error) = self._approximate_parallel_initiate(
-        beta_0, gamma_0, mean_EP_0, variance_EP_0)
-        (betas, gammas, mean_EPs, variance_EPs) = containers
-
-        ## minibatch
-        # Kfu = self.Kfu[indices, :]
-        # KuuinvKuf = self.KuuinvKuf[:, indices]
-        # Kff_diag = self.Kfdiag[indices]
-
-        # Full dataset
-        Kfu = self.Kfu
-        KuuinvKuf = self.KuuinvKuf
-        Kff_diag = self.Kfdiag
-
-        # perform parallel updates
-        # deletion
-        p_i = KuuinvKuf[:, :, np.newaxis].transpose((1, 0, 2))
-        k_i = Kfu[:, :, np.newaxis] 
-        k_ii = Kff_diag[:, np.newaxis]
-
-        gamma_new_axis = gamma[:, np.newaxis]
-        h_si = p_i - np.einsum('ab,kbc->kac', beta, k_i)
-        variance_i_ori = variance_EP[indices, :]
-        variance_i = variance_i_ori[:, :, np.newaxis]
-        mean_i_ori = mean_EP[indices, :]
-        mean_i = mean_i_ori[:, :, np.newaxis]
-        dlogZd_dmi2 = 1.0 / (variance_i / self.alpha - 
-            np.sum(k_i * h_si, axis=1, keepdims=True))
-        dlogZd_dmi = -dlogZd_dmi2 * (mean_i - 
-            np.sum(k_i * gamma_new_axis, axis=1, keepdims=True))
-        hd1 = h_si * dlogZd_dmi
-        hd2h = np.einsum('abc,adc->abd', h_si, h_si) * dlogZd_dmi2
-        gamma_si = gamma_new_axis + hd1
-        beta_si = beta - hd2h
-
-        # projection
-        h = p_i - np.einsum('abc,acd->abd', beta_si, k_i)
-        m_si_i = np.einsum('abc,abc->ac', k_i, gamma_si)
-        v_si_ii = k_ii - np.einsum('abc,abd,adc->ac', k_i, beta_si, k_i)
-
-        # ## Ordinal likelihood
-        # cutpoints_tplus1s = self.cutpoints_tplus1s[indices, np.newaxis]
-        # cutpoints_ts = self.cutpoints_ts[indices, np.newaxis]
-        # dlogZ_dmi = ordinal_dlogZtilted_dm_vector(
-        #     cutpoints_tplus1s, cutpoints_ts, self.noise_std,
-        #     m_si_i, v_si_ii,
-        #     self.alpha, self.gauss_hermite_points)
-        # dlogZ_dmi2 = ordinal_dlogZtilted_dm2_vector(
-        #     cutpoints_tplus1s, cutpoints_ts, self.noise_std,
-        #     m_si_i, v_si_ii,
-        #     self.alpha, self.gauss_hermite_points)
-        # dlogZ_dmi = dlogZ_dmi.reshape(-1, 1)
-        # dlogZ_dmi2 = dlogZ_dmi2.reshape(-1, 1)
-
-        # Bernoulli likelihood
-        ybatch = (2 * self.y_train[indices, np.newaxis]) - 1
-        dlogZ_dmi = probit_dlogZtilted_dm_vector(ybatch, m_si_i, v_si_ii,
-            self.alpha, self.gauss_hermite_points, self.noise_variance)
-        dlogZ_dmi2 = probit_dlogZtilted_dm2_vector(ybatch, m_si_i, v_si_ii,
-            self.alpha, self.gauss_hermite_points, self.noise_variance)
-        dlogZ_dmi = dlogZ_dmi.reshape(-1, 1)
-        dlogZ_dmi2 = dlogZ_dmi2.reshape(-1, 1)
-
-        # # TODO: SS
-        # ybatch = (2 * self.y_train[indices, np.newaxis]) - 1
-        # dlogZ_dmi = np.zeros(m_si_i.shape)
-        # dlogZ_dmi2 = np.zeros(m_si_i.shape)
-        # #dlogZ_dvi = np.zeros(m_si_i.shape)
-        # #logZtilted = np.zeros(m_si_i.shape)
-
-        # for i in range(len(indices)):
-        #     m_ii = m_si_i[i, 0]
-        #     v_ii = v_si_ii[i, 0]
-        #     y_ii = ybatch[i]
-
-        #     # logZtilted[i] = probit_logZtilted(
-        #     #     y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points,
-        #     #     self.noise_std)
-        #     dlogZ_dmi[i] = probit_dlogZtilted_dm(
-        #         y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points,
-        #         self.noise_std)
-        #     dlogZ_dmi2[i] = probit_dlogZtilted_dm2(
-        #         y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points,
-        #         self.noise_std)
-        #     # dlogZ_dvi[i] = probit_dlogZtilted_dv(
-        #     #     y_ii, m_ii, v_ii, self.alpha, self.gauss_hermite_points)
-
-        var_i_new = -1.0 / dlogZ_dmi2 - np.sum(k_i * h, axis=1)
-        mean_i_new = m_si_i - dlogZ_dmi / dlogZ_dmi2
-
-        var_new_parallel = 1 / (1 / var_i_new + 1 / variance_i_ori * (
-            1 - self.alpha))
-        mean_div_var_i_new = (mean_i_new / var_i_new + 
-            mean_i_ori / variance_i_ori * (1 - self.alpha))
-
-        mean_new_parallel = mean_div_var_i_new * var_new_parallel
-
-        rho = 0.5 # damped - more numerically stable in some circumstances
-        # rho = 1.0  # undamped - probably best. What about underdamped tho?
-        
-        n1_new = 1.0 / var_new_parallel
-        n2_new = mean_new_parallel / var_new_parallel
-
-        n1_ori = 1.0 / variance_i_ori
-        n2_ori = mean_i_ori / variance_i_ori
-
-        n1_damped = rho * n1_new + (1.0 - rho) * n1_ori
-        n2_damped = rho * n2_new + (1.0 - rho) * n2_ori
-
-        var_new_parallel = 1.0 / n1_damped
-        mean_new_parallel = var_new_parallel * n2_damped 
-
-        if np.any(var_new_parallel < 0):
-            # skip this update
-            error = np.inf
-            print("SKIP")
-        else:
-            # update means and variances
-            mean_EP[indices, :] = mean_new_parallel
-            variance_EP[indices, :] = var_new_parallel
-            # update gamma and beta
-            # TODO: not sure why it requires a matrix inverse at every step
-            # TODO: why necessary to calculate m, V here?
-            (gamma, beta, *_) = self._update_posterior(mean_EP, variance_EP)
-            diff_mean = mean_new_parallel[:, 0] - mean_i_ori[:, 0]
-            error = (diff_mean.T @ diff_mean)**2
-            if write:
-                # log_lik, grads = self._compute_logZ_parallel()
-                grads = 0
-        # except (RuntimeWarning, np.linalg.linalg.LinAlgError):
-        #         print("exception: ignore this update")
-        #         mean_new_parallel = mean_i_ori
-        #         var_new_parallel = variance_i_ori
-        #         error = True
-        # need to return m, V as well. something confusing about this.
-        return (error, beta, gamma, mean_EP, variance_EP, log_lik, grads)
-
-    def approximate_sequential(
-            self, indices, beta_0=None, gamma_0=None,
-            mean_EP_0=None, variance_EP_0=None, write=False):
-        """
-        Estimating the posterior means and posterior covariance (and marginal
-        likelihood) via Expectation propagation iteration as written in
-        Appendix B Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes
-        for Ordinal Regression.. Journal of Machine Learning Research. 6.
-        1019-1041.
-
-        EP does not attempt to learn a posterior distribution over
-        hyperparameters, but instead tries to approximate
-        the joint posterior given some hyperparameters. The hyperparameters
-        have to be optimized with model selection step.
-
-        :arg indices: The set of indices of the data in this swipe.
-            Could be e.g., a minibatch, the whole dataset.
-        :type indices: :class:`numpy.ndarray`
-        :arg posterior_mean_0: The initial state of the approximate posterior
-            mean (N,). If `None` then initialised to zeros, default `None`.
-        :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg posterior_cov_0: The initial state of the posterior covariance
-            (N, N). If `None` then initialised to prior covariance,
-            default `None`.
-        :type posterior_cov_0: :class:`numpy.ndarray`
-        :arg mean_EP_0: The initial state of the individual (site) mean (N,).
-            If `None` then initialised to zeros, default `None`.
-        :type mean_EP_0: :class:`numpy.ndarray`
-        :arg precision_EP_0: The initial state of the individual (site)
-            variance (N,). If `None` then initialised to zeros, default `None`.
-        :type precision_EP_0: :class:`numpy.ndarray`
-        :arg amplitude_EP_0: The initial state of the individual (site)
-            amplitudes (N,). If `None` then initialised to ones, default
-            `None`.
-        :type amplitude_EP_0: :class:`numpy.ndarray`
-        :arg bool fix_hyperparameters: Must be `True`, since the hyperparameter
-            approximate posteriors are of the hyperparameters are not
-            calculated in this EP approximation.
-        :arg bool write: Boolean variable to compute and store the gradient
-            of the tilted distribution with respect to the hyperparameters
-            and the log normalizer of interest, logZ. If set to "True", the
-            method will output non-empty logZtilted and dlogZ_cavity_mean_n.
-
-            containers of evolution of the statistics over the steps.
-            If set to "False", statistics will not be written and those
-            containers will remain empty.
-        :return: approximate posterior mean and covariances.
-        :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
-            posterior means, other statistics and tuple of lists of per-step
-            evolution of those statistics.
-        """
-        (beta, gamma, mean_EP, variance_EP, log_lik, grads_logZtilted,
-            containers, error) = self._approximate_initiate(
-            beta_0, gamma_0, mean_EP_0, variance_EP_0)
-        (betas, gammas, mean_EPs, variance_EPs) = containers
-        for index in indices:
-            x_i = self.X_train[index]
-            y_i = 2 * self.y_train[index] - 1
-            p_i = self.KuuinvKuf[:, index]
-            k_i = self.Kfu[index, :]
-            K_ii = self.Kfdiag[index]
-            variance_EP_n_old = variance_EP[index]
-            mean_EP_n_old = mean_EP[index]
-            (beta_si, gamma_si)= self._delete(
-                p_i, k_i, self.alpha, beta, gamma,
-                mean_EP_n_old, variance_EP_n_old)
-            (h, m_si_i, v_si_ii, dlogZ_dmi, dlogZ_dmi2, beta_new,
-                    gamma_new) = self._project(
-                y_i, p_i, k_i, self.alpha, beta_si, gamma_si, K_ii)
-            mean_EP_n, variance_EP_n = self._include(
-                h, m_si_i, dlogZ_dmi, dlogZ_dmi2, p_i, k_i, self.alpha,
-                mean_EP_n_old, variance_EP_n_old)
-            #diff = variance_EP_n - variance_EP_n_old
-            if variance_EP_n > 0.0:
-                # Update EP parameters
-                error += (mean_EP_n - mean_EP_n_old)**2
-                variance_EP[index] = variance_EP_n
-                mean_EP[index] = mean_EP_n
-                beta = beta_new
-                gamma = gamma_new
-                if write:
-                    logZtilted, dlogZtilted, phi_cav = self._compute_logZ(
-                        p_i, self.alpha, beta_si, gamma_si,
-                        x_i, y_i, k_i, m_si_i, v_si_ii, dlogZ_dmi)
-                    log_lik += logZtilted + phi_cav
-                    grads_logZtilted += dlogZtilted
-            else:
-                pass
-                ############### Update them anyway. There is an issue with stability here possibly.
-                # Update EP parameters
-                # error += (diff**2
-                #           + (mean_EP_n - mean_EP_n_old)**2)
-                # variance_EP[index] = variance_EP_n
-                # mean_EP[index] = mean_EP_n
-                # beta = beta_new
-                # gamma = gamma_new
-                ###############
-                # if variance_EP_n < 0.0:
-                #     print(
-                #         "Skip {}, v_new={}, v_old={}.\n".format(
-                #         index, variance_EP_n, variance_EP_n_old))
-        containers = (betas, gammas, mean_EPs, variance_EPs)
-        return (error, beta, gamma, mean_EP, variance_EP,
-                log_lik, grads_logZtilted)
-
     def approximate_posterior(
             self, phi, trainables, steps, verbose=False,
             return_reparameterised=None,
             beta_0=None, gamma_0=None,
-            mean_EP_0=None, variance_EP_0=None):
+            mean_EP_0=None, variance_EP_0=None, sequential=False):
         """
         Optimisation routine for hyperparameters.
 
@@ -2326,358 +1390,33 @@ class PEPGP(Approximator):
         while error / (steps * self.N) > self.tolerance2:
             iteration += 1
             (error, beta, gamma, mean_EP, variance_EP,
-                log_lik, grads) = self.run_pep_parallel(
-            indices, steps, beta=beta, gamma=gamma,
-            mean_EP=mean_EP, variance_EP=variance_EP, write=False)
+                log_lik, grads) = self.approximate(
+            sequential, indices, steps, beta_0=beta, gamma_0=gamma,
+            mean_EP_0=mean_EP, variance_EP_0=variance_EP, write=False)
             print("{}/iterations, error={}".format(iteration, error))
         # Compute posterior TODO: does it need to be done twice?
         (posterior_mean, posterior_cov) = self._compute_posterior(
             self.Kuu, gamma, beta)
-        fx = 0
-        if return_reparameterised is True:
-            return fx, gx, gamma, (beta, True)
-        elif return_reparameterised is False:
-            return fx, gx, posterior_mean, (posterior_cov, False)
-        elif return_reparameterised is None:
-            fx = self.objective(self.N, self.alpha, self.minibatch_size,
-                posterior_mean, posterior_cov, log_lik)
-            if self.kernel._ARD:
-                gx = np.zeros(1 + self.J - 1 + 1 + self.D)
-            else:
-                gx = np.zeros(1 + self.J - 1 + 1 + 1)
-            gx = self.objective_gradient(
-                gx, trainables)
-            gx = gx[gx_where]
-            if verbose:
-                print(
-                "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
-                "\nfunction_eval={}, \nfunction_grad={}".format(
-                    self.cutpoints, self.kernel.theta, self.noise_variance,
-                    self.kernel.variance, fx, gx))
-            return fx, gx
-
-    def approximate_posterior_(
-            self, phi, trainables, steps, verbose=False,
-            return_reparameterised=None, beta_0=None, gamma_0=None,
-            mean_EP_0=None, variance_EP_0=None):
-        """
-        Optimisation routine for hyperparameters.
-
-        :arg phi: (log-)hyperparameters to be optimised.
-        :type phi:
-        :arg trainables:
-        :type trainables:
-        :arg steps:
-        :type steps:
-        :arg posterior_mean_0:
-        :type posterior_mean_0:
-        :arg return_reparameterised:
-        :type return_reparameterised:
-        :arg posterior_cov_0:
-        :type posterior_cov_0:
-        :arg mean_EP_0:
-        :type mean_EP_0:
-        :arg precision_EP_0:
-        :type precision_EP_0:
-        :arg amplitude_EP_0:
-        :type amplitude_EP_0:
-        :arg bool write:
-        :arg bool verbose:
-        :return: fx the objective and gx the objective gradient
-        """
-        # Update prior covariance and get hyperparameters from phi
-        (intervals, error, iteration, gx_where,
-        gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables, verbose=verbose)
-        beta = beta_0
-        gamma = gamma_0
-        mean_EP = mean_EP_0
-        variance_EP = variance_EP_0
-        # random permutation of data
-        indices = np.arange(self.N)
-        while error / (steps * self.N) > self.tolerance2:
-        #for _ in range(10):
-            iteration += 1
-            (error, beta, gamma, mean_EP, variance_EP,
-                log_lik, grads_logZtilted) = self.run_pep_sequential(
-            indices, steps, beta=beta, gamma=gamma,
-            mean_EP=mean_EP, variance_EP=variance_EP, write=False)
-            print("{}/iterations, error={}".format(iteration, error))
-        # TODO: Why not just directly calculate gradients given states
-        # TODO: A: because it requires a whole loop
-        # Compute gradients of the hyperparameters
-        # (error, beta, gamma, mean_EP, variance_EP,
-        #         log_lik, grads_logZtilted) = self.run_pep_sequential(
-        #     indices, steps, beta=beta, gamma=gamma,
-        #     mean_EP=mean_EP, variance_EP=variance_EP, write=True)
-        # Compute posterior TODO: does it need to be done twice?
-        fx = 0
-        (posterior_mean, posterior_cov) = self._compute_posterior(
-            self.Kuu, gamma, beta)
-        if return_reparameterised is True:
-            return fx, gx, gamma, (beta, True)
-        elif return_reparameterised is False:
-            return fx, gx, posterior_mean, (posterior_cov, False)
-        elif return_reparameterised is None:
-            fx = self.objective(self.N, self.alpha, self.minibatch_size,
-                posterior_mean, posterior_cov, log_lik)
-            if self.kernel._ARD:
-                gx = np.zeros(1 + self.J - 1 + 1 + self.D)
-            else:
-                gx = np.zeros(1 + self.J - 1 + 1 + 1)
-            gx = self.objective_gradient(
-                gx, trainables)
-            gx = gx[gx_where]
-            if verbose:
-                print(
-                    "\ncutpoints={}, noise_variance={}, "
-                    "theta={}\nfunction_eval={}".format(
-                        self.cutpoints, self.noise_variance,
-                        self.kernel.theta, fx))
-            return fx, gx
-
-    def objective(
-            self, N, alpha, minibatch_size,
-            posterior_mean, posterior_cov, log_lik):
-        """
-        Calculate fx, the variational lower bound of the log marginal
-        likelihood at the EP equilibrium.
-
-        .. math::
-                \mathcal{F(\theta)} =,
-
-            where :math:`F(\theta)` is the PEP approximation of the log
-            marginal likelihood at the PEP equilibrium,
-            :math:`K`. #TODO
-
-        :arg weight: 
-        :arg precision:
-        :arg L_cov:
-        :arg Z:
-
-        :returns: fx
-        :rtype: float
-        """
-        scale_logZ_tilted = N * 1.0 / minibatch_size / alpha
-        log_lik = log_lik * scale_logZ_tilted
-        phi_pos = self._compute_phi_mvg(posterior_mean, posterior_cov)
-        phi_prior = self._compute_phi_mvg(
-            np.zeros(posterior_mean.shape), self.Kuu)
-        scale_post = -N * 1.0 / alpha + 1.0
-        log_lik += scale_post * phi_pos - phi_prior
-        return log_lik
-
-    def objective_gradient(self, gx, trainables):
-        """
-        Calculate gx, the jacobian of the variational lower bound of the
-        log marginal likelihood at the EP equilibrium.
-
-        .. math::
-                \mathcal{\frac{\partial F(\theta)}{\partial \theta}}
-
-            where :math:`F(\theta)` is the approximate log marginal likelihood
-            at the EP equilibrium,
-        """
-        if trainables is not None:
-            # Update gx
-            if trainables[0]:
-                gx[0] = 0
-            # For gx[1] -- \b_1
-            if trainables[1]:
-                gx[1] = 0
-            # For gx[2] -- ln\Delta^r
-            for j in range(2, self.J):
-                if trainables[j]:
-                    gx[j] = 0
-            # For gx[self.J] -- variance
-            if trainables[self.J]:
-                # For gx[self.J] -- s
-                gx[self.J] = 0
-            # For gx[self.J + 1] -- theta
-            if self.kernel._ARD:
-                for d in range(self.D):
-                    if trainables[self.J + 1][d]:
-                        gx[self.J + 1 + d] = 0
-            else:
-                if trainables[self.J + 1]:
-                    gx[self.J + 1] = 0
-        return -gx
-
-
-class LaplaceGP(Approximator):
-    """
-    A GP classifier for ordinal likelihood using the Laplace
-    approximation.
-
-    Inherits the Approximator ABC.
-
-    Evidence maximization algorithm as written in Appendix A
-    Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes for Ordinal
-    Regression.. Journal of Machine Learning Research. 6. 1019-1041.
-
-    This class allows users to define a classification problem and get
-    predictions using approximate Bayesian inference. It is for ordinal
-    likelihood.
-
-    For this a :class:`probit.kernels.Kernel` is required for the Gaussian
-    Process.
-    """
-    def __repr__(self):
-        """
-        Return a string representation of this class, used to import the class
-        from the string.
-        """
-        return "LaplaceGP"
-
-    def __init__(
-            self, cutpoints, noise_variance, *args, **kwargs):
-        """
-        Create an :class:`LaplaceGP` Approximator object.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to one, default `None`.
-
-        :returns: An :class:`EPGP` object.
-        """
-        super().__init__(*args, **kwargs)
-        # Initiate hyperparameters
-        self.hyperparameters_update(
-            cutpoints=cutpoints, noise_variance=noise_variance)
-
-    def _approximate_initiate(
-            self, posterior_mean_0=None):
-        """
-        Initialise the Approximator.
-
-        Need to make sure that the prior covariance is changed!
-
-        :arg int steps: The number of steps in the Approximator.
-        :arg posterior_mean_0: The initial state of the posterior mean (N,). If
-             `None` then initialised to zeros, default `None`.
-        :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg psi_0: Initialisation of hyperhyperparameters. If `None`
-            then initialised to ones, default `None`.
-        :type psi_0: :class:`numpy.ndarray` or float
-        :return: Containers for the approximate posterior means of parameters and
-            hyperparameters.
-        :rtype: (12,) tuple.
-        """
-        if posterior_mean_0 is None:
-            posterior_mean_0 = self.cutpoints_ts.copy()
-            posterior_mean_0[self.indices_where_0] = self.cutpoints_tplus1s[
-                self.indices_where_0]
-        error = 0.0
-        posterior_means = []
-        containers = (posterior_means)
-        return (posterior_mean_0, containers, error)
-
-    def approximate(
-            self, steps, posterior_mean_0=None, write=False):
-        """
-        Estimating the posterior means and posterior covariance (and marginal
-        likelihood) via Laplace approximation via Newton-Raphson iteration as
-        written in
-        Appendix A Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes
-        for Ordinal Regression.. Journal of Machine Learning
-        Research. 6. 1019-1041.
-
-        Laplace imposes an inverse covariance for the approximating Gaussian
-        equal to the negative Hessian of the log of the target density.
-
-        :arg int steps: The number of iterations the Approximator takes.
-        :arg posterior_mean_0: The initial state of the approximate posterior
-            mean (N,). If `None` then initialised to zeros, default `None`.
-        :type posterior_mean_0: :class:`numpy.ndarray`
-        :arg bool write: Boolean variable to store and write arrays of
-            interest. If set to "True", the method will output non-empty
-            containers of evolution of the statistics over the steps.
-            If set to "False", statistics will not be written and those
-            containers will remain empty.
-        :return: convergence error, the regression weights and
-            approximate posterior mean. Containers for write values.
-        :rtype: (8, ) tuple of :class:`numpy.ndarrays` of the approximate
-            posterior means, other statistics and tuple of lists of per-step
-            evolution of those statistics.
-        """
-        (posterior_mean, containers, error) = self._approximate_initiate(
-            posterior_mean_0)
-        (posterior_means) = containers
-        for _ in trange(1, 1 + steps,
-                        desc="Laplace GP approximator progress",
-                        unit="iterations", disable=True):
-            (error, weight, precision, cov, log_det_cov,
-                    posterior_mean) = update_posterior_LA(
-                self.noise_std, self.noise_variance, posterior_mean,
-                self.cutpoints_ts, self.cutpoints_tplus1s, self.K, self.N,
-                self.upper_bound, self.upper_bound2)
-            if write is True:
-                posterior_means.append(posterior_mean)
-        containers = (posterior_means)
-        return (error, weight, precision, cov, log_det_cov, posterior_mean,
-            containers)
-
-    def approximate_posterior(
-            self, phi, trainables, steps, verbose=False,
-            return_reparameterised=None, posterior_mean_0=None):
-        """
-        Newton-Raphson procedure for convex optimization to find MAP point and
-        curvature.
-
-        :arg phi: (log-)hyperparameters to be optimised.
-        :type phi:
-        :arg trainables:
-        :type trainables:
-        :arg steps:
-        :type steps:
-        :arg posterior_mean_0:
-        :type posterior_mean_0:
-        :arg bool write:
-        :arg bool verbose:
-        :return:
-        """
-        # Update prior covariance and get hyperparameters from phi
-        (intervals, error, iteration, gx_where,
-                gx) = self._hyperparameter_training_step_initialise(
-            phi, trainables, verbose=verbose)
-        posterior_mean = posterior_mean_0
-        while error / steps > self.tolerance:
-            iteration += 1
-            (error, weight, precision, cov, log_det_cov, posterior_mean,
-                    containers) = self.approximate(
-                steps, posterior_mean_0=posterior_mean, write=False)
-            if verbose:
-                print("({}), error={}".format(iteration, error))
-        (weight, precision,
-        w1, w2, g1, g2, v1, v2, q1, q2,
-        L_cov, cov, Z, log_det_cov) = compute_weights_LA(
-            posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
-            self.noise_std, self.noise_variance,
-            self.upper_bound, self.upper_bound2, self.N, self.K)
-        fx = objective_LA(weight, posterior_mean, precision, L_cov, Z)
-        gx = objective_gradient_LA(
-            gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2, cov, weight,
-            precision, self.y_train, trainables, self.K,
-            self.partial_K_theta, self.partial_K_variance,
-            self.noise_std, self.noise_variance,
-            self.kernel.theta, self.kernel.variance,
-            self.N, self.J, self.D, self.kernel._ARD)
+        fx = objective_PEP(self.N, self.alpha, self.minibatch_size,
+            posterior_mean, posterior_cov, log_lik)
+        if self.kernel._ARD:
+            gx = np.zeros(1 + self.J - 1 + 1 + self.D)
+        else:
+            gx = np.zeros(1 + self.J - 1 + 1 + 1)
+        gx = objective_gradient_PEP(
+            gx, trainables)
         gx = gx[gx_where]
+        if verbose:
+            print(
+            "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
+            "\nfunction_eval={}, \nfunction_grad={}".format(
+                self.cutpoints, self.kernel.theta, self.noise_variance,
+                self.kernel.variance, fx, gx))
         if return_reparameterised is True:
-            return fx, gx, weight, (cov, True)
-        if return_reparameterised is False:
-            posterior_covariance_ = posterior_covariance(
-                self.K, cov, precision)
-            return None, None, log_det_cov, weight, precision, posterior_mean, (
-                posterior_covariance_, False)
+            return fx, gx, gamma, (beta, True)
+        elif return_reparameterised is False:
+            return fx, gx, posterior_mean, (posterior_cov, False)
         elif return_reparameterised is None:
-            if verbose:
-                print(
-                "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
-                "\nfunction_eval={}, \nfunction_grad={}".format(
-                    self.cutpoints, self.kernel.theta, self.noise_variance,
-                    self.kernel.variance, fx, gx))
             return fx, gx
 
 

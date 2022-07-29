@@ -1,17 +1,18 @@
 import numpy as np
-from probit.utilities import (
-    truncated_norm_normalising_constant, matrix_inverse, posterior_covariance)
+from probit.numpy.utilities import (
+    truncated_norm_normalising_constant, matrix_inverse)
 
 
 def update_posterior_LA(noise_std, noise_variance, posterior_mean,
         cutpoints_ts, cutpoints_tplus1s, K, N,
-        upper_bound, upper_bound2):
+        upper_bound=None, upper_bound2=None, tolerance=None):
     """Update Laplace approximation posterior covariance in Newton step."""
     (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
         _, _) = truncated_norm_normalising_constant(
             cutpoints_ts, cutpoints_tplus1s, noise_std,
             posterior_mean,
-            upper_bound=upper_bound, upper_bound2=upper_bound2)
+            upper_bound=upper_bound, upper_bound2=upper_bound2,
+            tolerance=tolerance)
     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
     # This is not for numerical stability, it is mathematically correct
     z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
@@ -30,7 +31,8 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
 
 def compute_weights_LA(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        noise_variance, upper_bound, upper_bound2, N, K):
+        noise_variance, N, K,
+        upper_bound=None, upper_bound2=None, tolerance=None):
     # Numerically stable calculation of ordinal likelihood!
     (Z,
     norm_pdf_z1s, norm_pdf_z2s,
@@ -38,7 +40,8 @@ def compute_weights_LA(
         cutpoints_ts, cutpoints_tplus1s, noise_std,
         posterior_mean,
         upper_bound=upper_bound,
-        upper_bound2=upper_bound2)
+        upper_bound2=upper_bound2,
+        tolerance=tolerance)
     w1 = norm_pdf_z1s / Z
     w2 = norm_pdf_z2s / Z
     z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
