@@ -16,7 +16,7 @@ from probit.jax.Laplace import (update_posterior_LA,
 from probit.numpy.VB import (update_posterior_mean_VB,
     update_posterior_covariance_VB, update_hyperparameter_posterior_VB,
     objective_VB, objective_gradient_VB)
-from probit.jax.EP import (update_posterior_EP,
+from probit.numpy.EP import (update_posterior_EP,
     objective_EP, objective_gradient_EP,
     compute_weights_EP, compute_integrals_vector_EP)
 from probit.numpy.PEP import (update_posterior_parallel_PEP,
