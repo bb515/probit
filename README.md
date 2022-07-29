@@ -87,6 +87,7 @@ Get started (preferred)
 ### Building and Installation ###
 
 - The package requires Python 3.7+
+- TODO: include any autodiff and linear algebra backend dependencies
 
 ### Running examples ###
 
