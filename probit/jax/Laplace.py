@@ -1,7 +1,3 @@
-# Enable double precision
-from jax.config import config
-config.update("jax_enable_x64", True)
-
 import jax.numpy as jnp
 from probit.jax.utilities import (
     truncated_norm_normalising_constant, matrix_inverse)

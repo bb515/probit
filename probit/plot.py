@@ -11,6 +11,10 @@ import matplotlib.colors as mcolors
 from matplotlib import rc
 
 
+BG_ALPHA = 1.0
+MG_ALPHA = 0.2
+FG_ALPHA = 0.4
+
 def grid(classifier, X_trains, y_trains,
         domain, res, steps, now, trainables=None, verbose=False):
     """
@@ -92,7 +96,7 @@ def grid(classifier, X_trains, y_trains,
             index = np.argmin(Z)
             fig, ax = plt.subplots(1, 1)
             fig.patch.set_facecolor('white')
-            fig.patch.set_alpha(0.0)
+            fig.patch.set_alpha(BG_ALPHA)
             ax.scatter(
                 x[index], Z[index],
                 color='red', label=r"$\theta$ = {}".format(x[index]))
@@ -108,7 +112,7 @@ def grid(classifier, X_trains, y_trains,
 
             fig, ax = plt.subplots(1, 1)
             fig.patch.set_facecolor('white')
-            fig.patch.set_alpha(0.0)
+            fig.patch.set_alpha(BG_ALPHA)
             ax.plot(x, grad)
             ax.set_xscale(xscale)
             ax.set_xlabel(xlabel)
@@ -121,7 +125,7 @@ def grid(classifier, X_trains, y_trains,
         else:
             fig, axs = plt.subplots(1, figsize=(6, 6))
             ax = plt.axes(projection='3d')
-            ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
+            ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=FG_ALPHA,
                             cmap='viridis', edgecolor='none')
             ax.set_xscale(xscale)
             ax.set_yscale(yscale)
@@ -154,7 +158,7 @@ def grid(classifier, X_trains, y_trains,
         # u = grad / norm
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.plot(x, Z_av)
         ax.set_xscale(xscale)
         ax.set_ylabel(r"$\mathcal{F}(\theta)$")
@@ -170,7 +174,7 @@ def grid(classifier, X_trains, y_trains,
 
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.plot(x, grad_av)
         ax.set_xscale(xscale)
         ax.set_xlabel(xlabel)
@@ -182,7 +186,7 @@ def grid(classifier, X_trains, y_trains,
     else:
         fig, axs = plt.subplots(1, figsize=(6, 6))
         ax = plt.axes(projection='3d')
-        ax.plot_surface(x, y, Z_av, rstride=1, cstride=1, alpha=0.4,
+        ax.plot_surface(x, y, Z_av, rstride=1, cstride=1, alpha=FG_ALPHA,
                         cmap='viridis', edgecolor='none')
         ax.set_xscale(xscale)
         ax.set_yscale(yscale)
@@ -235,7 +239,7 @@ def plot_contour(
         fig, axs = plt.subplots(1, figsize=(6, 6))
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.contourf(x1, x2, Z_new[:, :, j], zorder=1)
         ax.scatter(
             classifier.X_train[np.where(classifier.y_train == j)][:, 0],
@@ -299,7 +303,7 @@ def plot(classifier, X_test, title=""):
     """Plot from GPFlow documentation for ordinal regression."""
     fig, ax = plt.subplots(1, 1, figsize=(14, 6))
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.imshow(
         classifier.predict(X_test),
         interpolation="nearest",
@@ -324,7 +328,7 @@ def plot(classifier, X_test, title=""):
     dens_new = np.exp(classifier._model.predict_log_density((X_new, Y_new)))
     fig, ax = plt.subplots(1, 1, figsize=(8, 4))
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     plt.bar(x=Y_new.flatten(), height=dens_new.flatten())
     fig.savefig("test2", facecolor=fig.get_facecolor(), edgecolor='none')
     plt.show()
@@ -332,10 +336,10 @@ def plot(classifier, X_test, title=""):
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 4))
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     plt.title(title)
     pY, pYv = classifier._model.predict_y(X_test)  # Predict Y values at test locations
-    ax.plot(classifier.X_train, classifier.y_train, "x", label="Training points", alpha=0.2)
+    ax.plot(classifier.X_train, classifier.y_train, "x", label="Training points", alpha=MG_ALPHA)
     (line,) = ax.plot(X_test, pY, lw=1.5, label="Mean of predictive posterior")
     col = line.get_color()
     ax.fill_between(
@@ -517,12 +521,12 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_fx, '-', color='gray',
         label="variational bound +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_fx - plot_std_fx, plot_mean_fx + plot_std_fx, 
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} fx.png".format(string),
@@ -531,13 +535,13 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 13], '-', color='gray',
         label="RMSE +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 13] - plot_std_metrics[:, 13],
         plot_mean_metrics[:, 13] + plot_std_metrics[:, 13],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} RMSE.png".format(string),
@@ -546,13 +550,13 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 14], '-', color='gray',
         label="MAE +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 14] - plot_std_metrics[:, 14],
         plot_mean_metrics[:, 14] + plot_std_metrics[:, 14],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} MAE.png".format(string),
@@ -561,13 +565,13 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 15], '-', color='gray',
         label="log predictive probability +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 15] - plot_std_metrics[:, 15],
         plot_mean_metrics[:, 15] + plot_std_metrics[:, 15],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} log predictive probability.png".format(string),
@@ -576,13 +580,13 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 4], '-', color='gray',
         label="mean zero-one accuracy +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 4] - plot_std_metrics[:, 4],
         plot_mean_metrics[:, 4] + plot_std_metrics[:, 4],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} mean zero-one accuracy.png".format(string),
@@ -591,25 +595,25 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 4], '-', color='black',
         label="in top 1 accuracy +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 4] - plot_std_metrics[:, 4],
         plot_mean_metrics[:, 4] + plot_std_metrics[:, 4],
-        color='black', alpha=0.2)
+        color='black', alpha=MG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 5], '-', color='gray',
         label="in top 3 accuracy +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 5] - plot_std_metrics[:, 5],
         plot_mean_metrics[:, 5] + plot_std_metrics[:, 5],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 6], '-', color='lightgray',
         label="in top 5 accuracy +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 6] - plot_std_metrics[:, 6],
         plot_mean_metrics[:, 6] + plot_std_metrics[:, 6],
-        color='lightgray', alpha=0.2)
+        color='lightgray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} in top accuracy.png".format(string),
@@ -618,25 +622,25 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 7], '-', color='black',
         label="distance 1 accuracy +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 7] - plot_std_metrics[:, 7],
         plot_mean_metrics[:, 7] + plot_std_metrics[:, 7],
-        color='black', alpha=0.2)
+        color='black', alpha=MG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 8], '-', color='gray',
         label="distance 3 accuracy +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 8] - plot_std_metrics[:, 8],
         plot_mean_metrics[:, 8] + plot_std_metrics[:, 8],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 9], '-', color='lightgray',
         label="distance 5 accuracy +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 9] - plot_std_metrics[:, 9],
         plot_mean_metrics[:, 9] + plot_std_metrics[:, 9],
-        color='lightgray', alpha=0.2)
+        color='lightgray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} distance accuracy.png".format(string),
@@ -645,13 +649,13 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 0], '-', color='gray',
         label="f1 score +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 0] - plot_std_metrics[:, 0],
         plot_mean_metrics[:, 0] + plot_std_metrics[:, 0],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} f1 score.png".format(string),
@@ -660,13 +664,13 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 1], '-', color='gray',
         label="uncertainty plus +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 1] - plot_std_metrics[:, 1],
         plot_mean_metrics[:, 1] + plot_std_metrics[:, 1],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} uncertainty plus.png".format(string),
@@ -675,13 +679,13 @@ def outer_loop_problem_size(
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(0.0)
+    fig.patch.set_alpha(BG_ALPHA)
     ax.plot(plot_N, plot_mean_metrics[:, 2], '-', color='gray',
         label="uncertainty minus +/- 1 std")
     ax.fill_between(
         plot_N, plot_mean_metrics[:, 2] - plot_std_metrics[:, 2],
         plot_mean_metrics[:, 2] + plot_std_metrics[:, 2],
-        color='gray', alpha=0.2)
+        color='gray', alpha=MG_ALPHA)
     ax.set_xscale("log")
     ax.legend()
     fig.savefig("{} uncertainty minus.png".format(string),
@@ -1022,7 +1026,7 @@ def grid_synthetic(
 
         fig = plt.figure()
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax = fig.add_subplot(111)
         ax.grid()
         ax.plot(x, Z)
@@ -1033,7 +1037,7 @@ def grid_synthetic(
 
         fig = plt.figure()
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax = fig.add_subplot(111)
         ax.grid()
         ax.plot(x, Z, 'b',  label=r"$\mathcal{F}}$")
@@ -1053,7 +1057,7 @@ def grid_synthetic(
 
         fig = plt.figure()
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax = fig.add_subplot(111)
         ax.grid()
         ax.plot(
@@ -1078,7 +1082,7 @@ def grid_synthetic(
  
         fig = plt.figure()
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax = fig.add_subplot(111)
         ax.plot(x, Z, 'b', label=r"$\mathcal{F}}$")
         # ax.plot(
@@ -1121,9 +1125,9 @@ def grid_synthetic(
 
         fig = plt.figure()
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax = plt.axes(projection='3d')
-        ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=0.4,
+        ax.plot_surface(x, y, Z, rstride=1, cstride=1, alpha=FG_ALPHA,
                         cmap='viridis', edgecolor='none')
         ax.set_xscale(xscale)
         ax.set_yscale(yscale)
@@ -1136,7 +1140,7 @@ def grid_synthetic(
 
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.set_aspect(1)
         CS = ax.contourf(x, y, u_analytic_x, 100, cmap='viridis', zorder=1)
         ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
@@ -1156,7 +1160,7 @@ def grid_synthetic(
 
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.set_aspect(1)
         CS = ax.contourf(x, y, u_numerical_x, 100, cmap='viridis', zorder=1)
         ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
@@ -1176,7 +1180,7 @@ def grid_synthetic(
 
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.set_aspect(1)
         CS = ax.contourf(x, y, u_analytic_y, 100, cmap='viridis', zorder=1)
         ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
@@ -1196,7 +1200,7 @@ def grid_synthetic(
 
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.set_aspect(1)
         CS = ax.contourf(x, y, u_numerical_y, 100, cmap='viridis', zorder=1)
         ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
@@ -1216,7 +1220,7 @@ def grid_synthetic(
 
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.set_aspect(1)
         CS = ax.contourf(x, y, error_x, 100, cmap='viridis', zorder=1)
         ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
@@ -1236,7 +1240,7 @@ def grid_synthetic(
 
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.set_aspect(1)
         CS = ax.contourf(x, y, error_y, 100, cmap='viridis', zorder=1)
         ax.scatter(theta_0[0], theta_0[1], c='k', s=45)
@@ -1259,7 +1263,7 @@ def grid_synthetic(
         v = grad[:, 1] / norm
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.set_aspect(1)
         ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.1, color='red')
@@ -1279,7 +1283,7 @@ def grid_synthetic(
 
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.set_aspect(1)
         ax.contourf(x, y, Z, 100, cmap='viridis', zorder=1)
         ax.quiver(x, y, u, v, units='xy', scale=0.5, color='red')
@@ -1322,7 +1326,7 @@ def plot(classifier, steps, domain=None):
         for j in range(classifier.J):
             fig, ax = plt.subplots(1, figsize=(6, 6))
             fig.patch.set_facecolor('white')
-            fig.patch.set_alpha(0.0)
+            fig.patch.set_alpha(BG_ALPHA)
             ax.contourf(x1, x2, Z_new[:, :, j], zorder=1)
             ax.scatter(classifier.X_train[np.where(
                 classifier.y_train == j)][:, 0],
@@ -1371,7 +1375,7 @@ def plot_synthetic(
                 print(np.sum(Z, axis=1), 'sum')
                 fig, ax = plt.subplots(1, 1)
                 fig.patch.set_facecolor('white')
-                fig.patch.set_alpha(0.0)
+                fig.patch.set_alpha(BG_ALPHA)
                 ax.set_xlim(x_lims)
                 ax.set_ylim(0.0, 1.0)
                 ax.set_xlabel(r"$x$", fontsize=16)
@@ -1405,12 +1409,12 @@ def plot_synthetic(
                     x=X_new, y=posterior_predictive_m, s=posterior_std)
                 fig, ax = plt.subplots(1, 1)
                 fig.patch.set_facecolor('white')
-                fig.patch.set_alpha(0.0)
+                fig.patch.set_alpha(BG_ALPHA)
                 ax.plot(X_new, posterior_predictive_m, 'r')
                 ax.fill_between(
                     X_new[:, 0], posterior_predictive_m - 2*posterior_std,
                     posterior_predictive_m + 2*posterior_std,
-                    color='red', alpha=0.2)
+                    color='red', alpha=MG_ALPHA)
                 ax.scatter(X_true, Y_true, color='b', s=4)
                 ax.set_ylim(-2.2, 2.2)
                 ax.set_xlim(-0.5, 1.5)
@@ -1446,17 +1450,17 @@ def plot_synthetic(
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
-                    Z.T[0, :].reshape(N, N), alpha=0.4, color=colors[0],
+                    Z.T[0, :].reshape(N, N), alpha=FG_ALPHA, color=colors[0],
                         label=r"$p(y=0|x, X, t)$")
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
-                    Z.T[1, :].reshape(N, N), alpha=0.4, color=colors[1],
+                    Z.T[1, :].reshape(N, N), alpha=FG_ALPHA, color=colors[1],
                         label=r"$p(y=1|x, X, t)$")
                 surf = ax.plot_surface(
                     X_new[:, 0].reshape(N, N),
                     X_new[:, 1].reshape(N, N),
-                    Z.T[2, :].reshape(N, N), alpha=0.4, color=colors[2],
+                    Z.T[2, :].reshape(N, N), alpha=FG_ALPHA, color=colors[2],
                         label=r"$p(y=2|x, X, t)$")
                 cmap = plt.cm.get_cmap('viridis', classifier.J)
                 import matplotlib as mpl
@@ -1518,7 +1522,7 @@ def plot_synthetic(
             print(np.sum(Z, axis=1), 'sum')
             fig, ax = plt.subplots(1, 1)
             fig.patch.set_facecolor('white')
-            fig.patch.set_alpha(0.0)
+            fig.patch.set_alpha(BG_ALPHA)
             ax.set_xlim(x_lims)
             ax.set_ylim(0.0, 1.0)
             ax.set_xlabel(r"$x$", fontsize=16)
@@ -1565,12 +1569,12 @@ def plot_synthetic(
                 x=X_new, y=posterior_predictive_m, s=posterior_std)
             fig, ax = plt.subplots(1, 1)
             fig.patch.set_facecolor('white')
-            fig.patch.set_alpha(0.0)
+            fig.patch.set_alpha(BG_ALPHA)
             ax.plot(X_new, posterior_predictive_m, 'r')
             ax.fill_between(
                 X_new[:, 0], posterior_predictive_m - 2*posterior_std,
                 posterior_predictive_m + 2*posterior_std,
-                color='red', alpha=0.2)
+                color='red', alpha=MG_ALPHA)
             ax.scatter(X_true, Y_true, color='b', s=4)
             ax.set_ylim(-2.2, 2.2)
             ax.set_xlim(-0.5, 1.5)
@@ -1967,7 +1971,7 @@ def draw_mixing(states, state_0, write_path, file_name, logplot=True):
     for i in range(Nparam):
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax.plot(states[:, i])
         mean = np.mean(states[:, i], axis=0)
         xs = np.linspace(0, Nsamp, 2)
@@ -2001,7 +2005,7 @@ def draw_histogram(states, state_0, write_path, file_name,
         'size'   : 22}
         fig = plt.figure()
         fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(0.0)
+        fig.patch.set_alpha(BG_ALPHA)
         ax = fig.add_subplot(111)
         ax.hist(states[:, i], density=True, bins=bins)
         ax.vlines(state_0[i], 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k')

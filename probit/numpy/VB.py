@@ -298,6 +298,8 @@ def _p(f, cutpoints_ts, cutpoints_tplus1s, noise_std,
     *_) = truncated_norm_normalising_constant(
         cutpoints_ts, cutpoints_tplus1s, noise_std, f)
     p = (norm_pdf_z1s - norm_pdf_z2s) / Z
+    # TODO: Can this numerical stability option be optional?
+    # TODO: it should be enforces as leads to stability for small \noise_std
     # Need to deal with the tails to prevent catestrophic cancellation
     indices1 = np.where(z1s > upper_bound)
     indices2 = np.where(z2s < -upper_bound)

@@ -35,9 +35,9 @@ def objective_EP(
     :returns: fx
     :rtype: float
     """
-    # TODO: necessary?
-    # # Fill possible zeros in with machine precision
-    # precision_EP[precision_EP == 0.0] = tolerance2
+    # TODO: necessary? could already have been done
+    # Fill possible zeros in with machine precision
+    precision_EP[precision_EP == 0.0] = tolerance2
     fx = -np.sum(np.log(np.diag(L_cov)))  # log det cov
     fx -= 0.5 * posterior_mean.T @ weights
     fx -= 0.5 * np.sum(np.log(precision_EP))

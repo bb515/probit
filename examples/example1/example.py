@@ -161,11 +161,11 @@ def main():
     else:
         trainables[-1] = 1
         # Fix theta
-        trainables[-1] = 0
+        trainables[-1] = 1
     # Fix noise standard deviation
     trainables[0] = 0
     # Fix signal standard deviation
-    trainables[J] = 1
+    trainables[J] = 0
     # Fix cutpoints
     trainables[1:J] = [0] * (J - 1)
     # trainables[2] = 1
@@ -173,6 +173,9 @@ def main():
     # just theta
     domain = ((-1, 1), None)
     res = (30, None)
+    print(np.shape(X))
+    print(np.shape(y))
+    assert 0
     # theta_0 and theta_1
     # domain = ((-1, 1.3), (-1, 1.3))
     # res = (20, 20)
