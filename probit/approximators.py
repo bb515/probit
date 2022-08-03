@@ -3,7 +3,7 @@ import pathlib
 from tqdm import trange
 import warnings
 import numpy as np
-from probit.numpy.utilities import (
+from probit.utilities import (
     check_cutpoints,
     read_array)
 from probit.lab.utilities import (

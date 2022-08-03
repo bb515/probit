@@ -1,6 +1,7 @@
 """Utility functions for probit."""
 import lab as B
 import warnings
+from math import inf
 
 over_sqrt_2_pi = 1. / B.sqrt(2 * B.pi)
 log_over_sqrt_2_pi = -0.5 * B.log(2 * B.pi)
@@ -238,6 +239,22 @@ def truncated_norm_normalising_constant(
             Z = B.where(Z < tolerance, tolerance, Z)
     return (
         Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
+
+
+def sample_g(g, f, y_train, cutpoints, noise_std, N):
+    """TODO: Seems like this has to be done in numpy or numba."""
+    for i in range(N):
+        # Target class index
+        j_true = y_train[i]
+        g_i = -inf  # this is a trick for the next line
+        # Sample from the truncated Gaussian
+        while g_i > cutpoints[j_true + 1] or g_i <= cutpoints[j_true]:
+            # sample y
+            # TODO: test if this works
+            g_i = f[i] + (f[i] - B.randn(1)) / noise_std
+        # Add sample to the Y vector
+        g[i] = g_i
+    return g
 
 
 class CutpointValueError(Exception):

@@ -1,6 +1,6 @@
 """GPFlow models. Probably no need to inherit Approximator here."""
 from probit.approximators import Approximator
-from probit.numpy.utilities import check_cutpoints
+from probit.utilities import check_cutpoints
 from tqdm import trange
 import warnings
 import matplotlib.pyplot as plt

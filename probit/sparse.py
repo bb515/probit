@@ -7,11 +7,9 @@ from probit.approximators import PEPGP, VBGP, LaplaceGP
 from tqdm import trange
 import warnings
 import numpy as np
-from probit.numpy.utilities import (
-    read_array,
-    read_scalar,
-    truncated_norm_normalising_constant)
-from probit.numpy.VB import _p
+from probit.utilities import read_array, read_scalar
+from probit.lab.utilities import truncated_norm_normalising_constant
+from probit.lab.VB import _p
 from scipy.linalg import cholesky, solve_triangular
 
 
