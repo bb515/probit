@@ -131,7 +131,6 @@ def posterior_covariance(K, cov, precision):
 
 def check_cutpoints(cutpoints, J):
     """
-    TODO: this will not be compatable with autodiff
     Check that the cutpoints are compatible with this class.
 
     :arg cutpoints: (J + 1, ) array of the cutpoints.
@@ -280,6 +279,7 @@ def norm_pdf(x, loc=0.0, scale=1.0):
 
 
 def norm_logpdf(x, loc=0.0, scale=1.0):
+    # TODO: is redundant?
     z = (x - loc) / scale
     return norm_z_logpdf(z) - np.log(scale)
 
@@ -289,6 +289,7 @@ def norm_cdf(x):
 
 
 def norm_logcdf(x):
+    # TODO: is redundant?
     return log_ndtr(x)
 
 
@@ -415,6 +416,7 @@ def truncated_norm_normalising_constant(
 
 
 def sample_g(g, f, y_train, cutpoints, noise_std, N):
+    """TODO: Seems like this has to be done in numpy or numba."""
     for i in range(N):
         # Target class index
         j_true = y_train[i]

@@ -15,8 +15,10 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
             tolerance=tolerance)
     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
     # This is not for numerical stability, it is mathematically correct
-    z1s = np.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-    z2s = np.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
+    z1s = np.where(z1s == np.NINF, 0.0, z1s)
+    z1s = np.where(z1s == np.inf, 0.0, z1s)
+    z2s = np.where(z2s == np.NINF, 0.0, z2s)
+    z2s = np.where(z2s == np.inf, 0.0, z2s)
     precision  = weight**2 + (
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_variance

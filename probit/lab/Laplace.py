@@ -1,5 +1,7 @@
-import jax.numpy as jnp
-from probit.jax.utilities import (
+from cmath import inf
+import lab as B
+from math import inf
+from probit.lab.utilities import (
     truncated_norm_normalising_constant, matrix_inverse)
 
 
@@ -14,22 +16,19 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
             tolerance=tolerance)
     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
     # This is not for numerical stability, it is mathematically correct
-    z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-    z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
-    # # Alternatively
-    # z1s = jnp.where(z1s == jnp.NINF, 0.0, z1s)
-    # z1s = jnp.where(z1s == jnp.inf, 0.0, z1s)
-    # z2s = jnp.where(z2s == jnp.NINF, 0.0, z2s)
-    # z2s = jnp.where(z2s == jnp.inf, 0.0, z2s)
+    z1s = B.where(z1s == -inf, 0.0, z1s)
+    z1s = B.where(z1s == inf, 0.0, z1s)
+    z2s = B.where(z2s == -inf, 0.0, z2s)
+    z2s = B.where(z2s == inf, 0.0, z2s)
     precision  = weight**2 + (
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_variance
     m = - K @ weight + posterior_mean
-    cov, L_cov = matrix_inverse(K + jnp.diag(1. / precision), N)
-    log_det_cov = -2 * jnp.sum(jnp.log(jnp.diag(L_cov)))
+    cov, L_cov = matrix_inverse(K + B.diag(1. / precision), N)
+    log_det_cov = -2 * B.sum(B.log(B.diag(L_cov)))
     t1 = - (cov @ m) / precision
     posterior_mean += t1
-    error = jnp.max(jnp.abs(t1))
+    error = B.max(B.abs(t1))
     return error, weight, precision, cov, log_det_cov, posterior_mean
 
 
@@ -48,8 +47,10 @@ def compute_weights_LA(
     w1 = norm_pdf_z1s / Z
     w2 = norm_pdf_z2s / Z
     # This is not for numerical stability, it is mathematically correct
-    z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-    z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
+    z1s = B.where(z1s == -inf, 0.0, z1s)
+    z1s = B.where(z1s == inf, 0.0, z1s)
+    z2s = B.where(z2s == -inf, 0.0, z2s)
+    z2s = B.where(z2s == inf, 0.0, z2s)
     g1 = z1s * w1
     g2 = z2s * w2
     v1 = z1s * g1
@@ -58,17 +59,17 @@ def compute_weights_LA(
     q2 = z2s * v2
     weight = (w1 - w2) / noise_std
     precision = weight**2 + (g2 - g1) / noise_variance
-    cov, L_cov = matrix_inverse(K + jnp.diag(1./ precision), N)
-    log_det_cov = -2 * jnp.sum(jnp.log(jnp.diag(L_cov)))
+    cov, L_cov = matrix_inverse(K + B.diag(1./ precision), N)
+    log_det_cov = -2 * B.sum(B.log(B.diag(L_cov)))
     return (weight, precision, w1, w2, g1, g2, v1, v2, q1, q2, L_cov, cov, Z,
         log_det_cov)
 
 
 def objective_LA(weight, posterior_mean, precision, L_cov, Z):
-    fx = -jnp.sum(jnp.log(Z))
+    fx = -B.sum(B.log(Z))
     fx += 0.5 * posterior_mean.T @ weight
-    fx += jnp.sum(jnp.log(jnp.diag(L_cov)))
-    fx += 0.5 * jnp.sum(jnp.log(precision))
+    fx += B.sum(B.log(B.diag(L_cov)))
+    fx += 0.5 * B.sum(B.log(precision))
     return fx
 
 
@@ -80,13 +81,15 @@ def objective_gradient_LA(
     if trainables is not None:
         # diagonal of posterior covariance
         dsigma = cov @ K
-        diag = jnp.diag(dsigma) / precision
+        diag = B.diag(dsigma) / precision
         # partial lambda / partial phi_b = - partial lambda / partial f (* SIGMA)
-        t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1) - 2.0 * (w2 - w1)**3 - (v2 - v1)) / noise_variance
+        t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1)
+            - 2.0 * (w2 - w1)**3 - (v2 - v1)) / noise_variance
         # Update gx
         if trainables[0]:
             # For gx[0] -- ln\sigma
-            cache = ((w2 - w1) * (g2 - g1) - (w2 - w1) + (v2 - v1)) / noise_variance
+            cache = ((w2 - w1) * (g2 - g1)
+                - (w2 - w1) + (v2 - v1)) / noise_variance
             # prepare D f / D delta_l
             t2 = - dsigma @ cache / precision
             tmp = (
@@ -96,15 +99,15 @@ def objective_gradient_LA(
                 - (g2 - g1)
                 + (g2 - g1)**2
                 + (q2 - q1)) / noise_variance)
-            gx[0] = jnp.sum(g2 - g1 + 0.5 * (tmp - t2 * t1) * diag)
+            gx[0] = B.sum(g2 - g1 + 0.5 * (tmp - t2 * t1) * diag)
             gx[0] = - gx[0] / 2.0 * noise_variance
         # For gx[1] -- \b_1
         if trainables[1]:
             # For gx[1], \phi_b^1
             t2 = dsigma @ precision
             # t2 = t2 / precision
-            gx[1] = jnp.sum(w1 - w2)
-            gx[1] += 0.5 * jnp.sum(t1 * (1 - t2) * diag)
+            gx[1] = B.sum(w1 - w2)
+            gx[1] += 0.5 * B.sum(t1 * (1 - t2) * diag)
             gx[1] = gx[1] / noise_std
         # For gx[2] -- ln\Delta^r
         for j in range(2, J):
@@ -112,25 +115,25 @@ def objective_gradient_LA(
             cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
             cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
             if trainables[j]:
-                idxj = jnp.where(y_train == j - 1)
-                idxg = jnp.where(y_train > j - 1)
-                idxl = jnp.where(y_train < j - 1)
-                cache = jnp.zeros(N)
+                idxj = B.where(y_train == j - 1)
+                idxg = B.where(y_train > j - 1)
+                idxl = B.where(y_train < j - 1)
+                cache = B.zeros(N)
                 cache[idxj] = cache0[idxj]
                 cache[idxg] = cache1[idxg]
                 t2 = dsigma @ cache
                 t2 = t2 / precision
-                gx[j] -= jnp.sum(w2[idxj])
+                gx[j] -= B.sum(w2[idxj])
                 temp = (
                     w2[idxj]
                     - 2.0 * (w2[idxj] - w1[idxj]) * g2[idxj]
                     - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
                     - v2[idxj]
                     - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
-                gx[j] += 0.5 * jnp.sum((temp - t2[idxj] * t1[idxj]) * diag[idxj])
-                gx[j] -= jnp.sum(w2[idxg] - w1[idxg])
-                gx[j] += 0.5 * jnp.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
-                gx[j] += 0.5 * jnp.sum(-t2[idxl] * t1[idxl] * diag[idxl])
+                gx[j] += 0.5 * B.sum((temp - t2[idxj] * t1[idxj]) * diag[idxj])
+                gx[j] -= B.sum(w2[idxg] - w1[idxg])
+                gx[j] += 0.5 * B.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
+                gx[j] += 0.5 * B.sum(-t2[idxl] * t1[idxl] * diag[idxl])
                 gx[j] = gx[j] * intervals[j - 2] / noise_std
         # For gx[J] -- variance
         if trainables[J]:
@@ -139,7 +142,7 @@ def objective_gradient_LA(
             # VC * VC * a' * partial_K_theta * a / 2
             gx[J] = -variance * 0.5 * weight.T @ partial_K_variance @ weight  # That's wrong. not the same calculation.
             # equivalent to -= theta * 0.5 * jnp.trace(cov @ partial_K_theta)
-            gx[J] += variance * 0.5 * jnp.trace(dmat)
+            gx[J] += variance * 0.5 * B.trace(dmat)
             gx[J] *= 2.0  # since theta = kappa / 2
         # For gx[J + 1] -- theta
         if ARD:
@@ -147,14 +150,16 @@ def objective_gradient_LA(
                 if trainables[J + 1][d]:
                     dmat = partial_K_theta[d] @ cov
                     t2 = (dmat @ weight) / precision
-                    gx[J + 1 + d] -= theta[d] * 0.5 * weight.T @ partial_K_theta[d] @ weight
-                    gx[J + 1 + d] += theta[d] * 0.5 * jnp.sum((-diag * t1 * t2) / (noise_std))
-                    gx[J + 1 + d] += theta[d] * 0.5 * jnp.sum(jnp.multiply(cov, partial_K_theta[d]))
+                    gx[J + 1 + d] = (
+                - theta[d] * 0.5 * weight.T @ partial_K_theta[d] @ weight
+                + theta[d] * 0.5 * B.sum((-diag * t1 * t2) / (noise_std))
+                + theta[d] * 0.5 * B.sum(B.multiply(cov, partial_K_theta[d])))
         else:
             if trainables[J + 1]:
                 dmat = partial_K_theta @ cov
                 t2 = (dmat @ weight) / precision
-                gx[J + 1] -= theta * 0.5 * weight.T @ partial_K_theta @ weight
-                gx[J + 1] += theta * 0.5 * jnp.sum((-diag * t1 * t2) / (noise_std))
-                gx[J + 1] += theta * 0.5 * jnp.sum(jnp.multiply(cov, partial_K_theta))
+                gx[J + 1] = (
+            -theta * 0.5 * weight.T @ partial_K_theta @ weight
+            + theta * 0.5 * B.sum((-diag * t1 * t2) / (noise_std))
+            + theta * 0.5 * B.sum(B.multiply(cov, partial_K_theta)))
     return gx

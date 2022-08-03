@@ -5,21 +5,22 @@ import warnings
 import numpy as np
 from probit.numpy.utilities import (
     check_cutpoints,
-    read_array,
+    read_array)
+from probit.lab.utilities import (
     posterior_covariance,
     predict_reparameterised,
     truncated_norm_normalising_constant)
 
 # Change probit.<linalg backend>.<Approximator>, as appropriate
-from probit.jax.Laplace import (update_posterior_LA,
+from probit.lab.Laplace import (update_posterior_LA,
     compute_weights_LA, objective_LA, objective_gradient_LA)
-from probit.numpy.VB import (update_posterior_mean_VB,
+from probit.lab.VB import (update_posterior_mean_VB,
     update_posterior_covariance_VB, update_hyperparameter_posterior_VB,
     objective_VB, objective_gradient_VB)
-from probit.numpy.EP import (update_posterior_EP,
+from probit.lab.EP import (update_posterior_EP,
     objective_EP, objective_gradient_EP,
     compute_weights_EP, compute_integrals_vector_EP)
-from probit.numpy.PEP import (update_posterior_parallel_PEP,
+from probit.lab.PEP import (update_posterior_parallel_PEP,
     update_posterior_sequential_PEP, objective_PEP, objective_gradient_PEP)
 
 
@@ -44,6 +45,7 @@ class Approximator(ABC):
     All approximators must define a :meth:`predict` can be used to make
         predictions given test data.
     """
+
     @abstractmethod
     def __repr__(self):
         """
@@ -55,7 +57,7 @@ class Approximator(ABC):
 
     @abstractmethod
     def __init__(
-            self, kernel, J, data=None, read_path=None,
+            self, cutpoints, noise_variance, kernel, J, data=None, read_path=None,
             theta_hyperparameters=None, cutpoints_hyperparameters=None,
             noise_std_hyperparameters=None):
         """
@@ -63,6 +65,10 @@ class Approximator(ABC):
 
         This method should be implemented in every concrete Approximator.
 
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg float noise_variance: Initialisation of noise variance. If `None`
+            then initialised to one, default `None`.
         :arg kernel: The kernel to use, see :mod:`probit.kernels` for options.
         :arg int J: The number of (ordinal) classes.
         :arg data: The data tuple. (X_train, y_train), where  
@@ -155,6 +161,10 @@ class Approximator(ABC):
                 # Model file does not exist
                 raise
         self.D = np.shape(self.X_train)[1]
+        self.cutpoints = check_cutpoints(cutpoints, self.J)
+        # Initiate hyperparameters
+        self.hyperparameters_update(
+            cutpoints=self.cutpoints, noise_variance=noise_variance)
 
     @abstractmethod
     def approximate_posterior(self):
@@ -244,7 +254,6 @@ class Approximator(ABC):
         :type noise variance:
         """
         if cutpoints is not None:
-            self.cutpoints = check_cutpoints(cutpoints, self.J)
             self.cutpoints_ts = self.cutpoints[self.y_train]
             self.cutpoints_tplus1s = self.cutpoints[self.y_train + 1]
         if theta is not None or variance is not None:
@@ -445,21 +454,13 @@ class LaplaceGP(Approximator):
         return "LaplaceGP"
 
     def __init__(
-            self, cutpoints, noise_variance, *args, **kwargs):
+            self, *args, **kwargs):
         """
         Create an :class:`LaplaceGP` Approximator object.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to one, default `None`.
 
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # Initiate hyperparameters
-        self.hyperparameters_update(
-            cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _approximate_initiate(
             self, posterior_mean_0=None):
@@ -625,21 +626,13 @@ class VBGP(Approximator):
         return "VBGP"
 
     def __init__(
-            self, cutpoints, noise_variance, *args, **kwargs):
+            self, *args, **kwargs):
         """
         Create an :class:`VBGP` Approximator object.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to one, default `None`.
 
         :returns: A :class:`VBGP` object.
         """
         super().__init__(*args, **kwargs)
-        # Initiate hyperparameters
-        self.hyperparameters_update(
-            cutpoints=cutpoints, noise_variance=noise_variance)
 
     def hyperparameters_update(
         self, cutpoints=None, theta=None, variance=None, noise_variance=None,
@@ -852,23 +845,15 @@ class EPGP(Approximator):
         return "EPGP"
 
     def __init__(
-            self, cutpoints, noise_variance, *args, **kwargs):
+            self, *args, **kwargs):
         """
         Create an :class:`EPGP` Approximator object.
-
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to 1.0, default `None`.
 
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
         self.indices_where_0 = np.where(self.y_train == 0)
         self.indices_where_J_1 = np.where(self.y_train == self.J - 1)
-        # Initiate hyperparameters
-        self.hyperparameters_update(
-            cutpoints=cutpoints, noise_variance=noise_variance)
 
     def _approximate_initiate(
             self, posterior_mean_0=None, posterior_cov_0=None,
@@ -1059,7 +1044,7 @@ class EPGP(Approximator):
             self.cutpoints_ts, self.cutpoints_tplus1s, self.indices_where_J_1,
             self.indices_where_0, self.N, self.tolerance, self.tolerance2)
         fx = objective_EP(precision_EP, posterior_mean, t1,
-            L_cov, cov, weight, self.tolerance2)
+            L_cov, cov, weight)
         if self.kernel._ARD:
             gx = np.zeros(1 + self.J - 1 + 1 + self.D)
         else:
@@ -1112,7 +1097,7 @@ class PEPGP(Approximator):
         return "PEPGP"
 
     def __init__(
-            self, cutpoints, noise_variance, alpha, minibatch_size=None,
+            self, alpha, minibatch_size=None,
             gauss_hermite_points=20, *args, **kwargs):
         """
         Create an :class:`PEPGP` Approximator object.
@@ -1120,16 +1105,9 @@ class PEPGP(Approximator):
         :arg float alpha: Power EP tuning parameter.
         :arg int minibatch_size: How many parallel updates
 
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg float noise_variance: Initialisation of noise variance. If `None`
-            then initialised to 1.0, default `None`.
-
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
-        # Initiate hyperparameters
-        self.hyperparameters_update(cutpoints=cutpoints, noise_variance=noise_variance)
         if minibatch_size is None:
             self.minibatch_size = self.N
         else:
