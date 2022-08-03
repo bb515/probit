@@ -14,6 +14,11 @@ The solid red line is the prior density.
 # os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
 # os.environ["NUMEXPR_NUM_THREADS"] = "6"
 # os.environ["NUMBA_NUM_THREADS"] = "6"
+
+# # Enable double precision
+# from jax.config import config
+# config.update("jax_enable_x64", True)
+
 import argparse
 import cProfile
 from io import StringIO

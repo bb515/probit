@@ -4,7 +4,6 @@ Ordinal regression concrete examples. Comparing different samplers.
 # Make sure to limit CPU usage
 import os
 
-from pandas import cut
 nthreads = "20"
 os.environ["OMP_NUM_THREADS"] = nthreads # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = nthreads # export OPENBLAS_NUM_THREADS=4 
@@ -12,6 +11,11 @@ os.environ["MKL_NUM_THREADS"] = nthreads # export MKL_NUM_THREADS=6
 os.environ["VECLIB_MAXIMUM_THREADS"] = nthreads # export VECLIB_MAXIMUM_THREADS=4
 os.environ["NUMEXPR_NUM_THREADS"] = nthreads # export NUMEXPR_NUM_THREADS=6
 os.environ["NUMBA_NUM_THREADS"] = nthreads
+
+# # Enable double precision
+# from jax.config import config
+# config.update("jax_enable_x64", True)
+
 import argparse
 import cProfile
 from io import StringIO
