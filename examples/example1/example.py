@@ -1,7 +1,9 @@
 """Ordinal regression concrete examples. Approximate inference."""
 # Make sure to limit CPU usage
 import os
-from probit.kernels import LabSharpenedCosine
+# # Enable double precision
+# from jax.config import config
+# config.update("jax_enable_x64", True)
 
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
@@ -172,7 +174,7 @@ def main():
     print("trainables = {}".format(trainables))
     # just theta
     domain = ((-1, 1), None)
-    res = (3, None)
+    res = (30, None)
     # theta_0 and theta_1
     # domain = ((-1, 1.3), (-1, 1.3))
     # res = (20, 20)

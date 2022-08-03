@@ -9,14 +9,29 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
     """Update Laplace approximation posterior covariance in Newton step."""
     (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
         _, _) = truncated_norm_normalising_constant(
-            cutpoints_ts, cutpoints_tplus1s, noise_std,
-            posterior_mean,
+            cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
             upper_bound=upper_bound, upper_bound2=upper_bound2,
             tolerance=tolerance)
     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
-    # This is not for numerical stability, it is mathematically correct
-    z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
-    z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
+    z1s = jnp.array(z1s)
+    z2s = jnp.array(z2s)
+    indices = jnp.where(z1s == jnp.NINF)
+    z1s = z1s.at[indices].set(0.0)
+    indices = jnp.where(z1s == jnp.inf)
+    z1s = z1s.at[indices].set(0.0)
+    indices = jnp.where(z2s == jnp.NINF)
+    z2s = z2s.at[indices].set(0.0)
+    indices = jnp.where(z2s == jnp.inf)
+    z2s = z2s.at[indices].set(0.0)
+    # # or
+    # z1s = jnp.where(z1s == jnp.NINF, 0.0, z1s)
+    # z1s = jnp.where(z1s == jnp.inf, 0.0, z1s)
+    # z2s = jnp.where(z2s == jnp.NINF, 0.0, z2s)
+    # z2s = jnp.where(z2s == jnp.inf, 0.0, z2s)
+    # # or
+    # # This is not for numerical stability, it is mathematically correct
+    # z1s = jnp.nan_to_num(z1s, copy=True, posinf=0.0, neginf=0.0)
+    # z2s = jnp.nan_to_num(z2s, copy=True, posinf=0.0, neginf=0.0)
     precision  = weight**2 + (
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_variance
@@ -25,8 +40,7 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
     log_det_cov = -2 * jnp.sum(jnp.log(jnp.diag(L_cov)))
     t1 = - (cov @ m) / precision
     posterior_mean += t1
-    # TODO: there is a better way of doing this
-    error = jnp.abs(max(t1.min(), t1.max(), key=abs))
+    error = jnp.max(jnp.abs(t1))
     return error, weight, precision, cov, log_det_cov, posterior_mean
 
 

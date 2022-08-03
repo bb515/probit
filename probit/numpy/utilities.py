@@ -6,6 +6,105 @@ import warnings
 import h5py
 
 
+def log_likelihood(
+        m, cutpoints_ts, cutpoints_tplus1s, noise_std,
+        upper_bound, upper_bound2, tolerance):
+    """
+    TODO: May be redundant - used in sampling code?
+    Likelihood of ordinal regression. This is product of scalar normal cdf.
+
+    If np.ndim(m) == 2, vectorised so that it returns (num_samples,)
+    vector from (num_samples, N) samples of the posterior mean.
+
+    Note that numerical stability has been turned off in favour of
+    exactness - but experiments should be run twice with numerical
+    stability turned on to see if it makes a difference.
+    """
+    Z, *_ = truncated_norm_normalising_constant(
+        cutpoints_ts, cutpoints_tplus1s,
+        noise_std, m,
+        upper_bound=upper_bound,
+        upper_bound2=upper_bound2,  # optional
+        tolerance=tolerance  # optional
+        )
+    if np.ndim(m) == 2:
+        return np.sum(np.log(Z), axis=1)  # (num_samples,)
+    elif np.ndim(m) == 1:
+        return np.sum(np.log(Z))  # (1,)
+
+
+def ordinal_predictive_distributions(
+    posterior_pred_mean, posterior_pred_std, N_test, cutpoints, J,
+    upper_bound, upper_bound2):
+    """
+    Return predictive distributions for the ordinal likelihood.
+    """
+    predictive_distributions = np.empty((N_test, J))
+    for j in range(J):
+        Z, *_ = truncated_norm_normalising_constant(
+                cutpoints[j], cutpoints[j + 1],
+                posterior_pred_std, posterior_pred_mean,
+                upper_bound=upper_bound, upper_bound2=upper_bound2)
+        predictive_distributions[:, j] = Z
+    return predictive_distributions
+
+
+def ordinal_predictive_distributionsSS(
+    posterior_pred_mean, posterior_pred_std, N_test, cutpoints, J
+):
+    """
+    TODO: Replace with truncated_norm_normalizing_constant
+    Return predictive distributions for the ordinal likelihood.
+    """
+    predictive_distributions = np.empty((N_test, J))
+    for j in range(J):
+        z1 = np.divide(np.subtract(
+            cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
+        z2 = np.divide(
+            np.subtract(cutpoints[j],
+            posterior_pred_mean), posterior_pred_std)
+        predictive_distributions[:, j] = norm_cdf(z1) - norm_cdf(z2)
+    return predictive_distributions
+
+
+def predict_reparameterised(
+        Kss, Kfs, cov, weight, cutpoints, noise_variance, J,
+        upper_bound, upper_bound2):
+    """
+    Make posterior prediction over ordinal classes of X_test.
+
+    :arg X_test: The new data points, array like (N_test, D).
+    :arg cov: A covariance matrix used in calculation of posterior
+        predictions. (\sigma^2I + K)^{-1} Array like (N, N).
+    :type cov: :class:`numpy.ndarray`
+    :arg weight: The approximate inverse-covariance-posterior-mean.
+        .. math::
+            \nu = (\mathbf{K} + \sigma^{2}\mathbf{I})^{-1} \mathbf{y}
+            = \mathbf{K}^{-1} \mathbf{f}
+        Array like (N,).
+    :type weight: :class:`numpy.ndarray`
+    :arg cutpoints: (J + 1, ) array of the cutpoints.
+    :type cutpoints: :class:`numpy.ndarray`.
+    :arg float noise_variance: The noise variance.
+    :arg bool numerically_stable: Use matmul or triangular solve.
+        Default `False`. 
+    :return: A Monte Carlo estimate of the class probabilities.
+    :rtype tuple: ((N_test, J), (N_test,), (N_test,))
+    """
+    N_test = np.shape(Kss)[0]
+    temp = cov @ Kfs
+    posterior_variance = Kss - np.einsum(
+        'ij, ij -> j', Kfs, temp)
+    posterior_std = np.sqrt(posterior_variance)
+    posterior_pred_mean = Kfs.T @ weight
+    posterior_pred_variance = posterior_variance + noise_variance
+    posterior_pred_std = np.sqrt(posterior_pred_variance)
+    return (
+        ordinal_predictive_distributions(
+                posterior_pred_mean, posterior_pred_std, N_test, cutpoints,
+                J, upper_bound, upper_bound2),
+            posterior_pred_mean, posterior_std)
+
 over_sqrt_2_pi = 1. / np.sqrt(2 * np.pi)
 log_over_sqrt_2_pi = -0.5 * np.log(2 * np.pi)
 sqrt_2 = np.sqrt(2)
@@ -312,8 +411,7 @@ def truncated_norm_normalising_constant(
                     tolerance, Z, z1s, z2s))
             Z[small_densities] = tolerance
     return (
-        Z,
-        norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
+        Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s, norm_cdf_z1s, norm_cdf_z2s)
 
 
 def sample_g(g, f, y_train, cutpoints, noise_std, N):

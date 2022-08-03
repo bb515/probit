@@ -7,7 +7,7 @@ from probit.numpy.utilities import (
     check_cutpoints,
     read_array,
     posterior_covariance,
-    norm_cdf,
+    predict_reparameterised,
     truncated_norm_normalising_constant)
 
 # Change probit.<linalg backend>.<Approximator>, as appropriate
@@ -115,8 +115,9 @@ class Approximator(ABC):
         # Less than this leads to a poor approximation due to series
         # expansion at infinity truncation
         # Good values found between 4 and 6
-        # self.upper_bound = 4  # For single precision
-        self.upper_bound = 6  # For double precision
+        # TODO: make automatic toggle for values for single or double precision?
+        # self.upper_bound = 4  # Single precision
+        self.upper_bound = 6  # Double precision
 
         # More than this + redundancy leads to numerical
         # instability due to overflow
@@ -154,9 +155,6 @@ class Approximator(ABC):
                 # Model file does not exist
                 raise
         self.D = np.shape(self.X_train)[1]
-        self.grid = np.ogrid[0:self.N]  # For indexing sets of self.y_train
-        self.indices_where_0 = np.where(self.y_train == 0)
-        self.indices_where_J_1 = np.where(self.y_train == self.J - 1)
 
     @abstractmethod
     def approximate_posterior(self):
@@ -189,90 +187,15 @@ class Approximator(ABC):
         if whitened is True:
             raise NotImplementedError("Not implemented.")
         elif reparameterised is True:
-            return self._predict(
-                X_test, cov, weight=f,
+            return predict_reparameterised(
+                self.kernel.kernel_prior_diagonal(X_test),
+                self.kernel.kernel_matrix(self.X_train, X_test),
+                cov, weight=f,
                 cutpoints=self.cutpoints,
-                noise_variance=self.noise_variance)
+                noise_variance=self.noise_variance, J=self.J,
+                upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
         else:
             raise NotImplementedError("Not implemented.")
-
-    def _ordinal_predictive_distributions(
-        self, posterior_pred_mean, posterior_pred_std, N_test, cutpoints
-    ):
-        """
-        TODO: Replace with truncated_norm_normalizing_constant
-        Return predictive distributions for the ordinal likelihood.
-        """
-        predictive_distributions = np.empty((N_test, self.J))
-        for j in range(self.J):
-            z1 = np.divide(np.subtract(
-                cutpoints[j + 1], posterior_pred_mean), posterior_pred_std)
-            z2 = np.divide(
-                np.subtract(cutpoints[j],
-                posterior_pred_mean), posterior_pred_std)
-            predictive_distributions[:, j] = norm_cdf(z1) - norm_cdf(z2)
-        return predictive_distributions
-
-    def _predict(
-            self, X_test, cov, weight, cutpoints, noise_variance):
-        """
-        Make posterior prediction over ordinal classes of X_test.
-
-        :arg X_test: The new data points, array like (N_test, D).
-        :arg cov: A covariance matrix used in calculation of posterior
-            predictions. (\sigma^2I + K)^{-1} Array like (N, N).
-        :type cov: :class:`numpy.ndarray`
-        :arg weight: The approximate inverse-covariance-posterior-mean.
-            .. math::
-                \nu = (\mathbf{K} + \sigma^{2}\mathbf{I})^{-1} \mathbf{y}
-                = \mathbf{K}^{-1} \mathbf{f}
-            Array like (N,).
-        :type weight: :class:`numpy.ndarray`
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg float noise_variance: The noise variance.
-        :arg bool numerically_stable: Use matmul or triangular solve.
-            Default `False`. 
-        :return: A Monte Carlo estimate of the class probabilities.
-        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-        """
-        N_test = np.shape(X_test)[0]
-        Kss = self.kernel.kernel_prior_diagonal(X_test)
-        Kfs = self.kernel.kernel_matrix(self.X_train, X_test)  # (N, N_test)
-        temp = cov @ Kfs
-        posterior_variance = Kss - np.einsum(
-            'ij, ij -> j', Kfs, temp)
-        posterior_std = np.sqrt(posterior_variance)
-        posterior_pred_mean = Kfs.T @ weight
-        posterior_pred_variance = posterior_variance + noise_variance
-        posterior_pred_std = np.sqrt(posterior_pred_variance)
-        return (
-            self._ordinal_predictive_distributions(
-            posterior_pred_mean, posterior_pred_std, N_test, cutpoints),
-            posterior_pred_mean, posterior_std)
-
-    def get_log_likelihood(self, m):
-        """
-        Likelihood of ordinal regression. This is product of scalar normal cdf.
-
-        If np.ndim(m) == 2, vectorised so that it returns (num_samples,)
-        vector from (num_samples, N) samples of the posterior mean.
-
-        Note that numerical stability has been turned off in favour of
-        exactness - but experiments should be run twice with numerical
-        stability turned on to see if it makes a difference.
-        """
-        Z, *_ = truncated_norm_normalising_constant(
-            self.cutpoints_ts, self.cutpoints_tplus1s,
-            self.noise_std, m,
-            upper_bound=self.upper_bound,
-            # upper_bound2=self.upper_bound2,  # optional
-            # tolerance=self.tolerance  # optional
-            )
-        if np.ndim(m) == 2:
-            return np.sum(np.log(Z), axis=1)  # (num_samples,)
-        elif np.ndim(m) == 1:
-               return np.sum(np.log(Z))  # (1,)
 
     def get_phi(self, trainables):
         """
@@ -557,9 +480,13 @@ class LaplaceGP(Approximator):
         :rtype: (12,) tuple.
         """
         if posterior_mean_0 is None:
-            posterior_mean_0 = self.cutpoints_ts.copy()
-            posterior_mean_0[self.indices_where_0] = self.cutpoints_tplus1s[
-                self.indices_where_0]
+            # # TODO: Is this a good initialisation?
+            # indices_where_0 = np.where(self.y_train == 0)
+            # posterior_mean_0 = self.cutpoints_ts.copy()
+            # posterior_mean_0[indices_where_0] = self.cutpoints_tplus1s[
+            #     indices_where_0]
+            # Alternatively
+            posterior_mean_0 = 0.0
         error = 0.0
         posterior_means = []
         containers = (posterior_means)
@@ -937,6 +864,8 @@ class EPGP(Approximator):
         :returns: An :class:`EPGP` object.
         """
         super().__init__(*args, **kwargs)
+        self.indices_where_0 = np.where(self.y_train == 0)
+        self.indices_where_J_1 = np.where(self.y_train == self.J - 1)
         # Initiate hyperparameters
         self.hyperparameters_update(
             cutpoints=cutpoints, noise_variance=noise_variance)
