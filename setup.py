@@ -53,5 +53,7 @@ setup(
         'scipy',
         'tqdm',
         'h5py',
+        'matplotlib',
+        'backends'
         ]
     )
