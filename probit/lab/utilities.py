@@ -93,6 +93,7 @@ def predict_reparameterised(
                 J, upper_bound, upper_bound2),
             posterior_pred_mean, posterior_std)
 
+
 def matrix_inverse(matrix, N):
     "another version"
     L_cov = B.cholesky(matrix)
