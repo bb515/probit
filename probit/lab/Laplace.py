@@ -3,6 +3,8 @@ import lab as B
 from math import inf
 from probit.lab.utilities import (
     truncated_norm_normalising_constant, matrix_inverse)
+# TODO: temp
+import numpy as np
 
 
 def update_posterior_LA(noise_std, noise_variance, posterior_mean,
@@ -116,10 +118,10 @@ def objective_gradient_LA(
             cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
             cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
             if trainables[j]:
-                idxj = B.where(y_train == j - 1)
-                idxg = B.where(y_train > j - 1)
-                idxl = B.where(y_train < j - 1)
-                cache = B.zeros(N)
+                idxj = np.where(y_train == j - 1)
+                idxg = np.where(y_train > j - 1)
+                idxl = np.where(y_train < j - 1)
+                cache = np.zeros(N)
                 cache[idxj] = cache0[idxj]
                 cache[idxg] = cache1[idxg]
                 t2 = dsigma @ cache
