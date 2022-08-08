@@ -45,7 +45,7 @@ def ordinal_predictive_distributions(
     """
     Return predictive distributions for the ordinal likelihood.
     """
-    predictive_distributions = B.empty(N_test, J)
+    predictive_distributions = B.ones(N_test, J)
     for j in range(J):
         Z, *_ = truncated_norm_normalising_constant(
                 cutpoints[j], cutpoints[j + 1],

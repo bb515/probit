@@ -29,6 +29,7 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
     t1 = - (cov @ m) / precision
     posterior_mean += t1
     error = B.max(B.abs(t1))
+    print(error)
     return error, weight, precision, cov, log_det_cov, posterior_mean
 
 

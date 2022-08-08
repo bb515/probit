@@ -531,7 +531,8 @@ class LaplaceGP(Approximator):
                     posterior_mean) = update_posterior_LA(
                 self.noise_std, self.noise_variance, posterior_mean,
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.K, self.N,
-                # upper_bound=self.upper_bound,  # optional
+                # TODO: make sure that all numerical stability is robust to edge cases
+                upper_bound=self.upper_bound,  # recommended if a sensible val.
                 # upper_bound=self.upper_bound2,  # optional
                 # tolerance=self.tolerance  # not recommended
                 )
