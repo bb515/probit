@@ -116,22 +116,22 @@ def objective_gradient_LA(
                 idxg = jnp.where(y_train > j - 1)
                 idxl = jnp.where(y_train < j - 1)
                 cache = jnp.zeros(N)
-                cache[idxj] = cache0[idxj]
-                cache[idxg] = cache1[idxg]
+                cache = cache.at[idxj].set(cache0[idxj])
+                cache = cache.at[idxg].set(cache1[idxg])
                 t2 = dsigma @ cache
                 t2 = t2 / precision
-                gx[j] -= jnp.sum(w2[idxj])
                 temp = (
                     w2[idxj]
                     - 2.0 * (w2[idxj] - w1[idxj]) * g2[idxj]
                     - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
                     - v2[idxj]
                     - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
-                gx[j] += 0.5 * jnp.sum((temp - t2[idxj] * t1[idxj]) * diag[idxj])
-                gx[j] -= jnp.sum(w2[idxg] - w1[idxg])
-                gx[j] += 0.5 * jnp.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
-                gx[j] += 0.5 * jnp.sum(-t2[idxl] * t1[idxl] * diag[idxl])
-                gx[j] = gx[j] * intervals[j - 2] / noise_std
+                gx[j]  = ((- jnp.sum(w2[idxj])
+                    + 0.5 * jnp.sum((temp - t2[idxj] * t1[idxj]) * diag[idxj])
+                    - jnp.sum(w2[idxg] - w1[idxg])
+                    + 0.5 * jnp.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
+                    + 0.5 * jnp.sum(-t2[idxl] * t1[idxl] * diag[idxl])
+                )  * intervals[j - 2] / noise_std)
         # For gx[J] -- variance
         if trainables[J]:
             dmat = partial_K_variance @ cov

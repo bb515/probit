@@ -12,7 +12,7 @@ from probit.lab.utilities import (
     truncated_norm_normalising_constant)
 
 # Change probit.<linalg backend>.<Approximator>, as appropriate
-from probit.lab.Laplace import (update_posterior_LA,
+from probit.jax.Laplace import (update_posterior_LA,
     compute_weights_LA, objective_LA, objective_gradient_LA)
 from probit.lab.VB import (update_posterior_mean_VB,
     update_posterior_covariance_VB, update_hyperparameter_posterior_VB,
