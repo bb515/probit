@@ -110,8 +110,8 @@ class Approximator(ABC):
         # point but a longer convergence time. Acts as a machine tolerance.
         # Single precision linear algebra libraries won't converge smaller than
         # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
-        self.tolerance = 1e-3  # Single precision
-        # self.tolerance = 1e-6  # Double precision
+        # self.tolerance = 1e-3  # Single precision
+        self.tolerance = 1e-6  # Double precision
         self.tolerance2 = self.tolerance**2
 
         # Threshold of single sided standard deviations that
@@ -145,6 +145,7 @@ class Approximator(ABC):
             else:
                 y_train = y_train.astype(int)
                 self.y_train = y_train
+
             self.N = np.shape(self.X_train)[0]
             self._update_prior()
         else:
@@ -604,8 +605,8 @@ class LaplaceGP(Approximator):
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
                 "\nfunction_eval={}, \nfunction_grad={}".format(
-                    self.cutpoints, self.kernel.theta, self.noise_variance,
-                    self.kernel.variance, fx, gx))
+                    repr(self.cutpoints), self.kernel.theta,
+                    self.noise_variance, self.kernel.variance, fx, gx))
             return fx, gx
 
 
@@ -816,8 +817,8 @@ class VBGP(Approximator):
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
                 "\nfunction_eval={}, \nfunction_grad={}".format(
-                    self.cutpoints, self.kernel.theta, self.noise_variance,
-                    self.kernel.variance, fx, gx))
+                    repr(self.cutpoints), self.kernel.theta,
+                    self.noise_variance, self.kernel.variance, fx, gx))
             return fx, gx
 
 
@@ -1067,8 +1068,8 @@ class EPGP(Approximator):
                 print(
                 "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
                 "\nfunction_eval={}, \nfunction_grad={}".format(
-                    self.cutpoints, self.kernel.theta, self.noise_variance,
-                    self.kernel.variance, fx, gx))
+                    repr(self.cutpoints), self.kernel.theta,
+                    self.noise_variance, self.kernel.variance, fx, gx))
             return fx, gx
 
 
@@ -1318,7 +1319,7 @@ class PEPGP(Approximator):
             print(
             "\ncutpoints={}, theta={}, noise_variance={}, variance={},"
             "\nfunction_eval={}, \nfunction_grad={}".format(
-                self.cutpoints, self.kernel.theta, self.noise_variance,
+                repr(self.cutpoints), self.kernel.theta, self.noise_variance,
                 self.kernel.variance, fx, gx))
         if return_reparameterised is True:
             return fx, gx, gamma, (beta, True)

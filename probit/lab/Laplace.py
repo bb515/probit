@@ -25,10 +25,10 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
     precision  = weight**2 + (
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_variance
-    m = - K @ weight + posterior_mean
     cov, L_cov = matrix_inverse(K + B.diag(1. / precision), N)
     log_det_cov = -2 * B.sum(B.log(B.diag(L_cov)))
-    t1 = - (cov @ m) / precision
+    residual = - K @ weight + posterior_mean
+    t1 = - (cov @ residual) / precision
     posterior_mean += t1
     error = B.max(B.abs(t1))
     print(error)
