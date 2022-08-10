@@ -174,7 +174,7 @@ def main():
     print("trainables = {}".format(trainables))
     # just theta
     domain = ((-1, 1), None)
-    res = (30, None)
+    res = (3, None)
     # theta_0 and theta_1
     # domain = ((-1, 1.3), (-1, 1.3))
     # res = (20, 20)
