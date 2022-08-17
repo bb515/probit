@@ -16,7 +16,7 @@ import importlib.resources as pkg_resources
 # from scipy.stats import gamma
 from probit.kernels import KernelLoader
 from probit.load_approximators import ApproximatorLoader
-from probit.kernels import SEIso, SEARD, Linear, LabEQ, LabSharpenedCosine, SquaredExponential
+from probit.kernels import SEIso, SEARD, Linear, LabEQ, LabSharpenedCosine, SquaredExponential, SquaredExponentialARD
 
 # For plotting
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
@@ -1896,9 +1896,32 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
         from probit.data.paper import table1
         if J == 3:
             if ARD is True:
-                Kernel = SEARD
+                Kernel = SquaredExponentialARD
                 if D == 2:
-                    assert 0
+                    with pkg_resources.path(table1, 'D=2_J=3_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
+                        data = np.load(path)
+                    if plot:
+                        N_show = data["N_show"]
+                        X_show = data["X_show"]
+                        f_show = data["f_show"]
+                        X_js = data["X_js"]
+                        g_js = data["g_js"]
+                    X = data["X"]
+                    g = data["g"]
+                    f = data["f"]
+                    y = data["y"]
+                    # N = data["N"]
+                    colors = data["colors"]
+                    J = data["J"]
+                    D = data["D"]
+                    hyperparameters = {
+                        "true" : (
+                            data["cutpoints"],
+                            np.array([data["lengthscale"], data["lengthscale"]]),
+                            data["noise_variance"],
+                            data["variance"]
+                        )
+                    }
                 elif D == 10:
                     assert 0
             else:

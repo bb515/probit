@@ -6,15 +6,14 @@ import numpy as np
 from probit.utilities import (
     check_cutpoints,
     read_array)
-from probit.lab.utilities import (
-    posterior_covariance,
-    predict_reparameterised,
-    truncated_norm_normalising_constant)
 
 # Change probit.<linalg backend>.<Approximator>, as appropriate
+from probit.jax.utilities import (
+    posterior_covariance,
+    predict_reparameterised)
 from probit.jax.Laplace import (update_posterior_LA,
     compute_weights_LA, objective_LA, objective_gradient_LA)
-from probit.lab.VB import (update_posterior_mean_VB,
+from probit.jax.VB import (update_posterior_mean_VB,
     update_posterior_covariance_VB, update_hyperparameter_posterior_VB,
     objective_VB, objective_gradient_VB)
 from probit.lab.EP import (update_posterior_EP,
@@ -59,7 +58,7 @@ class Approximator(ABC):
     def __init__(
             self, cutpoints, noise_variance, kernel, J, data=None, read_path=None,
             theta_hyperparameters=None, cutpoints_hyperparameters=None,
-            noise_std_hyperparameters=None):
+            noise_std_hyperparameters=None, single_precision=False):
         """
         Create an :class:`Approximator` object.
 
@@ -101,38 +100,37 @@ class Approximator(ABC):
         else:
             self.read_path = pathlib.Path(read_path)
 
-        # Numerical stability when taking Cholesky decomposition
-        # See GPML by Williams et al. for an explanation of jitter
-        self.epsilon = 1e-12  # Default regularisation TODO: may be too small, try 1e-10
-        # self.epsilon = 1e-8  # Strong regularisation
+        if single_precision is True:
+            # Numerical stability when taking Cholesky decomposition
+            # See GPML by Williams et al. for an explanation of jitter
+            self.epsilon = 1e-8  # Strong regularisation
+            # Decreasing tolerance will lead to more accurate solutions up to a
+            # point but a longer convergence time. Acts as a machine tolerance.
+            # Single precision linear algebra libraries won't converge smaller than
+            # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
+            self.tolerance = 1e-3  # Single precision
+            # Threshold of single sided standard deviations that
+            # normal cdf can be approximated to 0 or 1
+            # More than this + redundancy leads to numerical instability
+            # due to catestrophic cancellation
+            # Less than this leads to a poor approximation due to series
+            # expansion at infinity truncation
+            # Good values found between 4 and 6
+            self.upper_bound = 4  # Single precision
+            # More than this + redundancy leads to numerical
+            # instability due to overflow
+            # Less than this results in poor approximation due to
+            # neglected probability mass in the tails
+            # Good values found between 18 and 30
+            # Try decreasing if experiencing infs or NaNs
+            self.upper_bound2 = 18  # For single precision
+        else:  # Double precision
+            self.epsilon = 1e-12  # Default regularisation- If too small, 1e-10
+            self.tolerance = 1e-6
+            self.upper_bound = 6
+            self.upper_bound2 = 30
 
-        # Decreasing tolerance will lead to more accurate solutions up to a
-        # point but a longer convergence time. Acts as a machine tolerance.
-        # Single precision linear algebra libraries won't converge smaller than
-        # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
-        # self.tolerance = 1e-3  # Single precision
-        self.tolerance = 1e-6  # Double precision
         self.tolerance2 = self.tolerance**2
-
-        # Threshold of single sided standard deviations that
-        # normal cdf can be approximated to 0 or 1
-        # More than this + redundancy leads to numerical instability
-        # due to catestrophic cancellation
-        # Less than this leads to a poor approximation due to series
-        # expansion at infinity truncation
-        # Good values found between 4 and 6
-        # TODO: make automatic toggle for values for single or double precision?
-        # self.upper_bound = 4  # Single precision
-        self.upper_bound = 6  # Double precision
-
-        # More than this + redundancy leads to numerical
-        # instability due to overflow
-        # Less than this results in poor approximation due to
-        # neglected probability mass in the tails
-        # Good values found between 18 and 30
-        # Try decreasing if experiencing infs or NaNs
-        # self.upper_bound = 18  # For single precision
-        self.upper_bound2 = 30  # For double precision
 
         # Get data and calculate the prior
         if data is not None:
@@ -532,10 +530,8 @@ class LaplaceGP(Approximator):
                     posterior_mean) = update_posterior_LA(
                 self.noise_std, self.noise_variance, posterior_mean,
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.K, self.N,
-                # TODO: make sure that all numerical stability is robust to edge cases
                 upper_bound=self.upper_bound,  # recommended if a sensible val.
-                # upper_bound=self.upper_bound2,  # optional
-                # tolerance=self.tolerance  # not recommended
+                # upper_bound2=self.upper_bound2,  # optional
                 )
             if write is True:
                 posterior_means.append(posterior_mean)
@@ -580,9 +576,8 @@ class LaplaceGP(Approximator):
             posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
             self.noise_std, self.noise_variance,
             self.N, self.K,
-            # upper_bound=self.upper_bound,  # optional
+            upper_bound=self.upper_bound,  # recommended, if a sensible value
             # upper_bound2=self.upper_bound2,  # optional
-            # tolerance=self.tolerance2,  # not recommended
             )
         fx = objective_LA(weight, posterior_mean, precision, L_cov, Z)
         gx = objective_gradient_LA(
@@ -591,7 +586,7 @@ class LaplaceGP(Approximator):
             self.partial_K_theta, self.partial_K_variance,
             self.noise_std, self.noise_variance,
             self.kernel.theta, self.kernel.variance,
-            self.N, self.J, self.D, self.kernel._ARD)
+            self.J, self.D, self.kernel._ARD)
         gx = gx[gx_where]
         if return_reparameterised is True:
             return fx, gx, weight, (cov, True)
@@ -720,10 +715,12 @@ class VBGP(Approximator):
         for _ in trange(1, 1 + steps,
                         desc="VB GP approximator progress", unit="samples",
                         disable=True):
-            posterior_mean, weight = update_posterior_mean_VB(
+            (posterior_mean, weight, Z) = update_posterior_mean_VB(
                 self.noise_std, posterior_mean, self.cov,
                 self.cutpoints_ts, self.cutpoints_tplus1s, self.K,
-                self.upper_bound, self.upper_bound2)
+                upper_bound=self.upper_bound,  # recommended if a sensible val
+                #upperbound2=self.upper_bound2  # optional
+                )
             if self.kernel.theta_hyperhyperparameters is not None:
                 # Variational Bayes update for kernel hyperparameters
                 # Kernel hyperparameters are treated as latent variables here
@@ -735,9 +732,6 @@ class VBGP(Approximator):
                     theta=theta,
                     theta_hyperparameters=theta_hyperparameters)
             if write:
-                Z, *_ = truncated_norm_normalising_constant(
-                    self.cutpoints_ts, self.cutpoints_tplus1s,
-                    self.noise_std, posterior_mean)
                 fx = objective_VB(
                     self.N, posterior_mean, weight, self.trace_cov,
                     self.trace_posterior_cov_div_var, Z,
@@ -748,7 +742,7 @@ class VBGP(Approximator):
                     psis.append(self.kernel.theta_hyperparameters)
                 fxs.append(fx)
         containers = (posterior_means, thetas, psis, fxs)
-        return posterior_mean, weight, containers
+        return posterior_mean, weight, Z, containers
 
     def approximate_posterior(
             self, phi, trainables, steps, verbose=False,
@@ -771,13 +765,9 @@ class VBGP(Approximator):
         posterior_mean = None
         while error / steps > self.tolerance:
             iteration += 1
-            (posterior_mean, weight, *_) = self.approximate(
+            (posterior_mean, weight, Z, *_) = self.approximate(
                 steps, posterior_mean_0=posterior_mean,
                 write=False)
-            (Z, norm_pdf_z1s, norm_pdf_z2s,
-                    *_ )= truncated_norm_normalising_constant(
-                self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
-                posterior_mean)
             if self.kernel.theta_hyperhyperparameters is not None:
                 fx = objective_VB(
                     self.N, posterior_mean, weight, self.trace_cov,
@@ -785,7 +775,7 @@ class VBGP(Approximator):
                     self.noise_variance, self.log_det_cov)
             else:
                 # Only terms in posterior_mean change for fixed hyperparameters
-                fx = -0.5 * posterior_mean.T @ weight - np.sum(Z)
+                fx = -0.5 * posterior_mean.T @ weight - np.sum(np.log(Z))
             error = np.abs(fx_old - fx)
             fx_old = fx
             if verbose:
@@ -798,12 +788,12 @@ class VBGP(Approximator):
                 gx.copy(), intervals, self.cutpoints_ts,
                 self.cutpoints_tplus1s,
                 self.kernel.theta, self.kernel.variance,
-                self.noise_variance, self.noise_std,
-                self.y_train, posterior_mean, weight, self.cov, self.trace_cov,
+                self.noise_std,
+                self.y_train, posterior_mean, weight, self.cov,
+                self.trace_posterior_cov_div_var,
                 self.partial_K_theta, self.partial_K_variance,
-                self.N, self.J, self.D, self.kernel._ARD,
-                self.upper_bound, self.upper_bound2, Z,
-                norm_pdf_z1s, norm_pdf_z2s, trainables,
+                self.J, self.D, self.kernel._ARD,
+                self.upper_bound, self.upper_bound2, trainables,
                 numerical_stability=True, verbose=False)
         gx = gx[gx_where]
         if return_reparameterised is True:

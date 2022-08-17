@@ -1,7 +1,9 @@
 """Utility functions for probit."""
 import lab as B
+import jax
 import warnings
 from math import inf
+from functools import partial
 
 over_sqrt_2_pi = 1. / B.sqrt(2 * B.pi)
 log_over_sqrt_2_pi = -0.5 * B.log(2 * B.pi)
@@ -94,8 +96,8 @@ def predict_reparameterised(
             posterior_pred_mean, posterior_std)
 
 
+@partial(jax.jit, static_argnames=['N'])
 def matrix_inverse(matrix, N):
-    "another version"
     L_cov = B.cholesky(matrix)
     L_covT_inv = B.triangular_solve(L_cov, B.eye(N), lower_a=True)
     cov = B.triangular_solve(L_cov.T, L_covT_inv, lower_a=False)

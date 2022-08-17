@@ -1015,12 +1015,14 @@ def grid_synthetic(
         #First derivatives: need to calculate them in the log domain if theta is in log domain
         if xscale == "log":
             log_x = np.log(x)
-            dx = np.diff(log_x)
             dZ_ = np.gradient(Z, log_x)
+            # Alternatively
+            #dlog_x = np.diff(log_x)
             #dZ = np.diff(Z) / dlog_x
         elif xscale == "linear":
-            dx = np.diff(x)
             dZ_ = np.gradient(Z, x)
+            # Alternatively
+            #dx = np.diff(x)
             #dZ = np.diff(Z) / dx
         idx_hat = np.argmin(Z)
 
