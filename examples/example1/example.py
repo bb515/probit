@@ -1,9 +1,9 @@
 """Ordinal regression concrete examples. Approximate inference."""
 # Make sure to limit CPU usage
 import os
-# # Enable double precision
-# from jax.config import config
-# config.update("jax_enable_x64", True)
+#Enable double precision
+from jax.config import config
+config.update("jax_enable_x64", True)
 
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
@@ -42,7 +42,7 @@ def get_approximator(
     elif approximation == "VB":
         from probit.approximators import VBGP
         # steps is the number of fix point iterations until check convergence
-        steps = np.max([10, N_train//10])
+        steps = np.max([10, N_train//1000])
         Approximator = VBGP
     elif approximation == "LA":
         from probit.approximators import LaplaceGP
@@ -136,9 +136,6 @@ def main():
         cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
         J, D, colors, Kernel) = load_data_paper(
             dataset, J=J, D=D, ARD=False, plot=True)
-        # from probit.kernels import SquaredExponentialARD
-        # Kernel = SquaredExponentialARD
-        # theta_0 = np.array([theta_0, theta_0])
     else:
         raise ValueError("Dataset {} not found.".format(dataset))
     N_train = np.shape(y)[0]
@@ -153,7 +150,7 @@ def main():
         # Initiate classifier
         classifier = Approximator(
             cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-            kernel=kernel, J=J, data=(X, y))
+            kernel=kernel, J=J, data=(X, y), single_precision=False)
 
     trainables = [1] * (J + 2)
     if kernel._ARD:
@@ -163,14 +160,14 @@ def main():
     else:
         trainables[-1] = 1
         # Fix theta
-        trainables[-1] = 1
+        trainables[-1] = 0
     # Fix noise standard deviation
-    trainables[0] = 0
+    trainables[0] = 1
     # Fix signal standard deviation
     trainables[J] = 0
     # Fix cutpoints
     trainables[1:J] = [0] * (J - 1)
-    # trainables[2] = 1
+    trainables[1] = 0
     print("trainables = {}".format(trainables))
     # just theta
     domain = ((-1, 1), None)

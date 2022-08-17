@@ -9,7 +9,6 @@ import warnings
 import numpy as np
 from probit.utilities import read_array, read_scalar
 from probit.lab.utilities import truncated_norm_normalising_constant
-from probit.lab.VB import _p
 from scipy.linalg import cholesky, solve_triangular
 
 
@@ -130,6 +129,7 @@ class SparseVBGP(VBGP):
             self, steps, posterior_mean_0=None, first_step=1,
             write=False):
         """
+        # TODO: refactor into format like nonsparse
         Estimating the posterior means are a 3 step iteration over posterior_mean,
         theta and psi Eq.(8), (9), (10), respectively or,
         optionally, just an iteration over posterior_mean.
@@ -155,9 +155,12 @@ class SparseVBGP(VBGP):
         for _ in trange(first_step, first_step + steps,
                         desc="GP priors Sampler Progress", unit="samples",
                         disable=True):
-            p = _p(
-                posterior_mean, self.cutpoints_ts, self.cutpoints_tplus1s,
-                self.noise_std, self.EPS, self.upper_bound, self.upper_bound2)
+            (Z, norm_pdf_z1s, norm_pdf_z2s,
+                _, _) = truncated_norm_normalising_constant(
+                self.cutpoints_ts, self.cutpoints_tplus1s, self.noise_std,
+                posterior_mean, upper_bound=self.upper_bound,
+                upper_bound2=self.upper_bound2)
+            p =  (norm_pdf_z1s - norm_pdf_z2s) / Z
             g = self._g(
                 p, posterior_mean, self.noise_std)
             posterior_mean, weight = self._posterior_mean(

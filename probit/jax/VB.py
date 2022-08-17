@@ -1,7 +1,7 @@
-import lab as B
-from math import inf
-from scipy.stats import expon
-from probit.lab.utilities import (
+import jax.numpy as jnp
+from jax.scipy.stats import expon
+from jax.scipy.linalg import cholesky
+from probit.jax.utilities import (
     truncated_norm_normalising_constant, matrix_inverse, log_over_sqrt_2_pi)
 
 
@@ -32,10 +32,10 @@ def objective_VB(
     return (0.5 * trace_posterior_cov_div_var
         + 0.5 * trace_K_inv_posterior_cov
         + 0.5 * posterior_mean.T @ weight
-        - 0.5 * N * B.log(noise_variance)
+        - 0.5 * N * jnp.log(noise_variance)
         - 0.5 * log_det_cov
         - 0.5 * N
-        - B.sum(B.log(Z)))
+        - jnp.sum(jnp.log(Z)))
 
 
 def objective_gradient_VB(
@@ -90,11 +90,11 @@ def objective_gradient_VB(
     if trainables is not None:
         # For gx[0] -- ln\sigma
         if trainables[0]:
-            z1s = B.where(z1s == -inf, 0.0, z1s)
-            z1s = B.where(z1s == inf, 0.0, z1s)
-            z2s = B.where(z2s == -inf, 0.0, z2s)
-            z2s = B.where(z2s == inf, 0.0, z2s)
-            gx[0] = -trace_posterior_cov_div_var - B.sum(
+            z1s = jnp.where(z1s == -jnp.inf, 0.0, z1s)
+            z1s = jnp.where(z1s == jnp.inf, 0.0, z1s)
+            z2s = jnp.where(z2s == -jnp.inf, 0.0, z2s)
+            z2s = jnp.where(z2s == jnp.inf, 0.0, z2s)
+            gx[0] = -trace_posterior_cov_div_var - jnp.sum(
                 (z1s * norm_pdf_z1s - z2s * norm_pdf_z2s) / Z)
             if verbose: print("gx_sigma = ", gx[0])
         if trainables[1:J]:
@@ -103,18 +103,18 @@ def objective_gradient_VB(
         # For gx[1] -- \b_1
         if trainables[1]:
             # For gx[1], \phi_b^1
-            gx[1] = B.sum(w1 - w2)
+            gx[1] = jnp.sum(w1 - w2)
             gx[1] = gx[1] / noise_std
         # For gx[2] -- ln\Delta^r
         for j in range(2, J):
             # Prepare D f / D delta_l
             if trainables[j]:
-                gx[j] -= B.sum(B.where(y_train == j - 1, w2, 0))
-                gx[j] -= B.sum(B.where(y_train > j - 1, w2 - w1, 0))
+                gx[j] -= jnp.sum(jnp.where(y_train == j - 1, w2, 0))
+                gx[j] -= jnp.sum(jnp.where(y_train > j - 1, w2 - w1, 0))
                 gx[j] = gx[j] * intervals[j - 2] / noise_std
         if trainables[J]:
             gx[J] = (- variance * weight.T @ partial_K_variance @ weight
-                + variance * B.sum(B.multiply(partial_K_variance, cov)))
+                + variance * jnp.sum(jnp.multiply(partial_K_variance, cov)))
         # For kernel parameters
         if ARD:
             for d in range(D):
@@ -124,7 +124,7 @@ def objective_gradient_VB(
                         # lower bound wrt the lengthscale
                         gx[J + 1 + d] = (
                     - theta[d] / 2 * weight.T @ partial_K_theta[d] @ weight
-                    + theta[d] / 2 * B.einsum(
+                    + theta[d] / 2 * jnp.einsum(
                         'ij, ji ->', partial_K_theta[d], cov))
                         if verbose: print("gx = {}".format(gx[J + 1 + d]))
         else:
@@ -134,7 +134,7 @@ def objective_gradient_VB(
                     # wrt the lengthscale
                     gx[J + 1] = (
                         - theta / 2 * weight.T @ partial_K_theta @ weight
-                        + theta / 2 * B.einsum(
+                        + theta / 2 * jnp.einsum(
                             'ij, ji ->', partial_K_theta, cov))
                     if verbose: print("gx = {}".format(gx[J + 1]))
     return gx
@@ -155,10 +155,10 @@ def update_posterior_covariance_VB(noise_variance, N, K):
     """Update posterior covariances.
     # TODO: rename to Jacobian?
     """
-    cov, L_cov = matrix_inverse(noise_variance * B.eye(N) + K, N)
-    log_det_cov = -2 * B.sum(B.log(B.diag(L_cov)))
-    trace_cov = B.sum(B.diag(cov))
-    trace_posterior_cov_div_var = B.einsum(
+    cov, L_cov = matrix_inverse(noise_variance * jnp.eye(N) + K, N)
+    log_det_cov = -2 * jnp.sum(jnp.log(jnp.diag(L_cov)))
+    trace_cov = jnp.sum(jnp.diag(cov))
+    trace_posterior_cov_div_var = jnp.einsum(
         'ij, ij -> ', K, cov)
     return L_cov, cov, log_det_cov, trace_cov, trace_posterior_cov_div_var
 
@@ -187,9 +187,9 @@ def _theta_hyperparameters(
     :return: The approximate posterior mean of the hyperhyperparameters psi
         Girolami and Rogers Page 9 Eq.(10).
     """
-    return B.divide(
-        B.add(1, theta_hyperhyperparameters[0]),
-        B.add(theta_hyperhyperparameters[1], theta))
+    return jnp.divide(
+        jnp.add(1, theta_hyperhyperparameters[0]),
+        jnp.add(theta_hyperhyperparameters[1], theta))
 
 
 def _theta(
@@ -211,18 +211,18 @@ def _theta(
     """
     thetas = sample_thetas(  # (n_samples, N, N) for ISO case, depends on shape of theta hyper-hyperparameter
         theta_hyperparameters, n_samples)  # (n_samples, )
-    log_thetas = B.log(thetas)
+    log_thetas = jnp.log(thetas)
     Ks_samples = self.kernel.kernel_matrices(
         self.X_train, self.X_train, thetas)  # (n_samples, N, N)
-    Ks_samples = B.add(Ks_samples, self.epsilon * B.eye(N))
+    Ks_samples = jnp.add(Ks_samples, self.epsilon * jnp.eye(N))
     if vectorised:
         raise ValueError("TODO")
     else:
-        log_ws = B.empty((n_samples,))
+        log_ws = jnp.empty((n_samples,))
         # Scalar version
         for i in range(n_samples):
-            L_K = B.cholesky(Ks_samples[i])
-            half_log_det_K = B.sum(B.log(B.diag(L_K)))  # correct sign?
+            L_K = cholesky(Ks_samples[i])
+            half_log_det_K = jnp.sum(jnp.log(jnp.diag(L_K)))  # correct sign?
             # TODO 2021 - something not quite right - converges to zero
             # TODO: 28/07/2022 this may have been fixed by a fixing bug in the
             # code that did not update theta? Test
@@ -231,14 +231,14 @@ def _theta(
             log_ws[i] = log_over_sqrt_2_pi - half_log_det_K\
                 - 0.5 * posterior_mean.T @ weight
     # Normalise the w vectors
-    max_log_ws = B.max(log_ws)
-    log_normalising_constant = max_log_ws + B.log(
-        B.sum(B.exp(log_ws - max_log_ws), axis=0))
-    log_ws = B.subtract(log_ws, log_normalising_constant)
-    print(B.sum(B.exp(log_ws)))
-    element_prod = B.add(log_thetas, log_ws)
-    element_prod = B.exp(element_prod)
-    return B.sum(element_prod, axis=0)
+    max_log_ws = jnp.max(log_ws)
+    log_normalising_constant = max_log_ws + jnp.log(
+        jnp.sum(jnp.exp(log_ws - max_log_ws), axis=0))
+    log_ws = jnp.subtract(log_ws, log_normalising_constant)
+    print(jnp.sum(jnp.exp(log_ws)))
+    element_prod = jnp.add(log_thetas, log_ws)
+    element_prod = jnp.exp(element_prod)
+    return jnp.sum(element_prod, axis=0)
 
 
 def sample_thetas(theta_hyperparameter, n_samples):
@@ -258,7 +258,7 @@ def sample_thetas(theta_hyperparameter, n_samples):
     """
     # scale = theta_hyperparameter
     scale = 1. / theta_hyperparameter
-    shape = B.shape(theta_hyperparameter)
+    shape = jnp.shape(theta_hyperparameter)
     if shape == ():
         size = (n_samples,)
     else:

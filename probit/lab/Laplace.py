@@ -1,21 +1,18 @@
 from cmath import inf
-import lab as B
+import lab.jax as B
 from math import inf
 from probit.lab.utilities import (
     truncated_norm_normalising_constant, matrix_inverse)
-# TODO: temp
-import numpy as np
 
 
 def update_posterior_LA(noise_std, noise_variance, posterior_mean,
         cutpoints_ts, cutpoints_tplus1s, K, N,
-        upper_bound=None, upper_bound2=None, tolerance=None):
+        upper_bound=None, upper_bound2=None):
     """Update Laplace approximation posterior covariance in Newton step."""
     (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
         _, _) = truncated_norm_normalising_constant(
             cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
-            upper_bound=upper_bound, upper_bound2=upper_bound2,
-            tolerance=tolerance)
+            upper_bound=upper_bound, upper_bound2=upper_bound2)
     weight = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
     # This is not for numerical stability, it is mathematically correct
     z1s = B.where(z1s == -inf, 0.0, z1s)
@@ -38,15 +35,14 @@ def update_posterior_LA(noise_std, noise_variance, posterior_mean,
 def compute_weights_LA(
         posterior_mean, cutpoints_ts, cutpoints_tplus1s, noise_std,
         noise_variance,
-        N, K,
-        upper_bound=None, upper_bound2=None, tolerance=None):
+        N, K, upper_bound=None, upper_bound2=None):
+    # TODO: combine this with update_posterior_LA
     # Numerically stable calculation of ordinal likelihood!
     (Z,
     norm_pdf_z1s, norm_pdf_z2s,
     z1s, z2s, *_) = truncated_norm_normalising_constant(
         cutpoints_ts, cutpoints_tplus1s, noise_std,
-        posterior_mean, upper_bound=upper_bound, upper_bound2=upper_bound2,
-        tolerance=tolerance)
+        posterior_mean, upper_bound=upper_bound, upper_bound2=upper_bound2)
     w1 = norm_pdf_z1s / Z
     w2 = norm_pdf_z2s / Z
     # This is not for numerical stability, it is mathematically correct
@@ -69,23 +65,21 @@ def compute_weights_LA(
 
 
 def objective_LA(weight, posterior_mean, precision, L_cov, Z):
-    fx = -B.sum(B.log(Z))
-    fx += 0.5 * posterior_mean.T @ weight
-    fx += B.sum(B.log(B.diag(L_cov)))
-    fx += 0.5 * B.sum(B.log(precision))
-    return fx
+    return (-B.sum(B.log(Z))
+        + 0.5 * posterior_mean.T @ weight
+        + B.sum(B.log(B.diag(L_cov)))
+        + 0.5 * B.sum(B.log(precision)))
 
 
 def objective_gradient_LA(
         gx, intervals, w1, w2, g1, g2, v1, v2, q1, q2,
         cov, weight, precision, y_train, trainables, K, partial_K_theta,
         partial_K_variance, noise_std, noise_variance, theta, variance,
-        N, J, D, ARD):
+        J, D, ARD):
     if trainables is not None:
         # diagonal of posterior covariance
         dsigma = cov @ K
         diag = B.diag(dsigma) / precision
-        # partial lambda / partial phi_b = - partial lambda / partial f (* SIGMA)
         t1 = ((w2 - w1) - 3.0 * (w2 - w1) * (g2 - g1)
             - 2.0 * (w2 - w1)**3 - (v2 - v1)) / noise_variance
         # Update gx
@@ -102,8 +96,7 @@ def objective_gradient_LA(
                 - (g2 - g1)
                 + (g2 - g1)**2
                 + (q2 - q1)) / noise_variance)
-            gx[0] = B.sum(g2 - g1 + 0.5 * (tmp - t2 * t1) * diag)
-            gx[0] = - gx[0] / 2.0 * noise_variance
+            gx[0] = B.sum(g2 - g1) + B.sum((tmp - t2 * t1) * diag / 2.0)
         # For gx[1] -- \b_1
         if trainables[1]:
             # For gx[1], \phi_b^1
@@ -118,35 +111,26 @@ def objective_gradient_LA(
             cache0 = -(g2 + (w2 - w1) * w2) / noise_variance
             cache1 = - (g2 - g1 + (w2 - w1)**2) / noise_variance
             if trainables[j]:
-                idxj = np.where(y_train == j - 1)
-                idxg = np.where(y_train > j - 1)
-                idxl = np.where(y_train < j - 1)
-                cache = np.zeros(N)
-                cache[idxj] = cache0[idxj]
-                cache[idxg] = cache1[idxg]
-                t2 = dsigma @ cache
-                t2 = t2 / precision
-                gx[j] -= B.sum(w2[idxj])
-                temp = (
-                    w2[idxj]
-                    - 2.0 * (w2[idxj] - w1[idxj]) * g2[idxj]
-                    - 2.0 * (w2[idxj] - w1[idxj])**2 * w2[idxj]
-                    - v2[idxj]
-                    - (g2[idxj] - g1[idxj]) * w2[idxj]) / noise_variance
-                gx[j] += 0.5 * B.sum((temp - t2[idxj] * t1[idxj]) * diag[idxj])
-                gx[j] -= B.sum(w2[idxg] - w1[idxg])
-                gx[j] += 0.5 * B.sum(t1[idxg] * (1.0 - t2[idxg]) * diag[idxg])
-                gx[j] += 0.5 * B.sum(-t2[idxl] * t1[idxl] * diag[idxl])
+                cache = B.where(y_train == j - 1, cache0, 0)
+                cache = B.where(y_train > j - 1, cache1, cache)
+                t2 = dsigma @ cache / precision
+                gx[j] -= B.sum(B.where(y_train == j - 1, w2, 0))
+                gx[j] += 0.5 * B.sum(B.where(y_train == j - 1,
+                    ((w2 - 2.0 * (w2 - w1) * g2
+                    - 2.0 * (w2 - w1)**2 * w2
+                    - v2
+                    - (g2 - g1) * w2) / noise_variance - t2 * t1) * diag, 0))
+                gx[j] -= B.sum(B.where(y_train > j - 1, w2 - w1, 0))
+                gx[j] += 0.5 * B.sum(B.where(y_train > j - 1, t1 * (1.0 - t2) * diag, 0))
+                gx[j] += 0.5 * B.sum(B.where(y_train < j - 1, -t2 * t1 * diag, 0))
                 gx[j] = gx[j] * intervals[j - 2] / noise_std
         # For gx[J] -- variance
         if trainables[J]:
             dmat = partial_K_variance @ cov
             t2 = (dmat @ weight) / precision
-            # VC * VC * a' * partial_K_theta * a / 2
-            gx[J] = -variance * 0.5 * weight.T @ partial_K_variance @ weight  # That's wrong. not the same calculation.
-            # equivalent to -= theta * 0.5 * jnp.trace(cov @ partial_K_theta)
+            gx[J] = -variance * 0.5 * weight.T @ partial_K_variance @ weight
             gx[J] += variance * 0.5 * B.trace(dmat)
-            gx[J] *= 2.0  # since theta = kappa / 2
+            gx[J] *= 2.0
         # For gx[J + 1] -- theta
         if ARD:
             for d in range(D):
