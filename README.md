@@ -75,7 +75,7 @@ Features
 - Sparse approximate inference applied to Power Expectation Propagation and mean field Variational Bayes
 - Gaussian, ARD, linear and polynomial kernel functions
 - Fully Bayesian inference with pseudo-marginal approach, auxiliary augmentation or sufficient augmentation.
-- Type II maximum likelihood via manual and numerical gradients
+- Type II maximum likelihood via manual and numerical gradients. A first version of autodiff is available on branch feature/implicit_layer
 
 Planned Features
 --------
