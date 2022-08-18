@@ -1,7 +1,7 @@
 probit
 ======
 
-Please do not distribute this private repository.
+Please do not distribute this private repository. This is WIP until release - so some functionality may be temporarily broken and poorly documented.
 
 probit, is an open-source and high-performance python package for solving ordinal regression problems with Gaussian Processes. It is implemented in [Python](https://www.python.org/).
 
@@ -75,10 +75,13 @@ Features
 - Sparse approximate inference applied to Power Expectation Propagation and mean field Variational Bayes
 - Gaussian, ARD, linear and polynomial kernel functions
 - Fully Bayesian inference with pseudo-marginal approach, auxiliary augmentation or sufficient augmentation.
+- Type II maximum likelihood via manual and numerical gradients
 
 Planned Features
 --------
-- numpy linear alegbra operations will be converted to TensorFlow or PyTorch code
+- deprecate remaining numpy linear algebra operations in favour of autodiff libraries
+- decide on whether JAX or PyTorch is better for implicit autodiff and functionality
+- complete implicit autodiff, make autodiff capabilities numerically stable
 
 
 Get started (preferred)
