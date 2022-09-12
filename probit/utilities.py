@@ -175,3 +175,22 @@ class CutpointValueError(Exception):
                 )
 
         super().__init__(message)
+
+
+class InvalidKernel(Exception):
+    """An invalid kernel has been passed to `Approximator` or `Sampler`"""
+
+    def __init__(self, kernel):
+        """
+        Construct the exception.
+
+        :arg kernel: The object pass to :class:`Approximator` or `Sampler`
+            as the kernel argument.
+        :rtype: :class:`InvalidKernel`
+        """
+        message = (
+            f"{kernel} is not an instance of "
+            "mlkernels.Kernel"
+        )
+
+        super().__init__(message)

@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from mlkernels import Delta
-from mlkernels import Kernel as BaseKernel
 import pathlib
 import warnings
 import lab.jax as B
@@ -54,7 +53,7 @@ class Approximator(ABC):
 
     @abstractmethod
     def __init__(
-            self, model, parameters, J,
+            self, prior, parameters, J,
             data=None, read_path=None,
             theta_hyperparameters=None, cutpoints_hyperparameters=None,
             noise_std_hyperparameters=None, single_precision=True):
@@ -80,9 +79,7 @@ class Approximator(ABC):
 
         :returns: A :class:`Approximator` object
         """
-        self.parameters = parameters
-        self.model = model
-        kernel, cutpoints, noise_variance = model(parameters)
+        self.prior = prior
         # Initiate hyper-hyper-parameters in case of MCMC or Variational
         # inference over theta
         self.initiate_hyperhyperparameters(
@@ -90,10 +87,8 @@ class Approximator(ABC):
             cutpoints_hyperparameters=cutpoints_hyperparameters,
             noise_std_hyperparameters=noise_std_hyperparameters)
 
-        if not (isinstance(kernel, BaseKernel)):
-            raise InvalidKernel(kernel)
-        else:
-            self.kernel = kernel
+        
+
         self.J = J
 
         # Read/write
@@ -601,20 +596,3 @@ class InvalidApproximator(Exception):
         super().__init__(message)
 
 
-class InvalidKernel(Exception):
-    """An invalid kernel has been passed to `Approximator` or `Sampler`"""
-
-    def __init__(self, kernel):
-        """
-        Construct the exception.
-
-        :arg kernel: The object pass to :class:`Approximator` or `Sampler`
-            as the kernel argument.
-        :rtype: :class:`InvalidKernel`
-        """
-        message = (
-            f"{kernel} is not an instance of "
-            "mlkernels.Kernel"
-        )
-
-        super().__init__(message)

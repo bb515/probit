@@ -1,8 +1,30 @@
 from cmath import inf
 import lab.jax as B
+import jax
+from jax import grad, jit, vmap
 from math import inf
 from probit.lab.utilities import (
     truncated_norm_normalising_constant, matrix_inverse)
+
+
+# # It could be really useful to store cutpoints_ts, but cleaner not to.
+
+# probit_likelihood(y, cutpoints, noise_std, f, upper_bound=None, upper_bound2=None, tolerance=None)
+
+# # Really should pass around scalars and use vmap, but difficult since scalar doesn't have the ordering information of the data.
+
+# weight = jit(grad(lambda f: truncated_norm_normalising_constant(
+#     data, likelihood_parameters, f,
+#     upper_bound=None, upper_bound2=None, tolerance=None)))
+
+# prior = model()
+
+# weights, cov = lambda prior_parameters, likelihood_parameters: approximator(prior_parameters, likelihood_parameters, data)  # is this accessible via defining a loss_and_grad function?
+# loss_and_grad = lambda prior_parameters, likelihood_parameters: approximator.take_grad(prior_parameters, likelihood_parameters, data)
+
+# # Then can revaluate for any given prior and likelihood parameters.
+
+# approximator = Approximator(prior, likelihood)  # jit compiles some functions? as long as the prior and likelihood take in some parameters.
 
 
 def weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,

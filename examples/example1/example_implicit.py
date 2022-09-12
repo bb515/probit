@@ -20,6 +20,8 @@ import numpy as np
 import pathlib
 from probit.plot import outer_loops, grid_synthetic, grid, plot_synthetic, plot, train, test
 from probit.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
+from mlkernels import Kernel as BaseKernel
+from probit.utilities import InvalidKernel
 import sys
 import time
 
@@ -99,20 +101,18 @@ def main():
     N_train = np.shape(y)[0]
     Approximator, steps = get_approximator(approximation, N_train)
     # Initiate classifier
-    def model(parameters):
-        cutpoints = cutpoints_0
-        cutpoints = parameters
-        noise_variance = noise_variance_0
-        theta = theta_0
-        signal_variance = signal_variance_0
+    def prior(theta, signal_variance):
         # Here you can define the kernel that defines the Gaussian process
         kernel = signal_variance * EQ().stretch(theta)
         # Make sure that model returns the kernel, cutpoints and noise_variance
-        return (kernel, cutpoints, noise_variance)
-    parameters = cutpoints_0
-    classifier = Approximator(model, parameters, J, data=(X, y),
-        # single_precision=True
-        )
+        return kernel
+    # Test prior
+
+    if not (isinstance(prior(0.0, 1.0), BaseKernel)):
+        raise InvalidKernel(prior(0.0, 1.0))
+
+    classifier = Approximator(prior, likelihood, data=(X, y))
+
     trainables = [1] * (J + 2)
     # if kernel._ARD:
     #     trainables[-1] = [1, 1]
