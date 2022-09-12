@@ -1,5 +1,6 @@
 """Useful plot functions for classifiers."""
 import numpy as np
+import lab as B
 import matplotlib.pyplot as plt
 from tqdm import trange
 from probit.data.utilities import colors, datasets, load_data_paper
@@ -8,12 +9,135 @@ import warnings
 import time
 from scipy.optimize import minimize
 import matplotlib.colors as mcolors
+from matplotlib.colors import LightSource
+from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import rc
+from matplotlib import cm, colors
+from scipy.interpolate import SmoothSphereBivariateSpline, RectSphereBivariateSpline
 
 
 BG_ALPHA = 1.0
 MG_ALPHA = 0.2
 FG_ALPHA = 0.4
+
+
+def plot_sphere(kernel, ntheta=200, nphi=200, interpolate=True):
+    """Get a sample function from the GP prior
+    :arg kernel: An MLKernel.
+    """
+    epsilon = 1e-3
+    theta = np.linspace(epsilon, np.pi - epsilon, ntheta)
+    phi = np.linspace(-np.pi, np.pi - epsilon, nphi)
+    print(theta)
+    print(phi)
+
+    def change_coordinates(X):
+        N, D = np.shape(X)
+        assert D == 2
+        theta = X[:, 0]
+        phi = X[:, 1]
+        
+        Y = np.empty((N, 3))
+        Y[:, 0] = np.sin(theta) * np.cos(phi)
+        Y[:, 1] = np.sin(theta) * np.sin(phi)
+        Y[:, 2] = np.cos(theta)
+        return Y
+
+    def polar_coordinates(theta, phi):
+        """Need to get x, y, z values for each by doing coordinate transformation
+        theta, phi are outputs of meshgrid
+        return X with shape (np.size(theta), 3) and Theta with shape (np.size(theta), 2)
+        """
+        N = np.shape(theta)[0]
+        assert np.shape(phi)[0] == N
+        thetatheta, phiphi = np.meshgrid(theta, phi)
+        X = np.dstack((thetatheta, phiphi))
+        X = X.reshape((N * N, 2))
+        return X, thetatheta, phiphi
+
+    def f(kernel, X, seed=None):
+        # Sample from GP prior using these values
+        if seed: np.random.seed(seed=seed)
+        epsilon = 1e-6
+        N, _ = np.shape(X)
+        K = kernel(X, X)
+        K = K + epsilon * np.identity(N)
+        L = B.cholesky(K)
+        # Generate normal samples
+        z = np.random.normal(loc=0, scale=1, size=N)
+        f_x = L @ z
+        return f_x.reshape((ntheta, nphi))
+
+    def get_rgb(fcolors, wavefun):
+        ls = LightSource(180, 45)
+        rgb = ls.shade(fcolors, cmap=cm.seismic, vert_exag=0.1, blend_mode='soft')
+        if np.unique(wavefun).size==1:
+            rgb = np.tile(np.array([1,0,0,1]), (rgb.shape[0],rgb.shape[1],1))
+        return rgb
+
+    # Plot function
+    def get_colors(fcolors):
+        wavefun = fcolors
+        fmax, fmin = fcolors.max(), fcolors.min()
+        fcolors = (fcolors - fmin)/(fmax - fmin)
+        return wavefun, get_rgb(fcolors, wavefun)
+
+    def frame(xx, yy, zz, rgb, r, fig, ax, mode='sphere'):
+        r = np.abs(np.squeeze(np.array(r)))
+        if mode=='sphere':
+            ax.plot_surface(xx, yy, zz,  rstride=1, cstride=1, facecolors=rgb, shade=False)
+        if mode=='radial':
+            ax.plot_surface(np.multiply(r,Y[0]), np.multiply(r,Y[1]), np.multiply(r,Y[2]),  rstride=1, cstride=1, facecolors=rgb, shade=False)
+        return fig
+    
+    def plot_surface(thetatheta, phiphi, rgb, wavefun, namestring):
+        xx = np.sin(thetatheta) * np.cos(phiphi)
+        yy = np.sin(thetatheta) * np.sin(phiphi)
+        zz = np.cos(thetatheta)
+
+        fig = plt.figure(figsize=plt.figaspect(1.0))
+        # fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_axis_off()
+        # ax.set_box_aspect(aspect = (1,1,1))
+        print(np.ptp(xx))
+        print(np.ptp(yy))
+        print(np.ptp(zz))
+        ax.set_box_aspect((2.0, 2.0, 1.83))
+        #scaling = np.array([getattr(ax, 'get_{}lim'.format(dim))() for dim in 'xyz'])
+        # ax.auto_scale_xyz(*[[np.min(scaling), np.max(scaling)]]*3)
+        # ax.set_box_aspect((np.ptp(xx), np.ptp(yy), np.ptp(zz)))
+
+        fig = frame(xx, yy, zz, rgb, wavefun, fig, ax)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(BG_ALPHA)
+        plt.tight_layout()
+        # plt.grid(b=None)
+        plt.savefig("{}.png".format(namestring))
+        plt.close()
+
+    X, thetatheta, phiphi = polar_coordinates(theta, phi)
+    Y = change_coordinates(X)
+    fx = f(kernel, Y)
+    print(fx)
+    wavefun, rgb = get_colors(fx)
+
+    plot_surface(thetatheta, phiphi, rgb, wavefun, "sphere")
+
+    # Interpolating this surface is quite difficult.
+    # f_interp = RectSphereBivariateSpline(theta, phi, fx.T, s=0.1)
+
+    # thetanew = np.linspace(0, np.pi, 100)
+    # phinew = np.linspace(0, 2 * np.pi, 100)
+    # thetatheta, phiphi = np.meshgrid(thetanew, phinew)
+    # fx_new = f_interp(thetanew, phinew)
+    # wavefun, rgb = get_colors(fx_new)
+
+    # plot_surface(thetatheta, phiphi, rgb, wavefun, "sphereinterp")
+    return 0
+
+
+
 
 def grid(classifier, X_trains, y_trains,
         domain, res, steps, now, trainables=None, verbose=False):
