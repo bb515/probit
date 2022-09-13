@@ -1,6 +1,8 @@
 """Ordinal regression concrete examples. Approximate inference."""
 # Make sure to limit CPU usage
 import os
+
+from probit.implicit.utilities import probit_likelihood_scalar
 # # Enable double precision
 # from jax.config import config
 # config.update("jax_enable_x64", True)
@@ -21,9 +23,13 @@ import pathlib
 from probit.plot import outer_loops, grid_synthetic, grid, plot_synthetic, plot, train, test
 from probit.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 from mlkernels import Kernel as BaseKernel
-from probit.utilities import InvalidKernel
+from probit.utilities import InvalidKernel, check_cutpoints
+from probit.implicit.utilities import probit_likelihood_scalar
 import sys
 import time
+## Temp
+import jax
+from jax import vmap, grad, jit
 
 
 now = time.ctime()
@@ -101,34 +107,29 @@ def main():
     N_train = np.shape(y)[0]
     Approximator, steps = get_approximator(approximation, N_train)
     # Initiate classifier
-    def prior(theta, signal_variance):
+    def prior(prior_parameters):
+        stretch = prior_parameters
+        signal_variance = signal_variance_0
         # Here you can define the kernel that defines the Gaussian process
-        kernel = signal_variance * EQ().stretch(theta)
+        kernel = signal_variance * EQ().stretch(stretch)
         # Make sure that model returns the kernel, cutpoints and noise_variance
         return kernel
-    # Test prior
 
-    if not (isinstance(prior(0.0, 1.0), BaseKernel)):
-        raise InvalidKernel(prior(0.0, 1.0))
+    # Test prior
+    if not (isinstance(prior(1.0), BaseKernel)):
+        raise InvalidKernel(prior(1.0))
+
+    # check that the cutpoints are in the correct format
+    # for the number of classes, J
+    cutpoints_0 = check_cutpoints(cutpoints_0, J)
+
+    # grad_probit_likelihood = jit(vmap(grad(likelihood), in_axes=(None, 0, 0, None, None, None), out_axes=(0)))
+    likelihood = lambda noise_std, f: vmap(probit_likelihood_scalar([noise_std, cutpoints_0], f, y, single_precision=True))
 
     classifier = Approximator(prior, likelihood, data=(X, y))
 
-    trainables = [1] * (J + 2)
-    # if kernel._ARD:
-    #     trainables[-1] = [1, 1]
-    #     # Fix theta
-    #     trainables[-1] = [0] * int(D)
-    trainables[-1] = 1
-    # Fix theta
-    trainables[-1] = 0
-    # Fix noise standard deviation
-    trainables[0] = 1
-    # Fix signal standard deviation
-    trainables[J] = 0
-    # Fix cutpoints
-    trainables[1:J] = [0] * (J - 1)
-    trainables[1] = 0
-    print("trainables = {}".format(trainables))
+    # trainables are defined implicitly by the arguments to probit_likelihood_scalar and prior
+
     # just theta
     domain = ((-1, 1), None)
     res = (3, None)
@@ -188,6 +189,7 @@ def main():
     plt.savefig("fx.png")
     plt.close()
 
+    assert 0
 
     dZ = np.gradient(fs, thetas)
     plt.plot(thetas, dZ)

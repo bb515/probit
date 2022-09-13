@@ -5,18 +5,20 @@ import warnings
 import lab.jax as B
 import jax.numpy as jnp
 import jax
+from jax import grad, jit, vmap
 from jax import lax
 from functools import partial
-from probit.utilities import (
+from probit_jax.utilities import (
     check_cutpoints,
     read_array)
-from probit.lab.utilities import (
-    predict_reparameterised)
+from probit_jax.implicit.utilities import (
+    predict_reparameterised,
+    probit_jax_likelihood_scalar)
 
-# Change probit.<linalg backend>.<Approximator>, as appropriate
-from probit.implicit.Laplace import (
+# Change probit_jax.<linalg backend>.<Approximator>, as appropriate
+from probit_jax.implicit.Laplace import (
     f_LA, jacobian_LA, objective_LA)
-from probit.implicit.VB import (
+from probit_jax.implicit.VB import (
     f_VB, jacobian_VB, objective_VB)
 
 
@@ -53,10 +55,7 @@ class Approximator(ABC):
 
     @abstractmethod
     def __init__(
-            self, prior, parameters, J,
-            data=None, read_path=None,
-            theta_hyperparameters=None, cutpoints_hyperparameters=None,
-            noise_std_hyperparameters=None, single_precision=True):
+            self, prior, likelihood, data=None, read_path=None, single_precision=True):
         """
         Create an :class:`Approximator` object.
 
@@ -80,16 +79,37 @@ class Approximator(ABC):
         :returns: A :class:`Approximator` object
         """
         self.prior = prior
-        # Initiate hyper-hyper-parameters in case of MCMC or Variational
-        # inference over theta
-        self.initiate_hyperhyperparameters(
-            theta_hyperparameters=theta_hyperparameters,
-            cutpoints_hyperparameters=cutpoints_hyperparameters,
-            noise_std_hyperparameters=noise_std_hyperparameters)
+        self.likelihood = likelihood
 
-        
+        def construct(self):
+            """
+            Fixed point iteration function, with dynamic parameters prior_parameters, likelihood_parameters, z.
 
-        self.J = J
+            grad must have a scalar output. So, difficult to do grad pointwise.
+
+            lambda likelihood_parameters, prior_parameters, posterior_mean: f_LA(posterior_mean, prior_parameters, likelihood_parameters, likelihood)
+            """
+            likelihood_function = lambda likelihood_parameters, posterior_mean: likelihood(likelihood_parameters, posterior_mean, data[1])
+            return lambda prior_parameters, likelihood_parameters, posterior_mean: f(
+                prior, prior_parameters, likelihood_function, likelihood_parameters, posterior_mean, single_precision)
+
+        grad_probit_likelihood = jit(vmap(grad(likelihood), in_axes=(None, 0, 0, None, None, None), out_axes=(0)))
+
+        # grad_probit_likelihood(noise_std, cutpoints, f, y)
+
+        def likelihood(likelihood_parameters, f, y_train):
+            noise_std, cutpoints = likelihood_parameters
+            return lambda likelihood_parameters: probit_likelihood(
+                f, likelihood_parameters[0], likelihood_parameters[1], y_train, single_precision=single_precision)
+
+        def prior(prior_parameters, X):
+            return lambda prior_parameters: 
+
+        def __call__(prior_parameters, likelihood_parameters):
+            # get all needed functions for implicit iteration
+            dlikelihood_df = jit(grad(lambda f: self.likelihood(likelihood_parameters, f, y_train)))
+
+        #self.J = J
 
         # Read/write
         if read_path is None:
@@ -107,26 +127,10 @@ class Approximator(ABC):
             # Single precision linear algebra libraries won't converge smaller than
             # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
             self.tolerance = 1e-3  # Single precision
-            # Threshold of single sided standard deviations that
-            # normal cdf can be approximated to 0 or 1
-            # More than this + redundancy leads to numerical instability
-            # due to catestrophic cancellation
-            # Less than this leads to a poor approximation due to series
-            # expansion at infinity truncation
-            # Good values found between 4 and 6
-            self.upper_bound = 4  # Single precision
-            # More than this + redundancy leads to numerical
-            # instability due to overflow
-            # Less than this results in poor approximation due to
-            # neglected probability mass in the tails
-            # Good values found between 18 and 30
-            # Try decreasing if experiencing infs or NaNs
-            self.upper_bound2 = 18  # For single precision
+
         else:  # Double precision
             self.epsilon = 1e-12  # Default regularisation- If too small, 1e-10
             self.tolerance = 1e-6
-            self.upper_bound = 6
-            self.upper_bound2 = 30
 
         # Get data and calculate the prior
         if data is not None:
@@ -379,29 +383,6 @@ class Approximator(ABC):
             self.noise_variance = noise_variance
             self.noise_std = jnp.sqrt(noise_variance)
 
-    def initiate_hyperhyperparameters(self,
-            variance_hyperparameters=None,
-            theta_hyperparameters=None,
-            cutpoints_hyperparameters=None, noise_std_hyperparameters=None):
-        """TODO: For MCMC over these parameters. Could it be a part
-        of sampler?"""
-        if variance_hyperparameters is not None:
-            self.variance_hyperparameters = variance_hyperparameters
-        else:
-            self.variance_hyperparameters = None
-        if theta_hyperparameters is not None:
-            self.theta_hyperparameters = theta_hyperparameters
-        else:
-            self.theta_hyperparameters = None
-        if cutpoints_hyperparameters is not None:
-            self.cutpoints_hyperparameters = cutpoints_hyperparameters
-        else:
-            self.cutpoints_hyperparameters = None
-        if noise_std_hyperparameters is not None:
-            self.noise_std_hyperparameters = noise_std_hyperparameters
-        else:
-            self.noise_std_hyperparameters = None
-
     def hyperparameters_update(
         self, cutpoints=None, theta=None, variance=None, noise_variance=None):
         """
@@ -473,10 +454,17 @@ class LaplaceGP(Approximator):
         """
         super().__init__(*args, **kwargs)
 
-    def construct(self):
-        """Fixed point iteration function"""
-        return lambda params, posterior_mean: f_LA(
-            posterior_mean, self.model(params), self.upper_bound)
+    def construct(self, prior, grad_likelihood, data):
+        """
+        Fixed point iteration function, with dynamic parameters prior_parameters, likelihood_parameters, z.
+
+        grad must have a scalar output. So, difficult to do grad pointwise.
+
+        lambda likelihood_parameters, prior_parameters, posterior_mean: f_LA(posterior_mean, prior_parameters, likelihood_parameters, likelihood)
+        """
+        # TODO: is this the best way to split up parameters? These are t 
+
+        return lambda params, posterior_mean: f_LA(params[0], params[1], prior, grad_likelihood, posterior_mean, data)
 
     def take_grad(self):
         f = self.construct()

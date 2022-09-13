@@ -4,8 +4,7 @@ import jax
 from jax import grad, jit, vmap
 from math import inf
 from probit.lab.utilities import (
-    truncated_norm_normalising_constant, matrix_inverse)
-
+    probit_likelihood, matrix_inverse)
 
 # # It could be really useful to store cutpoints_ts, but cleaner not to.
 
@@ -30,14 +29,23 @@ from probit.lab.utilities import (
 def weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
         upper_bound, upper_bound2):
     (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-        _, _) = truncated_norm_normalising_constant(
+        _, _) = probit_likelihood(
             cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
             upper_bound=upper_bound, upper_bound2=upper_bound2)
     return ((norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std,
         Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s)
 
 
-def f_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s, K,
+def f_LA(prior_parameters, likelihood_parameters, prior, grad_likelihood, posterior_mean, data):
+    # TODO: test how scales with data when jitted, less memory intensive?
+    # When wanting to differentiate through this, what to keep as static args?
+    # Maybe put things as static args and let JAX recompile when it wants.
+    #jitted-functions cannot have functions as arguments
+    # so dlikelihood_df and K must be static
+    return prior(prior_parameters)(data[0]) @ grad_likelihood(likelihood_parameters, posterior_mean, data[1])
+
+
+def f_LASS(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s, K,
         upper_bound=None, upper_bound2=None):
     w, *_ = weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
         upper_bound, upper_bound2)
@@ -61,7 +69,8 @@ def jacobian_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
     return cov, L_cov
 
 
-def objective_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
+def objective_LASS(
+        posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
         K, upper_bound=None, upper_bound2=None):
     w, Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s = weight(
         cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
@@ -76,6 +85,19 @@ def objective_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
         ) / Z / noise_std**2
     L_cov = B.cholesky(K + B.diag(1. / precision))
     return (-B.sum(B.log(Z))
+        + 0.5 * posterior_mean.T @ weight
+        + B.sum(B.log(B.diag(L_cov)))
+        + 0.5 * B.sum(B.log(precision)))
+
+
+def objective_LA(
+        prior_parameters, likelihood_parameters, prior, grad_likelihood,
+        hessian_likelihood, posterior_mean, data):
+    likelihood = likelihood(likelihood_parameters, posterior_mean, data[1])
+    weight = grad_likelihood(likelihood_parameters, posterior_mean, data[1])
+    precision = hessian_likelihood(likelihood_parameters, posterior_mean, data[1])
+    L_cov = B.cholesky(prior(prior_parameters)(data[0]) + B.diag(1./ precision))
+    return (-B.sum(B.log(likelihood))
         + 0.5 * posterior_mean.T @ weight
         + B.sum(B.log(B.diag(L_cov)))
         + 0.5 * B.sum(B.log(precision)))
