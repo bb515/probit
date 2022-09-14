@@ -1,6 +1,4 @@
-from probit.approximators import LaplaceGP, EPGP, VBGP
-from probit.sparse import SparseLaplaceGP, SparseVBGP
-from probit.gpflow import SVGP, VGP
+from probit_jax.approximators import LaplaceGP, VBGP
 import enum
 
 
@@ -8,12 +6,7 @@ class ApproximatorLoader(enum.Enum):
     """Factory enum to load approximators.
     """
     LA = LaplaceGP
-    EP = EPGP
     VB = VBGP
-    SLA = SparseLaplaceGP
-    SVB = SparseVBGP
-    V = VGP
-    SV = SVGP
 
 
 def load_approximator(
@@ -41,10 +34,7 @@ def load_approximator(
     if approximator_string in ["LA", "EP", "VB", "V"]:
         return ApproximatorLoader[approximator_string].value(
             **kwargs)
-    elif approximator_string in ["SLA", "SVB", "SVGP"]:
-        return ApproximatorLoader[approximator_string].value(
-            M=M, **kwargs)
     else:
         raise ValueError(
             "Approximator not found. (got {}, expected {})".format(
-            approximator_string, "LA, EP, VB, V, SLA, SVB or SV"))
+            approximator_string, "LA, VB"))

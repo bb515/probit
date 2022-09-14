@@ -2,7 +2,6 @@
 # Make sure to limit CPU usage
 import os
 
-from probit.implicit.utilities import probit_likelihood_scalar
 # # Enable double precision
 # from jax.config import config
 # config.update("jax_enable_x64", True)
@@ -20,15 +19,16 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 import pathlib
-from probit.plot import outer_loops, grid_synthetic, grid, plot_synthetic, plot, train, test
-from probit.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
+from probit_jax.plot import outer_loops, grid_synthetic, grid, plot_synthetic, plot, train, test
+from probit_jax.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 from mlkernels import Kernel as BaseKernel
-from probit.utilities import InvalidKernel, check_cutpoints
-from probit.implicit.utilities import probit_likelihood_scalar
+from probit_jax.utilities import InvalidKernel, check_cutpoints
+from probit_jax.implicit.utilities import probit_likelihood, negative_log_probit_likelihood
 import sys
 import time
 ## Temp
 import jax
+import jax.numpy as jnp
 from jax import vmap, grad, jit
 
 
@@ -39,12 +39,12 @@ write_path = pathlib.Path()
 def get_approximator(
         approximation, N_train):
     if approximation == "VB":
-        from probit.approximate_implicit import VBGP
+        from probit_jax.approximators import VBGP
         # steps is the number of fix point iterations until check convergence
         steps = np.max([10, N_train//1000])
         Approximator = VBGP
     elif approximation == "LA":
-        from probit.approximate_implicit import LaplaceGP
+        from probit_jax.approximators import LaplaceGP
         # steps is the number of Newton steps until check convergence
         steps = np.max([2, N_train//1000])
         Approximator = LaplaceGP
@@ -123,10 +123,79 @@ def main():
     # for the number of classes, J
     cutpoints_0 = check_cutpoints(cutpoints_0, J)
 
-    # grad_probit_likelihood = jit(vmap(grad(likelihood), in_axes=(None, 0, 0, None, None, None), out_axes=(0)))
-    likelihood = lambda noise_std, f: vmap(probit_likelihood_scalar([noise_std, cutpoints_0], f, y, single_precision=True))
+    vector_likelihood = lambda f, y, params: probit_likelihood(f, y, params, single_precision=None)
+    vector_log_likelihood = lambda f, y, params: negative_log_probit_likelihood(f, y, params, single_precision=None)
+    grad_vector_likelihood = grad(vector_log_likelihood)
+    hessian_vector_likelihood = grad(lambda f, y, params: grad(vector_log_likelihood)(f, y, params))
 
-    classifier = Approximator(prior, likelihood, data=(X, y))
+    likelihood= vmap(vector_likelihood, in_axes=(0, 0, None), out_axes=(0))
+    log_likelihood= vmap(vector_log_likelihood, in_axes=(0, 0, None), out_axes=(0))
+    grad_log_likelihood = vmap(grad_vector_likelihood, in_axes=(0, 0, None), out_axes=(0))
+    hessian_log_likelihood = vmap(hessian_vector_likelihood, in_axes=(0, 0, None), out_axes=(0))
+    fs = jnp.linspace(0.0, 5.0, 50)
+    ys = jnp.ones(50, dtype=int) * 1
+    ps = log_likelihood(fs, ys, [jnp.sqrt(noise_variance_0), cutpoints_0])
+    gs = grad_log_likelihood(fs, ys, [jnp.sqrt(noise_variance_0), cutpoints_0])
+    hs = hessian_log_likelihood(fs, ys, [jnp.sqrt(noise_variance_0), cutpoints_0])
+
+    def objective(likelihood_params, log_likelihood, fs, ys):
+        return jnp.sum(log_likelihood(fs, ys, likelihood_params))
+
+    # This seems to work, now just need to stitch it all together.
+    fx_gx = jax.value_and_grad(lambda theta: objective(theta, log_likelihood, fs, ys))
+
+    print(fx_gx([jnp.sqrt(noise_variance_0), cutpoints_0]))  # unforunately, gradient will return `nan` here when y is not all 1s.
+
+    print(ps)
+    print(gs)
+    print(hs)
+    import matplotlib.pyplot as plt
+    plt.plot(fs, ps)
+    # plt.plot(fs, gs)
+    # plt.plot(fs, hs)
+    plt.savefig("testgrads.png")
+    plt.close()
+
+    # Then try to take gradients wrt a parameter
+
+    assert 0
+
+
+
+    # Single precision is a boolean variable set to `True` (or `False`)
+    # to make the likelihood numerically stable in single (or double) precision
+    scalar_likelihood = lambda likelihood_parameters, f, y: probit_likelihood((likelihood_parameters[0], cutpoints_0), f, y, single_precision=None)
+    scalar_likelihood_single = lambda likelihood_parameters, f, y: probit_likelihood(
+        (likelihood_parameters[0], cutpoints_0), f, y, single_precision=True)
+    scalar_likelihood_double = lambda likelihood_parameters, f, y: probit_likelihood(
+        (likelihood_parameters[0], cutpoints_0), f, y, single_precision=False)
+
+    grad_scalar_likelihood = grad(scalar_likelihood)
+    hessian_scalar_likelihood = grad(lambda x, f, y: grad(scalar_likelihood)(x, f, y)[0])
+
+    likelihood= vmap(scalar_likelihood, in_axes=(None, 0, 0), out_axes=(0))
+    grad_likelihood = vmap(grad_scalar_likelihood, in_axes=(None, 0, 0), out_axes=(0))
+    hessian_likelihood = vmap(hessian_scalar_likelihood, in_axes=(None, 0, 0), out_axes=(0))
+
+    fs = jnp.linspace(-3.0, 3.0, 50)
+    ys = jnp.ones(50, dtype=int) * 0
+    ps = likelihood([jnp.sqrt(noise_variance_0)], fs, ys)
+    gs = grad_likelihood([jnp.sqrt(noise_variance_0)], fs, ys)
+    hs = hessian_likelihood([jnp.sqrt(noise_variance_0)], fs, ys)
+    print(ps)
+    print(gs[0])
+    print(hs[0])
+    import matplotlib.pyplot as plt
+    plt.plot(fs, ps)
+    plt.plot(fs, gs[0])
+    plt.plot(fs, hs[0])
+    plt.savefig("testgrads.png")
+    plt.close()
+    assert 0
+
+    # TODO: I think Approximator needs scalar likelihood rather than vectorized likelihood function for autodiff
+
+    classifier = Approximator(prior, scalar_likelihood, data=(X, y))
 
     # trainables are defined implicitly by the arguments to probit_likelihood_scalar and prior
 
@@ -172,8 +241,11 @@ def main():
     #     z_prev = z_star
     #     z_star = f(1.0, z_star)
     #     print(np.linalg.norm(z_star - z_prev))
+    prior_parameters_0 = (theta_0)
+    likelihood_parameters_0 = (jnp.sqrt(noise_variance_0))
 
-    g = classifier.take_grad()
+    # TODO: not sure why in their example can just initiate to any parameters here.
+    g = classifier.take_grad((prior_parameters_0, likelihood_parameters_0))
     N = 30
     thetas = np.logspace(-1, 1, 30)
     gs = np.empty(30)

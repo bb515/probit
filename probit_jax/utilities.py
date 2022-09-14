@@ -1,5 +1,5 @@
 """Utility functions for probit."""
-import numpy as np
+import jax.numpy as jnp
 import warnings
 import h5py
 
@@ -7,55 +7,56 @@ import h5py
 def check_cutpoints(cutpoints, J):
     """
     Check that the cutpoints are compatible with this class.
+    # TODO: convert to B lab code
 
     :arg cutpoints: (J + 1, ) array of the cutpoints.
     :type cutpoints: :class:`numpy.ndarray`.
     """
     # Convert cutpoints to numpy array
-    cutpoints = np.array(cutpoints)
+    cutpoints = jnp.array(cutpoints)
     # Not including -\infty or \infty
-    if np.shape(cutpoints)[0] == J - 1:
+    if jnp.shape(cutpoints)[0] == J - 1:
         # Append \infty
-        cutpoints = np.append(cutpoints, np.inf)
+        cutpoints = jnp.append(cutpoints, jnp.inf)
         # Insert -\infty at index 0
-        cutpoints = np.insert(cutpoints, 0, np.NINF)
+        cutpoints = jnp.insert(cutpoints, 0, jnp.NINF)
         pass  # correct format
     # Not including one cutpoints
-    elif np.shape(cutpoints)[0] == J:
-        if cutpoints[-1] != np.inf:
-            if cutpoints[0] != np.NINF:
+    elif jnp.shape(cutpoints)[0] == J:
+        if cutpoints[-1] != jnp.inf:
+            if cutpoints[0] != jnp.NINF:
                 raise ValueError(
                     "Either the largest cutpoint parameter b_J is not "
                     "positive infinity, or the smallest cutpoint "
                     "parameter must b_0 is not negative infinity."
                     "(got {}, expected {})".format(
-                    [cutpoints[0], cutpoints[-1]], [np.inf, np.NINF]))
+                    [cutpoints[0], cutpoints[-1]], [jnp.inf, jnp.NINF]))
             else:  #cutpoints[0] is -\infty
-                cutpoints.append(np.inf)
+                cutpoints.append(jnp.inf)
                 pass  # correct format
         else:
-            cutpoints = np.insert(cutpoints, 0, np.NINF)
+            cutpoints = jnp.insert(cutpoints, 0, jnp.NINF)
             pass  # correct format
     # Including all the cutpoints
-    elif np.shape(cutpoints)[0] == J + 1:
-        if cutpoints[0] != np.NINF:
+    elif jnp.shape(cutpoints)[0] == J + 1:
+        if cutpoints[0] != jnp.NINF:
             raise ValueError(
                 "The smallest cutpoint parameter b_0 must be negative "
                 "infinity (got {}, expected {})".format(
-                    cutpoints[0], np.NINF))
-        if cutpoints[-1] != np.inf:
+                    cutpoints[0], jnp.NINF))
+        if cutpoints[-1] != jnp.inf:
             raise ValueError(
                 "The largest cutpoint parameter b_J must be positive "
                 "infinity (got {}, expected {})".format(
-                    cutpoints[-1], np.inf))
+                    cutpoints[-1], jnp.inf))
         pass  # correct format
     else:
         raise ValueError(
             "Could not recognise cutpoints shape. "
-            "(np.shape(cutpoints) was {})".format(np.shape(cutpoints)))
-    assert cutpoints[0] == np.NINF
-    assert cutpoints[-1] == np.inf
-    assert np.shape(cutpoints)[0] == J + 1
+            "(jnp.shape(cutpoints) was {})".format(jnp.shape(cutpoints)))
+    assert cutpoints[0] == jnp.NINF
+    assert cutpoints[-1] == jnp.inf
+    assert jnp.shape(cutpoints)[0] == J + 1
     if not all(
             cutpoints[i] <= cutpoints[i + 1]
             for i in range(J)):
@@ -144,11 +145,11 @@ def sample_g(g, f, y_train, cutpoints, noise_std, N):
     for i in range(N):
         # Target class index
         j_true = y_train[i]
-        g_i = np.NINF  # this is a trick for the next line
+        g_i = jnp.NINF  # this is a trick for the next line
         # Sample from the truncated Gaussian
         while g_i > cutpoints[j_true + 1] or g_i <= cutpoints[j_true]:
             # sample y
-            g_i = f[i] + np.random.normal(loc=f[i], scale=noise_std)
+            g_i = f[i] + jnp.random.normal(loc=f[i], scale=noise_std)
         # Add sample to the Y vector
         g[i] = g_i
     return g

@@ -1,6 +1,7 @@
 """Utility functions for probit."""
 import lab as B
 import jax
+import jax.numpy as jnp
 from jax import (vmap, grad, jit)
 import warnings
 from math import inf
@@ -126,34 +127,19 @@ def _Z_far_tails(z):
     return over_sqrt_2_pi / z * B.exp(-0.5 * z**2 + h(z))
 
 
-def probit_likelihood_scalar(
-        likelihood_parameters, f, y,
-        single_precision=True):
-    """
-    Return the probit likelihood
-    in a numerically stable manner.
-
-    :arg tuple likelihood_parameters: (noise_std, cutpoints), (float, :class:`numpy.ndarray`)
-        where noise_std is the noise standard deviation, and cutpoints (J, ) array of cutpoints.
-    :arg f: The mean vector.
-    :type f: :class:`numpy.ndarray`
-    :arg y: data
-    :type y: :class:`numpy.ndarray`
-        the pdf is close enough to zero.
-    :arg float upper_bound: The threshold of the normal z value for which
-    :arg float upper_bound2: The threshold of the normal z value for which
-        the pdf is close enough to zero. 
-    :arg float tolerance: The tolerated absolute error.
-    :returns: the probit likelihood
-    :rtype: :class:`numpy.ndarray`
-    """
-    noise_std = likelihood_parameters[0]
-    cutpoints = likelihood_parameters[1]
-    return probit(f, cutpoints[y], cutpoints[y + 1], noise_std,
-        single_precision=single_precision)
+# @partial(jit, static_argnums=[2, 3])  # TODO, which function to jit compile, the parent or the child? Parent when possible? child when not?
+def probit_likelihood(
+        f, y, likelihood_parameters, single_precision):
+    return probit(
+        likelihood_parameters[0], likelihood_parameters[1][y], likelihood_parameters[1][y + 1],
+        f, single_precision)
 
 
-# @partial(jit, static_argnums=[2, 3, 4, 5, 6])  # TODO, which function to jit compile, the parent or the child? Parent when possible? child when not?
+def negative_log_probit_likelihood(
+        f, y, likelihood_parameters, single_precision):
+    return -jnp.log(probit_likelihood(f, y, likelihood_parameters, single_precision))
+
+
 def probit(
         noise_std, cutpoints_y, cutpoints_yplus1, f,
         single_precision=True):
@@ -178,7 +164,12 @@ def probit(
     :returns: Z
     :rtype: :class:`numpy.ndarray`
     """
-    if single_precision:
+    if single_precision is True:
+        # Single precision
+        # float upper_bound: The threshold of the normal z value for which
+        # float upper_bound2: The threshold of the normal z value for which
+        # the pdf is close enough to zero. 
+        # float tolerance: The tolerated absolute error.
         # Threshold of single sided standard deviations that
         # normal cdf can be approximated to 0 or 1
         # More than this + redundancy leads to numerical instability
@@ -186,47 +177,43 @@ def probit(
         # Less than this leads to a poor approximation due to series
         # expansion at infinity truncation
         # Good values found between 4 and 6
-        upper_bound = 4  # Single precision
+        upper_bound = 4
         # More than this + redundancy leads to numerical
         # instability due to overflow
         # Less than this results in poor approximation due to
         # neglected probability mass in the tails
         # Good values found between 18 and 30
         # Try decreasing if experiencing infs or NaNs
-        upper_bound2 = 18  # For single precision
-        # Decreasing tolerance will lead to more accurate solutions up to a
-        # point but a longer convergence time. Acts as a machine tolerance.
-        # Single precision linear algebra libraries won't converge smaller than
-        # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
-        tolerance = 1e-3  # Single precision
-    else:
+        upper_bound2 = 18
+        # Acts as a machine tolerance for small probabilities
+        tolerance = 1e-4
+    elif single_precision is False:
+        # Double precision
         upper_bound = 6
         upper_bound2 = 30
-        tolerance = 1e-6
+        tolerance = 1e-8
+    else:
+        upper_bound = None
+        upper_bound2 = None
+        tolerance = None
     # Otherwise
-    z1s = (cutpoints_y - f) / noise_std
-    z2s = (cutpoints_yplus1 - f) / noise_std
-    norm_cdf_z1s = norm_cdf(z1s)
-    norm_cdf_z2s = norm_cdf(z2s)
+    safe_z1s = jnp.where(cutpoints_y == -jnp.inf, 0.0, (cutpoints_y - f))
+    safe_z2s = jnp.where(cutpoints_yplus1 == jnp.inf, 0.0, (cutpoints_yplus1 - f))
+    norm_cdf_z1s = jnp.where(cutpoints_y == -jnp.inf, 0.0, norm_cdf(safe_z1s / noise_std))
+    norm_cdf_z2s = jnp.where(cutpoints_yplus1 == jnp.inf, 1.0, norm_cdf(safe_z2s / noise_std))
     Z = norm_cdf_z2s - norm_cdf_z1s
+    # TODO: probably cannot use single_precision, unless make it a static argument?
     if upper_bound is not None:
+        # TODO: This doesn't seem to be working properly, needs testing
         # Using series expansion approximations
-        Z = B.where(z1s > upper_bound, _Z_tails(z1s, z2s), Z)
-        Z = B.where(z2s < -upper_bound, _Z_tails(z1s, z2s), Z)
+        Z = B.where(safe_z1s > upper_bound, _Z_tails(safe_z1s, safe_z2s), Z)
+        Z = B.where(safe_z2s < -upper_bound, _Z_tails(safe_z1s, safe_z2s), Z)
         if upper_bound2 is not None:
             # Using one sided series expansion approximations
-            Z = B.where(z1s > upper_bound2, _Z_far_tails(z1s), Z)
-            Z = B.where(z2s < -upper_bound2, _Z_far_tails(-z2s), Z)
+            Z = B.where(safe_z1s > upper_bound2, _Z_far_tails(safe_z1s), Z)
+            Z = B.where(safe_z2s < -upper_bound2, _Z_far_tails(-safe_z2s), Z)
     if tolerance is not None:
-        small_densities = B.where(Z < tolerance, 0, 1)
-        if B.sum(small_densities) != 0:
-            warnings.warn(
-                "Z (normalising constants for truncated norma"
-                "l random variables) must be greater than"
-                " tolerance={} (got {}): SETTING to"
-                " Z_ns[Z_ns<tolerance]=tolerance\nz1s={}, z2s={}".format(
-                    tolerance, Z, z1s, z2s))
-            Z = B.where(Z < tolerance, tolerance, Z)
+        Z = B.where(Z < tolerance, tolerance, Z)
     return Z
 
 
@@ -243,7 +230,7 @@ def ordinal_predictive_distributions(
                 posterior_pred_std,
                 cutpoints[j], cutpoints[j + 1],
                 posterior_pred_mean,
-                single_precision=single_precision)
+                single_precision)
         predictive_distributions[:, j] = Z
     return predictive_distributions
 

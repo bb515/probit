@@ -1,12 +1,12 @@
 import lab as B
-from probit.lab.utilities import (
-    truncated_norm_normalising_constant, matrix_inverse)
+from probit_jax.lab.utilities import (
+    probit_likelihood, matrix_inverse)
 
 
 def noise_variance_weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
         upper_bound, upper_bound2):
     (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-        _, _) = truncated_norm_normalising_constant(
+        _, _) = probit_likelihood(
             cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
             upper_bound=upper_bound, upper_bound2=upper_bound2)
     return (noise_std * (norm_pdf_z1s - norm_pdf_z2s) / Z,

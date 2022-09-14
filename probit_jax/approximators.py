@@ -5,16 +5,15 @@ import warnings
 import lab.jax as B
 import jax.numpy as jnp
 import jax
-from jax import grad, jit, vmap
-from jax import lax
+from jax import lax, grad, jit, vmap
 from functools import partial
 from probit_jax.utilities import (
     check_cutpoints,
     read_array)
-from probit_jax.implicit.utilities import (
-    predict_reparameterised,
-    probit_jax_likelihood_scalar)
+from probit_jax.lab.utilities import (
+    predict_reparameterised)
 
+from probit_jax.implicit.Laplace import f_LA
 # Change probit_jax.<linalg backend>.<Approximator>, as appropriate
 from probit_jax.implicit.Laplace import (
     f_LA, jacobian_LA, objective_LA)
@@ -55,12 +54,21 @@ class Approximator(ABC):
 
     @abstractmethod
     def __init__(
-            self, prior, likelihood, data=None, read_path=None, single_precision=True):
+            self, prior, scalar_likelihood,
+            grad_scalar_likelihood=None, hessian_scalar_likelihood=None,
+            data=None, read_path=None,
+            single_precision=True):
         """
         Create an :class:`Approximator` object.
 
         This method should be implemented in every concrete Approximator.
 
+        :arg prior:
+        :arg scalar_likelihood: method, that takes in arguments
+            scalar_likelihood(
+                likelihood_parameters, f, y, single_precision=True)
+            where likelihood_parameters are the (trainable) parameters
+            of the likelihood, f is a latent variable and y is a datum.
         :arg cutpoints: (J + 1, ) array of the cutpoints.
         :type cutpoints: :class:`numpy.ndarray`.
         :arg float noise_variance: Initialisation of noise variance. If `None`
@@ -78,38 +86,7 @@ class Approximator(ABC):
 
         :returns: A :class:`Approximator` object
         """
-        self.prior = prior
-        self.likelihood = likelihood
-
-        def construct(self):
-            """
-            Fixed point iteration function, with dynamic parameters prior_parameters, likelihood_parameters, z.
-
-            grad must have a scalar output. So, difficult to do grad pointwise.
-
-            lambda likelihood_parameters, prior_parameters, posterior_mean: f_LA(posterior_mean, prior_parameters, likelihood_parameters, likelihood)
-            """
-            likelihood_function = lambda likelihood_parameters, posterior_mean: likelihood(likelihood_parameters, posterior_mean, data[1])
-            return lambda prior_parameters, likelihood_parameters, posterior_mean: f(
-                prior, prior_parameters, likelihood_function, likelihood_parameters, posterior_mean, single_precision)
-
-        grad_probit_likelihood = jit(vmap(grad(likelihood), in_axes=(None, 0, 0, None, None, None), out_axes=(0)))
-
-        # grad_probit_likelihood(noise_std, cutpoints, f, y)
-
-        def likelihood(likelihood_parameters, f, y_train):
-            noise_std, cutpoints = likelihood_parameters
-            return lambda likelihood_parameters: probit_likelihood(
-                f, likelihood_parameters[0], likelihood_parameters[1], y_train, single_precision=single_precision)
-
-        def prior(prior_parameters, X):
-            return lambda prior_parameters: 
-
-        def __call__(prior_parameters, likelihood_parameters):
-            # get all needed functions for implicit iteration
-            dlikelihood_df = jit(grad(lambda f: self.likelihood(likelihood_parameters, f, y_train)))
-
-        #self.J = J
+        
 
         # Read/write
         if read_path is None:
@@ -127,43 +104,62 @@ class Approximator(ABC):
             # Single precision linear algebra libraries won't converge smaller than
             # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
             self.tolerance = 1e-3  # Single precision
-
+            self.single_precision = single_precision
         else:  # Double precision
             self.epsilon = 1e-12  # Default regularisation- If too small, 1e-10
             self.tolerance = 1e-6
+            self.single_precision = False
+
+        # prior is a method that takes in prior_parameters and returns an `:class:MLKernels.Kernel` object
+        self.prior = prior
+        # Maybe just best to let precision of likelihood be preset by the user
+        print(scalar_likelihood([1.0], -0.6, 2))
+        if grad_scalar_likelihood is None:
+            # Try JAX grad
+            grad_scalar_likelihood = grad(scalar_likelihood)
+        if hessian_scalar_likelihood is None: 
+            # Try JAX grad
+            warnings.warn("Using JAX grad to calculate hessian of scalar likelihood may cause numerical instabilities.")
+            hessian_scalar_likelihood = grad(lambda x, f, y: grad(scalar_likelihood)(x, f, y)[0])
+        self.likelihood= jit(vmap(scalar_likelihood, in_axes=(None, 0, 0), out_axes=(0)))
+        self.grad_likelihood = jit(vmap(grad_scalar_likelihood, in_axes=(None, 0, 0), out_axes=(0)))
+        self.hessian_likelihood = jit(vmap(hessian_scalar_likelihood, in_axes=(None, 0, 0), out_axes=(0)))
 
         # Get data and calculate the prior
         if data is not None:
             X_train, y_train = data
-            self.X_train = X_train
             if y_train.dtype not in [int, jnp.int32]:
                 raise TypeError(
                     "t must contain only integer values (got {})".format(
                         y_train.dtype))
             else:
                 y_train = y_train.astype(int)
-                self.y_train = y_train
 
-            self.N = jnp.shape(self.X_train)[0]
-            self._update_prior()
+            self.N = jnp.shape(X_train)[0]
+            # self._update_prior()  # TODO: here would amortize e.g. gram matrix if want to store it
         else:
             # Try read model from file
             try:
-                self.X_train = read_array(self.read_path, "X_train")
-                self.y_train = read_array(self.read_path, "y_train")
+                X_train = read_array(self.read_path, "X_train")
+                y_train = read_array(self.read_path, "y_train")
                 self.N = jnp.shape(self.X_train)[0]
-                self._load_cached_prior()
+                # self._load_cached_prior()  # TODO: here would amortize e.g. gram matrix if want to store it
             except KeyError:
                 # The array does not exist in the model file
                 raise
             except OSError:
                 # Model file does not exist
                 raise
-        self.D = jnp.shape(self.X_train)[1]
-        self.cutpoints = check_cutpoints(cutpoints, self.J)
-        # Initiate hyperparameters
-        self.hyperparameters_update(
-            cutpoints=self.cutpoints, noise_variance=noise_variance)
+        self.data = (X_train, y_train)
+        self.D = jnp.shape(X_train)[1]
+        Z = self.likelihood([1.0], -0.6 * B.ones(self.N), jnp.array(y_train))
+        Q = self.grad_likelihood([1.0], -0.6 * B.ones(self.N), jnp.array(y_train))
+        H = self.hessian_likelihood([1.0], -0.6 * B.ones(self.N), jnp.array(y_train))
+        print(Z)
+        print(Q)
+        print(H)
+        print(jnp.sum(jnp.log(Z)))
+        assert 0
         # Set up a JAX-transformable function for a custom VJP rule definition
         self.fixed_point_layer.defvjp(
             self.fixed_point_layer_fwd, self.fixed_point_layer_bwd)
@@ -199,7 +195,7 @@ class Approximator(ABC):
             be satisfied
             .. math::
                 z = f(a, z)
-            where :math:`a` are the parameters and :math:`z` are the latent
+            where :math:`a` are parameters and :math:`z` are the latent
             variables, and :math:`f` is a non-linear function.
         """ 
         z_star = solver(
@@ -312,13 +308,14 @@ class Approximator(ABC):
         if whitened is True:
             raise NotImplementedError("Not implemented.")
         elif reparameterised is True:
+            # TODO: make as a function of the likelihood
             return predict_reparameterised(
                 self.kernel*Delta()(X_test),
                 self.kernel(self.X_train, X_test),
                 cov, weight=f,
                 cutpoints=self.cutpoints,
-                noise_variance=self.noise_variance, J=self.J,
-                upper_bound=self.upper_bound, upper_bound2=self.upper_bound2)
+                noise_variance=self.noise_variance,
+                single_precision=self.single_precision)
         else:
             raise NotImplementedError("Not implemented.")
 
@@ -382,6 +379,29 @@ class Approximator(ABC):
         if noise_variance is not None:
             self.noise_variance = noise_variance
             self.noise_std = jnp.sqrt(noise_variance)
+
+    def initiate_hyperhyperparameters(self,
+            variance_hyperparameters=None,
+            theta_hyperparameters=None,
+            cutpoints_hyperparameters=None, noise_std_hyperparameters=None):
+        """TODO: For MCMC over these parameters. Could it be a part
+        of sampler?"""
+        if variance_hyperparameters is not None:
+            self.variance_hyperparameters = variance_hyperparameters
+        else:
+            self.variance_hyperparameters = None
+        if theta_hyperparameters is not None:
+            self.theta_hyperparameters = theta_hyperparameters
+        else:
+            self.theta_hyperparameters = None
+        if cutpoints_hyperparameters is not None:
+            self.cutpoints_hyperparameters = cutpoints_hyperparameters
+        else:
+            self.cutpoints_hyperparameters = None
+        if noise_std_hyperparameters is not None:
+            self.noise_std_hyperparameters = noise_std_hyperparameters
+        else:
+            self.noise_std_hyperparameters = None
 
     def hyperparameters_update(
         self, cutpoints=None, theta=None, variance=None, noise_variance=None):
@@ -454,31 +474,37 @@ class LaplaceGP(Approximator):
         """
         super().__init__(*args, **kwargs)
 
-    def construct(self, prior, grad_likelihood, data):
+    def construct(self):
+        """Fixed point iteration function"""
+        return lambda parameters, posterior_mean: f_LA(
+            prior_parameters=parameters[0], likelihood_parameters=parameters[1],
+            prior=self.prior, grad_likelihood=self.grad_likelihood,
+            posterior_mean=posterior_mean, data=self.data
+        )
+
+    def take_grad(self, theta):
         """
-        Fixed point iteration function, with dynamic parameters prior_parameters, likelihood_parameters, z.
-
-        grad must have a scalar output. So, difficult to do grad pointwise.
-
-        lambda likelihood_parameters, prior_parameters, posterior_mean: f_LA(posterior_mean, prior_parameters, likelihood_parameters, likelihood)
+        :arg theta:
+        :type theta: (prior_paramters, likelihood_parameters) tuple
         """
-        # TODO: is this the best way to split up parameters? These are t 
-
-        return lambda params, posterior_mean: f_LA(params[0], params[1], prior, grad_likelihood, posterior_mean, data)
-
-    def take_grad(self):
         f = self.construct()
         # AD for fixed point solvers for \theta
         self.fixed_point_layer.defvjp(self.fixed_point_layer_fwd, self.fixed_point_layer_bwd)
-        z_star = self.fixed_point_layer(self.newton_solver, jnp.zeros(self.N), f, self.parameters)
+        z_star = self.fixed_point_layer(self.newton_solver, jnp.zeros(self.N), f, theta)
         print(z_star)
         assert 0
         return jax.value_and_grad(
             lambda theta: objective_LA(
-                z_star,
-                # self.fixed_point_layer(self.newton_solver, jnp.zeros(self.N), f, theta),
-                self.noise_std, self.cutpoints_ts, self.cutpoints_tplus1s,
-                B.dense(self.kernel.stretch(theta)(self.X_train)), self.upper_bound))
+                theta[0], theta[1],
+                self.prior, self.grad_likelihood,
+                self.hessian_likelihood, z_star, self.data))
+        # return jax.value_and_grad(
+        #     lambda theta: objective_LA(
+        #         z_star,
+        #         # self.fixed_point_layer(self.newton_solver, jnp.zeros(self.N), f, theta),
+        #         self.noise_std, self.cutpoints_ts, self.cutpoints_tplus1s,
+        #         B.dense(self.kernel.stretch(theta)(self.X_train)), self.upper_bound))
+
 
 class VBGP(Approximator):
     """

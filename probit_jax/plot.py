@@ -2,8 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import trange
-from probit.data.utilities import colors, datasets, load_data_paper
-from probit.data.utilities import calculate_metrics
+from probit_jax.data.utilities import colors, datasets, load_data_paper
 import warnings
 import time
 from scipy.optimize import minimize

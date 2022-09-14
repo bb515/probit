@@ -28,7 +28,7 @@ def log_likelihood(
     exactness - but experiments should be run twice with numerical
     stability turned on to see if it makes a difference.
     """
-    Z, *_ = truncated_norm_normalising_constant(
+    Z, *_ = probit_likelihood(
         cutpoints_ts, cutpoints_tplus1s,
         noise_std, m,
         upper_bound=upper_bound,
@@ -49,7 +49,7 @@ def ordinal_predictive_distributions(
     """
     predictive_distributions = B.ones(N_test, J)
     for j in range(J):
-        Z, *_ = truncated_norm_normalising_constant(
+        Z, *_ = probit_likelihood(
                 cutpoints[j], cutpoints[j + 1],
                 posterior_pred_std, posterior_pred_mean,
                 upper_bound=upper_bound, upper_bound2=upper_bound2)
@@ -179,7 +179,7 @@ def _Z_far_tails(z):
     return over_sqrt_2_pi / z * B.exp(-0.5 * z**2 + h(z))
 
 
-def truncated_norm_normalising_constant(
+def probit_likelihood(
         cutpoints_ts, cutpoints_tplus1s, noise_std, m,
         upper_bound=None, upper_bound2=None, tolerance=None):
     """

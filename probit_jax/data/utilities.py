@@ -13,10 +13,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import importlib.resources as pkg_resources
-# from scipy.stats import gamma
-from probit.kernels import KernelLoader
-from probit.load_approximators import ApproximatorLoader
-from probit.kernels import SEIso, SEARD, Linear, LabEQ, LabSharpenedCosine, SquaredExponential, SquaredExponentialARD
+from probit_jax.load_approximators import ApproximatorLoader
+from mlkernels import EQ, Linear
+
 
 # For plotting
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
@@ -35,7 +34,7 @@ datasets = {
         "wpbc",
         ],
     "synthetic" : [
-        "SEIso",
+        "EQ",
         "Linear",
         ],
     "paper" : [
@@ -271,558 +270,9 @@ def get_Y_trues(X_trains, X_true, Y_true):
     return Y_trues
 
 
-def generate_prior_samples(kernel, noise_variance, N_samples=9, N_show=2000, plot=True):
-    """
-    Generate samples from the GP prior for visualisation.
-    """
-    epsilon = 1e-6
-    X_show = np.linspace(-0.5, 1.5, N_show)
-    X_show = X_show[:, None]
-    K_show = kernel.kernel_matrix(X_show, X_show) + epsilon * np.identity(N_show)
-    Chol_show = np.linalg.cholesky(K_show)
-    z_show = np.random.normal(loc=0, scale=1, size=(N_show, N_samples))
-    Z_show = Chol_show @ z_show
-    print(np.shape(Z_show))
-
-    N_third = 100
-    Xt = np.c_[Z_show, X_show]
-    np.random.shuffle(Xt)
-    Z = Xt[:N_third, :N_samples]
-    X = Xt[:N_third, N_samples:]
-    #Z = np.dot(Chol, z)  # Mean zero
-    # Model latent variable responses
-    epsilons = np.random.normal(0, np.sqrt(noise_variance), (N_third, N_samples))
-    # Model latent variable responses
-    Y = epsilons + Z
-    # Model latent variable responses
-    X_show = X_show.reshape(-1, X_show.shape[-1])
-    X = X.reshape(-1, X.shape[-1])
-    # X_show = np.tile(X_show, (9, 1))
-    print(np.shape(X))
-    print(np.shape(Y))
-    if plot:
-        for i in range(N_samples):
-            plt.scatter(X, Y[:, i])
-        plt.plot(X_show, Z_show)
-        plt.savefig("Samples from prior GP.png")
-        plt.close()
-
-
-def generate_prior_data_paper(
-        N_train_per_class, N_test_per_class, N_validate_per_class, splits,
-        J, D, kernel, noise_variance,
-        N_show, colors=None, cmap=None, plot=True, jitter=1e-6, seed=None):
-    """
-    Generate data from the GP prior, and choose some cutpoints that
-    approximately divides data into equal bins.
-
-    :arg int N_per_class: The number of data points per class.
-    :arg splits:
-    :arg int J: The number of bins/classes/quantiles.
-    :arg int D: The number of data dimensions.
-    :arg kernel: The GP prior.
-    :arg noise_variance: The noise variance.
-    """
-    if D==1:
-        # Generate input data from a linear grid
-        X_show = np.linspace(-0.5, 1.5, N_show)
-        # reshape X to make it (n, D)
-        X_show = X_show[:, None]
-    elif D==2:
-        # Generate input data from a linear meshgrid
-        x = np.linspace(-0.5, 1.5, N_show)
-        y = np.linspace(-0.5, 1.5, N_show)
-        xx, yy = np.meshgrid(x, y)
-        # Pairs
-        X_show = np.dstack([xx, yy]).reshape(-1, 2)
-    else:
-        X_show = np.zeros((1, D))
-
-    N_train = int(J * N_train_per_class)
-    N_test = int(J * N_test_per_class)
-    N_validate = int(J * N_validate_per_class)
-    N_total = N_train + N_test + N_validate
-    N_per_class = N_train_per_class + N_test_per_class + N_validate_per_class
-
-    # Sample from the real line, uniformly
-    if seed: np.random.seed(seed)  # set seed
-    X_data = np.random.uniform(low=0.0, high=1.0, size=(N_total, D))
-
-    # Concatenate X_data and X_show
-    X = np.append(X_data, X_show, axis=0)
-
-    # Sample from a multivariate normal
-    K0 = kernel.kernel_matrix(X, X)
-    K = K0 + jitter * np.identity(np.shape(X_data)[0] + np.shape(X_show)[0])
-    L_K = np.linalg.cholesky(K)
-
-    # Generate normal samples for both sets of input data
-    if seed: np.random.seed(seed)  # set seed
-    nu = np.random.normal(loc=0.0, scale=1.0,
-        size=np.shape(X_data)[0] + np.shape(X_show)[0])
-    f = L_K @ nu
-
-    # Store f_show
-    f_data = f[:N_total]
-    f_show = f[N_total:]
-
-    assert np.shape(f_show) == (np.shape(X_show)[0],)
-
-    K0_show = None
-    # Also precalculate the cholesky for X_show for storage
-    # K0_show = kernel.kernel_matrix(X_show, X_show)
-    # K_show = K0_show + jitter * np.identity(N_show)
-    # L_K_show = np.linalg.cholesky(K_show)
- 
-    # Shuffle data  # TODO: SS.Shouldn't be necessary?
-    # Xt = np.c_[f_data, X_data]
-    # np.random.shuffle(Xt)
-    # f = Xt[:N_total, :1]
-    # X = Xt[:N_total, 1:D + 1]
-    # Generate the latent variables
-    X = X_data
-    f = f_data
-    epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
-    g = epsilons + f
-    g = g.flatten()
-
-    if plot:
-        if D==1:
-            plt.scatter(X, g, c='b', s=4)
-            plt.plot(X_show, f_show)
-            plt.savefig("Sample from prior GP.png")
-            plt.close()
-
-    # Sort the responses
-    idx_sorted = np.argsort(g)
-    g = g[idx_sorted]
-    f = f[idx_sorted]
-    X = X[idx_sorted]
-    X_js = []
-    g_js = []
-    f_js = []
-    y_js = []
-    cutpoints = np.empty(J + 1)
-    for j in range(J):
-        X_js.append(X[N_per_class * j:N_per_class * (j + 1), :D])
-        g_js.append(g[N_per_class * j:N_per_class * (j + 1)])
-        f_js.append(f[N_per_class * j:N_per_class * (j + 1)])
-        y_js.append(j * np.ones(N_per_class, dtype=int))
-
-    for j in range(1, J):
-        # Find the cutpoints
-        cutpoint_j_min = g_js[j - 1][-1]
-        cutpoint_j_max = g_js[j][0]
-        cutpoints[j] = np.average([cutpoint_j_max, cutpoint_j_min])
-    cutpoints[0] = -np.inf
-    cutpoints[-1] = np.inf
-    print("cutpoints={}".format(cutpoints))
-    if plot:
-        if D==1:
-            for j in range(J):
-                plt.scatter(X_js[j], g_js[j], color=colors[j])
-                plt.close()
-    X_js = np.array(X_js)
-    g_js = np.array(g_js)
-    f_js = np.array(f_js)
-    y_js = np.array(y_js, dtype=int)
-    X = X.reshape(-1, X.shape[-1])
-    g = g_js.flatten()
-    f = f_js.flatten()
-    y = y_js.flatten()
-    # Reshuffle
-    data = np.c_[g, X, y, f]
-    np.random.shuffle(data)
-    g = data[:, :1].flatten()
-    X = data[:, 1:D + 1]
-    y = data[:, D + 1].flatten()
-    y = np.array(y, dtype=int)
-    f = data[:, -1].flatten()
-
-    # Prepare data
-    X_validates = []
-    y_validates = []
-    X_tests = []
-    y_tests = []
-    g_trains = []
-    X_trains = []
-    y_trains = []
-    for _ in range(splits):
-        g_train_js = []
-        X_train_js = []
-        y_train_js = []
-        X_testvalidate_js = []
-        y_testvalidate_js = []
-        for j in range(J):
-            data = np.c_[g_js[j], X_js[j], y_js[j]]
-            np.random.shuffle(data)
-            g_j = data[:, :1]
-            X_j = data[:, 1:D + 1]
-            y_j = data[:, -1]
-            # split train vs test/validate
-            g_train_j = g_j[:N_train_per_class]
-            X_train_j = X_j[:N_train_per_class]
-            y_train_j = y_j[:N_train_per_class]
-            X_j = X_j[N_train_per_class:]
-            y_j = y_j[N_train_per_class:]
-            X_train_js.append(X_train_j)
-            g_train_js.append(g_train_j)
-            y_train_js.append(y_train_j)
-            X_testvalidate_js.append(X_j)
-            y_testvalidate_js.append(y_j)
-
-        X_train_js = np.array(X_train_js)
-        g_train_js = np.array(g_train_js)
-        y_train_js = np.array(y_train_js, dtype=int)
-        X_testvalidate_js = np.array(X_testvalidate_js)
-        y_testvalidate_js = np.array(y_testvalidate_js, dtype=int)
-
-        X_train = X_train_js.reshape(-1, X_train_js.shape[-1])
-        g_train = g_train_js.flatten()
-        y_train = y_train_js.flatten()
-        X_testvalidate = X_testvalidate_js.reshape(-1, X_testvalidate_js.shape[-1])
-        y_testvalidate = y_testvalidate_js.flatten()
-
-        data = np.c_[g_train, X_train, y_train]
-        np.random.shuffle(data)
-        g_train = data[:, :1].flatten()
-        X_train = data[:, 1:D + 1]
-        y_train = data[:, -1]
-
-        data = np.c_[X_testvalidate, y_testvalidate]
-        np.random.shuffle(data)
-        X_test = data[:N_test, 0:D]
-        y_test = data[:N_test, -1]
-        X_validate = data[N_test:, 0:D]
-        y_validate = data[N_test:, -1]
-
-        X_trains.append(X_train)
-        g_trains.append(g_train)
-        y_trains.append(y_train)
-        X_tests.append(X_test)
-        y_tests.append(y_test)
-        X_validates.append(X_validate)
-        y_validates.append(y_validate)
-
-    g_trains = np.array(g_trains)
-    X_trains = np.array(X_trains)
-    y_trains = np.array(y_trains, dtype=int)
-    X_tests = np.array(X_tests)
-    y_tests = np.array(y_tests, dtype=int)
-    X_validates = np.array(X_validates)
-    y_validate = np.array(y_validates, dtype=int)
-
-    assert np.shape(X_tests) == (splits, N_test, D)
-    assert np.shape(X_trains) == (splits, N_train, D)
-    assert np.shape(X_validates) == (splits, N_validate, D)
-    assert np.shape(g_trains) == (splits, N_train)
-    assert np.shape(y_tests) == (splits, N_test)
-    assert np.shape(y_trains) == (splits, N_train)
-    assert np.shape(y_validates) == (splits, N_validate)
-    assert np.shape(X_js) == (J, N_per_class, D)
-    assert np.shape(g_js) == (J, N_per_class)
-    assert np.shape(X) == (N_total, D)
-    assert np.shape(g) == (N_total,)
-    assert np.shape(f) == (N_total,)
-    assert np.shape(y) == (N_total,)
-    if plot: plot_ordinal(
-        X, y, g, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
-    return (
-        N_show, N_total, X_js, g_js, X, f, g, y, cutpoints,
-        X_trains, g_trains, y_trains,
-        X_tests, y_tests,
-        X_validates, y_validates,
-        K0_show, X_show, f_show, colors)
-
-
-def generate_prior_data_new(
-        N_per_class, N_test, splits, J, D, kernel, noise_variance,
-        N_show=2000, plot=True):
-    """
-    Generate data from the GP prior, and choose some cutpoints that
-    approximately divides data into equal bins.
-
-    :arg int N_per_class: The number of data points per class.
-    :arg int J: The number of bins/classes/quantiles.
-    :arg int D: The number of data dimensions.
-    :arg kernel: The GP prior.
-    """
-    epsilon = 1e-6
-    N_total = int(J * N_per_class)
-    # Sample from the real line, uniformly
-    # X = np.random.uniform(0, 12, N_total)
-    X_show = np.linspace(-0.5, 1.5, N_show)  # N_show points to show pred power
-    #X = np.random.random(N_total)  # N_total points unformly random over [0, 1]
-    # reshape X to make it n*D
-    X_show = X_show[:, None]
-    #X = X[:, None]  # reshape X to make it n*D
-    K0_show = kernel.kernel_matrix(X_show, X_show)
-    #K0 = kernel.kernel_matrix(X, X)
-    K_show = K0_show + epsilon * np.identity(N_show)
-    #K = K0 + epsilon * np.identity(N_total)
-    # Cholesky
-    #Chol = np.linalg.cholesky(K)
-    Chol_show = np.linalg.cholesky(K_show)
-    # Generate normal samples
-    #z = np.random.normal(loc=0, scale=1, size=N_total)
-    z_show = np.random.normal(loc=0, scale=1, size=N_show)
-    Z_show = np.dot(Chol_show, z_show)
-    N_third = np.int(N_show/3)
-    Xt = np.c_[Z_show[N_third:-N_third], X_show[N_third:-N_third]]
-    np.random.shuffle(Xt)
-    Z = Xt[:N_total, :1]
-    X = Xt[:N_total, 1:D + 1]
-    #Z = np.dot(Chol, z)  # Mean zero
-    # Model latent variable responses
-    epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
-    epsilons = epsilons[:, None]
-    # Model latent variable responses
-    Y_true = epsilons + Z
-    Y_true = Y_true.flatten()
-    sort_indeces = np.argsort(Y_true)
-    if plot:
-        plt.scatter(X, Y_true, c='b', s=4)
-        plt.plot(X_show, Z_show)
-        plt.savefig("Sample from prior GP_2.png")
-        plt.close()
-    # Sort the responses
-    Y_true = Y_true[sort_indeces]
-    X = X[sort_indeces]
-    print(np.shape(X), "X")
-    X_j = []
-    Y_true_j = []
-    t_j = []
-    cutpoints = np.empty(J + 1)
-    for j in range(J):
-        X_j.append(X[N_per_class * j:N_per_class * (j + 1), :D])
-        Y_true_j.append(Y_true[N_per_class * j:N_per_class * (j + 1)])
-        t_j.append(j * np.ones(N_per_class, dtype=int))
-    for j in range(1, J):
-        # Find the first cutpoint and set it equal to 0.0
-        cutpoint_j_min = Y_true_j[j - 1][-1]
-        cutpoint_j_max = Y_true_j[j][0]
-        cutpoints[j] = np.average([cutpoint_j_max, cutpoint_j_min])
-    cutpoints[0] = -np.inf
-    cutpoints[-1] = np.inf
-    print("cutpoints={}".format(cutpoints))
-    if plot:
-        for j in range(J):
-            plt.scatter(X_j[j], Y_true_j[j], color=colors[j])
-        plt.close()
-    Xs_j = np.array(X_j)
-    Ys_j = np.array(Y_true_j)
-    t_j = np.array(t_j, dtype=int)
-    X = Xs_j.reshape(-1, Xs_j.shape[-1])
-    Y = Ys_j.flatten()
-    t = t_j.flatten()
-    # Prepare data
-    Y_tests = []
-    X_tests = []
-    t_tests = []
-    Y_trains = []
-    X_trains = []
-    t_trains = []
-    for _ in range(splits):
-        Xt = np.c_[Y, X, t]
-        np.random.shuffle(Xt)
-        Y = Xt[:, :1]
-        X = Xt[:, 1:D + 1]
-        t = Xt[:, -1]
-        Y_test = Y[:N_test]
-        X_test = X[:N_test, :]
-        t_test = t[:N_test]
-        Y_train = Y[N_test:]
-        X_train = X[N_test:, :]
-        t_train = t[N_test:]
-        Y_tests.append(Y_test)
-        X_tests.append(X_test)
-        t_tests.append(t_test)
-        Y_trains.append(Y_train)
-        X_trains.append(X_train)
-        t_trains.append(t_train)
-    t = np.array(t, dtype=int)
-    t_tests = np.array(t_tests, dtype=int)
-    t_trains = np.array(t_trains, dtype=int)
-    X_tests = np.array(X_tests)
-    X_trains = np.array(X_trains)
-    Y_tests = np.array(Y_tests)
-    Y_trains = np.array(Y_trains)
-    print(np.shape(X_tests))
-    print(np.shape(X_trains))
-    print(np.shape(Y_tests))
-    print(np.shape(Y_trains))
-    print(np.shape(t_tests))
-    print(np.shape(t_trains))
-    print(np.shape(X_j))
-    print(np.shape(Y_true_j))
-    print(np.shape(t_j))
-    print(colors)
-    if plot:
-        colors_ = [colors[i] for i in t_trains[0, :]]
-        plt.scatter(X_trains[0, :, 0], Y_trains[0, :], color=colors_)
-        plt.savefig("scatter.png")
-        plot_ordinal(X, t, X_j, Y_true_j, J, D, colors=colors)
-    return (X_j, Y_true_j, X, Y, t, cutpoints, X_tests, t_tests,
-        X_trains, Y_trains, t_trains, K0_show, X_show, Z_show, colors)
-
-
-def generate_prior_data(N_per_class, J, D, kernel, noise_variance):
-    """
-    Generate data from the GP prior.
- 
-    You can set one of the cutpoints to be a real value. Approximately divides data into equal bins.
-
-    :arg int N_per_class: The number of data points per class.
-    :arg int J: The number of bins/classes/quantiles.
-    :arg int D: The number of data dimensions.
-    :arg kernel: The GP prior.
-    """
-    N_total = int(J * N_per_class)
-    # Sample from the real line, uniformly
-    # X = np.random.uniform(0, 12, N_total)
-    X = np.linspace(0., 1., N_total)  # N_total points evenly spaced over [0,1]
-    X = X[:, None]  # reshape X to make it n*D
-    mu = np.zeros((N_total))  # vector of the means
-    K = kernel.kernel_matrix(X, X)
-    Z = np.random.multivariate_normal(mu, K)
-    plt.figure()  # open new plotting window
-    plt.title("Sample from prior GP")
-    plt.plot(X[:], Z[:])
-    plt.show()
-    epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
-    # Model latent variable responses
-    plt.title("Sample from prior GP")
-    Y_true = epsilons + Z
-    sort_indeces = np.argsort(Y_true)
-    plt.scatter(X, Y_true)
-    plt.show()
-    # Sort the responses
-    Y_true = Y_true[sort_indeces]
-    X = X[sort_indeces]
-    X_j = []
-    Y_true_j = []
-    t_j = []
-    cutpoints = np.empty(J + 1)
-    for j in range(J):
-        X_j.append(X[N_per_class * j:N_per_class * (j + 1)])
-        Y_true_j.append(Y_true[N_per_class * j:N_per_class * (j + 1)])
-        t_j.append(j * np.ones(N_per_class, dtype=int))
-    for j in range(1, J):
-        # Find the first cutpoint and set it equal to 0.0
-        cutpoint_j_min = Y_true_j[j - 1][-1]
-        cutpoint_j_max = Y_true_j[j][0]
-        cutpoints[j] = np.average([cutpoint_j_max, cutpoint_j_min])
-    cutpoints[0] = -np.inf
-    cutpoints[-1] = np.inf
-    print("cutpoints={}".format(cutpoints))
-    for j in range(J):
-        plt.scatter(X_j[j], Y_true_j[j], color=colors[j])
-    plt.show()
-    Xs_j = np.array(X_j)
-    Ys_j = np.array(Y_true_j)
-    t_j = np.array(t_j, dtype=int)
-    X = Xs_j.reshape(-1, Xs_j.shape[-1])
-    Y = Ys_j.flatten()
-    t = t_j.flatten()
-    # Prepare data
-    Xt = np.c_[Y, X, t]
-    print(np.shape(Xt))
-    np.random.shuffle(Xt)
-    Y_true = Xt[:, :1]
-    X = Xt[:, 1:D + 1]
-    t = Xt[:, -1]
-    print(np.shape(X))
-    print(np.shape(t))
-    print(np.shape(Y_true))
-    t = np.array(t, dtype=int)
-    print(t)
-    colors_ = [colors[i] for i in t]
-    print(colors_)
-    plt.scatter(X[:, 0], Y_true, color=colors_)
-    plt.show()
-    plot_ordinal(X, t, X_j, Y_true_j, J, D)
-    return X_j, Y_true_j, X, Y_true, t, cutpoints
-
-
-def generate_synthetic_data(N_per_class, J, D, kernel, noise_variance):
-    """
-    TODO: SS
-    Generate synthetic data for this model.
-
-    This function will generate data such that the ground truth of the first cutpoint is at zero.
-
-    :arg int N_per_class: The number of data points per class.
-    :arg int J: The number of bins/classes/quantiles.
-    :arg int D: The number of data dimensions.
-    :arg kernel: The GP prior.
-    """
-    N_total = int(J * N_per_class)
-    # Sample from the real line, uniformly
-    X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
-    X = X[:, None]  # reshape X to make it n*D
-    mu = np.zeros((N_total))  # vector of the means
-    K = kernel.kernel_matrix(X, X)
-    cutpoint_0 = np.inf
-    while np.abs(cutpoint_0) > 5.0:
-        print(cutpoint_0)
-        Z = np.random.multivariate_normal(mu, K)
-        plt.figure()  # open new plotting window
-        plt.plot(X[:], Z[:])
-        plt.show()
-        epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
-        # Model latent variable responses
-        Y_true = epsilons + Z
-        sort_indeces = np.argsort(Y_true)
-        plt.scatter(X, Y_true)
-        plt.show()
-        # Sort the responses
-        Y_true = Y_true[sort_indeces]
-        X = X[sort_indeces]
-        X_j = []
-        Y_true_j = []
-        t_j = []
-        for j in range(J):
-            X_j.append(X[N_per_class * j:N_per_class * (j + 1)])
-            Y_true_j.append(Y_true[N_per_class * j:N_per_class * (j + 1)])
-            t_j.append(j * np.ones(N_per_class, dtype=int))
-        # Find the first cutpoint and set it equal to 0.0
-        cutpoint_0_min = Y_true_j[0][-1]
-        cutpoint_0_max = Y_true_j[1][0]
-        print(cutpoint_0_max, cutpoint_0_min)
-        cutpoint_0 = np.mean([cutpoint_0_max, cutpoint_0_min])
-    Y_true = np.subtract(Y_true, cutpoint_0)
-    Y_true_j = np.subtract(Y_true_j, cutpoint_0)
-    for j in range(J):
-        plt.scatter(X_j[j], Y_true_j[j], color=colors[j])
-    plt.show()
-    Xs_j = np.array(X_j)
-    Ys_j = np.array(Y_true_j)
-    t_j = np.array(t_j, dtype=int)
-    X = Xs_j.reshape(-1, Xs_j.shape[-1])
-    Y = Ys_j.flatten()
-    t = t_j.flatten()
-    # Prepare data
-    Xt = np.c_[Y, X, t]
-    print(np.shape(Xt))
-    np.random.shuffle(Xt)
-    Y_true = Xt[:, :1]
-    X = Xt[:, 1:D + 1]
-    t = Xt[:, -1]
-    print(np.shape(X))
-    print(np.shape(t))
-    print(np.shape(Y_true))
-    t = np.array(t, dtype=int)
-    print(t)
-    colors_ = [colors[i] for i in t]
-    print(colors_)
-    plt.scatter(X, Y_true, color=colors_)
-    plt.show()
-    return X_j, Y_true_j, X, Y_true, t
-
-
 def load_data(dataset, J):
     if dataset == "abalone":
-        from probit.data import abalone
+        from probit_jax.data import abalone
         with pkg_resources.path(abalone, 'abalone.npz') as path:
             data_continuous = np.load(path)
         D = 10
@@ -896,11 +346,11 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["1073.0"]
-            from probit.data.abalone import quantile
+            from probit_jax.data.abalone import quantile
             with pkg_resources.path(quantile, 'abalone.npz') as path:
                 data = np.load(path)
         elif J == 10:
-            from probit.data.abalone import decile
+            from probit_jax.data.abalone import decile
             hyperparameters = {
                 "init": (
                     np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J,
@@ -921,7 +371,7 @@ def load_data(dataset, J):
             with pkg_resources.path(decile, 'abalone.npz') as path:
                 data = np.load(path)
     elif dataset == "auto":
-        from probit.data import auto
+        from probit_jax.data import auto
         with pkg_resources.path(auto, 'auto.DATA.npz') as path:
             data_continuous = np.load(path)
         D = 7
@@ -956,7 +406,7 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["300.9"]
-            from probit.data.auto import quantile
+            from probit_jax.data.auto import quantile
             with pkg_resources.path(quantile, 'auto.data.npz') as path:
                 data = np.load(path)
         elif J == 10:
@@ -977,13 +427,13 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.auto import decile
+            from probit_jax.data.auto import decile
             with pkg_resources.path(decile, 'auto.data.npz') as path:
                 data = np.load(path)
         cutpoints_0 = np.array([-np.inf, -1.0, -1.0 + 1. * 2. / J, -1.0 + 2. * 2. / J, -1.0 + 3. * 2. / J, np.inf])
     elif dataset == "diabetes":
         D = 2
-        from probit.data import diabetes
+        from probit_jax.data import diabetes
         with pkg_resources.path(diabetes, 'diabetes.DATA.npz') as path:
             data_continuous = np.load(path)
         if J == 5:
@@ -1020,7 +470,7 @@ def load_data(dataset, J):
                 ),
             }
             (cutpoints_0, varphi_0, noise_variance_0) = hyperparameters["52.32"]
-            from probit.data.diabetes import quantile
+            from probit_jax.data.diabetes import quantile
             with pkg_resources.path(quantile, 'diabetes.data.npz') as path:
                 data = np.load(path)
         elif J == 10:
@@ -1041,14 +491,14 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.diabetes import decile
+            from probit_jax.data.diabetes import decile
             with pkg_resources.path(decile, 'diabetes.data.npz') as path:
                 data = np.load(path)
     elif dataset == "housing":
         D = 13
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
-        from probit.data import bostonhousing
+        from probit_jax.data import bostonhousing
         with pkg_resources.path(bostonhousing, 'housing.npz') as path:
             data_continuous = np.load(path)
         if J == 5:
@@ -1075,7 +525,7 @@ def load_data(dataset, J):
                 )
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
-            from probit.data.bostonhousing import quantile
+            from probit_jax.data.bostonhousing import quantile
             with pkg_resources.path(quantile, 'housing.npz') as path:
                 data = np.load(path)
         elif J == 10:
@@ -1096,14 +546,14 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.bostonhousing import decile
+            from probit_jax.data.bostonhousing import decile
             with pkg_resources.path(decile, 'housing.npz') as path:
                 data = np.load(path)
     elif dataset == "machine":
         D = 6
         varphi_0 = 2.0 / D
         noise_variance_0 = 2.0
-        from probit.data import machinecpu
+        from probit_jax.data import machinecpu
         with pkg_resources.path(machinecpu, 'machine.npz') as path:
             data_continuous = np.load(path)
         if J == 5:
@@ -1130,7 +580,7 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
-            from probit.data.machinecpu import quantile
+            from probit_jax.data.machinecpu import quantile
             with pkg_resources.path(quantile, 'machine.npz') as path:
                 data = np.load(path)
         elif J == 10:
@@ -1151,11 +601,11 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.machinecpu import decile
+            from probit_jax.data.machinecpu import decile
             with pkg_resources.path(decile, 'machine.npz') as path:
                 data = np.load(path)
     elif dataset == "pyrim":
-        from probit.data import pyrimidines
+        from probit_jax.data import pyrimidines
         with pkg_resources.path(pyrimidines, 'pyrim.npz') as path:
             data_continuous = np.load(path)
         D = 27
@@ -1200,7 +650,7 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["89.9"]
-            from probit.data.pyrimidines import quantile
+            from probit_jax.data.pyrimidines import quantile
             with pkg_resources.path(quantile, 'pyrim.npz') as path:
                 data = np.load(path)
         elif J == 10:
@@ -1221,11 +671,11 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.pyrimidines import decile
+            from probit_jax.data.pyrimidines import decile
             with pkg_resources.path(decile, 'pyrim.npz') as path:
                 data = np.load(path)
     elif dataset == "stocks":
-        from probit.data import stocksdomain
+        from probit_jax.data import stocksdomain
         with pkg_resources.path(stocksdomain, 'stock.npz') as path:
             data_continuous = np.load(path)
         D = 9
@@ -1283,7 +733,7 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["556.8"]
-            from probit.data.stocksdomain import quantile
+            from probit_jax.data.stocksdomain import quantile
             with pkg_resources.path(quantile, 'stock.npz') as path:
                 data = np.load(path)
         elif J == 10:
@@ -1304,11 +754,11 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.stocksdomain import decile
+            from probit_jax.data.stocksdomain import decile
             with pkg_resources.path(decile, 'stock.npz') as path:
                 data = np.load(path)
     elif dataset == "triazines":
-        from probit.data import triazines
+        from probit_jax.data import triazines
         with pkg_resources.path(triazines, 'triazines.npz') as path:
             data_continuous = np.load(path)
         D = 60
@@ -1343,7 +793,7 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init_alt"]
-            from probit.data.triazines import quantile
+            from probit_jax.data.triazines import quantile
             with pkg_resources.path(quantile, 'triazines.npz') as path:
                 data = np.load(path)
         elif J == 10:
@@ -1364,14 +814,14 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.triazines import decile
+            from probit_jax.data.triazines import decile
             with pkg_resources.path(decile, 'triazines.npz') as path:
                 data = np.load(path)
     elif dataset == "wpbc":
         D = 32
         varphi_0 = 2.0/D
         noise_variance_0 = 2.0
-        from probit.data import wisconsin
+        from probit_jax.data import wisconsin
         with pkg_resources.path(wisconsin, 'wpbc.npz') as path:
             data_continuous = np.load(path)
         if J == 5:
@@ -1398,7 +848,7 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["284.4"]
-            from probit.data.wisconsin import quantile
+            from probit_jax.data.wisconsin import quantile
             with pkg_resources.path(quantile, 'wpbc.npz') as path:
                 data = np.load(path)
         elif J == 10:
@@ -1419,7 +869,7 @@ def load_data(dataset, J):
                 ),
             }
             cutpoints_0, varphi_0, noise_variance_0 = hyperparameters["init"]
-            from probit.data.wisconsin import decile
+            from probit_jax.data.wisconsin import decile
             with pkg_resources.path(decile, 'wpbc.npz') as path:
                 data = np.load(path)
     X_trains = data["X_train"]
@@ -1437,8 +887,7 @@ def load_data(dataset, J):
     X_true = data_continuous["X"]
     Y_true = data_continuous["y"]  # this is not going to be the correct one(?) - see next line
     # Y_trues = get_Y_trues(X_trains, X_true, Y_true)
-    # Kernel = SEIso
-    Kernel = LabEQ
+    Kernel = EQ
     scale_0 = 1.0
     cutpoints_0 = np.array(cutpoints_0)
     return (
@@ -1449,173 +898,14 @@ def load_data(dataset, J):
         J, D, Kernel)
 
 
-def generate_synthetic_data_SEARD(N_per_class, J, D, varphi=[30.0, 20.0], noise_variance=1.0, scale=1.0):
-    """Generate synthetic SEARD dataset."""
-    # Generate the synethetic data
-    kernel = SEARD(varphi, scale=scale, sigma=10e-6, tau=10e-6)
-    X_j, Y_true_j, X, Y_true, t, cutpoints_0 = generate_prior_data(
-        N_per_class, J, D, kernel, noise_variance=noise_variance)
-    from probit.data import tertile
-    with pkg_resources.path(tertile) as path:
-        np.savez(
-            path / 'data_polynomial_{}dim_{}bin_prior.npz'.format(D, J), X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, cutpoints_0=cutpoints_0)
-    return X_j, Y_true_j, X, Y_true, t, cutpoints_0
-
-
-def generate_synthetic_data_linear(
-        N_per_class, N_test, splits, J, D,
-        constant_variance=1.0, offset=1.0, noise_variance=1.0, scale=1.0):
-    """Generate synthetic dataset."""
-    kernel = Linear(constant_variance=constant_variance, offset=offset, scale=1.0)
-    (X_j, Y_true_j, X, Y, t, cutpoints,
-    X_tests, Y_tests, t_tests,
-    X_trains, Y_trains, t_trains,
-    K0_show, X_show, Z_show, colors) = generate_prior_data_new(
-        N_per_class, N_test, splits, J, D, kernel, noise_variance=noise_variance)
-    np.savez('data_linear_prior.npz',
-        X_j=X_j, Y_j=Y_true_j, X=X, Y=Y, t=t,
-        X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
-        X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
-        K0_show=K0_show,
-        X_show=X_show,
-        Z_show=Z_show,
-        noise_variance=noise_variance,
-        scale=scale,
-        constant_variance=constant_variance,
-        c=c,
-        cutpoints=cutpoints,
-        colors=colors)
-    return (X_j, Y_true_j, X, Y, t, cutpoints, X_tests, Y_tests, t_tests, X_trains,
-        Y_trains, t_trains, K0_show, X_show, Z_show, colors)
-
-
-def generate_synthetic_data(N_per_class, J, D, varphi=30.0, noise_variance=1.0, scale=1.0):
-    """Generate synthetic dataset."""
-    # Generate the synethetic data
-    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
-    X_j, Y_true_j, X, Y_true, t, cutpoints_0 = generate_prior_data(
-        N_per_class, J, D, kernel, noise_variance=noise_variance)
-    from probit.data import tertile
-    # with pkg_resources.path(tertile) as path:
-    #     np.savez(
-    #         path / 'data_tertile_prior_2.npz', X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t, cutpoints_0=cutpoints_0)
-    np.savez('data_tertile_prior_2.npz', X_j=X_j, Y_j=Y_true_j, X=X, Y=Y_true, t=t,
-        cutpoints=cutpoints_0, varphi=varphi, scale=scale, noise_variance=noise_variance)
-    return X_j, Y_true_j, X, Y_true, t, cutpoints_0
-
-
-def generate_synthetic_data_paper(
-        lengthscale, noise_variance, variance=1.0, N_train_per_class=100,
-        N_test_per_class=0, N_validate_per_class=0, N_show=100,
-        splits=1, J=3, D=2, colors=None, cmap=None, plot=True, seed=517):
-    """
-    Generate synthetic dataset from the unit hypercube for Table 1.
-    """
-    # Initiate kernel
-    kernel = SquaredExponential(varphi=lengthscale, variance=variance)
-    # Generate data
-    (N_show, N, X_js, g_js, X, f, g, y, cutpoints,
-        X_trains, g_trains, y_trains,
-        X_tests, y_tests,
-        X_validates, y_validates,
-        K0_show, X_show, f_show, colors) = generate_prior_data_paper(
-        N_train_per_class=N_train_per_class, N_test_per_class=N_test_per_class,
-        N_validate_per_class=N_validate_per_class, splits=splits, J=J, D=D,
-        kernel=kernel,
-        noise_variance=noise_variance, colors=colors, cmap=cmap, N_show=100,
-        plot=plot, seed=seed)
-    # Save data
-    np.savez(
-        'D={}_J={}_kernel_string={}_var={}_noisevar={}_lengthscale={}.npz'.format(
-            D, J, repr(kernel), variance, noise_variance, lengthscale),
-        N_show=N_show, N=N, J=J, D=D,
-        X_js=X_js, g_js=g_js,
-        X=X, g=g, y=y, f=f,
-        # no need for validation and test data.
-        #X_validates=X_validates, t_validates=t_validates,
-        #X_tests=X_tests, t_tests=t_tests,
-        #X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
-        #K0_show=K0_show,
-        X_show=X_show,
-        f_show=f_show,
-        noise_variance=noise_variance,
-        variance=variance,
-        lengthscale=lengthscale,
-        cutpoints=cutpoints,
-        colors=colors)
-    # # Sample from gamma priors for the hyper-parameters
-    # lengthscales = gamma.rvs(a=1.0, scale=np.sqrt(D), size=(D,))
-    # noise_variance = gamma.rvs(a=1.2, scale=1./0.2)
-    # # Initiate kernel
-    # kernel = SEARD(lengthscales, scale=scale)
-    # # Generate data
-    # (X_js, g_js, X, f, g, y, cutpoints,
-    #     X_trains, g_trains, y_trains,
-    #     X_tests, y_tests,
-    #     X_validates, y_validates,
-    #     K0_show, X_show, f_show, colors) = generate_prior_data_paper(
-    #         N_train_per_class=10, N_test_per_class=3, N_validate_per_class=4,
-    #         splits=4, J=3, D=1, kernel=kernel,
-    #         noise_variance=0.1, N_show=100, plot=True, seed=517)
-    # # Save data
-    # np.savez(
-    #     'J={}_kernel_string={}_var={}_noisevar={}_lengthscale={}.npz'.format(
-    #       J, repr(kernel), variance, noise_variance, repr(lengthscales)),
-    #     X_js=X_js, g_js=g_js,
-    #     X=X, f=f, g=g, y=y,
-    #     X_validates=X_validates, X_validates=X_validates,
-    #     X_tests=X_tests, g_tests=g_tests,
-    #     X_trains=X_trains, g_trains=g_trains, y_trains=y_trains,
-    #     K0_show=K0_show,
-    #     X_show=X_show,
-    #     f_show=f_show,
-    #     noise_variance=noise_variance,
-    #     scale=scale,
-    #     lengthscales=lengthscales,
-    #     cutpoints=cutpoints,
-    #     colors=colors)
-    return (X_js, g_js, X, f, g, y, cutpoints,
-        X_trains, g_trains, y_trains,
-        X_tests, y_tests,
-        X_validates, y_validates,
-        K0_show, X_show, f_show, colors)
-
-
-def generate_synthetic_data_new(N_per_class, N_test, splits, J, D, varphi=30.0, noise_variance=1.0, scale=1.0):
-    """
-    Generate synthetic dataset from the unit hypercube for Table 1.
-    """
-    kernel = SEIso(varphi, scale=scale, sigma=10e-6, tau=10e-6)
-    (X_j, Y_true_j, X, Y, t, cutpoints,
-    X_tests, Y_tests, t_tests,
-    X_trains, Y_trains, t_trains,
-    K0_show, X_show, Z_show, colors) = generate_prior_data_new(
-        N_per_class, N_test, splits, J, D, kernel, noise_variance=noise_variance)
-    np.savez('data_thirteen_prior_new.npz', X_j=X_j, Y_j=Y_true_j, X=X, Y=Y, t=t,
-        X_tests=X_tests, Y_tests=Y_tests, t_tests=t_tests,
-        X_trains=X_trains, Y_trains=Y_trains, t_trains=t_trains,
-        K0_show=K0_show,
-        X_show=X_show,
-        Z_show=Z_show,
-        noise_variance=noise_variance,
-        scale=scale,
-        varphi=varphi,
-        cutpoints=cutpoints,
-        colors=colors)
-    return (X_j, Y_true_j, X, Y, t, cutpoints, X_tests, Y_tests, t_tests, X_trains, Y_trains, t_trains, K0_show,
-        X_show, Z_show, colors)
-
-
 def load_data_synthetic(dataset, J, plot=False):
     """Load synthetic data. TODO SS"""
     print(dataset)
-    if dataset == "SEIso":
+    if dataset == "EQ":
         D = 1
-        #Kernel = LabSharpenedCosine
-        Kernel = LabEQ
-        #Kernel = SEIso
+        Kernel = EQ
         if J == 3:
-            from probit.data.SEIso import tertile
+            from probit_jax.data.SEIso import tertile
             with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=0.1_varphi=30.npz') as path:  # works for varphi
             #with pkg_resources.path(tertile, 'tertile_prior_s=1_sigma2=1_varphi=30.npz') as path:  # is varphi actually 1?
@@ -1658,7 +948,7 @@ def load_data_synthetic(dataset, J, plot=False):
             cutpoints_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
             colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
         elif J == 13:
-            from probit.data.SEIso import thirteen
+            from probit_jax.data.SEIso import thirteen
             with pkg_resources.path(
                 thirteen,
                 'thirteen_prior_s=1_sigma2=0.1_varphi=30_new.npz') as path:
@@ -1694,7 +984,7 @@ def load_data_synthetic(dataset, J, plot=False):
             }
             cutpoints_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
         elif J==52:
-            from probit.data.SEIso import sparse52
+            from probit_jax.data.SEIso import sparse52
             with pkg_resources.path(
                 sparse52,
                 'J=52_kernel_string=SEIso_scale=1.0_noisevar=0.1_lengthscale=30.0.npz') as path:
@@ -1730,7 +1020,7 @@ def load_data_synthetic(dataset, J, plot=False):
         D = 1
         Kernel = Linear
         if J == 3:
-            from probit.data.Linear import tertile
+            from probit_jax.data.Linear import tertile
             with pkg_resources.path(tertile, 'data.npz') as path:
                 data = np.load(path)
             X_show = data["X_show"]
@@ -1758,7 +1048,7 @@ def load_data_synthetic(dataset, J, plot=False):
             }
             cutpoints_0, varphi_0, noise_variance_0, scale_0 = hyperparameters["true"]
         elif J == 13:
-            from probit.data.Linear import thirteen
+            from probit_jax.data.Linear import thirteen
             with pkg_resources.path(thirteen, 'data.npz') as path:
                 data = np.load(path)
             X_show = data["X_show"]
@@ -1803,8 +1093,8 @@ def load_data_synthetic(dataset, J, plot=False):
 def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
     """Load synthetic data."""
     if dataset == "figure2":
-        Kernel = SquaredExponential
-        from probit.data.paper import figure2
+        Kernel = EQ
+        from probit_jax.data.paper import figure2
         with pkg_resources.path(figure2, 'J=3_kernel_string=SquaredExponential_var=1.0_noisevar=0.1_lengthscale=0.35.npz') as path:
             data = np.load(path)
         if plot:
@@ -1830,8 +1120,8 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
             )
         }
     elif dataset == "figure2og":
-        Kernel = SquaredExponential
-        from probit.data.paper import figure2
+        Kernel = EQ
+        from probit_jax.data.paper import figure2
         with pkg_resources.path(figure2, 'J=2_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
             data = np.load(path)
         if plot:
@@ -1857,8 +1147,8 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
             )
         }
     elif dataset == "13":
-        Kernel = LabEQ
-        from probit.data.paper import figure2
+        Kernel = EQ
+        from probit_jax.data.paper import figure2
         with pkg_resources.path(figure2, '13_SEIso_scale=1.0_noisevar=0.1_lengthscale=30.0.npz') as path:
             data = np.load(path)
         if plot:
@@ -1893,10 +1183,10 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
         if ARD is None:
             raise ValueError(
                 "Please supply argument, ARD. expected {}, got {}".format("True, False", None))
-        from probit.data.paper import table1
+        from probit_jax.data.paper import table1
         if J == 3:
             if ARD is True:
-                Kernel = SquaredExponentialARD
+                Kernel = EQ
                 if D == 2:
                     with pkg_resources.path(table1, 'D=2_J=3_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
                         data = np.load(path)
@@ -1925,7 +1215,7 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
                 elif D == 10:
                     assert 0
             else:
-                Kernel = SquaredExponential
+                Kernel = EQ
                 if D == 2:
                     with pkg_resources.path(table1, 'D=2_J=3_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
                         data = np.load(path)
@@ -1978,13 +1268,13 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
                     }
         elif J == 13:
             if ARD is True:
-                Kernel = SEARD
+                Kernel = EQ
                 if D == 2:
                     assert 0
                 elif D == 10:
                     assert 0
             else:
-                Kernel = SquaredExponential
+                Kernel = EQ
                 if D == 2:
                     with pkg_resources.path(table1, 'D=2_J=13_kernel_string=SquaredExponential_var=1.0_noisevar=4.3264_lengthscale=0.35.npz') as path:
                         data = np.load(path)
@@ -2045,40 +1335,6 @@ def load_data_paper(dataset, J=None, D=None, ARD=None, plot=False):
         J, D, colors, Kernel)
 
 
-def calculate_metrics(y_test, t_test, Z, cutpoints):
-    """Calculate nPlan metrics and return a big tuple containing them."""
-    t_pred = np.argmax(Z, axis=1)
-    print("t_pred")
-    print(t_pred)
-    print("t_test")
-    print(t_test)
-    grid = np.ogrid[0:len(t_test)]
-    # Other error
-    predictive_likelihood = Z[grid, t_test]
-    mean_absolute_error = np.sum(np.abs(t_pred - t_test)) / len(t_test)
-    root_mean_squared_error = np.sqrt(
-        np.sum(pow(t_pred - t_test, 2)) / len(t_test))
-    print("root_mean_squared_error", root_mean_squared_error)
-    print("mean_absolute_error ", mean_absolute_error)
-    log_predictive_probability = np.sum(np.log(predictive_likelihood))
-    print("log_pred_probability ", log_predictive_probability)
-    predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
-    print("predictive_likelihood ", predictive_likelihood)
-    print("av_prob_of_correct ", predictive_likelihood)
-    print(np.sum(t_pred != t_test), "sum incorrect")
-    mean_zero_one = np.sum(t_pred != t_test) / len(t_test)
-    print("mean_zero_one_error", mean_zero_one)
-    print(np.sum(t_pred == t_test), "sum correct")
-    mean_zero_one = np.sum(t_pred == t_test) / len(t_test)
-    print("mean_zero_one_correct", mean_zero_one)
-    return (
-        mean_zero_one,
-        root_mean_squared_error,
-        mean_absolute_error,
-        log_predictive_probability,
-        predictive_likelihood)
-
-
 def plot_kernel(kernel, N_total=500, n_samples=10):
     for _ in range(n_samples):
         X = np.linspace(0., 1., N_total)  # 500 points evenly spaced over [0,1]
@@ -2134,6 +1390,39 @@ def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, cmap, N_show=None):
         plt.close()
 
 
+def calculate_metrics(y_test, t_test, Z, cutpoints):
+    """Calculate nPlan metrics and return a big tuple containing them."""
+    t_pred = np.argmax(Z, axis=1)
+    print("t_pred")
+    print(t_pred)
+    print("t_test")
+    print(t_test)
+    grid = np.ogrid[0:len(t_test)]
+    # Other error
+    predictive_likelihood = Z[grid, t_test]
+    mean_absolute_error = np.sum(np.abs(t_pred - t_test)) / len(t_test)
+    root_mean_squared_error = np.sqrt(
+        np.sum(pow(t_pred - t_test, 2)) / len(t_test))
+    print("root_mean_squared_error", root_mean_squared_error)
+    print("mean_absolute_error ", mean_absolute_error)
+    log_predictive_probability = np.sum(np.log(predictive_likelihood))
+    print("log_pred_probability ", log_predictive_probability)
+    predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
+    print("predictive_likelihood ", predictive_likelihood)
+    print("av_prob_of_correct ", predictive_likelihood)
+    print(np.sum(t_pred != t_test), "sum incorrect")
+    mean_zero_one = np.sum(t_pred != t_test) / len(t_test)
+    print("mean_zero_one_error", mean_zero_one)
+    print(np.sum(t_pred == t_test), "sum correct")
+    mean_zero_one = np.sum(t_pred == t_test) / len(t_test)
+    print("mean_zero_one_correct", mean_zero_one)
+    return (
+        mean_zero_one,
+        root_mean_squared_error,
+        mean_absolute_error,
+        log_predictive_probability,
+        predictive_likelihood)
+
 
 if __name__ == "__main__":
     J = 3
@@ -2141,25 +1430,3 @@ if __name__ == "__main__":
     colors = []
     for j in range(J):
         colors.append(cmap((j + 0.5)/J))
-    # Sample from Gamma priors for the hyper-parameters
-    # varphi = gamma.rvs(a=1.0, scale=np.sqrt(D))
-    # noise_variance = gamma.rvs(a=1.2, scale=1./0.2)
-    generate_synthetic_data_paper(
-        lengthscale=0.35, noise_variance=4.3264, variance=1.0,
-        N_train_per_class=10000, N_test_per_class=0, N_validate_per_class=0,
-        N_show=100,
-        splits=1, J=J, D=10, colors=colors, cmap=cmap, plot=True, seed=517)
-    # SS TODO: delete
-    # generate_synthetic_data_new(
-    #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=30.0, noise_variance=0.1, scale=1.0)
-    # generate_synthetic_data_linear(
-    #     N_per_class=45, N_test=15*13, splits=20, J=13, D=1, varphi=1.0, noise_variance=1.0, scale=1.0)
-    # generate_prior_samples(
-    #     kernel=Linear(constant_variance=0.1, offset=1.0, scale=1.0), noise_variance=0.01, N_samples=9, N_show=2000, plot=True)
-    # generate_synthetic_data_linear(
-    #     N_per_class=45, N_test=15*3, splits=20, J=3, D=1,
-    #     constant_variance=0.1, offset=1.0, noise_variance=0.01, scale=1.0)
-    # generate_synthetic_data(30, 3, 1, varphi=30.0, noise_variance=1.0, scale=1.0)
-    # generate_synthetic_data_linear(30, 3, 2, noise_variance=0.1, scale=1.0, varphi=0.0)
-    # kernel = Linear(varphi=0.0, scale=1.0, sigma=10e-6, tau=10e-6)
-    # plot_kernel(kernel)

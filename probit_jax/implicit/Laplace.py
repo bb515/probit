@@ -3,8 +3,8 @@ import lab.jax as B
 import jax
 from jax import grad, jit, vmap
 from math import inf
-from probit.lab.utilities import (
-    probit_likelihood, matrix_inverse)
+from probit_jax.lab.utilities import (
+    probit_likelihood, matrix_inverse)  # TODO: temp
 
 # # It could be really useful to store cutpoints_ts, but cleaner not to.
 
@@ -36,7 +36,10 @@ def weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
         Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s)
 
 
+
 def f_LA(prior_parameters, likelihood_parameters, prior, grad_likelihood, posterior_mean, data):
+    # w is grad negative log likelihood. Is it possible to use vmap and still parameterize it,
+    # and take gradients wrt to f. Would it be best to do this via grad or vjp?
     # TODO: test how scales with data when jitted, less memory intensive?
     # When wanting to differentiate through this, what to keep as static args?
     # Maybe put things as static args and let JAX recompile when it wants.
