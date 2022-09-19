@@ -20,6 +20,11 @@ from pstats import Stats, SortKey
 import numpy as np
 import pathlib
 from probit_jax.plot import outer_loops, grid_synthetic, grid, plot_synthetic, plot, train, test
+from probit.data.utilities import datasets as datasets_
+from probit.data.utilities import load_data as load_data_
+from probit.data.utilities import load_data_synthetic as load_data_synthetic_
+from probit.data.utilities import load_data_paper as load_data_paper_
+from probit.data.utilities import datasets as datasets_
 from probit_jax.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 from mlkernels import Kernel as BaseKernel
 from probit_jax.utilities import InvalidKernel, check_cutpoints
@@ -55,6 +60,35 @@ def get_approximator(
             "(got {}, expected VB, LA)".format(
                 approximation))
     return Approximator, steps
+
+
+def get_approximator_(
+        approximation, Kernel, theta_0, signal_variance_0, N_train):
+    # Initiate kernel
+    kernel = Kernel(
+        theta=theta_0, variance=signal_variance_0)
+    M = None
+    # if approximation == "EP":
+    #     from probit.approximators import EPGP
+    #     # steps is the number of swipes over the data until check convergence
+    #     steps = 1
+    #     Approximator = EPGP
+    if approximation == "VB":
+        from probit.approximators import VBGP
+        # steps is the number of fix point iterations until check convergence
+        steps = np.max([10, N_train//1000])
+        Approximator = VBGP
+    elif approximation == "LA":
+        from probit.approximators import LaplaceGP
+        # steps is the number of Newton steps until check convergence
+        steps = np.max([2, N_train//1000])
+        Approximator = LaplaceGP
+    else:
+        raise ValueError(
+            "Approximator not found "
+            "(got {}, expected EP, VB, LA, V, SVB, SLA or SV)".format(
+                approximation))
+    return Approximator, steps, M, kernel
 
 
 def main():
@@ -190,25 +224,25 @@ def main():
 
     # #z_star = jnp.zeros(ndim)
 
-    f = classifier.construct()
+    # f = classifier.construct()
 
-    prior_parameters_0 = (jnp.sqrt(1./(2 * theta_0)))
-    likelihood_parameters_0 = (jnp.sqrt(noise_variance_0), cutpoints_0)
-    print(prior_parameters_0)
-    z_0 = B.zeros(classifier.N)
-    z = jnp.array(B.dense(f((prior_parameters_0, likelihood_parameters_0), z_0))).flatten()
-    print(z)
-    z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    print(z)
-    z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    print(z)
-    z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    print(z)
-    z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    print(z)
-    plt.scatter(X, z)
-    plt.savefig("testlatent")
-    plt.close()
+    # prior_parameters_0 = jnp.sqrt(1./(2 * theta_0))
+    # likelihood_parameters_0 = (jnp.sqrt(noise_variance_0), cutpoints_0)
+    # print(prior_parameters_0)
+    # z_0 = B.zeros(classifier.N)
+    # z = jnp.array(B.dense(f((prior_parameters_0, likelihood_parameters_0), z_0))).flatten()
+    # print(z)
+    # z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
+    # print(z)
+    # z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
+    # print(z)
+    # z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
+    # print(z)
+    # z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
+    # print(z)
+    # plt.scatter(X, z)
+    # plt.savefig("testlatent")
+    # plt.close()
 
     # z_star = 0
     # for i in range(100):
@@ -216,14 +250,21 @@ def main():
     #     z_star = f(1.0, z_star)
     #     print(np.linalg.norm(z_star - z_prev))
     # TODO: not sure why in their example can just initiate to any parameters here.
-    g = classifier.take_grad((prior_parameters_0, likelihood_parameters_0))
-    print(g((prior_parameters_0, likelihood_parameters_0)))
-    N = 40
+    params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(noise_variance_0), cutpoints_0))
+    g = classifier.take_grad()
+    prior_parameters = (jnp.sqrt(1./(2 * theta_0)))
+    likelihood_parameters = (jnp.sqrt(noise_variance_0), cutpoints_0)
+    # print(prior_parameters)
+    # print(likelihood_parameters)
+    print(g((prior_parameters, likelihood_parameters)))
+ 
+    N = 30
     thetas = np.logspace(-1, 2, N)
     gs = np.empty(N)
-    fs = np.empty(N)(jnp.sqrt(1./(2 * theta_0)))
+    fs = np.empty(N)
     for i, theta in enumerate(thetas):
-        fx, gx = g(((jnp.sqrt(1./(2 * theta))), ((jnp.sqrt(noise_variance_0), cutpoints_0))))
+        params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0))
+        fx, gx = g(params)
         fs[i] = fx
         gs[i] = gx[0]
         print(gx[0])
@@ -234,28 +275,105 @@ def main():
     plt.xscale("log")
     plt.savefig("testfx.png")
     plt.close()
-    print(gs)
-    plt.plot(thetas, gs)
+    plt.plot(thetas, gs, label="ad")
     plt.xscale("log")
+    plt.legend()
     plt.savefig("testgx.png")
     plt.close()
 
-    assert 0
+    if args.profile:
+        profile.disable()
+        s = StringIO()
+        stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
+        stats.print_stats(.05)
+        print(s.getvalue())
+ 
+    dataset = "SEIso"
+    if args.profile:
+        profile = cProfile.Profile()
+        profile.enable()
+    #sys.stdout = open("{}.txt".format(now), "w")
+    if dataset in datasets_["benchmark"]:
+        (X_trains, y_trains,
+        X_tests, y_tests,
+        X_true, g_tests,
+        cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
+        J, D, Kernel) = load_data_(
+            dataset, J)
+        X = X_trains[2]
+        y = y_trains[2]
+    elif dataset in datasets_["synthetic"]:
+        (X, y,
+        X_true, g_true,
+        cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
+        J, D, colors, Kernel) = load_data_synthetic_(dataset, J)
+    elif dataset in datasets_["paper"]:
+        (X, f_, g_true, y,
+        cutpoints_0, theta_0, noise_variance_0, signal_variance_0,
+        J, D, colors, Kernel) = load_data_paper_(
+            dataset, J=J, D=D, ARD=False, plot=True)
+    else:
+        raise ValueError("Dataset {} not found.".format(dataset))
+    N_train = np.shape(y)[0]
+    Approximator, steps, M, kernel = get_approximator_(
+        approximation, Kernel, theta_0, signal_variance_0, N_train)
+    if "S" in approximation:
+        # Initiate sparse classifier
+        classifier = Approximator(
+            M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+            kernel=kernel, J=J, data=(X, y))
+    else:
+        # Initiate classifier
+        classifier = Approximator(
+            cutpoints=cutpoints_0, noise_variance=noise_variance_0,
+            kernel=kernel, J=J, data=(X, y), single_precision=False)
 
-    dZ = np.gradient(fs, thetas)
-    plt.plot(thetas, dZ)
-    plt.plot(thetas, gs)
-    plt.xscale("log")
-    plt.savefig("gx.png")
-    plt.close()
-    assert 0
+    trainables = [1] * (J + 2)
+    if kernel._ARD:
+        trainables[-1] = [1, 1]
+        # Fix theta
+        trainables[-1] = [0] * int(D)
+    else:
+        trainables[-1] = 1
+        # Fix theta
+        # trainables[-1] = 0
+    # Fix noise standard deviation
+    trainables[0] = 0
+    # Fix signal standard deviation
+    trainables[J] = 0
+    # Fix cutpoints
+    trainables[1:J] = [0] * (J - 1)
+    trainables[1] = 0
+    print("trainables = {}".format(trainables))
+    # just theta
+    domain = ((-1, 2), None)
+    res = (30, None)
+    # theta_0 and theta_1
+    # domain = ((-1, 1.3), (-1, 1.3))
+    # res = (20, 20)
+    # #  just signal standard deviation, domain is log_10(signal_std)
+    # domain = ((0., 1.8), None)
+    # res = (20, None)
+    # just noise std, domain is log_10(noise_std)
+    # domain = ((-1., 1.0), None)
+    # res = (100, None)
+    # # theta and signal std dev
+    # domain = ((0, 2), (0, 2))
+    # res = (100, None)
+    # # cutpoints b_1 and b_2 - b_1
+    # domain = ((-0.75, -0.5), (-1.0, 1.0))
+    # res = (14, 14)
 
-    # def fun(theta):
-    #     value_and_grad = g(theta)
-    #     return (np.asarray(value_and_grad[0]), np.asarray(value_and_grad[1]))
+    # grid_synthetic(classifier, domain, res, steps, trainables, show=False)
 
-    # grid_synthetic(
-    #     classifier, domain, res, steps, trainables, show=True, verbose=True)
+    # plot(classifier, domain=None)
+
+    # classifier = train(
+    #     classifier, method, trainables, verbose=True, steps=steps)
+    # test(classifier, X, y, g_true, steps)
+
+    grid_synthetic(
+        classifier, domain, res, steps, trainables, show=True, verbose=True)
 
     # plot_synthetic(classifier, dataset, X_true, g_true, steps, colors=colors)
 
@@ -270,6 +388,7 @@ def main():
         stats.print_stats(.05)
         print(s.getvalue())
     #sys.stdout.close()
+    return 
 
 
 if __name__ == "__main__":

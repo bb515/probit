@@ -5,6 +5,7 @@ from jax import grad, jit, vmap
 from math import inf
 from probit_jax.lab.utilities import (
     probit_likelihood, matrix_inverse)  # TODO: temp
+from probit_jax.implicit.utilities import linear_solve
 
 # # It could be really useful to store cutpoints_ts, but cleaner not to.
 
@@ -36,23 +37,24 @@ def weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
         Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s)
 
 
-
-def f_LA(prior_parameters, likelihood_parameters, prior, grad_likelihood, posterior_mean, data):
-    # w is grad negative log likelihood. Is it possible to use vmap and still parameterize it,
-    # and take gradients wrt to f. Would it be best to do this via grad or vjp?
-    # TODO: test how scales with data when jitted, less memory intensive?
-    # When wanting to differentiate through this, what to keep as static args?
-    # Maybe put things as static args and let JAX recompile when it wants.
-    #jitted-functions cannot have functions as arguments
-    # so dlikelihood_df and K must be static
-    return prior(prior_parameters)(data[0]) @ grad_likelihood(likelihood_parameters, posterior_mean, data[1])
+def f_LA(prior_parameters, likelihood_parameters, prior, grad_log_likelihood, hessian_log_likelihood, posterior_mean, data):
+    K = B.dense(prior(prior_parameters)(data[0]))
+    return K @ linear_solve(B.diag(-hessian_log_likelihood(
+        posterior_mean, data[1], likelihood_parameters)) + K,
+        posterior_mean + grad_log_likelihood(posterior_mean, data[1], likelihood_parameters))
 
 
-def f_LASS(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s, K,
-        upper_bound=None, upper_bound2=None):
-    w, *_ = weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
-        upper_bound, upper_bound2)
-    return K @ w
+# def f_LA(prior_parameters, likelihood_parameters, prior, grad_log_likelihood,
+#         hessian_log_likelihood, posterior_mean, data):
+#     # w is grad negative log likelihood. Is it possible to use vmap and still parameterize it,
+#     # and take gradients wrt to f. Would it be best to do this via grad or vjp?
+#     # TODO: test how scales with data when jitted, less memory intensive?
+#     # When wanting to differentiate through this, what to keep as static args?
+#     # Maybe put things as static args and let JAX recompile when it wants.
+#     #jitted-functions cannot have functions as arguments
+#     # so dlikelihood_df and K must be static
+#     return B.squeeze(B.matmul(prior(prior_parameters)(data[0]), grad_log_likelihood(
+#         posterior_mean, data[1], likelihood_parameters)))
 
 
 def jacobian_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
@@ -65,6 +67,7 @@ def jacobian_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
     z1s = B.where(z1s == inf, 0.0, z1s)
     z2s = B.where(z2s == -inf, 0.0, z2s)
     z2s = B.where(z2s == inf, 0.0, z2s)
+    # TODO: check that precision is the same as the hessian
     precision  = w**2 + (
         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
         ) / Z / noise_std**2
@@ -93,14 +96,24 @@ def objective_LASS(
         + 0.5 * B.sum(B.log(precision)))
 
 
-def objective_LA(
-        prior_parameters, likelihood_parameters, prior, grad_likelihood,
-        hessian_likelihood, posterior_mean, data):
-    likelihood = likelihood(likelihood_parameters, posterior_mean, data[1])
-    weight = grad_likelihood(likelihood_parameters, posterior_mean, data[1])
-    precision = hessian_likelihood(likelihood_parameters, posterior_mean, data[1])
+# def objective_LA(
+#         prior_parameters, likelihood_parameters, prior, grad_likelihood,
+#         hessian_likelihood, posterior_mean, data):
+#     likelihood = likelihood(likelihood_parameters, posterior_mean, data[1])
+#     weight = grad_likelihood(likelihood_parameters, posterior_mean, data[1])
+#     precision = hessian_likelihood(likelihood_parameters, posterior_mean, data[1])
+#     L_cov = B.cholesky(prior(prior_parameters)(data[0]) + B.diag(1./ precision))
+#     return (-B.sum(B.log(likelihood))
+#         + 0.5 * posterior_mean.T @ weight
+#         + B.sum(B.log(B.diag(L_cov)))
+#         + 0.5 * B.sum(B.log(precision)))
+
+
+def objective_LA(prior_parameters, likelihood_parameters, prior,
+        log_likelihood, grad_log_likelihood, hessian_log_likelihood, posterior_mean, data):
+    precision = -hessian_log_likelihood(posterior_mean, data[1], likelihood_parameters)
     L_cov = B.cholesky(prior(prior_parameters)(data[0]) + B.diag(1./ precision))
-    return (-B.sum(B.log(likelihood))
-        + 0.5 * posterior_mean.T @ weight
+    return (- B.sum(log_likelihood(posterior_mean, data[1], likelihood_parameters))
+        - 0.5 * posterior_mean.T @ grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)  # TODO minus before grad?
         + B.sum(B.log(B.diag(L_cov)))
         + 0.5 * B.sum(B.log(precision)))

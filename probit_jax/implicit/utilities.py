@@ -6,6 +6,7 @@ from jax import (vmap, grad, jit)
 import warnings
 from math import inf
 from functools import partial
+from jax.experimental.host_callback import id_print
 
 over_sqrt_2_pi = 1. / B.sqrt(2 * B.pi)
 log_over_sqrt_2_pi = -0.5 * B.log(2 * B.pi)
@@ -16,40 +17,18 @@ def ndtr(z):
     return 0.5 * (1 + B.erf(z/sqrt_2))
 
 
-def log_likelihood(
-        m, cutpoints_ts, cutpoints_tplus1s, noise_std,
-        upper_bound, upper_bound2, tolerance):
-    """
-    TODO: May be redundant - used in sampling code?
-    Likelihood of ordinal regression. This is product of scalar normal cdf.
-
-    If np.ndim(m) == 2, vectorised so that it returns (num_samples,)
-    vector from (num_samples, N) samples of the posterior mean.
-
-    Note that numerical stability has been turned off in favour of
-    exactness - but experiments should be run twice with numerical
-    stability turned on to see if it makes a difference.
-    """
-    # TODO this is the scalar version
-    Z, *_ = probit_likelihood(
-        cutpoints_ts, cutpoints_tplus1s,
-        noise_std, m,
-        upper_bound=upper_bound,
-        upper_bound2=upper_bound2,  # optional
-        tolerance=tolerance  # optional
-        )
-    if B.ndim(m) == 2:
-        return B.sum(B.log(Z), axis=1)  # (num_samples,)
-    elif B.ndim(m) == 1:
-        return B.sum(B.log(Z))  # (1,)
-
-
 @partial(jax.jit, static_argnames=['N'])  # TODO: keep this here?
 def matrix_inverse(matrix, N):
     L_cov = B.cholesky(matrix)
     L_covT_inv = B.triangular_solve(L_cov, B.eye(N), lower_a=True)
     cov = B.triangular_solve(L_cov.T, L_covT_inv, lower_a=False)
     return cov, L_cov
+
+
+@partial(jax.jit)
+def linear_solve(A, b):
+    L_cov = B.cholesky(A)
+    return B.cholesky_solve(L_cov, b)
 
 
 def return_prob_vector(b, cutpoints_t, cutpoints_tplus1, noise_std):
@@ -111,38 +90,21 @@ def h(x):
     return -1. / x**2 + 5/ (2 * x**4) - 37 / (3 *  x**6)
 
 
-def _Z_tails(z1, z2):
-    """
-    Series expansion at infinity.
-
-    Even for z1, z2 >= 4 this is accurate to three decimal places.
-    """
-    return over_sqrt_2_pi * (
-    1 / z1 * B.exp(-0.5 * z1**2 + h(z1)) - 1 / z2 * B.exp(
-        -0.5 * z2**2 + h(z2)))
-
-
-def _Z_far_tails(z):
-    """Prevents overflow at large z."""
-    return over_sqrt_2_pi / z * B.exp(-0.5 * z**2 + h(z))
-
-
-# @partial(jit, static_argnums=[2, 3])  # TODO, which function to jit compile, the parent or the child? Parent when possible? child when not?
 def probit_likelihood(
-        f, y, likelihood_parameters, single_precision):
+        f, y, likelihood_parameters):
     return probit(
-        likelihood_parameters[0], likelihood_parameters[1][y], likelihood_parameters[1][y + 1],
-        f, single_precision)
+        likelihood_parameters[0],
+        likelihood_parameters[1][y], likelihood_parameters[1][y + 1],
+        f)
 
 
-def negative_log_probit_likelihood(
-        f, y, likelihood_parameters, single_precision):
-    return -jnp.log(probit_likelihood(f, y, likelihood_parameters, single_precision))
+def log_probit_likelihood(
+        f, y, likelihood_parameters):
+    return jnp.log(probit_likelihood(f, y, likelihood_parameters))
 
 
 def probit(
-        noise_std, cutpoints_y, cutpoints_yplus1, f,
-        single_precision=True):
+        noise_std, cutpoints_y, cutpoints_yplus1, f):
     """
     Return the normalising constants for the truncated normal distribution
     in a numerically stable manner.
@@ -164,62 +126,18 @@ def probit(
     :returns: Z
     :rtype: :class:`numpy.ndarray`
     """
-    if single_precision is True:
-        # Single precision
-        # float upper_bound: The threshold of the normal z value for which
-        # float upper_bound2: The threshold of the normal z value for which
-        # the pdf is close enough to zero. 
-        # float tolerance: The tolerated absolute error.
-        # Threshold of single sided standard deviations that
-        # normal cdf can be approximated to 0 or 1
-        # More than this + redundancy leads to numerical instability
-        # due to catestrophic cancellation
-        # Less than this leads to a poor approximation due to series
-        # expansion at infinity truncation
-        # Good values found between 4 and 6
-        upper_bound = 4
-        # More than this + redundancy leads to numerical
-        # instability due to overflow
-        # Less than this results in poor approximation due to
-        # neglected probability mass in the tails
-        # Good values found between 18 and 30
-        # Try decreasing if experiencing infs or NaNs
-        upper_bound2 = 18
-        # Acts as a machine tolerance for small probabilities
-        tolerance = 1e-4
-    elif single_precision is False:
-        # Double precision
-        upper_bound = 6
-        upper_bound2 = 30
-        tolerance = 1e-8
-    else:
-        upper_bound = None
-        upper_bound2 = None
-        tolerance = None
     # Otherwise
     safe_z1s = jnp.where(cutpoints_y == -jnp.inf, 0.0, (cutpoints_y - f))
     safe_z2s = jnp.where(cutpoints_yplus1 == jnp.inf, 0.0, (cutpoints_yplus1 - f))
     norm_cdf_z1s = jnp.where(cutpoints_y == -jnp.inf, 0.0, norm_cdf(safe_z1s / noise_std))
     norm_cdf_z2s = jnp.where(cutpoints_yplus1 == jnp.inf, 1.0, norm_cdf(safe_z2s / noise_std))
     Z = norm_cdf_z2s - norm_cdf_z1s
-    # TODO: probably cannot use single_precision, unless make it a static argument?
-    if upper_bound is not None:
-        # TODO: This doesn't seem to be working properly, needs testing
-        # Using series expansion approximations
-        Z = B.where(safe_z1s > upper_bound, _Z_tails(safe_z1s, safe_z2s), Z)
-        Z = B.where(safe_z2s < -upper_bound, _Z_tails(safe_z1s, safe_z2s), Z)
-        if upper_bound2 is not None:
-            # Using one sided series expansion approximations
-            Z = B.where(safe_z1s > upper_bound2, _Z_far_tails(safe_z1s), Z)
-            Z = B.where(safe_z2s < -upper_bound2, _Z_far_tails(-safe_z2s), Z)
-    if tolerance is not None:
-        Z = B.where(Z < tolerance, tolerance, Z)
     return Z
 
 
 def ordinal_predictive_distributions(
         posterior_pred_mean, posterior_pred_std, N_test,
-        cutpoints, single_precision=True):
+        cutpoints):
     """
     Return predictive distributions for the ordinal likelihood.
     """
@@ -230,14 +148,13 @@ def ordinal_predictive_distributions(
                 posterior_pred_std,
                 cutpoints[j], cutpoints[j + 1],
                 posterior_pred_mean,
-                single_precision)
+                )
         predictive_distributions[:, j] = Z
     return predictive_distributions
 
 
 def predict_reparameterised(
-        Kss, Kfs, cov, weight, cutpoints, noise_variance,
-        single_precision=True):
+        Kss, Kfs, cov, weight, cutpoints, noise_variance):
     """
     Make posterior prediction over ordinal classes of X_test.
 
@@ -270,7 +187,7 @@ def predict_reparameterised(
     return (
         ordinal_predictive_distributions(
                 posterior_pred_mean, posterior_pred_std, N_test, cutpoints,
-                single_precision),
+                ),
             posterior_pred_mean, posterior_std)
 
 
