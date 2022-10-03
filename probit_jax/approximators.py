@@ -20,7 +20,7 @@ from probit_jax.implicit.Laplace import f_LA
 from probit_jax.implicit.Laplace import (
     f_LA, jacobian_LA, objective_LA)
 from probit_jax.implicit.VB import (
-    f_VB, jacobian_VB, objective_VB)
+    f_VB, jacobian_VB, objective_VB, objective_VBSS)
 
 
 class Approximator(ABC):
@@ -103,8 +103,8 @@ class Approximator(ABC):
             # point but a longer convergence time. Acts as a machine tolerance.
             # Single precision linear algebra libraries won't converge smaller than
             # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
-            self.tolerance = 1e-1
-            #self.tolerance = 1e-3  # Single precision
+            self.tolerance = 1e-2
+            # self.tolerance = 1e-2  # Single precision
             self.single_precision = single_precision
         else:  # Double precision
             self.epsilon = 1e-12  # Default regularisation- If too small, 1e-10
@@ -118,7 +118,7 @@ class Approximator(ABC):
             grad_log_likelihood = grad(log_likelihood)
         if hessian_log_likelihood is None:  # Try JAX grad
             hessian_log_likelihood = grad(lambda f, y, x: grad(log_likelihood)(f, y, x))
-        self.negative_log_likelihood= jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
+        self.log_likelihood= jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.grad_log_likelihood = jit(vmap(grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
 
@@ -251,7 +251,7 @@ class LaplaceGP(Approximator):
             lambda theta: objective_LA(
                 theta[0], theta[1],
                 self.prior,
-                self.negative_log_likelihood,
+                self.log_likelihood,
                 self.grad_log_likelihood,
                 self.hessian_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance, fwd_solver, self.construct(), theta),
@@ -297,7 +297,7 @@ class VBGP(Approximator):
             lambda theta: objective_VB(
                 theta[0], theta[1],
                 self.prior,
-                self.negative_log_likelihood,
+                self.log_likelihood,
                 self.grad_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance, fwd_solver, self.construct(), theta),
                 self.data))

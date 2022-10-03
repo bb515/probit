@@ -31,7 +31,7 @@ def newton_solver(f, z_init, tolerance):
     return fwd_solver(g, z_init, tolerance)
 
 
-def anderson_solver(f, z_init, m=5, lam=1e-4, max_iter=50, tol=1e-5, beta=1.0):
+def anderson_solver(f, z_init, m=5, lam=1e-4, max_iter=50, tolerance=1e-5, beta=1.0):
     """
     Using Anderson acceleration, return the latent  variables at the fix
     point.
@@ -61,7 +61,7 @@ def anderson_solver(f, z_init, m=5, lam=1e-4, max_iter=50, tol=1e-5, beta=1.0):
     for k in range(2, m):
         X, F = step(k, k, X, F)
         res = jnp.linalg.norm(F[k] - X[k]) / (1e-5 + jnp.linalg.norm(F[k]))
-        if res < tol or k + 1 >= max_iter:
+        if res < tolerance or k + 1 >= max_iter:
             return X[k], k
 
     # run the remaining steps in a lax.while_loop
@@ -74,7 +74,7 @@ def anderson_solver(f, z_init, m=5, lam=1e-4, max_iter=50, tol=1e-5, beta=1.0):
         k, X, F = carry
         kmod = (k - 1) % m
         res = jnp.linalg.norm(F[kmod] - X[kmod]) / (1e-5 + jnp.linalg.norm(F[kmod]))
-        return (k < max_iter) & (res >= tol)
+        return (k < max_iter) & (res >= tolerance)
 
     k, X, F = lax.while_loop(cond_fun, body_fun, (k + 1, X, F))
     return X[(k - 1) % m]

@@ -103,6 +103,39 @@ def log_probit_likelihood(
     return jnp.log(probit_likelihood(f, y, likelihood_parameters))
 
 
+def grad_log_probit_likelihood(
+        f, y, likelihood_parameters):
+    cutpoints_tplus1 = likelihood_parameters[1][y + 1]
+    cutpoints_t = likelihood_parameters[1][y]
+    noise_std = likelihood_parameters[0]
+    z2s = (cutpoints_tplus1 - f) / noise_std
+    z1s = (cutpoints_t - f) / noise_std
+    Z  = norm_cdf(z2s) - norm_cdf(z1s)
+    norm_pdf_z1s = norm_pdf(z1s)
+    norm_pdf_z2s = norm_pdf(z2s)
+    return (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
+
+
+def hessian_log_probit_likelihood(
+        f, y, likelihood_parameters):
+    cutpoints_tplus1 = likelihood_parameters[1][y + 1]
+    cutpoints_t = likelihood_parameters[1][y]
+    noise_std = likelihood_parameters[0]
+    z2s = (cutpoints_tplus1 - f) / noise_std
+    z1s = (cutpoints_t - f) / noise_std
+    Z  = norm_cdf(z2s) - norm_cdf(z1s)
+    norm_pdf_z1s = norm_pdf(z1s)
+    norm_pdf_z2s = norm_pdf(z2s)
+    w = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
+    z1s = B.where(z1s == -inf, 0.0, z1s)
+    z1s = B.where(z1s == inf, 0.0, z1s)
+    z2s = B.where(z2s == -inf, 0.0, z2s)
+    z2s = B.where(z2s == inf, 0.0, z2s)
+    return -w**2 + (
+        z1s * norm_pdf_z1s - z2s * norm_pdf_z2s
+        ) / Z / noise_std**2
+
+
 def probit(
         noise_std, cutpoints_y, cutpoints_yplus1, f):
     """
