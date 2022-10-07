@@ -14,13 +14,12 @@ from probit_jax.lab.utilities import (
 from probit_jax.solvers import (
     fwd_solver, newton_solver, anderson_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
-
 from probit_jax.implicit.Laplace import f_LA
 # Change probit_jax.<linalg backend>.<Approximator>, as appropriate
 from probit_jax.implicit.Laplace import (
     f_LA, jacobian_LA, objective_LA)
 from probit_jax.implicit.VB import (
-    f_VB, jacobian_VB, objective_VB, objective_VBSS)
+    f_VB, jacobian_VB, objective_VB)
 
 
 class Approximator(ABC):

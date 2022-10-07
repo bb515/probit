@@ -33,7 +33,6 @@ from probit_jax.implicit.utilities import (
     log_probit_likelihood, grad_log_probit_likelihood, hessian_log_probit_likelihood)
 import sys
 import time
-import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -116,10 +115,9 @@ def main():
     if args.profile:
         profile = cProfile.Profile()
         profile.enable()
-
-    # Initiate data and classifier for probit_jax repo
-
     #sys.stdout = open("{}.txt".format(now), "w")
+    
+    # Initiate data and classifier for probit_jax repo
     if dataset in datasets["benchmark"]:
         (X_trains, y_trains,
         X_tests, y_tests,
@@ -210,38 +208,6 @@ def main():
     # Notes: anderson solver worked stably, Newton solver did not. Fixed point iteration worked stably and fastest
     # Newton may be unstable due to the condition number of the matrix. I wonder if I can hard code it instead of using autodiff?
 
-    # z_star = jnp.array([-0.75561608, -0.76437714, -0.21782411, -0.87292511, 0.63080693, -0.97272624,
-    #  -0.57807269, -0.06598705, -0.20778863, -0.33945913])
-
-    # #z_star = jnp.zeros(ndim)
-
-    # f = classifier.construct()
-
-    # prior_parameters_0 = jnp.sqrt(1./(2 * theta_0))
-    # likelihood_parameters_0 = (jnp.sqrt(noise_variance_0), cutpoints_0)
-    # print(prior_parameters_0)
-    # z_0 = B.zeros(classifier.N)
-    # z = jnp.array(B.dense(f((prior_parameters_0, likelihood_parameters_0), z_0))).flatten()
-    # print(z)
-    # z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    # print(z)
-    # z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    # print(z)
-    # z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    # print(z)
-    # z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    # print(z)
-    # plt.scatter(X, z)
-    # plt.savefig("testlatent")
-    # plt.close()
-
-    # z_star = 0
-    # for i in range(100):
-    #     z_prev = z_star
-    #     z_star = f(1.0, z_star)
-    #     print(np.linalg.norm(z_star - z_prev))
-    # TODO: not sure why in their example can just initiate to any parameters here.
-    params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(noise_variance_0), cutpoints_0))
     g = classifier.take_grad()
 
     trainables = [1] * (J + 2)
@@ -255,25 +221,9 @@ def main():
     trainables[1:J] = [0] * (J - 1)
     trainables[1] = 0
     print("trainables = {}".format(trainables))
-    # just theta
-    #domain = ((-1, 2), None)
+    # theta domain and resolution
     domain = ((-1, 2), None)
     res = (30, None)
-    # theta_0 and theta_1
-    # domain = ((-1, 1.3), (-1, 1.3))
-    # res = (20, 20)
-    # #  just signal standard deviation, domain is log_10(signal_std)
-    # domain = ((0., 1.8), None)
-    # res = (20, None)
-    # just noise std, domain is log_10(noise_std)
-    # domain = ((-1., 1.0), None)
-    # res = (100, None)
-    # # theta and signal std dev
-    # domain = ((0, 2), (0, 2))
-    # res = (100, None)
-    # # cutpoints b_1 and b_2 - b_1
-    # domain = ((-0.75, -0.5), (-1.0, 1.0))
-    # res = (14, 14)
 
     (x1s, x2s,
     xlabel, ylabel,
@@ -286,28 +236,20 @@ def main():
     gs = np.empty(res[0])
     fs = np.empty(res[0])
     for i, phi in enumerate(phis):
-        theta = jnp.exp(phi)[0]
+        # \ell = exp(phi)
+        theta = jnp.exp(phi)
         params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0))
+        # params = (theta, (jnp.sqrt(noise_variance_0), cutpoints_0))
         # params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(theta), cutpoints_0))
         fx, gx = g(params)
         fs[i] = fx
-        gs[i] = gx[0] * (- 0.5 * (2 * theta_0)**(-1./2))  # multiply by a Jacobian
+        gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by a Jacobian
         # gs[i] = gx[1][0] * (0.5 * (theta) ** (1./2))  # multiply by a Jacobian
         print(fx)
         print(gx)
         # print(gx[0])
         # print(gx[1][0])
         # print(gx[1][1])
-
-    plt.plot(phis, fs)
-    # plt.xscale("log")
-    plt.savefig("testfx.png")
-    plt.close()
-    plt.plot(phis, gs, label="ad")
-    # plt.xscale("log")
-    plt.legend()
-    plt.savefig("testgx.png")
-    plt.close()
 
     if args.profile:
         profile.disable()
@@ -327,7 +269,7 @@ def main():
     xlabel, ylabel,
     xscale, yscale) = (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
-    #First derivatives: need to calculate them in the log domain if theta is in log domain
+    #Numerical derivatives: need to calculate them in the log domain if theta is in log domain
     if xscale == "log":
         log_x = np.log(x)
         dfxs_ = np.gradient(fxs, log_x)

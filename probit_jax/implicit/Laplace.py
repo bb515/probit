@@ -36,8 +36,8 @@ def f_LA(prior_parameters, likelihood_parameters, prior, grad_log_likelihood, he
 #     # Maybe put things as static args and let JAX recompile when it wants.
 #     #jitted-functions cannot have functions as arguments
 #     # so dlikelihood_df and K must be static
-#     return B.squeeze(B.matmul(prior(prior_parameters)(data[0]), grad_log_likelihood(
-#         posterior_mean, data[1], likelihood_parameters)))
+#     K = B.dense(prior(prior_parameters)(data[0]))
+#     return - K @ grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)
 
 
 def jacobian_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
@@ -58,7 +58,7 @@ def jacobian_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
     return cov, L_cov
 
 
-# def objective_LASS(
+# def objective_LA(
 #         prior_parameters, likelihood_parameters, prior,
 #         log_likelihood, grad_log_likelihood, hessian_log_likelihood,
 #         posterior_mean, data):
@@ -81,6 +81,11 @@ def jacobian_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
 #         z2s * norm_pdf_z2s - z1s * norm_pdf_z1s
 #         ) / Z / noise_std**2
 #     L_cov = B.cholesky(prior(prior_parameters)(X) + B.diag(1./ precision))
+
+#     # id_print(-B.sum(B.log(Z)))
+#     # id_print(0.5 * posterior_mean.T @ w)
+#     # id_print(B.sum(B.log(B.diag(L_cov))))
+#     # id_print(0.5 * B.sum(B.log(precision)))
 
 #     return (-B.sum(B.log(Z))
 #         + 0.5 * posterior_mean.T @ w

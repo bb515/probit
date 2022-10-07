@@ -6,33 +6,7 @@ def f_VB(prior_parameters, likelihood_parameters, prior, grad_log_likelihood, po
     K = B.dense(prior(prior_parameters)(data[0]))
     N = B.shape(data[0])[0]
     return K @ linear_solve(likelihood_parameters[0]**2 * B.eye(N) + K,
-        posterior_mean + grad_log_likelihood(posterior_mean, data[1], likelihood_parameters))
-
-
-def noise_variance_weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
-        upper_bound, upper_bound2):
-    (Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s,
-        _, _) = probit_likelihood(
-            cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
-            upper_bound=upper_bound, upper_bound2=upper_bound2)
-    return (noise_std * (norm_pdf_z1s - norm_pdf_z2s) / Z,
-        Z, norm_pdf_z1s, norm_pdf_z2s, z1s, z2s)
-
-
-def f_VBSS(posterior_mean, model, data, N, upper_bound=None, upper_bound2=None):
-    kernel, cutpoints, noise_variance = model
-    X, y = data
-    kernel, cutpoints, noise_variance = model
-    K = B.dense(kernel(X))
-    noise_std = B.sqrt(noise_variance)
-    cutpoints_ts = cutpoints[y]
-    cutpoints_tplus1s = cutpoints[y + 1]
-    cov, L_cov = matrix_inverse(
-        noise_std**2 * B.eye(N) + K, N)
-    noise_variance_w, *_ = noise_variance_weight(cutpoints_ts, cutpoints_tplus1s, noise_std,
-        posterior_mean, upper_bound, upper_bound2)
-    w = cov @ (posterior_mean + noise_variance_w)
-    return K @ w
+        posterior_mean + likelihood_parameters[0] * grad_log_likelihood(posterior_mean, data[1], likelihood_parameters))
 
 
 def jacobian_VB(model, data, N, K):
@@ -48,42 +22,40 @@ def jacobian_VB(model, data, N, K):
     return L_cov, cov, log_det_cov, trace_cov, trace_posterior_cov_div_var
 
 
-def objective_VBSS(
-        posterior_mean, model, data, N, upper_bound=None, upper_bound2=None):
-    """
-    Calculate fx, the variational lower bound of the log marginal
-    likelihood.
+# def objective_VBSS(
+#         posterior_mean, model, data, N, upper_bound=None, upper_bound2=None):
+#     """
+#     Calculate fx, the variational lower bound of the log marginal
+#     likelihood.
 
-    .. math::
-            \mathcal{F()} =,
+#     .. math::
+#             \mathcal{F()} =,
 
-        where
-    """
-    kernel, cutpoints, noise_variance = model
-    X, y = data
-    kernel, cutpoints, noise_variance = model
-    K = B.dense(kernel(X))
-    noise_std = B.sqrt(noise_variance)
-    cutpoints_ts = cutpoints[y]
-    cutpoints_tplus1s = cutpoints[y + 1]
-    cov, L_cov = matrix_inverse(noise_std**2 * B.eye(N) + K, N)
-    noise_variance_w, Z, *_ = noise_variance_weight(
-        cutpoints_ts, cutpoints_tplus1s, noise_std,posterior_mean,
-        upper_bound, upper_bound2)
-    w = cov @ (posterior_mean + noise_variance_w)
-    cov, L_cov = matrix_inverse(noise_std**2 * B.eye(N) + K, N)
-    log_det_cov = -2 * B.sum(B.log(B.diag(L_cov)))
-    trace_cov = B.sum(B.diag(cov))
-    trace_posterior_cov_div_var = B.einsum(
-        'ij, ij -> ', K, cov)
-    trace_K_inv_posterior_cov = noise_std**2 * trace_cov
-    return (0.5 * trace_posterior_cov_div_var
-        + 0.5 * trace_K_inv_posterior_cov
-        + 0.5 * posterior_mean.T @ w
-        - N * B.log(noise_std)
-        - 0.5 * log_det_cov
-        - 0.5 * N
-        - B.sum(B.log(Z)))
+#         where
+#     """
+#     kernel, cutpoints, noise_variance = model
+#     X, y = data
+#     kernel, cutpoints, noise_variance = model
+#     K = B.dense(kernel(X))
+#     noise_std = B.sqrt(noise_variance)
+#     cutpoints_ts = cutpoints[y]
+#     cutpoints_tplus1s = cutpoints[y + 1]
+#     cov, L_cov = matrix_inverse(noise_std**2 * B.eye(N) + K, N)
+#     noise_variance_w = noise_std * grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)
+#     w = cov @ (posterior_mean + noise_variance_w)
+#     cov, L_cov = matrix_inverse(noise_std**2 * B.eye(N) + K, N)
+#     log_det_cov = -2 * B.sum(B.log(B.diag(L_cov)))
+#     trace_cov = B.sum(B.diag(cov))
+#     trace_posterior_cov_div_var = B.einsum(
+#         'ij, ij -> ', K, cov)
+#     trace_K_inv_posterior_cov = noise_std**2 * trace_cov
+#     return (0.5 * trace_posterior_cov_div_var
+#         + 0.5 * trace_K_inv_posterior_cov
+#         + 0.5 * posterior_mean.T @ w
+#         - N * B.log(noise_std)
+#         - 0.5 * log_det_cov
+#         - 0.5 * N
+#         - B.sum(B.log(Z)))
 
 
 def objective_VBSSS(prior_parameters, likelihood_parameters, prior,
