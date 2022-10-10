@@ -70,15 +70,15 @@ probit allows users to write their code in pure Python. Simulations are then exe
 
 Features
 --------
-- Exact inference with MCMC (Gibbs sampler or Elliptical slice sampler)
+- Supports MLKernels priors
 - Approximate inference with mean field Variational Bayes, Laplace approximation, Expectation Propagation or Power Expectation Propagation
-- Sparse approximate inference applied to Power Expectation Propagation and mean field Variational Bayes
-- Gaussian, ARD, linear and polynomial kernel functions
-- Fully Bayesian inference with pseudo-marginal approach, auxiliary augmentation or sufficient augmentation.
+- Sparse approximate inference: Power Expectation Propagation and mean field Variational Bayes
+- Exact inference with MCMC (Gibbs sampler or Elliptical slice sampler)
+- Fully Bayesian inference with pseudo-marginal approach
 
 Planned Features
 --------
-- Make numerically stable custom derivatives
+- Make numerically stable custom JVP/ VJP derivatives
 - Make faster than manual differentiation package, `probit`
 - Documentation
 - Python Package index release
