@@ -78,8 +78,10 @@ Features
 
 Planned Features
 --------
-- numpy linear alegbra operations will be converted to TensorFlow or PyTorch code
-
+- Make numerically stable custom derivatives
+- Make faster than manual differentiation package, `probit`
+- Documentation
+- Python Package index release
 
 Get started (preferred)
 -----------------------
