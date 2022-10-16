@@ -97,7 +97,16 @@ def objective_LA(prior_parameters, likelihood_parameters, prior,
         log_likelihood, grad_log_likelihood, hessian_log_likelihood, posterior_mean, data):
     precision = -hessian_log_likelihood(posterior_mean, data[1], likelihood_parameters)
     L_cov = B.cholesky(prior(prior_parameters)(data[0]) + B.diag(1./ precision))
-    return (- B.sum(log_likelihood(posterior_mean, data[1], likelihood_parameters))
+
+    # jax.debug.print("posterior_mean={}", posterior_mean)
+    # jax.debug.print("precision={}", precision)
+    # jax.debug.print("isitnan?={}", 
+    #     - B.sum(log_likelihood(posterior_mean, data[1], likelihood_parameters))
+    # )
+
+    return (
+        - B.sum(log_likelihood(posterior_mean, data[1], likelihood_parameters))
         + 0.5 * posterior_mean.T @ grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)  # TODO minus before grad?
         + B.sum(B.log(B.diag(L_cov)))
-        + 0.5 * B.sum(B.log(precision)))
+        + 0.5 * B.sum(B.log(precision))
+    )

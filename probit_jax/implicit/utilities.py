@@ -116,7 +116,7 @@ def _Z_tails(z1, z2):
 
 def _Z_far_tails(z):
     """Prevents overflow at large z."""
-    return over_sqrt_2_pi / z * B.exp(-0.5 * z**2 + h(z))
+    return over_sqrt_2_pi / z * jnp.exp(-0.5 * z**2 + h(z))
 
 
 def _safe_Z(z1s, z2s):
@@ -133,6 +133,11 @@ def _safe_Z(z1s, z2s):
     Z  = norm_cdf(z2s) - norm_cdf(z1s)
 
     if upper_bound is not None:
+        # Remove any zero-values of z1s and z2s to avoid divide-by-zero
+        # these values aren't used - only to avoid nans (https://github.com/google/jax/issues/1052)
+        z1s = jnp.where(jnp.abs(z1s) < tol, tol, z1s)
+        z2s = jnp.where(jnp.abs(z2s) < tol, tol, z2s)
+        
         # Using series expansion approximations
         Z = jnp.where(z1s > upper_bound, _Z_tails(z1s, z2s), Z)
         Z = jnp.where(z2s < -upper_bound, _Z_tails(z1s, z2s), Z)

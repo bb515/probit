@@ -160,8 +160,8 @@ def main():
     cutpoints_0 = check_cutpoints(cutpoints_0, J)
 
     classifier = Approximator(prior, log_probit_likelihood,
-        # grad_log_likelihood=grad_log_probit_likelihood,
-        # hessian_log_likelihood=hessian_log_probit_likelihood,
+        grad_log_likelihood=grad_log_probit_likelihood,
+        hessian_log_likelihood=hessian_log_probit_likelihood,
         data=(X, y))
 
     # Initiate data and classifier for probit repo
@@ -203,7 +203,7 @@ def main():
         # Initiate classifier
         _classifier = Approximator(
             cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-            kernel=kernel, J=J, data=(X, y), single_precision=False)
+            kernel=kernel, J=J, data=(X, y), )#single_precision=False)
 
     # Notes: anderson solver worked stably, Newton solver did not. Fixed point iteration worked stably and fastest
     # Newton may be unstable due to the condition number of the matrix. I wonder if I can hard code it instead of using autodiff?
@@ -212,9 +212,9 @@ def main():
 
     trainables = [1] * (J + 2)
     # Fix theta
-    # trainables[-1] = 0
+    trainables[-1] = 0
     # Fix noise standard deviation
-    trainables[0] = 0
+    # trainables[0] = 0
     # Fix signal standard deviation
     trainables[J] = 0
     # Fix cutpoints
@@ -223,7 +223,7 @@ def main():
     print("trainables = {}".format(trainables))
     # theta domain and resolution
     domain = ((-1, 2), None)
-    res = (30, None)
+    res = (2, None)
 
     (x1s, x2s,
     xlabel, ylabel,
@@ -235,18 +235,19 @@ def main():
 
     gs = np.empty(res[0])
     fs = np.empty(res[0])
+
     for i, phi in enumerate(phis):
         # \ell = exp(phi)
-        theta = jnp.exp(phi)
-        params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0))
+        theta = jnp.exp(phi)[0]
+        # params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0))
         # params = (theta, (jnp.sqrt(noise_variance_0), cutpoints_0))
-        # params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(theta), cutpoints_0))
+        params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(theta), cutpoints_0))
         fx, gx = g(params)
         fs[i] = fx
-        gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by a Jacobian
-        # gs[i] = gx[1][0] * (0.5 * (theta) ** (1./2))  # multiply by a Jacobian
-        print(fx)
-        print(gx)
+        # gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by a Jacobian
+        gs[i] = gx[1][0] * (0.5 * (theta) ** (1./2))  # multiply by a Jacobian
+        print(f"{fx=}")
+        print(f"{gx=}")
         # print(gx[0])
         # print(gx[1][0])
         # print(gx[1][1])
