@@ -41,7 +41,9 @@ def posterior_covariance(K, cov, precision):
 
 
 def norm_z_pdf(z):
-    return over_sqrt_2_pi * B.exp(- z**2 / 2.0 )
+    # TODO: mathematically justified
+    z = jnp.clip(z, -1e10, 1e10)
+    return over_sqrt_2_pi * jnp.exp(- 0.5 * z**2)
 
 
 def norm_z_logpdf(x):
@@ -87,7 +89,8 @@ def h(x):
     to three decimal places. The third term becomes significant when sigma
     is large. 
     """
-    return -1. / x**2 + 5/ (2 * x**4) - 37 / (3 *  x**6)
+    # jax.debug.print("x={}", x)
+    return -1 * x**-2 + 5 / 2 * x**-4 - 37 / 3 * x**-6
 
 
 def probit_likelihood(
@@ -109,6 +112,10 @@ def _Z_tails(z1, z2):
 
     Even for z1, z2 >= 4 this is accurate to three decimal places.
     """
+    #TODO: mathematically justified
+    z1 = jnp.clip(z1, -1e10, 1e10)
+    z2 = jnp.clip(z2, -1e10, 1e10)
+
     return over_sqrt_2_pi * (
     1 / z1 * jnp.exp(-0.5 * z1**2 + h(z1)) - 1 / z2 * jnp.exp(
         -0.5 * z2**2 + h(z2)))
@@ -116,17 +123,24 @@ def _Z_tails(z1, z2):
 
 def _Z_far_tails(z):
     """Prevents overflow at large z."""
+    z = jnp.clip(z, -1e10, 1e10)
     return over_sqrt_2_pi / z * jnp.exp(-0.5 * z**2 + h(z))
 
 
-def _safe_Z(z1s, z2s):
+def _safe_Z(f, y, likelihood_parameters):
     """Calculate the difference in CDFs between two z-scores, where z2 >= z1.
     Use approximations to avoid catastrophic cancellation at extreme values.
     
     Nans are tracked through gradients. This function ensures that the functions
     are not evaluated at possible nan values."""
 
-    tol = 1e-10
+    cutpoints_tplus1 = likelihood_parameters[1][y + 1]
+    cutpoints_t = likelihood_parameters[1][y]
+    noise_std = likelihood_parameters[0]
+    z2s = (cutpoints_tplus1 - f) / noise_std
+    z1s = (cutpoints_t - f) / noise_std
+
+    tol = 1e-16
     upper_bound = 3
     upper_bound2 = 6
 
@@ -134,53 +148,43 @@ def _safe_Z(z1s, z2s):
 
     if upper_bound is not None:
         # Remove any zero-values of z1s and z2s to avoid divide-by-zero
-        # these values aren't used - only to avoid nans (https://github.com/google/jax/issues/1052)
-        z1s = jnp.where(jnp.abs(z1s) < tol, tol, z1s)
-        z2s = jnp.where(jnp.abs(z2s) < tol, tol, z2s)
-        
+        # these values aren't used - only to avoid nans (https://github.com/google/jax/issues/1052 and 8247)
+        _z1s = jnp.where(jnp.abs(z1s) < tol, tol, z1s)
+        _z2s = jnp.where(jnp.abs(z2s) < tol, tol, z2s)
+
         # Using series expansion approximations
-        Z = jnp.where(z1s > upper_bound, _Z_tails(z1s, z2s), Z)
-        Z = jnp.where(z2s < -upper_bound, _Z_tails(z1s, z2s), Z)
+        Z = jnp.where(z1s > upper_bound, _Z_tails(jnp.where(_z1s < upper_bound, 1, _z1s), z2s), Z)
+        Z = jnp.where(z2s < -upper_bound, _Z_tails(z1s, jnp.where(_z2s > -upper_bound, 1, _z2s)), Z)
         if upper_bound2 is not None:
             # Using one sided series expansion approximations
-            Z = jnp.where(z1s > upper_bound2, _Z_far_tails(z1s), Z)
-            Z = jnp.where(z2s < -upper_bound2, _Z_far_tails(-z2s), Z)
-    
+            Z = jnp.where(z1s > upper_bound2, _Z_far_tails(jnp.where(_z1s < upper_bound2, 1, _z1s)), Z)
+            Z = jnp.where(z2s < -upper_bound2, _Z_far_tails(-jnp.where(_z2s > -upper_bound2, 1, _z2s)), Z)
     # Avoid divide-by-zero errors
     Z = jnp.where(Z < tol, tol, Z)
+    # jax.debug.print("any_nans={}", jnp.any(jnp.isnan(1/z1s)))
 
-    return Z
+    return Z, z1s, z2s
 
 
 
 
 def grad_log_probit_likelihood(
         f, y, likelihood_parameters):
-    cutpoints_tplus1 = likelihood_parameters[1][y + 1]
-    cutpoints_t = likelihood_parameters[1][y]
     noise_std = likelihood_parameters[0]
-    z2s = (cutpoints_tplus1 - f) / noise_std
-    z1s = (cutpoints_t - f) / noise_std
-
-    Z = _safe_Z(z1s, z2s)
+    Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters)
     norm_pdf_z1s = norm_pdf(z1s)
     norm_pdf_z2s = norm_pdf(z2s)
         
-
     return (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
 
 
 
 def hessian_log_probit_likelihood(
         f, y, likelihood_parameters):
-    # jax.debug.print("f={}\ny={}\nlp={}", f, y, likelihood_parameters)
-    cutpoints_tplus1 = likelihood_parameters[1][y + 1]
-    cutpoints_t = likelihood_parameters[1][y]
+    jax.debug.print("f={}\ny={}\nlp={}", f, y, likelihood_parameters)
     noise_std = likelihood_parameters[0]
-    z2s = (cutpoints_tplus1 - f) / noise_std
-    z1s = (cutpoints_t - f) / noise_std
-    
-    Z = _safe_Z(z1s, z2s)
+
+    Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters)
     norm_pdf_z1s = norm_pdf(z1s)
     norm_pdf_z2s = norm_pdf(z2s)
     w = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
