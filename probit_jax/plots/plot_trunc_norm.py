@@ -13,6 +13,8 @@ from jax.config import config
 # H = jax.grad(log_probit_likelihood)(f, y, params)
 # print(H)
 
+# TODO: Plot real Z function phi - phi / Phi - Phi, include linear approximation.
+
 upper_bound = 3
 upper_bound2 = 6
 XLIM = (-7, 7)
