@@ -89,7 +89,8 @@ def h(x):
     to three decimal places. The third term becomes significant when sigma
     is large. 
     """
-    # jax.debug.print("x={}", x)
+    # TODO: let h raise nans, don't pass in x == 0
+    x = jnp.where(x == 0, 1, x)
     return -1 * x**-2 + 5 / 2 * x**-4 - 37 / 3 * x**-6
 
 
@@ -112,90 +113,119 @@ def _Z_tails(z1, z2):
 
     Even for z1, z2 >= 4 this is accurate to three decimal places.
     """
-    #TODO: mathematically justified
-    z1 = jnp.clip(z1, -1e10, 1e10)
-    z2 = jnp.clip(z2, -1e10, 1e10)
+    # tails = over_sqrt_2_pi * (
+    #     1 / _z1 * jnp.exp(-0.5 * _z1**2 + h(_z1)) 
+    #     - 1 / _z2 * jnp.exp(-0.5 * _z2**2 + h(_z2))
+    # )
 
-    return over_sqrt_2_pi * (
-    1 / z1 * jnp.exp(-0.5 * z1**2 + h(z1)) - 1 / z2 * jnp.exp(
-        -0.5 * z2**2 + h(z2)))
+    tails = _Z_far_tails(z1) - _Z_far_tails(z2)
+
+    return tails
+    # return jnp.where((z1 > upper_boundz) | (z2 < -upper_boundz), 0., tails)
 
 
 def _Z_far_tails(z):
     """Prevents overflow at large z."""
-    z = jnp.clip(z, -1e10, 1e10)
-    return over_sqrt_2_pi / z * jnp.exp(-0.5 * z**2 + h(z))
+    upper_boundz = 10
+    _z = jnp.clip(z, -upper_boundz, upper_boundz)
+
+    tails = over_sqrt_2_pi / _z * jnp.exp(-0.5 * _z**2 + h(_z))
+    return jnp.where(z > upper_boundz, 0., tails)
 
 
-def _safe_Z(f, y, likelihood_parameters):
+def _safe_Z(f, y, likelihood_parameters,
+    upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
     """Calculate the difference in CDFs between two z-scores, where z2 >= z1.
     Use approximations to avoid catastrophic cancellation at extreme values.
     
     Nans are tracked through gradients. This function ensures that the functions
     are not evaluated at possible nan values."""
+    #TODO: make y, upper bounds static
 
-    cutpoints_tplus1 = likelihood_parameters[1][y + 1]
-    cutpoints_t = likelihood_parameters[1][y]
+    cutpoints_tplus1 = (likelihood_parameters[1])[y + 1]
+    cutpoints_t = jnp.asarray(likelihood_parameters[1])[y]
     noise_std = likelihood_parameters[0]
     z2s = (cutpoints_tplus1 - f) / noise_std
     z1s = (cutpoints_t - f) / noise_std
 
-    tol = 1e-16
-    upper_bound = 3
-    upper_bound2 = 6
+    # Placeholder value used to signify that the function is *not* evalutated
+    # at this point
+    SAFE = 1  
 
+    # _z1s = jnp.where(jnp.abs(z1s) < upper_bound, z1s, SAFE)
+    # _z2s = jnp.where(jnp.abs(z2s) < upper_bound, z2s, SAFE+1)
     Z  = norm_cdf(z2s) - norm_cdf(z1s)
 
-    if upper_bound is not None:
-        # Remove any zero-values of z1s and z2s to avoid divide-by-zero
-        # these values aren't used - only to avoid nans (https://github.com/google/jax/issues/1052 and 8247)
-        _z1s = jnp.where(jnp.abs(z1s) < tol, tol, z1s)
-        _z2s = jnp.where(jnp.abs(z2s) < tol, tol, z2s)
+    # Remove any zero-values of z1s and z2s to avoid divide-by-zero
+    # these values aren't used - only to avoid nans (https://github.com/google/jax/issues/1052 and 8247)
+    _z1s = jnp.where((upper_bound < z1s) & (z1s <= upper_bound2), z1s, SAFE)
+    __z2s = jnp.where(upper_bound < z1s, z2s, SAFE)
 
-        # Using series expansion approximations
-        Z = jnp.where(z1s > upper_bound, _Z_tails(jnp.where(_z1s < upper_bound, 1, _z1s), z2s), Z)
-        Z = jnp.where(z2s < -upper_bound, _Z_tails(z1s, jnp.where(_z2s > -upper_bound, 1, _z2s)), Z)
-        if upper_bound2 is not None:
-            # Using one sided series expansion approximations
-            Z = jnp.where(z1s > upper_bound2, _Z_far_tails(jnp.where(_z1s < upper_bound2, 1, _z1s)), Z)
-            Z = jnp.where(z2s < -upper_bound2, _Z_far_tails(-jnp.where(_z2s > -upper_bound2, 1, _z2s)), Z)
-    # Avoid divide-by-zero errors
-    Z = jnp.where(Z < tol, tol, Z)
-    # jax.debug.print("any_nans={}", jnp.any(jnp.isnan(1/z1s)))
+    _z2s = jnp.where((-upper_bound2 <= z2s) & (z2s < -upper_bound), z2s, SAFE)
+    __z1s = jnp.where(-upper_bound > z2s, z1s, SAFE)
+
+    # Using series expansion approximations
+    Z = jnp.where(z1s > upper_bound, _Z_tails(_z1s, __z2s), Z)
+    Z = jnp.where(z2s < -upper_bound, _Z_tails(__z1s, _z2s), Z)
+
+    _z1s = jnp.where((upper_bound2 < jnp.abs(z1s)) & (jnp.abs(z1s) < upper_bound3), z1s, SAFE)
+    _z2s = jnp.where((upper_bound2 < jnp.abs(z2s)) & (jnp.abs(z2s) < upper_bound3), z2s, SAFE)
+
+    # Using one sided series expansion approximations
+    Z = jnp.where(z1s > upper_bound2, _Z_far_tails(_z1s), Z)
+    Z = jnp.where(z2s < -upper_bound2, _Z_far_tails(-_z2s), Z)
+
+    # Ignore Z for linear approximation
+    Z = jnp.where(z1s >= upper_bound3, SAFE, Z)
+    Z = jnp.where(z2s <= -upper_bound3, SAFE, Z)
 
     return Z, z1s, z2s
 
 
-
-
 def grad_log_probit_likelihood(
-        f, y, likelihood_parameters):
+        f, y, likelihood_parameters,
+        upper_bound=3, upper_bound2=6, upper_bound3=0):
+        # upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
     noise_std = likelihood_parameters[0]
-    Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters)
+    Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters,
+        upper_bound, upper_bound2, upper_bound3)
+
     norm_pdf_z1s = norm_pdf(z1s)
     norm_pdf_z2s = norm_pdf(z2s)
-        
-    return (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
 
+    # ratio is approximated well linearly
+    E = (norm_pdf_z1s - norm_pdf_z2s) / Z
+    E = jnp.where(z1s > upper_bound3, z1s, E)
+    E = jnp.where(z2s < -upper_bound3, z2s, E)
+        
+    return E / noise_std
 
 
 def hessian_log_probit_likelihood(
-        f, y, likelihood_parameters):
-    jax.debug.print("f={}\ny={}\nlp={}", f, y, likelihood_parameters)
+        f, y, likelihood_parameters,
+        upper_bound=1., upper_bound2=1., upper_bound3=1.):
+        # upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
     noise_std = likelihood_parameters[0]
 
-    Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters)
+    Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters,
+        upper_bound, upper_bound2, upper_bound3)
     norm_pdf_z1s = norm_pdf(z1s)
     norm_pdf_z2s = norm_pdf(z2s)
-    w = (norm_pdf_z1s - norm_pdf_z2s) / Z / noise_std
-    z1s = jnp.where(z1s == -inf, 0.0, z1s)
-    z1s = jnp.where(z1s == inf, 0.0, z1s)
-    z2s = jnp.where(z2s == -inf, 0.0, z2s)
-    z2s = jnp.where(z2s == inf, 0.0, z2s)
 
-    return -w**2 + (
-        z1s * norm_pdf_z1s - z2s * norm_pdf_z2s
+    w = grad_log_probit_likelihood(f, y, likelihood_parameters,
+        upper_bound, upper_bound2, upper_bound3)
+
+    # TODO: check this isn't causing nans
+    _z1s = jnp.where((z1s == -inf) | (z1s == inf), 0.0, z1s)
+    _z2s = jnp.where((z2s == -inf) | (z2s == inf), 0.0, z2s)
+    V = -w**2 + (
+        _z1s * norm_pdf_z1s - _z2s * norm_pdf_z2s
         ) / Z / noise_std**2
+
+    V = jnp.where(z1s > upper_bound3, - noise_std ** -2, V)
+    V = jnp.where(z2s < -upper_bound3, - noise_std ** -2, V)
+
+    return V
 
 
 def probit(
