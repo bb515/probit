@@ -160,6 +160,7 @@ def main():
     cutpoints_0 = check_cutpoints(cutpoints_0, J)
 
     classifier = Approximator(prior, log_probit_likelihood,
+        single_precision=True,
         # grad_log_likelihood=grad_log_probit_likelihood,
         # hessian_log_likelihood=hessian_log_probit_likelihood,
         data=(X, y))
@@ -203,7 +204,7 @@ def main():
         # Initiate classifier
         _classifier = Approximator(
             cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-            kernel=kernel, J=J, data=(X, y), single_precision=False)
+            kernel=kernel, J=J, data=(X, y), single_precision=True)
 
     # Notes: fwd_solver, newton_solver work, anderson solver has bug with vmap ValueError
 
@@ -211,9 +212,9 @@ def main():
 
     trainables = [1] * (J + 2)
     # Fix theta
-    trainables[-1] = 0
+    # trainables[-1] = 0
     # Fix noise standard deviation
-    # trainables[0] = 0
+    trainables[0] = 0
     # Fix signal standard deviation
     trainables[J] = 0
     # Fix cutpoints
