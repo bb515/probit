@@ -8,7 +8,7 @@ config.update("jax_enable_x64", True)
 # config.update("jax_debug_nans", True)
 
 from probit_jax.implicit.Laplace import objective_LA
-from probit_jax.implicit.utilities import (norm_cdf, _Z_tails, _Z_far_tails, _safe_Z,
+from probit_jax.implicit.utilities import (grad_log_probit_likelihood, norm_cdf, _Z_tails, _Z_far_tails, _safe_Z,
  hessian_log_probit_likelihood, h)
 
 def test_values_and_gradient_of_series_expansion():

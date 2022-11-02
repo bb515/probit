@@ -4,7 +4,7 @@ Section 6.2.2
 https://github.com/cossio/TruncatedNormal.jl/blob/master/src/erf.jl"""
 
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, grad
 from jax.config import config
 from probit_jax.implicit.utilities import grad_log_probit_likelihood
 
@@ -42,9 +42,7 @@ def erfccheb(z):
     t = 2. / (2. + z)
     ty = 4. * t - 2.
     for c in erfcof[-1:0:-1]:
-        tmp = d
-        d = ty * d - dd + c
-        dd = tmp
+        d, dd = ty * d - dd + c, d
     return t * jnp.exp(-z**2 + 0.5 * (erfcof[0] + ty * d) - dd)
 
 # function erfcx(x::Float64)
@@ -63,9 +61,7 @@ def erfcxcheb(z):
     t = 2 / (2 + z)
     ty = 4 * t - 2
     for c in erfcof[-1:0:-1]:
-        tmp = d
-        d = ty * d - dd + c
-        dd = tmp
+        d, dd = ty * d - dd + c, d
 
     return t * jnp.exp(0.5 * (erfcof[0] + ty * d) - dd)
 
@@ -98,6 +94,15 @@ def tnmean(z1, z2):
 
     return mul * jnp.clip(m, x, y)
 
+def tnmom2(z1, z2):
+    abs_gt = jnp.abs(z1) > jnp.abs(z2)
+
+    x = jnp.where(abs_gt, -z2, z1)
+    y = jnp.where(abs_gt, -z1, z2)
+    
+
+def tnvar(z1, z2):
+    """Variance of a truncated standard normal distribution between [z1, z2]"""
 
 
 # TODO: https://github.com/cossio/TruncatedNormal.jl/blob/master/src/tnmean.jl
@@ -109,6 +114,3 @@ def tnmean(z1, z2):
 
 # print("---")
 # print(grad_log_probit_likelihood(0, 1, [1, [-jnp.inf, 2, 2.01, jnp.inf]]))
-
-m = tnmean(2, 2.01)
-print(m)
