@@ -61,7 +61,9 @@ def norm_logpdf(x, loc=0.0, scale=1.0):
 
 
 def norm_cdf(x):
-    return ndtr(x)
+    _x = jnp.where(jnp.isinf(x), 1., x)
+    extrema = jnp.where(x == jnp.inf, 1., 1.)
+    return jnp.where(jnp.isinf(x), extrema, ndtr(_x))
 
 
 def log_multivariate_normal_pdf(
@@ -141,16 +143,20 @@ def _safe_Z(f, y, likelihood_parameters,
     Nans are tracked through gradients. This function ensures that the functions
     are not evaluated at possible nan values."""
     #TODO: make y, upper bounds static
-
-    cutpoints_tplus1 = (likelihood_parameters[1])[y + 1]
+    cutpoints_tplus1 = jnp.asarray(likelihood_parameters[1])[y+1]
     cutpoints_t = jnp.asarray(likelihood_parameters[1])[y]
+
     noise_std = likelihood_parameters[0]
-    z2s = (cutpoints_tplus1 - f) / noise_std
-    z1s = (cutpoints_t - f) / noise_std
+
+    _b = jnp.where(cutpoints_tplus1 == jnp.inf, 0., cutpoints_tplus1)
+    _a = jnp.where(cutpoints_t == -jnp.inf, 0., cutpoints_t)
+
+    z2s = jnp.where(cutpoints_tplus1 == jnp.inf, jnp.inf, (_b - f) / noise_std)
+    z1s = jnp.where(cutpoints_t == -jnp.inf, -jnp.inf, (_a - f) / noise_std)
 
     # Placeholder value used to signify that the function is *not* evalutated
     # at this point
-    SAFE = 1  
+    SAFE = 1.
 
     # _z1s = jnp.where(jnp.abs(z1s) < upper_bound, z1s, SAFE)
     # _z2s = jnp.where(jnp.abs(z2s) < upper_bound, z2s, SAFE+1)
@@ -184,8 +190,7 @@ def _safe_Z(f, y, likelihood_parameters,
 
 def grad_log_probit_likelihood(
         f, y, likelihood_parameters,
-        upper_bound=3, upper_bound2=6, upper_bound3=0):
-        # upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
+        upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
     noise_std = likelihood_parameters[0]
     Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters,
         upper_bound, upper_bound2, upper_bound3)
@@ -203,8 +208,8 @@ def grad_log_probit_likelihood(
 
 def hessian_log_probit_likelihood(
         f, y, likelihood_parameters,
-        upper_bound=1., upper_bound2=1., upper_bound3=1.):
-        # upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
+        upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
+
     noise_std = likelihood_parameters[0]
 
     Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters,

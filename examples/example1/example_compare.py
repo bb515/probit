@@ -5,6 +5,7 @@ import os
 # Enable double precision
 from jax.config import config
 config.update("jax_enable_x64", True)
+config.update("jax_debug_nans", True)
 
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
@@ -162,7 +163,7 @@ def main():
     classifier = Approximator(prior, log_probit_likelihood,
         grad_log_likelihood=grad_log_probit_likelihood,
         hessian_log_likelihood=hessian_log_probit_likelihood,
-        data=(X, y))
+        data=(X, y), single_precision=False)
 
     # Initiate data and classifier for probit repo
     dataset = "SEIso"
@@ -222,8 +223,8 @@ def main():
     trainables[1] = 0
     print("trainables = {}".format(trainables))
     # theta domain and resolution
-    domain = ((-1, 2), None)
-    res = (2, None)
+    domain = ((-1, 1), None)
+    res = (10, None)
 
     (x1s, x2s,
     xlabel, ylabel,
