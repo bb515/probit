@@ -48,6 +48,7 @@ def ordinal_predictive_distributions(
     Return predictive distributions for the ordinal likelihood.
     """
     predictive_distributions = B.ones(N_test, J)
+    
     for j in range(J):
         Z, *_ = probit_likelihood(
                 cutpoints[j], cutpoints[j + 1],

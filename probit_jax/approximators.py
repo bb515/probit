@@ -102,7 +102,8 @@ class Approximator(ABC):
             # point but a longer convergence time. Acts as a machine tolerance.
             # Single precision linear algebra libraries won't converge smaller than
             # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
-            self.tolerance = 1e-2
+            self.tolerance = 1e-1
+            #self.tolerance = 1e-3
             # self.tolerance = 1e-2  # Single precision
             self.single_precision = single_precision
         else:  # Double precision
@@ -191,6 +192,13 @@ class Approximator(ABC):
         if whitened is True:
             raise NotImplementedError("Not implemented.")
         elif reparameterised is True:
+            print(predict_reparameterised(
+                self.kernel*Delta()(X_test),
+                self.kernel(self.X_train, X_test),
+                cov, weight=f,
+                cutpoints=self.cutpoints,
+                noise_variance=self.noise_variance,
+                single_precision=self.single_precision))
             # TODO: make as a function of the likelihood
             return predict_reparameterised(
                 self.kernel*Delta()(X_test),
@@ -244,6 +252,9 @@ class LaplaceGP(Approximator):
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             hessian_log_likelihood=self.hessian_log_likelihood,
             posterior_mean=posterior_mean, data=self.data)
+    
+    def get_latents(self, params):
+        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, fwd_solver, self.construct(), params)
 
     def take_grad(self):
         return jax.value_and_grad(
@@ -253,9 +264,9 @@ class LaplaceGP(Approximator):
                 self.log_likelihood,
                 self.grad_log_likelihood,
                 self.hessian_log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance, anderson_solver, self.construct(), theta),
+                fixed_point_layer(jnp.zeros(self.N), self.tolerance, fwd_solver, self.construct(), theta),
                 self.data))
-
+    
 
 class VBGP(Approximator):
     """

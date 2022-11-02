@@ -917,11 +917,13 @@ def _grid_over_hyperparameters_initiate(
     space = []
     phi_space = []
     phi_0 = classifier.get_phi(trainables)
+    
     theta_0 = []
     if trainables[0]:
         # Grid over noise_std
         label.append(r"$\sigma$")
         axis_scale.append("log")
+        print(domain[index][0])
         theta = np.logspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
         phi_space.append(np.log(theta))
