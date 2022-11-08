@@ -34,6 +34,7 @@ from probit_jax.implicit.utilities import (
     log_probit_likelihood, grad_log_probit_likelihood, hessian_log_probit_likelihood)
 import sys
 import time
+from jax import jit
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -209,7 +210,7 @@ def main():
     # Notes: anderson solver worked stably, Newton solver did not. Fixed point iteration worked stably and fastest
     # Newton may be unstable due to the condition number of the matrix. I wonder if I can hard code it instead of using autodiff?
 
-    g = classifier.take_grad()
+    g = jit(classifier.take_grad())
 
     trainables = [1] * (J + 2)
     # Fix theta
