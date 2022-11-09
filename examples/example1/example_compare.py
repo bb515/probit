@@ -117,7 +117,7 @@ def main():
         profile = cProfile.Profile()
         profile.enable()
     #sys.stdout = open("{}.txt".format(now), "w")
-    
+ 
     # Initiate data and classifier for probit_jax repo
     if dataset in datasets["benchmark"]:
         (X_trains, y_trains,
@@ -206,8 +206,7 @@ def main():
             cutpoints=cutpoints_0, noise_variance=noise_variance_0,
             kernel=kernel, J=J, data=(X, y), )#single_precision=False)
 
-    # Notes: anderson solver worked stably, Newton solver did not. Fixed point iteration worked stably and fastest
-    # Newton may be unstable due to the condition number of the matrix. I wonder if I can hard code it instead of using autodiff?
+    # Notes: fwd_solver, newton_solver work, anderson solver has bug with vmap ValueError
 
     g = jit(classifier.take_grad())
 
@@ -238,17 +237,15 @@ def main():
     fs = np.empty(res[0])
 
     for i, phi in enumerate(phis):
-        # \ell = exp(phi)
         theta = jnp.exp(phi)[0]
-        # params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0))
-        # params = (theta, (jnp.sqrt(noise_variance_0), cutpoints_0))
-        params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(theta), cutpoints_0))
+        params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0))
+        # params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(theta), cutpoints_0))
         fx, gx = g(params)
         fs[i] = fx
-        # gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by a Jacobian
-        gs[i] = gx[1][0] * (0.5 * (theta) ** (1./2))  # multiply by a Jacobian
-        print(f"{fx=}")
-        print(f"{gx=}")
+        gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by the lengthscale Jacobian
+        # gs[i] = gx[1][0] * (0.5 * (theta) ** (1./2))  # multiply by the noise_std Jacobian
+        print(fx)
+        print(gx)
         # print(gx[0])
         # print(gx[1][0])
         # print(gx[1][1])
