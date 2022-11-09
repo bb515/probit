@@ -117,6 +117,7 @@ class Approximator(ABC):
             grad_log_likelihood = grad(log_likelihood)
         if hessian_log_likelihood is None:  # Try JAX grad
             hessian_log_likelihood = grad(lambda f, y, x: grad(log_likelihood)(f, y, x))
+            print("hessian_log_likelihood shape:", type(hessian_log_likelihood))
         self.log_likelihood= jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.grad_log_likelihood = jit(vmap(grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
@@ -194,6 +195,13 @@ class Approximator(ABC):
         if whitened is True:
             raise NotImplementedError("Not implemented.")
         elif reparameterised is True:
+            print(predict_reparameterised(
+                self.kernel*Delta()(X_test),
+                self.kernel(self.X_train, X_test),
+                cov, weight=f,
+                cutpoints=self.cutpoints,
+                noise_variance=self.noise_variance,
+                single_precision=self.single_precision))
             # TODO: make as a function of the likelihood
             return predict_reparameterised(
                 self.kernel*Delta()(X_test),
@@ -247,6 +255,9 @@ class LaplaceGP(Approximator):
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             hessian_log_likelihood=self.hessian_log_likelihood,
             posterior_mean=posterior_mean, data=self.data)
+    
+    def get_latents(self, params):
+        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), params)
 
     def take_grad(self):
         return jax.value_and_grad(
@@ -258,7 +269,7 @@ class LaplaceGP(Approximator):
                 self.hessian_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
                 self.data))
-
+    
 
 class VBGP(Approximator):
     """
@@ -292,6 +303,9 @@ class VBGP(Approximator):
             prior_parameters=parameters[0], likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             posterior_mean=posterior_mean, data=self.data)
+
+    def get_latents(self, params):
+        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), params)
 
     def take_grad(self):
         """Value and grad of the objective at the fix point."""
