@@ -80,7 +80,7 @@ def anderson_solver(f, z_init, m=5, lam=1e-4, max_iter=50, tolerance=1e-5, beta=
     return X[(k - 1) % m]
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(0, 1, 2, 3))
+@partial(jax.custom_vjp, nondiff_argnums=(2, 3))
 def fixed_point_layer(z_init, tolerance, solver, f, params):
     """
     Following the tutorial, Chapter 2 of
@@ -103,15 +103,16 @@ def fixed_point_layer(z_init, tolerance, solver, f, params):
 
 def fixed_point_layer_fwd(z_init, tolerance, solver, f, params):
     z_star = fixed_point_layer(z_init, tolerance, solver, f, params)
-    return z_star, (params, z_star)
+    return z_star, (z_init, tolerance, params, z_star)
 
 
-def fixed_point_layer_bwd(z_init, tolerance, solver, f, res, z_star_bar):
-    params, z_star = res
+def fixed_point_layer_bwd(solver, f, res, z_star_bar):
+    z_init, tolerance, params, z_star = res
     _, vjp_a = jax.vjp(lambda params: f(params, z_star), params)
     _, vjp_z = jax.vjp(lambda z: f(params, z), z_star)
-    return vjp_a(solver(lambda u: vjp_z(u)[0] + z_star_bar,
-        z_init=z_init, tolerance=tolerance))
+    return (None, None, 
+        *vjp_a(solver(lambda u: vjp_z(u)[0] + z_star_bar, z_init=z_init, tolerance=tolerance))
+        )
 
 
 # @partial(jax.custom_vjp, nondiff_argnums=(0, 1))

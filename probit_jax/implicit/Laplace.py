@@ -2,6 +2,7 @@ from cmath import inf
 import lab.jax as B
 import jax
 from jax import grad, jit, vmap
+import jax.numpy as jnp
 from math import inf
 from probit_jax.lab.utilities import (
     probit_likelihood, matrix_inverse)  # TODO: temp
@@ -109,9 +110,12 @@ def jacobian_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
 
 def objective_LA(prior_parameters, likelihood_parameters, prior,
         log_likelihood, grad_log_likelihood, hessian_log_likelihood, posterior_mean, data):
-    precision = -hessian_log_likelihood(posterior_mean, data[1], likelihood_parameters)
+    precision = -hessian_log_likelihood(posterior_mean, data[1], likelihood_parameters) + 1e-8
     L_cov = B.cholesky(prior(prior_parameters)(data[0]) + B.diag(1./ precision))
-    return (- B.sum(log_likelihood(posterior_mean, data[1], likelihood_parameters))
+
+    return (
+        - B.sum(log_likelihood(posterior_mean, data[1], likelihood_parameters))
         + 0.5 * posterior_mean.T @ grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)  # TODO minus before grad?
         + B.sum(B.log(B.diag(L_cov)))
-        + 0.5 * B.sum(B.log(precision)))
+        + 0.5 * B.sum(B.log(precision))
+    )
