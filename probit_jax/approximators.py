@@ -12,7 +12,7 @@ from probit_jax.utilities import (
 from probit_jax.lab.utilities import (
     predict_reparameterised)
 from probit_jax.solvers import (
-    fwd_solver,newton_solver, anderson_solver,
+    fwd_solver, newton_solver, anderson_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
 from probit_jax.implicit.Laplace import f_LA
 # Change probit_jax.<linalg backend>.<Approximator>, as appropriate
@@ -170,6 +170,9 @@ class Approximator(ABC):
         This method should be implemented in every concrete Approximator.
         """
 
+    def approximate_posterior(self, theta):
+        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+
     def predict(
             self, X_test, cov, f, reparameterised=True, whitened=False):
         """
@@ -253,7 +256,7 @@ class LaplaceGP(Approximator):
                 self.log_likelihood,
                 self.grad_log_likelihood,
                 self.hessian_log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance, fwd_solver, self.construct(), theta),
+                fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
                 self.data))
 
 
@@ -298,7 +301,7 @@ class VBGP(Approximator):
                 self.prior,
                 self.log_likelihood,
                 self.grad_log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance, fwd_solver, self.construct(), theta),
+                fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
                 self.data))
 
 
