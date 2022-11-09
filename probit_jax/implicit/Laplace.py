@@ -22,9 +22,13 @@ def weight(cutpoints_ts, cutpoints_tplus1s, noise_std, posterior_mean,
 
 def f_LA(prior_parameters, likelihood_parameters, prior, grad_log_likelihood, hessian_log_likelihood, posterior_mean, data):
     K = B.dense(prior(prior_parameters)(data[0]))
-    return K @ linear_solve(B.diag(-hessian_log_likelihood(
-        posterior_mean, data[1], likelihood_parameters)) + K,
-        posterior_mean + grad_log_likelihood(posterior_mean, data[1], likelihood_parameters))
+    return K @ grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)
+    # arguments taken for grad likelihood: {latent values, y values, likelihood parameters}  
+
+    
+    # return K @ linear_solve(B.diag(-hessian_log_likelihood(
+    #     posterior_mean, data[1], likelihood_parameters)) + K,
+    #     posterior_mean + grad_log_likelihood(posterior_mean, data[1], likelihood_parameters))
 
 
 # def f_LA(prior_parameters, likelihood_parameters, prior, grad_log_likelihood,

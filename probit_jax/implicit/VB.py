@@ -95,7 +95,7 @@ def objective_VB(prior_parameters, likelihood_parameters, prior,
     trace_K_inv_posterior_cov = likelihood_parameters[0]**2 * trace_cov
     return (0.5 * trace_posterior_cov_div_var
         + 0.5 * trace_K_inv_posterior_cov
-        - 0.5 * posterior_mean.T @ grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)
+        + 0.5 * posterior_mean.T @ grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)
         - N * B.log(likelihood_parameters[0])
         - 0.5 * log_det_cov
         - 0.5 * N
