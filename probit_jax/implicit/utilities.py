@@ -41,8 +41,6 @@ def posterior_covariance(K, cov, precision):
 
 
 def norm_z_pdf(z):
-    # TODO: mathematically justified
-    z = jnp.clip(z, -1e10, 1e10)
     return over_sqrt_2_pi * jnp.exp(- 0.5 * z**2)
 
 
@@ -91,8 +89,6 @@ def h(x):
     to three decimal places. The third term becomes significant when sigma
     is large. 
     """
-    # TODO: let h raise nans, don't pass in x == 0
-    x = jnp.where(x == 0, 1, x)
     return -1 * x**-2 + 5 / 2 * x**-4 - 37 / 3 * x**-6
 
 
@@ -106,7 +102,6 @@ def probit_likelihood(
 
 def log_probit_likelihood(
         f, y, likelihood_parameters):
-    # jax.debug.print("probit_ll={}", probit_likelihood(f, y, likelihood_parameters))
     return jnp.log(probit_likelihood(f, y, likelihood_parameters) + 1e-10)
 
 def _Z_tails(z1, z2):
@@ -128,6 +123,7 @@ def _Z_tails(z1, z2):
 
 def _Z_far_tails(z):
     """Prevents overflow at large z."""
+    return over_sqrt_2_pi / z * jnp.exp(-0.5 * z**2 + h(z))
     upper_boundz = 10
     _z = jnp.clip(z, -upper_boundz, upper_boundz)
 
@@ -142,7 +138,6 @@ def _safe_Z(f, y, likelihood_parameters,
     
     Nans are tracked through gradients. This function ensures that the functions
     are not evaluated at possible nan values."""
-    #TODO: make y, upper bounds static
     cutpoints_tplus1 = jnp.asarray(likelihood_parameters[1])[y+1]
     cutpoints_t = jnp.asarray(likelihood_parameters[1])[y]
 
@@ -220,7 +215,6 @@ def hessian_log_probit_likelihood(
     w = grad_log_probit_likelihood(f, y, likelihood_parameters,
         upper_bound, upper_bound2, upper_bound3)
 
-    # TODO: check this isn't causing nans
     _z1s = jnp.where((z1s == -inf) | (z1s == inf), 0.0, z1s)
     _z2s = jnp.where((z2s == -inf) | (z2s == inf), 0.0, z2s)
     V = -w**2 + (

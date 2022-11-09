@@ -5,7 +5,6 @@ import os
 # Enable double precision
 from jax.config import config
 config.update("jax_enable_x64", True)
-config.update("jax_debug_nans", True)
 
 os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
 os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
