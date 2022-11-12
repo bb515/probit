@@ -36,6 +36,7 @@ from probit_jax.implicit.utilities import (
     posterior_covariance, predict_reparameterised, matrix_inverse, posterior_covariance)
 import sys
 import time
+from jax import jit
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -168,10 +169,9 @@ def main():
 
     # passing the arguments needed for the LA or VB 
     classifier = Approximator(prior, log_probit_likelihood,
-        single_precision=True,
-        # grad_log_likelihood=grad_log_probit_likelihood,
-        # hessian_log_likelihood=hessian_log_probit_likelihood,
-        data=(X, y)) 
+        grad_log_likelihood=grad_log_probit_likelihood,
+        hessian_log_likelihood=hessian_log_probit_likelihood,
+        data=(X, y), single_precision=False)
 
     # Initiate data and classifier for probit repo
     dataset = "SEIso"
@@ -214,7 +214,7 @@ def main():
         # Initiate classifier
         _classifier = Approximator(
             cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-            kernel=kernel, J=J, data=(X, y), single_precision=True)
+            kernel=kernel, J=J, data=(X, y), )#single_precision=True)
 
     # Notes: fwd_solver, newton_solver work, anderson solver has bug with vmap ValueError
 

@@ -105,10 +105,29 @@ class Approximator(ABC):
             self.tolerance = 1e-1
             # self.tolerance = 1e-2  # Single precision
             self.single_precision = single_precision
+            # Threshold of single sided standard deviations that
+            # normal cdf can be approximated to 0 or 1
+            # More than this + redundancy leads to numerical instability
+            # due to catestrophic cancellation
+            # Less than this leads to a poor approximation due to series
+            # expansion at infinity truncation
+            # Good values found between 4 and 6
+            self.upper_bound = 4  # Single precision
+            # More than this + redundancy leads to numerical
+            # instability due to overflow
+            # Less than this results in poor approximation due to
+            # neglected probability mass in the tails
+            # Good values found between 18 and 30
+            # Try decreasing if experiencing infs or NaNs
+            self.upper_bound2 = 18  # For single precision
+            self.upper_bound3 = 20
         else:  # Double precision
             self.epsilon = 1e-12  # Default regularisation- If too small, 1e-10
             self.tolerance = 1e-6
             self.single_precision = False
+            self.upper_bound = 4
+            self.upper_bound2 = 6
+            self.upper_bound3 = 7
 
         # prior is a method that takes in prior_parameters and returns an `:class:MLKernels.Kernel` object
         self.prior = prior
@@ -117,11 +136,17 @@ class Approximator(ABC):
             grad_log_likelihood = grad(log_likelihood)
         if hessian_log_likelihood is None:  # Try JAX grad
             hessian_log_likelihood = grad(lambda f, y, x: grad(log_likelihood)(f, y, x))
-            print("hessian_log_likelihood shape:", type(hessian_log_likelihood))
-        self.log_likelihood= jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        self.grad_log_likelihood = jit(vmap(grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
 
+        # TODO: check this implementation
+        grad_log_likelihood_bounded = lambda f, y, lp: grad_log_likelihood(f, y, lp, 
+            self.upper_bound, self.upper_bound2, self.upper_bound3)
+
+        hessian_log_likelihood_bounded = lambda f, y, lp: hessian_log_likelihood(f, y, lp, 
+            self.upper_bound, self.upper_bound2, self.upper_bound3)
+        
+        self.log_likelihood= jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
+        self.grad_log_likelihood = jit(vmap(grad_log_likelihood_bounded, in_axes=(0, 0, None), out_axes=(0)))
+        self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood_bounded, in_axes=(0, 0, None), out_axes=(0)))
         # Get data and calculate the prior
         if data is not None:
             X_train, y_train = data
