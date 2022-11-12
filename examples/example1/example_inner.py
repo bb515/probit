@@ -258,7 +258,11 @@ def main():
     plt.legend()
     plt.savefig("weights.png")
     plt.close()
-    assert 0
+
+    (fxs, gxs,
+    x, y,
+    xlabel, ylabel,
+    xscale, yscale) = (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
 
     #Numerical derivatives: need to calculate them in the log domain if theta is in log domain
     if xscale == "log":
