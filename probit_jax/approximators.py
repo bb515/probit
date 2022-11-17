@@ -94,6 +94,7 @@ class Approximator(ABC):
             self.read_path = pathlib.Path(read_path)
 
         self.max_steps = 100
+        self.single_precision = single_precision
         if single_precision is True:
             # Numerical stability when taking Cholesky decomposition
             # See GPML by Williams et al. for an explanation of jitter
@@ -104,7 +105,6 @@ class Approximator(ABC):
             # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
             self.tolerance = 1e-1
             # self.tolerance = 1e-2  # Single precision
-            self.single_precision = single_precision
             # Threshold of single sided standard deviations that
             # normal cdf can be approximated to 0 or 1
             # More than this + redundancy leads to numerical instability
@@ -124,7 +124,6 @@ class Approximator(ABC):
         else:  # Double precision
             self.epsilon = 1e-12  # Default regularisation- If too small, 1e-10
             self.tolerance = 1e-6
-            self.single_precision = False
             self.upper_bound = 4
             self.upper_bound2 = 6
             self.upper_bound3 = 7
@@ -136,17 +135,10 @@ class Approximator(ABC):
             grad_log_likelihood = grad(log_likelihood)
         if hessian_log_likelihood is None:  # Try JAX grad
             hessian_log_likelihood = grad(lambda f, y, x: grad(log_likelihood)(f, y, x))
-
-        # TODO: check this implementation
-        grad_log_likelihood_bounded = lambda f, y, lp: grad_log_likelihood(f, y, lp, 
-            self.upper_bound, self.upper_bound2, self.upper_bound3)
-
-        hessian_log_likelihood_bounded = lambda f, y, lp: hessian_log_likelihood(f, y, lp, 
-            self.upper_bound, self.upper_bound2, self.upper_bound3)
         
         self.log_likelihood= jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        self.grad_log_likelihood = jit(vmap(grad_log_likelihood_bounded, in_axes=(0, 0, None), out_axes=(0)))
-        self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood_bounded, in_axes=(0, 0, None), out_axes=(0)))
+        self.grad_log_likelihood = jit(vmap(grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
+        self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         # Get data and calculate the prior
         if data is not None:
             X_train, y_train = data

@@ -12,6 +12,10 @@ over_sqrt_2_pi = 1. / B.sqrt(2 * B.pi)
 log_over_sqrt_2_pi = -0.5 * B.log(2 * B.pi)
 sqrt_2 = B.sqrt(2)
 
+BOUNDS = {
+    "single": [1.3, 1.8, 2.3],
+    "double": [2.3, 3.6, 4.8]
+}
 
 def ndtr(z):
     return 0.5 * (1 + jax.lax.erf(z/sqrt_2))
@@ -60,7 +64,7 @@ def norm_logpdf(x, loc=0.0, scale=1.0):
 
 def norm_cdf(x):
     _x = jnp.where(jnp.isinf(x), 1., x)
-    extrema = jnp.where(x == jnp.inf, 1., 1.)
+    extrema = jnp.where(x == jnp.inf, 1., 0.)
     return jnp.where(jnp.isinf(x), extrema, ndtr(_x))
 
 
@@ -110,25 +114,13 @@ def _Z_tails(z1, z2):
 
     Even for z1, z2 >= 4 this is accurate to three decimal places.
     """
-    # tails = over_sqrt_2_pi * (
-    #     1 / _z1 * jnp.exp(-0.5 * _z1**2 + h(_z1)) 
-    #     - 1 / _z2 * jnp.exp(-0.5 * _z2**2 + h(_z2))
-    # )
-
     tails = _Z_far_tails(z1) - _Z_far_tails(z2)
-
     return tails
-    # return jnp.where((z1 > upper_boundz) | (z2 < -upper_boundz), 0., tails)
 
 
 def _Z_far_tails(z):
     """Prevents overflow at large z."""
     return over_sqrt_2_pi / z * jnp.exp(-0.5 * z**2 + h(z))
-    upper_boundz = 10
-    _z = jnp.clip(z, -upper_boundz, upper_boundz)
-
-    tails = over_sqrt_2_pi / _z * jnp.exp(-0.5 * _z**2 + h(_z))
-    return jnp.where(z > upper_boundz, 0., tails)
 
 
 def _safe_Z(f, y, likelihood_parameters,
@@ -185,7 +177,10 @@ def _safe_Z(f, y, likelihood_parameters,
 
 def grad_log_probit_likelihood(
         f, y, likelihood_parameters,
-        upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
+        single_precision=True):
+
+    upper_bound, upper_bound2, upper_bound3 = BOUNDS["single" if single_precision else "double"]
+    
     noise_std = likelihood_parameters[0]
     Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters,
         upper_bound, upper_bound2, upper_bound3)
@@ -203,7 +198,9 @@ def grad_log_probit_likelihood(
 
 def hessian_log_probit_likelihood(
         f, y, likelihood_parameters,
-        upper_bound=jnp.inf, upper_bound2=jnp.inf, upper_bound3=jnp.inf):
+        single_precision=True):
+
+    upper_bound, upper_bound2, upper_bound3 = BOUNDS["single" if single_precision else "double"]
 
     noise_std = likelihood_parameters[0]
 
@@ -213,7 +210,7 @@ def hessian_log_probit_likelihood(
     norm_pdf_z2s = norm_pdf(z2s)
 
     w = grad_log_probit_likelihood(f, y, likelihood_parameters,
-        upper_bound, upper_bound2, upper_bound3)
+        single_precision)
 
     _z1s = jnp.where((z1s == -inf) | (z1s == inf), 0.0, z1s)
     _z2s = jnp.where((z2s == -inf) | (z2s == inf), 0.0, z2s)
