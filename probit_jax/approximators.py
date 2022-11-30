@@ -277,7 +277,7 @@ class LaplaceGP(Approximator):
         return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), params)
 
     def take_grad(self):
-        return jax.value_and_grad(
+        return jit(jax.value_and_grad(
             lambda theta: objective_LA(
                 theta[0], theta[1],
                 self.prior,
@@ -285,7 +285,7 @@ class LaplaceGP(Approximator):
                 self.grad_log_likelihood,
                 self.hessian_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
-                self.data))
+                self.data)))
     
 
 class VBGP(Approximator):
@@ -326,14 +326,14 @@ class VBGP(Approximator):
 
     def take_grad(self):
         """Value and grad of the objective at the fix point."""
-        return jax.value_and_grad(
+        return jit(jax.value_and_grad(
             lambda theta: objective_VB(
                 theta[0], theta[1],
                 self.prior,
                 self.log_likelihood,
                 self.grad_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
-                self.data))
+                self.data)))
 
 
 class InvalidApproximator(Exception):
