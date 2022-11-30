@@ -159,10 +159,14 @@ def main():
     # for the number of classes, J
     cutpoints_0 = check_cutpoints(cutpoints_0, J)
 
+
+    grad_log_likelihood = lambda f, y, lp: grad_log_probit_likelihood(f, y, lp, single_precision=False)
+    hessian_log_likelihood = lambda f, y, lp: hessian_log_probit_likelihood(f, y, lp, single_precision=False)
+
     classifier = Approximator(prior, log_probit_likelihood,
-        single_precision=True,
-        # grad_log_likelihood=grad_log_probit_likelihood,
-        # hessian_log_likelihood=hessian_log_probit_likelihood,
+        single_precision=False,
+        grad_log_likelihood=grad_log_likelihood,
+        hessian_log_likelihood=hessian_log_likelihood,
         data=(X, y))
 
     # Initiate data and classifier for probit repo
