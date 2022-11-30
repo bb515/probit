@@ -12,6 +12,7 @@ def check_cutpoints(cutpoints, J):
     :arg cutpoints: (J + 1, ) array of the cutpoints.
     :type cutpoints: :class:`numpy.ndarray`.
     """
+    warnings.warn("Checking cutpoints...")
     # Convert cutpoints to numpy array
     cutpoints = jnp.array(cutpoints)
     # Not including -\infty or \infty

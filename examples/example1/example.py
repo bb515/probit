@@ -30,7 +30,6 @@ from probit.data.utilities import load_data_synthetic as load_data_synthetic_
 from probit.data.utilities import load_data_paper as load_data_paper_
 from probit.data.utilities import datasets as datasets_
 from probit_jax.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
-from mlkernels import Kernel as BaseKernel, Matern32
 from probit_jax.utilities import InvalidKernel, check_cutpoints
 from probit_jax.implicit.utilities import (
     log_probit_likelihood, grad_log_probit_likelihood, hessian_log_probit_likelihood,
@@ -52,9 +51,11 @@ now = time.ctime()
 write_path = pathlib.Path()
 
 
-# TODO simplify
-def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, N_show=None):
+def plot_ordinal(X, y, g, X_show, f_show, J, D, N_show=None):
     cmap = plt.cm.get_cmap('viridis', J)
+    colors = []
+    for j in range(J):
+        colors.append(cmap((j + 0.5)/J))
     if D==1:
         fig, ax = plt.subplots()
         ax.scatter(X, g, color=[colors[i] for i in y])
@@ -73,9 +74,10 @@ def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, N_show=None):
         plt.savefig("surface.png")
         plt.show()
         plt.close()
+    else:
+        pass
 
 
-# TODO: simplify
 def _grid_over_hyperparameters_initiate(
         classifier, res, domain, trainables):
     """
@@ -200,7 +202,7 @@ def _grid_over_hyperparameters_initiate(
 def generate_data(
         N_train_per_class, N_test_per_class,
         J, D, kernel, noise_variance,
-        N_show, colors=None, jitter=1e-6, seed=None):
+        N_show, jitter=1e-6, seed=None):
     """
     Generate data from the GP prior, and choose some cutpoints that
     approximately divides data into equal bins.
@@ -346,20 +348,20 @@ def generate_data(
 
     data = np.c_[X_test, y_test]
     np.random.shuffle(data)
-    X_tests = data[:, 0:D]
-    y_tests = data[:, -1]
+    X_test = data[:, 0:D]
+    y_test = data[:, -1]
 
-    g_trains = np.array(g_trains)
-    X_trains = np.array(X_trains)
-    y_trains = np.array(y_trains, dtype=int)
-    X_tests = np.array(X_tests)
-    y_tests = np.array(y_tests, dtype=int)
+    g_train = np.array(g_train)
+    X_train = np.array(X_train)
+    y_train = np.array(y_train, dtype=int)
+    X_test = np.array(X_test)
+    y_test = np.array(y_test, dtype=int)
 
-    assert np.shape(X_tests) == (N_test, D)
-    assert np.shape(X_trains) == (N_train, D)
-    assert np.shape(g_trains) == (N_train)
-    assert np.shape(y_tests) == (N_test)
-    assert np.shape(y_trains) == (N_train)
+    assert np.shape(X_test) == (N_test, D)
+    assert np.shape(X_train) == (N_train, D)
+    assert np.shape(g_train) == (N_train,)
+    assert np.shape(y_test) == (N_test,)
+    assert np.shape(y_train) == (N_train,)
     assert np.shape(X_js) == (J, N_per_class, D)
     assert np.shape(g_js) == (J, N_per_class)
     assert np.shape(X) == (N_total, D)
@@ -368,21 +370,27 @@ def generate_data(
     assert np.shape(y) == (N_total,)
     return (
         N_show, N_total, X_js, g_js, X, f, g, y, cutpoints,
-        X_trains, g_trains, y_trains,
-        X_tests, y_tests,
-        X_show, f_show, colors)
+        X_train, g_train, y_train,
+        X_test, y_test,
+        X_show, f_show)
 
 
 #(get the probit_jax approximator)
 def get_approximator(
-        approximation, N_train):
-    if approximation == "VB":
+        approximate_inference_method, N_train):
+    """Get approximator class
+
+    Args:
+        approximate_inference_method:
+    
+    """
+    if approximate_inference_method == "VB":
         from probit_jax.approximators import VBGP
         # steps is the number of fix point iterations until check convergence
         steps = np.max([10, N_train//1000])
         print("steps: ", steps)
         Approximator = VBGP
-    elif approximation == "LA":
+    elif approximate_inference_method == "LA":
         from probit_jax.approximators import LaplaceGP
         # steps is the number of Newton steps until check convergence
         steps = np.max([2, N_train//1000])
@@ -391,32 +399,8 @@ def get_approximator(
         raise ValueError(
             "Approximator not found "
             "(got {}, expected VB, LA)".format(
-                approximation))
+                approximate_inference_method))
     return Approximator, steps
-
-# get the probit approximator (LA or VB)
-def get_approximator_(
-        approximation, Kernel, theta_0, signal_variance_0, N_train):
-    # Initiate kernel
-    kernel = Kernel(
-        theta=theta_0, variance=signal_variance_0)
-    M = None
-    if approximation == "VB":
-        from probit.approximators import VBGP
-        # steps is the number of fix point iterations until check convergence
-        steps = np.max([10, N_train//1000])
-        Approximator = VBGP
-    elif approximation == "LA":
-        from probit.approximators import LaplaceGP
-        # steps is the number of Newton steps until check convergence
-        steps = np.max([2, N_train//1000])
-        Approximator = LaplaceGP
-    else:
-        raise ValueError(
-            "Approximator not found "
-            "(got {}, expected VB or LA".format(
-                approximation))
-    return Approximator, steps, M, kernel
 
 
 def main():
@@ -425,76 +409,58 @@ def main():
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
     args = parser.parse_args()
+    if args.profile:
+        profile = cProfile.Profile()
+        profile.enable()
  
     J = 3
     D = 1
     method = "L-BFGS-B"
-    approximate_inference_method = "VB"  # or "EP" or "LA"
-    N_train_per_class = 10
-    N_test_per_class = 100
-    noise_variance = 1.0
-    N_show = 100
-    from mlkernels import Matern32
-    kernel = 1.0 * Matern32().stretch(0.2)
 
-    # Generate data  TODO: simplify this. Don't need all of it.
+    # Generate data
+    from mlkernels import Matern52
+    kernel = 1.0 * Matern52().stretch(0.2)
     (N_show, N_total, X_js, g_js, X, f, g, y, cutpoints,
-    X_trains, g_trains, y_trains,
-    X_tests, y_tests,
-    X_show, f_show, colors) = generate_data(
-        N_train_per_class, N_test_per_class,
-        J, D, kernel, noise_variance,
-        N_show, colors=None, cmap=None, plot=True, jitter=1e-6, seed=None)
+    X_train, g_train, y_train,
+    X_test, y_test,
+    X_show, f_show) = generate_data(
+        N_train_per_class=10, N_test_per_class=100,
+        J=3, D=1, kernel=kernel, noise_variance=1.0,
+        N_show=1000, jitter=1e-6, seed=None)
 
     plot_ordinal(
-        X, y, g, X_show, f_show, J, D, colors, N_show=N_show) 
- 
-    assert 0
-    N_train = np.shape(y)[0]
+        X, y, g, X_show, f_show, J, D, N_show=N_show) 
 
-    write_path = pathlib.Path(__file__).parent.absolute()
+    # Let the model be mispecified, using a kernel
+    # other than the one used to generate data
 
-    if args.profile:
-        profile = cProfile.Profile()
-        profile.enable()
+    # approximate_inference_method is "LA" or "VB"
+    Approximator, steps = get_approximator(approximate_inference_method="VB", N_train=np.shape(y_train)[0])
 
-    from mlkernels import EQ
-    N_train = np.shape(y)[0]
-    Approximator, steps = get_approximator(approximate_inference_method, N_train) # LA or VB or EP
-
+    from mlkernels import EQ, BaseKernel
     # Initiate classifier
     def prior(prior_parameters):
         stretch = prior_parameters
-        signal_variance = signal_variance_0
-        # Here you can define the kernel that defines the Gaussian process
+        signal_variance = 1.0
+        # Here you can define the kernel that defines the Gaussian process model
         kernel = signal_variance * EQ().stretch(stretch)
         # Make sure that model returns the kernel, cutpoints and noise_variance
         return kernel
 
-    # Test prior
-    if not (isinstance(prior(1.0), BaseKernel)):
-        raise InvalidKernel(prior(1.0))
+    # Check prior is valid
+    if not (isinstance(prior(prior_parameters=1.0), BaseKernel)):
+        raise InvalidKernel(prior(prior_parameters=1.0))
 
-    # check that the cutpoints are in the correct format
-    # for the number of classes, J
+    print("cutpoints_0={}".format(cutpoints_0))
+    # Check cutpoints are valid
     cutpoints_0 = check_cutpoints(cutpoints_0, J)
+    print("cutpoints_0={}".format(cutpoints_0))
 
- 
-    Approximator, steps, M, kernel = get_approximator_(
-        approximation, Kernel, theta_0, signal_variance_0, N_train)
-    if "S" in approximation:
-        # Initiate sparse classifier
-        _classifier = Approximator(
-            M=M, cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-            kernel=kernel, J=J, data=(X, y))
-    else:
-        # Initiate classifier
-        _classifier = Approximator(
-            cutpoints=cutpoints_0, noise_variance=noise_variance_0,
-            kernel=kernel, J=J, data=(X, y), )#single_precision=True)
+    # Initiate classifier
+    classifier = Approximator(prior, log_probit_likelihood,
+        data=(X_train, y_train), single_precision=False)
 
     g = classifier.take_grad()
-
 
     # hyperparameter domain and resolution
     domain = ((-1, 2), None) # x-axis domain range

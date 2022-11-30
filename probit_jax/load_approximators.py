@@ -31,10 +31,10 @@ def load_approximator(
     Raises:
         ValueError: if the classifier type provided is not supported by the interface.
     """
-    if approximator_string in ["LA", "EP", "VB", "V"]:
+    if approximator_string in ["LA", "VB"]:
         return ApproximatorLoader[approximator_string].value(
             **kwargs)
     else:
         raise ValueError(
             "Approximator not found. (got {}, expected {})".format(
-            approximator_string, "LA, VB"))
+            approximator_string, "'LA' or 'VB'"))
