@@ -12,7 +12,7 @@ from probit_jax.utilities import (
 from probit_jax.lab.utilities import (
     predict_reparameterised)
 from probit_jax.solvers import (
-    fwd_solver, newton_solver, anderson_solver,
+    fwd_solver, newton_solver, anderson_solver, jax_opt_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
 from probit_jax.implicit.Laplace import f_LA
 # Change probit_jax.<linalg backend>.<Approximator>, as appropriate
@@ -102,7 +102,7 @@ class Approximator(ABC):
             # point but a longer convergence time. Acts as a machine tolerance.
             # Single precision linear algebra libraries won't converge smaller than
             # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
-            self.tolerance = 1e-1
+            self.tolerance = 1e-6
             # self.tolerance = 1e-2  # Single precision
             self.single_precision = single_precision
         else:  # Double precision
@@ -172,7 +172,7 @@ class Approximator(ABC):
         """
 
     def approximate_posterior(self, theta):
-        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, fwd_solver, self.construct(), theta),
 
     def predict(
             self, X_test, cov, f, reparameterised=True, whitened=False):
@@ -257,7 +257,8 @@ class LaplaceGP(Approximator):
             posterior_mean=posterior_mean, data=self.data)
     
     def get_latents(self, params):
-        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), params)
+        return fixed_point_layer(z_init=jnp.zeros(self.N), tolerance = self.tolerance, 
+        solver = jax_opt_solver, f = self.construct(), params = params)
 
     def take_grad(self):
         return jax.value_and_grad(
@@ -267,7 +268,8 @@ class LaplaceGP(Approximator):
                 self.log_likelihood,
                 self.grad_log_likelihood,
                 self.hessian_log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+                fixed_point_layer(z_init=jnp.zeros(self.N), tolerance = self.tolerance, 
+                solver = jax_opt_solver, f = self.construct(), params = theta),
                 self.data))
     
 
@@ -305,18 +307,20 @@ class VBGP(Approximator):
             posterior_mean=posterior_mean, data=self.data)
 
     def get_latents(self, params):
-        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), params)
-
+        return fixed_point_layer(z_init=jnp.zeros(self.N), tolerance = self.tolerance, 
+        solver = jax_opt_solver, f = self.construct(), params = params)
+    
     def take_grad(self):
         """Value and grad of the objective at the fix point."""
-        return jax.value_and_grad(
+        return jit(jax.value_and_grad(
             lambda theta: objective_VB(
                 theta[0], theta[1],
                 self.prior,
                 self.log_likelihood,
                 self.grad_log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
-                self.data))
+                fixed_point_layer(z_init=jnp.zeros(self.N), tolerance = self.tolerance, 
+                solver = jax_opt_solver, f = self.construct(), params = theta),
+                self.data)), static_argnames=[''])
 
 
 class InvalidApproximator(Exception):
