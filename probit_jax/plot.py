@@ -1,5 +1,6 @@
 """Useful plot functions for classifiers."""
 import numpy as np
+import lab as B
 import matplotlib.pyplot as plt
 from tqdm import trange
 from probit_jax.data.utilities import colors, datasets, load_data_paper
@@ -7,12 +8,135 @@ import warnings
 import time
 from scipy.optimize import minimize
 import matplotlib.colors as mcolors
+from matplotlib.colors import LightSource
+from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import rc
+from matplotlib import cm, colors
+from scipy.interpolate import SmoothSphereBivariateSpline, RectSphereBivariateSpline
 
 
 BG_ALPHA = 1.0
 MG_ALPHA = 0.2
 FG_ALPHA = 0.4
+
+
+def plot_sphere(kernel, ntheta=200, nphi=200, interpolate=True):
+    """Get a sample function from the GP prior
+    :arg kernel: An MLKernel.
+    """
+    epsilon = 1e-3
+    theta = np.linspace(epsilon, np.pi - epsilon, ntheta)
+    phi = np.linspace(-np.pi, np.pi - epsilon, nphi)
+    print(theta)
+    print(phi)
+
+    def change_coordinates(X):
+        N, D = np.shape(X)
+        assert D == 2
+        theta = X[:, 0]
+        phi = X[:, 1]
+        
+        Y = np.empty((N, 3))
+        Y[:, 0] = np.sin(theta) * np.cos(phi)
+        Y[:, 1] = np.sin(theta) * np.sin(phi)
+        Y[:, 2] = np.cos(theta)
+        return Y
+
+    def polar_coordinates(theta, phi):
+        """Need to get x, y, z values for each by doing coordinate transformation
+        theta, phi are outputs of meshgrid
+        return X with shape (np.size(theta), 3) and Theta with shape (np.size(theta), 2)
+        """
+        N = np.shape(theta)[0]
+        assert np.shape(phi)[0] == N
+        thetatheta, phiphi = np.meshgrid(theta, phi)
+        X = np.dstack((thetatheta, phiphi))
+        X = X.reshape((N * N, 2))
+        return X, thetatheta, phiphi
+
+    def f(kernel, X, seed=None):
+        # Sample from GP prior using these values
+        if seed: np.random.seed(seed=seed)
+        epsilon = 1e-6
+        N, _ = np.shape(X)
+        K = kernel(X, X)
+        K = K + epsilon * np.identity(N)
+        L = B.cholesky(K)
+        # Generate normal samples
+        z = np.random.normal(loc=0, scale=1, size=N)
+        f_x = L @ z
+        return f_x.reshape((ntheta, nphi))
+
+    def get_rgb(fcolors, wavefun):
+        ls = LightSource(180, 45)
+        rgb = ls.shade(fcolors, cmap=cm.seismic, vert_exag=0.1, blend_mode='soft')
+        if np.unique(wavefun).size==1:
+            rgb = np.tile(np.array([1,0,0,1]), (rgb.shape[0],rgb.shape[1],1))
+        return rgb
+
+    # Plot function
+    def get_colors(fcolors):
+        wavefun = fcolors
+        fmax, fmin = fcolors.max(), fcolors.min()
+        fcolors = (fcolors - fmin)/(fmax - fmin)
+        return wavefun, get_rgb(fcolors, wavefun)
+
+    def frame(xx, yy, zz, rgb, r, fig, ax, mode='sphere'):
+        r = np.abs(np.squeeze(np.array(r)))
+        if mode=='sphere':
+            ax.plot_surface(xx, yy, zz,  rstride=1, cstride=1, facecolors=rgb, shade=False)
+        if mode=='radial':
+            ax.plot_surface(np.multiply(r,Y[0]), np.multiply(r,Y[1]), np.multiply(r,Y[2]),  rstride=1, cstride=1, facecolors=rgb, shade=False)
+        return fig
+    
+    def plot_surface(thetatheta, phiphi, rgb, wavefun, namestring):
+        xx = np.sin(thetatheta) * np.cos(phiphi)
+        yy = np.sin(thetatheta) * np.sin(phiphi)
+        zz = np.cos(thetatheta)
+
+        fig = plt.figure(figsize=plt.figaspect(1.0))
+        # fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_axis_off()
+        # ax.set_box_aspect(aspect = (1,1,1))
+        print(np.ptp(xx))
+        print(np.ptp(yy))
+        print(np.ptp(zz))
+        ax.set_box_aspect((2.0, 2.0, 1.83))
+        #scaling = np.array([getattr(ax, 'get_{}lim'.format(dim))() for dim in 'xyz'])
+        # ax.auto_scale_xyz(*[[np.min(scaling), np.max(scaling)]]*3)
+        # ax.set_box_aspect((np.ptp(xx), np.ptp(yy), np.ptp(zz)))
+
+        fig = frame(xx, yy, zz, rgb, wavefun, fig, ax)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(BG_ALPHA)
+        plt.tight_layout()
+        # plt.grid(b=None)
+        plt.savefig("{}.png".format(namestring))
+        plt.close()
+
+    X, thetatheta, phiphi = polar_coordinates(theta, phi)
+    Y = change_coordinates(X)
+    fx = f(kernel, Y)
+    print(fx)
+    wavefun, rgb = get_colors(fx)
+
+    plot_surface(thetatheta, phiphi, rgb, wavefun, "sphere")
+
+    # Interpolating this surface is quite difficult.
+    # f_interp = RectSphereBivariateSpline(theta, phi, fx.T, s=0.1)
+
+    # thetanew = np.linspace(0, np.pi, 100)
+    # phinew = np.linspace(0, 2 * np.pi, 100)
+    # thetatheta, phiphi = np.meshgrid(thetanew, phinew)
+    # fx_new = f_interp(thetanew, phinew)
+    # wavefun, rgb = get_colors(fx_new)
+
+    # plot_surface(thetatheta, phiphi, rgb, wavefun, "sphereinterp")
+    return 0
+
+
+
 
 def grid(classifier, X_trains, y_trains,
         domain, res, steps, now, trainables=None, verbose=False):
@@ -454,282 +578,6 @@ def save_model(
             cutpoints=classifier.cutpoints,
             noise_variance=classifier.noise_variance,
             num_ordinal_classes=classifier.J)
-
-
-#SS
-# def _test_given_posterior(classifier, X_test, t_test, y_test, steps, posterior):
-#     """
-#     Test the trained model.
-
-#     :arg classifier:
-#     :type classifier: :class:`probit.approximator.Approximator`
-#         or :class:`probit.samplers.Sampler`
-#     """
-#     if posterior_mean is not None and posterior_inv_cov is not None:
-#         (fx, gx,
-#         posterior_mean, (posterior_inv_cov, is_reparametrised)
-#         ) = classifier.approximate_posterior(
-#                 None, None, steps,
-#                 return_reparameterised=True, verbose=True)
-#         # Test
-#         (Z,
-#         posterior_predictive_m,
-#         posterior_std) = classifier.predict(
-#             X_test, cov, weights)
-#     return posterior_inv_cov, posterior_mean, calculate_metrics(y_test, t_test, Z, classifier.cutpoints)
- 
-
-def outer_loop_problem_size(
-        test, Approximator, Kernel, method, X_trains, y_trains, X_tests, t_tests,
-        y_tests, steps,
-        cutpoints_0, theta_0, noise_variance_0, scale_0, J, D, size, num,
-        string="VB"):
-    """
-    Plots outer loop for metrics and variational lower bound over N_train
-    problem size.
-
-    :arg test:
-    :type test:
-    :arg Approximator:
-    :type Approximator:
-    :arg Kernel:
-    :type Kernel:
-    :arg method:
-    :type method:
-    :arg X_trains:
-    :type X_trains:
-    :arg y_trains:
-    :type y_trains:
-    :arg X_tests:
-    :type X_tests:
-    :arg  t_tests:
-    :type t_tests:
-    :arg y_tests:
-    :type y_tests:
-    :arg steps:
-    :arg cutpoints_0
-    :type cutpoints_0:
-    :arg theta_0:
-    :type theta_0:
-    :arg noise_variance_0:
-    :type noise_variance_0:
-    :arg variance_0:
-    :type variance_0:
-    :arg J:
-    :type J:
-    :arg D:
-    :type D:
-    :arg size:
-    :type size:
-    :arg num:
-    :type num:
-    :arg str string: Title for plots, default="client".
-    """
-    plot_N = []
-    plot_mean_fx = []
-    plot_mean_metrics = []
-    plot_std_fx = []
-    plot_std_metrics = []
-    for iter, N in enumerate(np.logspace(1, size, num=num)):
-        N = int(N)
-        print("iter {}, N {}".format(iter, N))
-        mean_fx, std_fx, mean_metrics, std_metrics= outer_loops(
-            test, Approximator, Kernel, method,
-            X_trains[:, :N, :], y_trains[:, :N],
-            X_tests, t_tests, y_tests, steps,
-            cutpoints_0, theta_0, noise_variance_0, variance_0, J, D)
-        plot_N.append(N)
-        plot_mean_fx.append(mean_fx)
-        plot_std_fx.append(std_fx)
-        plot_mean_metrics.append(mean_metrics)
-        plot_std_metrics.append(std_metrics)
-    plot_N = np.array(plot_N)
-    plot_mean_fx = np.array(plot_mean_fx)
-    plot_std_fx = np.array(plot_std_fx)
-    plot_mean_metrics = np.array(plot_mean_metrics)
-    plot_std_metrics = np.array(plot_std_metrics)
-
-    print(plot_mean_metrics)
-    print(np.shape(plot_mean_metrics))
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_fx, '-', color='gray',
-        label="variational bound +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_fx - plot_std_fx, plot_mean_fx + plot_std_fx, 
-        color='gray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} fx.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 13], '-', color='gray',
-        label="RMSE +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 13] - plot_std_metrics[:, 13],
-        plot_mean_metrics[:, 13] + plot_std_metrics[:, 13],
-        color='gray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} RMSE.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 14], '-', color='gray',
-        label="MAE +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 14] - plot_std_metrics[:, 14],
-        plot_mean_metrics[:, 14] + plot_std_metrics[:, 14],
-        color='gray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} MAE.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 15], '-', color='gray',
-        label="log predictive probability +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 15] - plot_std_metrics[:, 15],
-        plot_mean_metrics[:, 15] + plot_std_metrics[:, 15],
-        color='gray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} log predictive probability.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 4], '-', color='gray',
-        label="mean zero-one accuracy +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 4] - plot_std_metrics[:, 4],
-        plot_mean_metrics[:, 4] + plot_std_metrics[:, 4],
-        color='gray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} mean zero-one accuracy.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 4], '-', color='black',
-        label="in top 1 accuracy +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 4] - plot_std_metrics[:, 4],
-        plot_mean_metrics[:, 4] + plot_std_metrics[:, 4],
-        color='black', alpha=MG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 5], '-', color='gray',
-        label="in top 3 accuracy +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 5] - plot_std_metrics[:, 5],
-        plot_mean_metrics[:, 5] + plot_std_metrics[:, 5],
-        color='gray', alpha=MG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 6], '-', color='lightgray',
-        label="in top 5 accuracy +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 6] - plot_std_metrics[:, 6],
-        plot_mean_metrics[:, 6] + plot_std_metrics[:, 6],
-        color='lightgray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} in top accuracy.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 7], '-', color='black',
-        label="distance 1 accuracy +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 7] - plot_std_metrics[:, 7],
-        plot_mean_metrics[:, 7] + plot_std_metrics[:, 7],
-        color='black', alpha=MG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 8], '-', color='gray',
-        label="distance 3 accuracy +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 8] - plot_std_metrics[:, 8],
-        plot_mean_metrics[:, 8] + plot_std_metrics[:, 8],
-        color='gray', alpha=MG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 9], '-', color='lightgray',
-        label="distance 5 accuracy +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 9] - plot_std_metrics[:, 9],
-        plot_mean_metrics[:, 9] + plot_std_metrics[:, 9],
-        color='lightgray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} distance accuracy.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 0], '-', color='gray',
-        label="f1 score +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 0] - plot_std_metrics[:, 0],
-        plot_mean_metrics[:, 0] + plot_std_metrics[:, 0],
-        color='gray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} f1 score.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 1], '-', color='gray',
-        label="uncertainty plus +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 1] - plot_std_metrics[:, 1],
-        plot_mean_metrics[:, 1] + plot_std_metrics[:, 1],
-        color='gray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} uncertainty plus.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(plot_N, plot_mean_metrics[:, 2], '-', color='gray',
-        label="uncertainty minus +/- 1 std")
-    ax.fill_between(
-        plot_N, plot_mean_metrics[:, 2] - plot_std_metrics[:, 2],
-        plot_mean_metrics[:, 2] + plot_std_metrics[:, 2],
-        color='gray', alpha=MG_ALPHA)
-    ax.set_xscale("log")
-    ax.legend()
-    fig.savefig("{} uncertainty minus.png".format(string),
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-    np.savez(
-            "{} plot.npz".format(string),
-            plot_N=plot_N, plot_mean_fx=plot_mean_fx, plot_std_fx=plot_std_fx,
-            plot_mean_metrics=plot_mean_metrics,
-            plot_std_metrics=plot_std_metrics)
-    return 0
 
 
 def outer_loops(

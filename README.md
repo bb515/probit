@@ -1,7 +1,7 @@
 probit
 ======
 
-Please do not distribute this private repository.
+Please do not distribute this private repository. This is WIP until release - so some functionality may be temporarily broken and poorly documented.
 
 probit, is an open-source and high-performance python package for solving ordinal regression problems with Gaussian Processes. It is implemented in [Python](https://www.python.org/).
 
@@ -72,6 +72,19 @@ Features
 --------
 - Supports MLKernels priors
 - Approximate inference with mean field Variational Bayes, Laplace approximation, Expectation Propagation or Power Expectation Propagation
+<<<<<<< HEAD
+- Sparse approximate inference applied to Power Expectation Propagation and mean field Variational Bayes
+- Gaussian, ARD, linear and polynomial kernel functions
+- Fully Bayesian inference with pseudo-marginal approach, auxiliary augmentation or sufficient augmentation.
+- Type II maximum likelihood via manual and numerical gradients. A first version of autodiff is available on branch feature/implicit_layer
+
+Planned Features
+--------
+- deprecate remaining numpy linear algebra operations in favour of autodiff libraries
+- decide on whether JAX or PyTorch is better for implicit autodiff and functionality
+- complete implicit autodiff, make autodiff capabilities numerically stable
+
+=======
 - Sparse approximate inference: Power Expectation Propagation and mean field Variational Bayes
 - Exact inference with MCMC (Gibbs sampler or Elliptical slice sampler)
 - Fully Bayesian inference with pseudo-marginal approach
@@ -82,6 +95,7 @@ Planned Features
 - Make faster than manual differentiation package, `probit`
 - Documentation
 - Python Package index release
+>>>>>>> feature/implicit_layer
 
 Get started (preferred)
 -----------------------
