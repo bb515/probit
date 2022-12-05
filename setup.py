@@ -17,44 +17,25 @@ README = (HERE / "README.md").read_text()
 extra_compile_args = ['-O3']
 extra_link_args = []
 
-arguments = [
-    "abalone",
-    "Auto-Mpg",
-    "bostonhousing",
-    "Diabetes",
-    "machinecpu",
-    "pyrimidines",
-    "stocksdomain",
-    "triazines",
-    "wisconsin",
-    "false"
-]
-data_list = []
-for argument in arguments:
-    data_list.append('data/{}/*.npz'.format(argument))
-    data_list.append('data/{}/5bins/*.npz'.format(argument))
-    data_list.append('data/{}/10bins/*.npz'.format(argument))
-
 
 setup(
     name="probit_jax",
     version="0.1.0",
-    description="A fast ordinal regression with GP priors package for python",
+    description="A classification with GP priors package for python",
     long_description=README,
     long_description_content_type="text/markdown",
-    url="https://github.com/bb515/VariationalBayesianMultinomialProbitRegressionwithGaussianProcessPriors",
-    author="Benjamin Boys",
+    url="https://github.com/bb515/probit_jax",
+    author="Benjamin Boys, Toby Boyne, Ieronymos Maxoutis",
     license="MIT",
     packages=find_packages(exclude=['*.test']),
-    package_data={'': data_list},
     include_package_data=True,
     install_requires=[
-        'backends',
-        'mlkernels',
         'numpy',
         'scipy',
-        'tqdm',
-        'h5py',
-        'matplotlib',
+        'backends==1.4.31',
+        'mlkernels==0.3.6',
+        'optax==0.1.4',
+        'jaxlib==0.1.73',
+        'jax==0.2.22',
         ]
     )
