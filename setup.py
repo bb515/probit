@@ -30,11 +30,12 @@ setup(
     packages=find_packages(exclude=['*.test']),
     include_package_data=True,
     install_requires=[
-        'numpy==1.23.5',
-        'scipy==1.9.3',
+        'numpy',
+        'scipy',
         'backends==1.4.31',
         'mlkernels==0.3.6',
-        'optax==0.1.4',
-        'jax==0.3.25',
+        'optax==0.1.5',
+        'jaxlib==0.1.73'
+        'jax==0.2.22',
         ]
     )
