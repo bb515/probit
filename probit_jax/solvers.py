@@ -8,7 +8,7 @@ def jax_opt_solver(f, z_init, tolerance=1e-05):
     """Using jaxopt package from
     https://jaxopt.github.io/stable/fixed_point.html
     """
-    fpi = FixedPointIteration(fixed_point_fun=f, tol=tolerance)
+    fpi = AndersonAcceleration(fixed_point_fun=f, tol=tolerance, implicit_diff=True)
     z_star, state = fpi.run(z_init)
     return z_star
 
