@@ -2,15 +2,6 @@ import jax
 from functools import partial
 from jax import lax
 import jax.numpy as jnp
-from jaxopt import FixedPointIteration, AndersonAcceleration
-
-def jax_opt_solver(f, z_init, tolerance=1e-05):
-    """Using jaxopt package from
-    https://jaxopt.github.io/stable/fixed_point.html
-    """
-    fpi = FixedPointIteration(fixed_point_fun=f, tol=tolerance)
-    z_star, state = fpi.run(z_init)
-    return z_star
 
 
 def fwd_solver(f, z_init, tolerance):
@@ -20,8 +11,7 @@ def fwd_solver(f, z_init, tolerance):
     """
     def cond_fun(carry):
         z_prev, z = carry
-        # try max for different tolerance values, not affected by size of z 
-        return (jnp.max(z_prev - z) > tolerance)  # TODO: This is a very unsafe implementation, can lead to infinite while loops!
+        return (jnp.linalg.norm(z_prev - z) > tolerance)  # TODO: This is a very unsafe implementation, can lead to infinite while loops!
 
     def body_fun(carry):
         _, z = carry
@@ -120,8 +110,9 @@ def fixed_point_layer_bwd(solver, f, res, z_star_bar):
     z_init, tolerance, params, z_star = res
     _, vjp_a = jax.vjp(lambda params: f(params, z_star), params)
     _, vjp_z = jax.vjp(lambda z: f(params, z), z_star)
-    return (None, None, *vjp_a(solver(lambda u: vjp_z(u)[0] + z_star_bar,
-        z_init=z_init, tolerance=tolerance)))
+    return (None, None, 
+        *vjp_a(solver(lambda u: vjp_z(u)[0] + z_star_bar, z_init=z_init, tolerance=tolerance))
+        )
 
 
 # @partial(jax.custom_vjp, nondiff_argnums=(0, 1))

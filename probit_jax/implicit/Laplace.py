@@ -40,6 +40,7 @@ def jacobian_LA(posterior_mean, noise_std, cutpoints_ts, cutpoints_tplus1s,
     cov, L_cov = matrix_inverse(K + B.diag(1. / precision), N)
     return cov, L_cov
 
+
 def objective_LA(prior_parameters, likelihood_parameters, prior,
         log_likelihood, grad_log_likelihood, hessian_log_likelihood, posterior_mean, data):
     precision = -hessian_log_likelihood(posterior_mean, data[1], likelihood_parameters) + 1e-8
