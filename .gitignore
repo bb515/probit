@@ -142,23 +142,4 @@ dmypy.json
 # cython
 *.c
 
-# Ben's files
-refactoring.txt
-post_processing/
 .vscode/
-probit/data/SEIso/sparse52/
-probit/data/client*
-probit/data/tf_parse.py
-probit/data/tf_parseSS.py
-probit/data/tfrecord/
-probit/data/utilities_nplan.py
-probit/data/utils_nplan.py
-examples/example2/
-examples/example3/
-examples/example8/
-pipeline/
-scipy/
-dataset_manager/
-examples/paper/theta_*
-probit/scratch.py
-*hist_pred*

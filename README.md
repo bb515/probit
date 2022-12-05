@@ -70,8 +70,9 @@ probit allows users to write their code in pure Python. Simulations are then exe
 
 Features
 --------
-- Exact inference with MCMC (Gibbs sampler or Elliptical slice sampler)
+- Supports MLKernels priors
 - Approximate inference with mean field Variational Bayes, Laplace approximation, Expectation Propagation or Power Expectation Propagation
+<<<<<<< HEAD
 - Sparse approximate inference applied to Power Expectation Propagation and mean field Variational Bayes
 - Gaussian, ARD, linear and polynomial kernel functions
 - Fully Bayesian inference with pseudo-marginal approach, auxiliary augmentation or sufficient augmentation.
@@ -83,6 +84,18 @@ Planned Features
 - decide on whether JAX or PyTorch is better for implicit autodiff and functionality
 - complete implicit autodiff, make autodiff capabilities numerically stable
 
+=======
+- Sparse approximate inference: Power Expectation Propagation and mean field Variational Bayes
+- Exact inference with MCMC (Gibbs sampler or Elliptical slice sampler)
+- Fully Bayesian inference with pseudo-marginal approach
+
+Planned Features
+--------
+- Make numerically stable custom JVP/ VJP derivatives
+- Make faster than manual differentiation package, `probit`
+- Documentation
+- Python Package index release
+>>>>>>> feature/implicit_layer
 
 Get started (preferred)
 -----------------------

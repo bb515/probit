@@ -1,8 +1,8 @@
 """
-Setup script for probit.
+Setup script for probit_jax.
 
 This setup is required or else
-    >> ModuleNotFoundError: No module named 'probit'
+    >> ModuleNotFoundError: No module named 'probit_jax'
 will occur.
 """
 from setuptools import setup, find_packages
@@ -37,23 +37,24 @@ for argument in arguments:
 
 
 setup(
-    name="probit",
+    name="probit_jax",
     version="0.1.0",
     description="A fast ordinal regression with GP priors package for python",
     long_description=README,
     long_description_content_type="text/markdown",
     url="https://github.com/bb515/VariationalBayesianMultinomialProbitRegressionwithGaussianProcessPriors",
-    author="Ben Boys",
+    author="Benjamin Boys",
     license="MIT",
     packages=find_packages(exclude=['*.test']),
     package_data={'': data_list},
     include_package_data=True,
     install_requires=[
+        'backends',
+        'mlkernels',
         'numpy',
         'scipy',
         'tqdm',
         'h5py',
         'matplotlib',
-        'backends'
         ]
     )
