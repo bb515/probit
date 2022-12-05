@@ -231,23 +231,187 @@ def main():
     xx, yy,
     phis, fxs,
     gxs, theta_0, phi_0) = _grid_over_hyperparameters_initiate(
-        _classifier, res, domain, trainables)
+    _classifier, res, domain, trainables)
 
-    gs = np.empty(res[0])
-    fs = np.empty(res[0])
-    for i, phi in enumerate(phis):
-        theta = jnp.exp(phi)[0]
-        params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0))
-        # params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(theta), cutpoints_0))
-        fx, gx = g(params)
-        fs[i] = fx
-        gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by the lengthscale Jacobian
-        # gs[i] = gx[1][0] * (0.5 * (theta) ** (1./2))  # multiply by the noise_std Jacobian
-        print(fx)
-        print(gx)
-        # print(gx[0])
-        # print(gx[1][0])
-        # print(gx[1][1])
+    # # get parameters for probit_jax
+    params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(noise_variance_0), cutpoints_0))    
+
+    # # probit_jax - latent variables
+    # fxp, gxp = g(params)
+    latent_jax = classifier.get_latents(params)
+
+    # # probit - latent variables
+    fx, gx, latent_probit, _ = _classifier.approximate_posterior(
+    phi_0, trainables, steps, verbose=False, return_reparameterised = True)
+      
+
+    def plot_diff(phis, plot=True):
+        dfs = np.empty(res[0]) # list to store the differences of the likelihoods
+        fis = []
+        for i, phi in enumerate(phis):
+            theta = jnp.exp(phi)[0]
+            params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0)) # params[0]-->prior. params[1]-->likelihood
+            
+            fxp, gxp, weight, _ = _classifier.approximate_posterior(
+            phi, trainables, steps, verbose=False, return_reparameterised = True)
+            fx, gx = g(params) # g is a function. passing the arguments for the solver to perform fixed_point_interation
+            gs = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by the lengthscale Jacobian
+            
+            df = fxp - fx
+            dfs[i] = df
+            
+            if df <= 5:
+                fis.append(phi)
+        
+        if plot == True:
+            fig = plt.figure()
+            fig.patch.set_facecolor('white')
+            fig.patch.set_alpha(BG_ALPHA)
+            ax = fig.add_subplot(111)
+            ax.grid()
+            ax.plot(x1s, dfs, 'b',  label=r"Evidence diff")
+            ax.set_ylabel(r"Model evidence difference (probit-probit_jax)")
+            ax.set_xlabel(xlabel)
+            ax.set_xscale(xscale)
+            ax.legend()
+            fig.savefig("Difference_VB.png",
+                facecolor=fig.get_facecolor(), edgecolor='none')
+            plt.close()
+
+        return fis
+    
+    def _plot(title, probit, probit_jax):
+        x = [_[0] for _ in X]
+
+        #_x = jnp.linspace(0, len(latents)-1, len(latents))
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(BG_ALPHA)
+        ax = fig.add_subplot(111)
+        ax.grid()
+        ax.plot(x, probit, c='b', marker="X", markersize=8, alpha=1, linestyle = "None", label=r"analytic")
+        ax.plot(x, probit_jax, c='g', marker ="o", alpha=0.7, linestyle = "None", label=r"autodiff")
+        ax.hlines(sum(probit)/len(probit), min(x), max(x), 'r', alpha=0.5, label=r"analytic mean")
+        ax.hlines(sum(probit_jax)/len(probit_jax), min(x), max(x), 'k',
+            alpha=0.5, label=r"autodiff mean")
+        ax.set_ylabel(r"Latent Variables")
+        ax.legend()
+        fig.savefig(title,
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.close()    
+    
+    if args.profile:
+        profile.disable()
+        s = StringIO()
+        stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
+        stats.print_stats(.05)
+        print(s.getvalue())
+
+    def plot_bound_grad(title1, title2):
+        domain = ((-1, 2), None) # x-axis domain range
+        res = (30, None) # increments in domain
+        trainables = [0,0,0,0,1] # vary signal std 
+
+        (x1s, x2s,
+        xlabel, ylabel,
+        xscale, yscale,
+        xx, yy,
+        phis, fxs,
+        gxs, theta_0, phi_0) = _grid_over_hyperparameters_initiate(
+        _classifier, res, domain, trainables)
+        
+        print("plotting marginal likelihoods")
+        
+        gs = np.empty(res[0])
+        fs = np.empty(res[0])
+        import time
+        start = time.time()
+        #inner loop for probit_jax
+        for i, phi in enumerate(phis):
+            theta = jnp.exp(phi)[0]
+            
+            params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0)) # params[0]-->prior. params[1]-->likelihood
+            fx, gx = g(params) # g is a function. passing the arguments for the solver to perform fixed_point_interation
+            gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by the lengthscale Jacobian
+            fs[i] = fx
+        end = time.time()
+        print("time for probit_jax: ", end - start)
+
+        start = time.time()
+        #inner loop for probit
+        for i, phi in enumerate(phis):
+            fx, gx, weight, _ = _classifier.approximate_posterior(
+                phi, trainables, steps, verbose=False, return_reparameterised = True)
+            
+            fxs[i] = fx
+            gxs[i] = gx
+        end = time.time()
+        print("time for probit: ", end - start)
+        (fxs, gxs,
+        x, y,
+        xlabel, ylabel,
+        xscale, yscale) = (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
+
+        
+        #Numerical derivatives: need to calculate them in the log domain if theta is in log domain
+        if xscale == "log":
+            log_x = np.log(x)
+            dfxs_ = np.gradient(fxs, log_x)
+            dfsxs = np.gradient(fs, log_x)
+        elif xscale == "linear":
+            dfxs_ = np.gradient(fxs, x)
+            dfsxs = np.gradient(fs, x)
+
+        idx_hat = np.argmin(fxs)
+
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(BG_ALPHA)
+        ax = fig.add_subplot(111)
+        ax.grid()
+        ax.plot(x, fxs, 'b', marker="o", label=r"$\mathcal{F}}$ analytic")
+        ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
+        ylim = ax.get_ylim()
+        ax.vlines(x[idx_hat], 0.99 * ylim[0], 0.99 * ylim[1], 'r',
+            alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
+        ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
+            alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
+        ax.set_xlabel(xlabel)
+        ax.set_xscale(xscale)
+        ax.set_ylabel(r"$\mathcal{F}$")
+        ax.legend()
+        fig.savefig(title1,
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.close()
+
+        fig = plt.figure()
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(BG_ALPHA)
+        ax = fig.add_subplot(111)
+        ax.grid()
+        ax.plot(
+            x, dfxs_, 'b--', marker="o", 
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic numeric")
+        ax.set_ylim(ax.get_ylim())
+        ax.plot(
+            x, gxs, 'b', alpha=0.7, marker="o",
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
+        ax.plot(
+            x, gs, 'g',
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff")
+        ax.plot(
+            x, dfsxs, 'g--',
+            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff numeric")
+        ax.set_xscale(xscale)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
+        ax.legend()
+        fig.savefig(title2,
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.close()
+    
+    _plot("VB_jax_opt_solver", latent_probit, latent_jax)    
+    plot_bound_grad("VB_bound_fpi_solver", "VB_grad_fpi_solver")
 
     if args.profile:
         profile.disable()
