@@ -24,11 +24,10 @@ setup(
     description="A classification with GP priors package for python",
     long_description=README,
     long_description_content_type="text/markdown",
-    url="https://github.com/bb515/probit_jax"
+    url="https://github.com/bb515/probit_jax",
     author="Benjamin Boys, Toby Boyne, Ieronymos Maxoutis",
     license="MIT",
     packages=find_packages(exclude=['*.test']),
-    package_data={'': data_list},
     include_package_data=True,
     install_requires=[
         'numpy==1.23.5',
