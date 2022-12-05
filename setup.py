@@ -34,8 +34,8 @@ setup(
         'scipy',
         'backends==1.4.31',
         'mlkernels==0.3.6',
-        'optax==0.1.5',
-        'jaxlib==0.1.73'
+        'optax==0.1.4',
+        'jaxlib==0.1.73',
         'jax==0.2.22',
         ]
     )
