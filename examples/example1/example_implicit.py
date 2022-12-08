@@ -26,6 +26,7 @@ from probit_jax.utilities import InvalidKernel, check_cutpoints
 from probit_jax.implicit.utilities import probit_likelihood, log_probit_likelihood
 import sys
 import time
+import matplotlib.pyplot as plt
 ## Temp
 import jax
 import jax.numpy as jnp
@@ -197,18 +198,18 @@ def main():
     print(prior_parameters_0)
     z_0 = B.zeros(classifier.N)
     z = jnp.array(B.dense(f((prior_parameters_0, likelihood_parameters_0), z_0))).flatten()
-    print(z)
     z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    print(z)
     z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    print(z)
     z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    print(z)
     z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
-    print(z)
-    plt.scatter(X, z)
+    z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
+    z = B.dense(f((prior_parameters_0, likelihood_parameters_0), z))
+    K = B.dense(classifier.prior(prior_parameters_0)(X))
+    posterior_mean = K @ z 
+    plt.scatter(X, posterior_mean)
     plt.savefig("testlatent")
     plt.close()
+    assert 0
 
     # z_star = 0
     # for i in range(100):
@@ -216,12 +217,13 @@ def main():
     #     z_star = f(1.0, z_star)
     #     print(np.linalg.norm(z_star - z_prev))
     # TODO: not sure why in their example can just initiate to any parameters here.
-    g = classifier.take_grad((prior_parameters_0, likelihood_parameters_0))
+    g = classifier.take_grad()
+    # g = classifier.take_grad((prior_parameters_0, likelihood_parameters_0))
     print(g((prior_parameters_0, likelihood_parameters_0)))
     N = 40
     thetas = np.logspace(-1, 2, N)
     gs = np.empty(N)
-    fs = np.empty(N)(jnp.sqrt(1./(2 * theta_0)))
+    fs = np.empty(N)
     for i, theta in enumerate(thetas):
         fx, gx = g(((jnp.sqrt(1./(2 * theta))), ((jnp.sqrt(noise_variance_0), cutpoints_0))))
         fs[i] = fx
@@ -229,7 +231,6 @@ def main():
         print(gx[0])
         print(gx[1][0])
         print(gx[1][1])
-    import matplotlib.pyplot as plt
     plt.plot(thetas, fs)
     plt.xscale("log")
     plt.savefig("testfx.png")

@@ -17,24 +17,8 @@ def ndtr(z):
     return 0.5 * (1 + jax.lax.erf(z/sqrt_2))
 
 
-# TODO: SS
-# @partial(jax.jit, static_argnames=['N'])  # TODO: keep this here?
-# def matrix_inverse(matrix, N):
-#     L_cov = B.cholesky(matrix)
-#     L_covT_inv = B.triangular_solve(L_cov, B.eye(N), lower_a=True)
-#     cov = B.triangular_solve(L_cov.T, L_covT_inv, lower_a=False)
-#     return cov, L_cov
-
-
-# @partial(jax.jit)
-# def linear_solve(A, b):
-#     L_cov = B.cholesky(A)
-#     return B.cholesky_solve(L_cov, b)
-
-
 def norm_z_pdf(z):
     return over_sqrt_2_pi * jnp.exp(- 0.5 * z**2)
-
 
 
 def norm_pdf(x, loc=0.0, scale=1.0):

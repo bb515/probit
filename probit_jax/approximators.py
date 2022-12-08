@@ -82,6 +82,7 @@ class Approximator(ABC):
 
         :returns: A :class:`Approximator` object
         """
+        self.tolerance = 1e-3  # tolerance for the solvers
         # Read/write
         if read_path is None:
             self.read_path = None
@@ -226,11 +227,11 @@ class LaplaceGP(Approximator):
 
     def construct(self):
         """Fixed point iteration function"""
-        return lambda parameters, posterior_mean: f_LA(
+        return lambda parameters, weight: f_LA(
             prior_parameters=parameters[0], likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             hessian_log_likelihood=self.hessian_log_likelihood,
-            posterior_mean=posterior_mean, data=self.data)
+            weight=weight, data=self.data)
     
     def approximate_posterior(self, theta):
         weight = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
@@ -280,10 +281,10 @@ class VBGP(Approximator):
 
     def construct(self):
         """Fixed point iteration function"""
-        return lambda parameters, posterior_mean: f_VB(
+        return lambda parameters, weight: f_VB(
             prior_parameters=parameters[0], likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
-            posterior_mean=posterior_mean, data=self.data)
+            weight=weight, data=self.data)
 
     def approximate_posterior(self, theta):
         weight = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
