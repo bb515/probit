@@ -2,6 +2,16 @@ import lab as B
 from probit_jax.implicit.utilities import linear_solve, matrix_inverse
 
 
+def f_weight_VB(
+        prior_parameters, likelihood_parameters, prior, grad_log_likelihood,
+        weight, data):
+    K = B.dense(prior(prior_parameters)(data[0]))
+    N = B.shape(data[0])[0]
+    posterior_mean = K @ weight 
+    return linear_solve(likelihood_parameters[0]**2 * B.eye(N) + K,
+        posterior_mean + likelihood_parameters[0] * grad_log_likelihood(posterior_mean, data[1], likelihood_parameters))
+
+
 def f_VB(prior_parameters, likelihood_parameters, prior, grad_log_likelihood, posterior_mean, data):
     K = B.dense(prior(prior_parameters)(data[0]))
     N = B.shape(data[0])[0]

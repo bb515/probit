@@ -1,25 +1,20 @@
 from abc import ABC, abstractmethod
-from mlkernels import Delta
 import pathlib
-import warnings
+import jax
 import lab.jax as B
 import jax.numpy as jnp
-import jax
-from jax import lax, grad, jit, vmap
+from jax import grad, jit, vmap
+from mlkernels import Delta
 from probit_jax.utilities import (
-    check_cutpoints,
     read_array)
-from probit_jax.lab.utilities import (
-    predict_reparameterised)
 from probit_jax.solvers import (
-    fwd_solver, newton_solver, anderson_solver,
+    fwd_solver, newton_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
 from probit_jax.implicit.Laplace import f_LA
-# Change probit_jax.<linalg backend>.<Approximator>, as appropriate
 from probit_jax.implicit.Laplace import (
-    f_LA, jacobian_LA, objective_LA)
+    f_LA, objective_LA)
 from probit_jax.implicit.VB import (
-    f_VB, jacobian_VB, objective_VB)
+    f_VB, objective_VB)
 
 
 class Approximator(ABC):
@@ -93,41 +88,6 @@ class Approximator(ABC):
         else:
             self.read_path = pathlib.Path(read_path)
 
-        self.max_steps = 100
-        self.single_precision = single_precision
-        if single_precision is True:
-            # Numerical stability when taking Cholesky decomposition
-            # See GPML by Williams et al. for an explanation of jitter
-            self.epsilon = 1e-8  # Strong regularisation
-            # Decreasing tolerance will lead to more accurate solutions up to a
-            # point but a longer convergence time. Acts as a machine tolerance.
-            # Single precision linear algebra libraries won't converge smaller than
-            # tolerance = 1e-3. Probably don't put much smaller than 1e-6.
-            self.tolerance = 1e-1
-            # self.tolerance = 1e-2  # Single precision
-            # Threshold of single sided standard deviations that
-            # normal cdf can be approximated to 0 or 1
-            # More than this + redundancy leads to numerical instability
-            # due to catestrophic cancellation
-            # Less than this leads to a poor approximation due to series
-            # expansion at infinity truncation
-            # Good values found between 4 and 6
-            self.upper_bound = 4  # Single precision
-            # More than this + redundancy leads to numerical
-            # instability due to overflow
-            # Less than this results in poor approximation due to
-            # neglected probability mass in the tails
-            # Good values found between 18 and 30
-            # Try decreasing if experiencing infs or NaNs
-            self.upper_bound2 = 18  # For single precision
-            self.upper_bound3 = 20
-        else:  # Double precision
-            self.epsilon = 1e-12  # Default regularisation- If too small, 1e-10
-            self.tolerance = 1e-6
-            self.upper_bound = 4
-            self.upper_bound2 = 6
-            self.upper_bound3 = 7
-
         # prior is a method that takes in prior_parameters and returns an `:class:MLKernels.Kernel` object
         self.prior = prior
         # Maybe just best to let precision of likelihood be preset by the user
@@ -135,8 +95,8 @@ class Approximator(ABC):
             grad_log_likelihood = grad(log_likelihood)
         if hessian_log_likelihood is None:  # Try JAX grad
             hessian_log_likelihood = grad(lambda f, y, x: grad(log_likelihood)(f, y, x))
-        
-        self.log_likelihood= jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
+  
+        self.log_likelihood = jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.grad_log_likelihood = jit(vmap(grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         # Get data and calculate the prior
@@ -149,14 +109,14 @@ class Approximator(ABC):
             else:
                 y_train = y_train.astype(int)
 
-            self.N = jnp.shape(X_train)[0]
+            self.N = X_train.shape[0]
             # self._update_prior()  # TODO: here would amortize e.g. gram matrix if want to store it
         else:
             # Try read model from file
             try:
                 X_train = read_array(self.read_path, "X_train")
                 y_train = read_array(self.read_path, "y_train")
-                self.N = jnp.shape(self.X_train)[0]
+                self.N = self.X_train.shape[0]
                 # self._load_cached_prior()  # TODO: here would amortize e.g. gram matrix if want to store it
             except KeyError:
                 # The array does not exist in the model file
@@ -165,7 +125,6 @@ class Approximator(ABC):
                 # Model file does not exist
                 raise
         self.data = (X_train, y_train)
-        self.D = jnp.shape(X_train)[1]
         # Set up a JAX-transformable function for a custom VJP rule definition
         fixed_point_layer.defvjp(
             fixed_point_layer_fwd, fixed_point_layer_bwd)
@@ -188,47 +147,47 @@ class Approximator(ABC):
         This method should be implemented in every concrete Approximator.
         """
 
-    def approximate_posterior(self, theta):
-        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
-
-    def predict(
-            self, X_test, cov, f, reparameterised=True, whitened=False):
+    # TODO: this code could be quite confusing
+    def predict_reparameterised(
+        self,
+        distribution_fn,
+        X_test,
+        parameters,
+        weight, precision):
         """
-        Return the posterior predictive distribution over classes.
+        Make posterior prediction over ordinal classes of X_test.
 
+        :arg distribution_fn: A function that takes in a tuple of likelihood
+            parameters, posterior mean and posterior variance arrays,
+            and returns predictive probability distributions for each
+            datapoint.
         :arg X_test: The new data points, array like (N_test, D).
-        :type X_test: :class:`numpy.ndarray`.
-        :arg cov: The approximate
-            covariance-posterior-inverse-covariance matrix. Array like (N, N).
-        :type cov: :class:`numpy.ndarray`.
-        :arg f: Array like (N,).
-        :type f: :class:`numpy.ndarray`.
-        :arg bool reparametrised: Boolean variable that is `True` if f is
-            reparameterised, and `False` if not.
-        :arg bool whitened: Boolean variable that is `True` if f is whitened,
-            and `False` if not.
-        :return: The ordinal class probabilities.
+        :arg cov: A covariance matrix used in calculation of posterior
+            predictions. (\sigma^2I + K)^{-1} Array like (N, N).
+        :type cov: :class:`numpy.ndarray`
+        :arg weight: The approximate inverse-covariance-posterior-mean.
+            .. math::
+                \nu = (\mathbf{K} + \sigma^{2}\mathbf{I})^{-1} \mathbf{y}
+                = \mathbf{K}^{-1} \mathbf{f}
+            Array like (N,).
+        :type weight: :class:`numpy.ndarray`
+        :arg cutpoints: (J + 1, ) array of the cutpoints.
+        :type cutpoints: :class:`numpy.ndarray`.
+        :arg float noise_variance: The noise variance.
+        :arg bool numerically_stable: Use matmul or triangular solve.
+            Default `False`. 
+        :return: A Monte Carlo estimate of the class probabilities.
+        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
         """
-        if whitened is True:
-            raise NotImplementedError("Not implemented.")
-        elif reparameterised is True:
-            print(predict_reparameterised(
-                self.kernel*Delta()(X_test),
-                self.kernel(self.X_train, X_test),
-                cov, weight=f,
-                cutpoints=self.cutpoints,
-                noise_variance=self.noise_variance,
-                single_precision=self.single_precision))
-            # TODO: make as a function of the likelihood
-            return predict_reparameterised(
-                self.kernel*Delta()(X_test),
-                self.kernel(self.X_train, X_test),
-                cov, weight=f,
-                cutpoints=self.cutpoints,
-                noise_variance=self.noise_variance,
-                single_precision=self.single_precision)
-        else:
-            raise NotImplementedError("Not implemented.")
+        kernel = self.prior(parameters[0])
+        Kss = B.dense(kernel*Delta()(X_test))
+        Kfs = B.dense(kernel(self.data[0], X_test))
+        Kff = B.dense(kernel(self.data[0]))
+        posterior_variance = Kss - B.einsum(
+            'ij, ij -> j', Kfs, B.solve(Kff + B.diag(1. / precision), Kfs))
+        posterior_mean = Kfs.T @ weight
+        return distribution_fn(
+            parameters[1], posterior_mean, posterior_variance)
 
 
 class LaplaceGP(Approximator):
@@ -273,8 +232,13 @@ class LaplaceGP(Approximator):
             hessian_log_likelihood=self.hessian_log_likelihood,
             posterior_mean=posterior_mean, data=self.data)
     
-    def get_latents(self, params):
-        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), params)
+    def approximate_posterior(self, theta):
+        weight = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+        K = B.dense(self.prior(theta[0])(self.data[0]))
+        posterior_mean = K @ weight
+        precision = -self.hessian_log_likelihood(
+            posterior_mean, self.data[1], theta[1])
+        return weight, precision
 
     def take_grad(self):
         return jit(jax.value_and_grad(
@@ -321,8 +285,10 @@ class VBGP(Approximator):
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             posterior_mean=posterior_mean, data=self.data)
 
-    def get_latents(self, params):
-        return fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), params)
+    def approximate_posterior(self, theta):
+        weight = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+        precision = 1./ theta[1][0]**2
+        return weight, precision
 
     def take_grad(self):
         """Value and grad of the objective at the fix point."""
@@ -353,4 +319,3 @@ class InvalidApproximator(Exception):
         )
 
         super().__init__(message)
-
