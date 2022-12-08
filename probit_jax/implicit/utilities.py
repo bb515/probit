@@ -219,7 +219,7 @@ def probit(
     return Z
 
 
-def ordinal_predictive_distributions(
+def probit_predictive_distributions(
         likelihood_parameters,
         posterior_mean, posterior_variance):
     """
