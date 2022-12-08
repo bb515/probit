@@ -15,8 +15,9 @@ def f_VB(
 
 
 def objective_VB(prior_parameters, likelihood_parameters, prior,
-        log_likelihood, grad_log_likelihood, posterior_mean, data):
+        log_likelihood, grad_log_likelihood, weight, data):
     K = B.dense(prior(prior_parameters)(data[0]))
+    posterior_mean = K @ weight
     N = B.shape(data[0])[0]
     L_cov = B.cholesky(likelihood_parameters[0]**2 * B.eye(N) + K)
     L_covT_inv = B.triangular_solve(L_cov, B.eye(N), lower_a=True)
@@ -28,7 +29,7 @@ def objective_VB(prior_parameters, likelihood_parameters, prior,
     trace_K_inv_posterior_cov = likelihood_parameters[0]**2 * trace_cov
     return (0.5 * trace_posterior_cov_div_var
         + 0.5 * trace_K_inv_posterior_cov
-        + 0.5 * posterior_mean.T @ grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)
+        + 0.5 * posterior_mean.T @ weight
         - N * B.log(likelihood_parameters[0])
         - 0.5 * log_det_cov
         - 0.5 * N
