@@ -1,5 +1,4 @@
-import lab as B
-from probit_jax.implicit.utilities import linear_solve 
+import lab.jax as B
 
 
 def f_VB(
@@ -8,8 +7,11 @@ def f_VB(
     K = B.dense(prior(prior_parameters)(data[0]))
     N = B.shape(data[0])[0]
     posterior_mean = K @ weight 
-    return linear_solve(likelihood_parameters[0]**2 * B.eye(N) + K,
-        posterior_mean + likelihood_parameters[0] * grad_log_likelihood(posterior_mean, data[1], likelihood_parameters))
+    L_cov = B.cholesky(likelihood_parameters[0]**2 * B.eye(N) + K)
+    return B.cholesky_solve(
+        L_cov,
+        posterior_mean + likelihood_parameters[0] * grad_log_likelihood(
+            posterior_mean, data[1], likelihood_parameters))
 
 
 def objective_VB(prior_parameters, likelihood_parameters, prior,
