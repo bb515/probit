@@ -6,9 +6,6 @@ import lab.jax as B
 import jax.numpy as jnp
 import jax
 from jax import lax, grad, jit, vmap
-from probit_jax.utilities import (
-    check_cutpoints,
-    read_array)
 from probit_jax.implicit.utilities import (
     predict_reparameterised)
 from probit_jax.solvers import (
@@ -55,9 +52,9 @@ class Approximator(ABC):
 
     @abstractmethod
     def __init__(
-            self, prior, log_likelihood,
+            self, data, prior, log_likelihood,
             grad_log_likelihood=None, hessian_log_likelihood=None,
-            data=None, read_path=None, single_precision=True):
+            read_path=None, single_precision=True):
         """
         Create an :class:`Approximator` object.
 
@@ -65,6 +62,10 @@ class Approximator(ABC):
 
         :arg prior: method, when evaluated prior(*args, **kwargs)
             returns the MLKernel class that is the kernel of the Gaussian Process.
+        :arg data: The data tuple. (X_train, y_train), where  
+            X_train is the (N, D) The data vector and y_train (N, ) is the
+            target vector. 
+        :type data: (:class:`numpy.ndarray`, :class:`numpy.ndarray`)
         :arg log_likelihood: method, when evaluated log_likelihood(*args, **kwargs)
             returns the log likelihood. Takes in arguments as
             log_likelihood(f, y, likelihood_parameters)
@@ -76,11 +77,6 @@ class Approximator(ABC):
         :arg hessian_log_likelihood: Optional argument supplying the
             (scalar) second derivative of the log_likelihood wrt to its first argument,
             the latent variables, f.
-        :arg data: The data tuple. (X_train, y_train), where  
-            X_train is the (N, D) The data vector and y_train (N, ) is the
-            target vector. Default `None`, if `None`, then the data and prior
-            are assumed cached in `read_path` and are attempted to be read.
-        :type data: (:class:`numpy.ndarray`, :class:`numpy.ndarray`)
         :arg str read_path: Read path for outputs. If no data is provided,
             then it assumed that this is the path to the data and cached
             prior covariance(s).
@@ -140,31 +136,10 @@ class Approximator(ABC):
         self.grad_log_likelihood = jit(vmap(grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         # Get data and calculate the prior
-        if data is not None:
-            X_train, y_train = data
-            if y_train.dtype not in [int, jnp.int32]:
-                raise TypeError(
-                    "t must contain only integer values (got {})".format(
-                        y_train.dtype))
-            else:
-                y_train = y_train.astype(int)
+        X_train, y_train = data
+        self.N = jnp.shape(X_train)[0]
 
-            self.N = jnp.shape(X_train)[0]
-            # self._update_prior()  # TODO: here would amortize e.g. gram matrix if want to store it
-        else:
-            # Try read model from file
-            try:
-                X_train = read_array(self.read_path, "X_train")
-                y_train = read_array(self.read_path, "y_train")
-                self.N = jnp.shape(self.X_train)[0]
-                # self._load_cached_prior()  # TODO: here would amortize e.g. gram matrix if want to store it
-            except KeyError:
-                # The array does not exist in the model file
-                raise
-            except OSError:
-                # Model file does not exist
-                raise
-        self.data = (X_train, y_train)
+        self.data = data
         self.D = jnp.shape(X_train)[1]
         # Set up a JAX-transformable function for a custom VJP rule definition
         fixed_point_layer.defvjp(
