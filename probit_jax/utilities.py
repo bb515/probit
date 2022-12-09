@@ -156,22 +156,6 @@ def read_scalar(read_path, dataset):
         raise
 
 
-def sample_g(g, f, y_train, cutpoints, noise_std, N):
-    """TODO: Seems like this should be done in numpy or numba - have tried a
-        lab implementation but not tested it yet
-    """
-    for i in range(N):
-        # Target class index
-        j_true = y_train[i]
-        g_i = jnp.NINF  # this is a trick for the next line
-        # Sample from the truncated Gaussian
-        while g_i > cutpoints[j_true + 1] or g_i <= cutpoints[j_true]:
-            # sample y
-            g_i = f[i] + jnp.random.normal(loc=f[i], scale=noise_std)
-        # Add sample to the Y vector
-        g[i] = g_i
-    return g
-
 
 class CutpointValueError(Exception):
     """
