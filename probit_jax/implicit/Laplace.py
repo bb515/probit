@@ -1,7 +1,7 @@
 from cmath import inf
 import lab.jax as B
 from math import inf
-from probit_jax.lab.utilities import (
+from probit_jax.implicit.utilities import (
     probit_likelihood, matrix_inverse)  # TODO: temp
 
 

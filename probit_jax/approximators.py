@@ -9,7 +9,7 @@ from jax import lax, grad, jit, vmap
 from probit_jax.utilities import (
     check_cutpoints,
     read_array)
-from probit_jax.lab.utilities import (
+from probit_jax.implicit.utilities import (
     predict_reparameterised)
 from probit_jax.solvers import (
     fwd_solver, newton_solver, anderson_solver,

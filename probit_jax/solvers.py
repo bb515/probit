@@ -96,9 +96,8 @@ def fixed_point_layer(z_init, tolerance, solver, f, params):
         where :math:`a` are parameters and :math:`z` are the latent
         variables, and :math:`f` is a non-linear function.
     """ 
-    z_star = solver(
+    return solver(
         lambda z: f(params, z), z_init=z_init, tolerance=tolerance)
-    return z_star
 
 
 def fixed_point_layer_fwd(z_init, tolerance, solver, f, params):
@@ -113,20 +112,3 @@ def fixed_point_layer_bwd(solver, f, res, z_star_bar):
     return (None, None, 
         *vjp_a(solver(lambda u: vjp_z(u)[0] + z_star_bar, z_init=z_init, tolerance=tolerance))
         )
-
-
-# @partial(jax.custom_vjp, nondiff_argnums=(0, 1))
-# def fixed_point_layer(solver, f, params, x):
-#   z_star = solver(lambda z: f(params, x, z), z_init=jnp.zeros_like(x))
-#   return z_star
-
-# def fixed_point_layer_fwd(solver, f, params, x):
-#   z_star = fixed_point_layer(solver, f, params, x)
-#   return z_star, (params, x, z_star)
-
-# def fixed_point_layer_bwd(solver, f, res, z_star_bar):
-#   params, x, z_star = res
-#   _, vjp_a = jax.vjp(lambda params, x: f(params, x, z_star), params, x)
-#   _, vjp_z = jax.vjp(lambda z: f(params, x, z), z_star)
-#   return vjp_a(solver(lambda u: vjp_z(u)[0] + z_star_bar,
-#                       z_init=jnp.zeros_like(z_star)))

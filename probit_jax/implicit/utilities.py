@@ -21,7 +21,7 @@ def ndtr(z):
     return 0.5 * (1 + jax.lax.erf(z/sqrt_2))
 
 
-@partial(jax.jit, static_argnames=['N'])  # TODO: keep this here?
+@partial(jax.jit, static_argnames=['N'])
 def matrix_inverse(matrix, N):
     L_cov = B.cholesky(matrix)
     L_covT_inv = B.triangular_solve(L_cov, B.eye(N), lower_a=True)
