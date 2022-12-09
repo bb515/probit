@@ -3,17 +3,18 @@
 from jax.config import config
 config.update("jax_enable_x64", True)
 
-# TODO delete this
-# Make sure to limit CPU usage
-import os
-os.environ["OMP_NUM_THREADS"] = "6" # export OMP_NUM_THREADS=4
-os.environ["OPENBLAS_NUM_THREADS"] = "6" # export OPENBLAS_NUM_THREADS=4 
-os.environ["MKL_NUM_THREADS"] = "6" # export MKL_NUM_THREADS=6
-os.environ["VECLIB_MAXIMUM_THREADS"] = "6" # export VECLIB_MAXIMUM_THREADS=4
-os.environ["NUMEXPR_NUM_THREADS"] = "6" # export NUMEXPR_NUM_THREADS=6
-os.environ["NUMBA_NUM_THREADS"] = "6"
-#os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION "] = "0.5"
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
+# Useful arguments to limit CPU usage
+# import os
+# os.environ["OMP_NUM_THREADS"] = "6"
+# os.environ["OPENBLAS_NUM_THREADS"] = "6" 
+# os.environ["MKL_NUM_THREADS"] = "6"
+# os.environ["VECLIB_MAXIMUM_THREADS"] = "6"
+# os.environ["NUMEXPR_NUM_THREADS"] = "6"
+# os.environ["NUMBA_NUM_THREADS"] = "6"
+
+# Useful arguments to limit GPU usage
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION "] = "0.5"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 
 import argparse
 import cProfile
@@ -22,33 +23,305 @@ from pstats import Stats, SortKey
 import numpy as np
 import lab as B
 import pathlib
-from probit_jax.plot import (
-    _grid_over_hyperparameters_initiate)
-from probit.data.utilities import datasets as datasets_
-from probit.data.utilities import load_data as load_data_
-from probit.data.utilities import load_data_synthetic as load_data_synthetic_
-from probit.data.utilities import load_data_paper as load_data_paper_
-from probit.data.utilities import datasets as datasets_
-from probit_jax.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 from probit_jax.utilities import InvalidKernel, check_cutpoints
 from probit_jax.implicit.utilities import (
-    log_probit_likelihood, grad_log_probit_likelihood, hessian_log_probit_likelihood,
-    posterior_covariance, predict_reparameterised, matrix_inverse, posterior_covariance)
-import sys
+    log_probit_likelihood, grad_log_probit_likelihood, hessian_log_probit_likelihood)
 import time
-from jax import jit
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
+import lab as B
+from mlkernels import BaseKernel, Matern52, EQ
 
+import warnings
+import time
+from scipy.optimize import minimize
+
+
+# For plotting
 BG_ALPHA = 1.0
 MG_ALPHA = 0.2
 FG_ALPHA = 0.4
+colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
 
 
 now = time.ctime()
 write_path = pathlib.Path()
+
+
+def train(classifier, method, trainables, verbose=True, steps=None, max_sec=5000):
+    """
+    Hyperparameter training via gradient descent of the objective function, a
+    negative log marginal likelihood (or bound thereof).
+
+    :arg classifier:
+    :type classifier: :class:`probit.estimators.Approximator`
+        or :class:`probit.samplers.Sampler`
+    :arg str method: "CG" or "L-BFGS-B" seem to be widely used and work well.
+    :arg trainables: Binary array or list of trainables indicating which
+        hyperparameters to fix, and which to optimize.
+    :type trainables: :class:`numpy.ndarray` or list
+    :arg bool verbose: Verbosity bool, default True
+    :arg int steps: The number of steps to run the algorithm on the inner loop.
+    :arg float max_sec: The max time to do optimization for, in seconds.
+        TODO: test.
+    :return: The hyperparameters after optimization.
+    :rtype: tuple (
+        :class:`numpy.ndarray`, float or :class:`numpy.ndarray`, float, float)
+    """
+    minimize_stopper = MinimizeStopper(max_sec=max_sec)
+    phi = classifier.get_phi(trainables)
+    args = (trainables, steps, verbose)
+    res = minimize(
+        classifier.approximate_posterior, phi,
+        args, method=method, jac=True,
+        callback=minimize_stopper.__call__)
+    return classifier
+
+
+def plot_synthetic(
+    classifier, dataset, X_true, Y_true, steps, colors=colors):
+    """
+    Plots for synthetic data.
+
+    TODO: needs generalizing to other datasets other than Chu.
+    """
+    (fx, gx,
+    weights, (cov, is_reparametrised)
+    ) = classifier.approximate_posterior(
+            None, None, steps,
+            return_reparameterised=True, verbose=True)
+
+    if classifier.J == 3:
+        if classifier.D == 1:
+            x_lims = (-0.5, 1.5)
+            N = 1000
+            x = np.linspace(x_lims[0], x_lims[1], N)
+            X_new = x.reshape((N, classifier.D))
+            # Test
+            (Z,
+            posterior_predictive_m,
+            posterior_std) = classifier.predict(
+                X_new, cov, weights)
+            print(np.sum(Z, axis=1), 'sum')
+            fig, ax = plt.subplots(1, 1)
+            fig.patch.set_facecolor('white')
+            fig.patch.set_alpha(BG_ALPHA)
+            ax.set_xlim(x_lims)
+            ax.set_ylim(0.0, 1.0)
+            ax.set_xlabel(r"$x$", fontsize=16)
+            ax.set_ylabel(r"$p(y|x, X, y)$", fontsize=16)
+            ax.stackplot(x, Z.T,
+                        labels=(
+                            r"$p(y=0|x, X, y)$",
+                            r"$p(y=1|x, X, y)$",
+                            r"$p(y=2|x, X, y)$"),
+                        colors=(
+                            colors[0], colors[1], colors[2])
+                        )
+            val = 0.5  # where the data lies on the y-axis.
+            for j in range(classifier.J):
+                ax.scatter(
+                    classifier.X_train[np.where(classifier.y_train == j)],
+                    np.zeros_like(classifier.X_train[np.where(
+                        classifier.y_train == j)]) + val,
+                    s=15, facecolors=colors[j], edgecolors='white')
+            plt.tight_layout()
+            fig.savefig(
+                "Cumulative distribution plot of ordinal class "
+                "distributions for x_new=[{}, {}].png".format(
+                    x_lims[0], x_lims[1]),
+                    facecolor=fig.get_facecolor(), edgecolor='none')
+            plt.show()
+            plt.close()
+
+            np.savez(
+                "tertile.npz",
+                x=X_new, y=posterior_predictive_m, s=posterior_std)
+            fig, ax = plt.subplots(1, 1)
+            fig.patch.set_facecolor('white')
+            fig.patch.set_alpha(BG_ALPHA)
+            ax.plot(X_new, posterior_predictive_m, 'r')
+            ax.fill_between(
+                X_new[:, 0], posterior_predictive_m - 2*posterior_std,
+                posterior_predictive_m + 2*posterior_std,
+                color='red', alpha=MG_ALPHA)
+            ax.scatter(X_true, Y_true, color='b', s=4)
+            ax.set_ylim(-2.2, 2.2)
+            ax.set_xlim(-0.5, 1.5)
+            for j in range(classifier.J):
+                ax.scatter(
+                    classifier.X_train[np.where(classifier.y_train == j)],
+                    np.zeros_like(classifier.X_train[
+                        np.where(classifier.y_train == j)]),
+                    s=15, facecolors=colors[j], edgecolors='white')
+            plt.tight_layout()
+            fig.savefig(
+                "Scatter plot of data compared to posterior mean.png",
+                facecolor=fig.get_facecolor(), edgecolor='none')
+            plt.show()
+            plt.close()
+
+        elif classifier.D == 2:
+            x_lims = (-4.0, 6.0)
+            y_lims = (-4.0, 6.0)
+            # x_lims = (-0.5, 1.5)
+            # y_lims = (-0.5, 1.5)
+            N = 200
+            x = np.linspace(x_lims[0], x_lims[1], N)
+            y = np.linspace(y_lims[0], y_lims[1], N)
+            xx, yy = np.meshgrid(x, y)
+            X_new = np.dstack([xx, yy]).reshape(-1, 2)
+            # Test
+            (Z,
+            posterior_predictive_m,
+            posterior_std) = classifier.predict(
+                X_new, cov, weights)
+            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            surf = ax.plot_surface(
+                X_new[:, 0].reshape(N, N),
+                X_new[:, 1].reshape(N, N),
+                Z.T[0, :].reshape(N, N), alpha=FG_ALPHA, color=colors[0],
+                    label=r"$p(y=0|x, X, t)$")
+            surf = ax.plot_surface(
+                X_new[:, 0].reshape(N, N),
+                X_new[:, 1].reshape(N, N),
+                Z.T[1, :].reshape(N, N), alpha=FG_ALPHA, color=colors[1],
+                    label=r"$p(y=1|x, X, t)$")
+            surf = ax.plot_surface(
+                X_new[:, 0].reshape(N, N),
+                X_new[:, 1].reshape(N, N),
+                Z.T[2, :].reshape(N, N), alpha=FG_ALPHA, color=colors[2],
+                    label=r"$p(y=2|x, X, t)$")
+            cmap = plt.cm.get_cmap('viridis', classifier.J)
+            import matplotlib as mpl
+            fig.colorbar(mpl.cm.ScalarMappable(cmap=cmap))  # TODO: how to not normalize this
+            for j in range(classifier.J):
+                ax.scatter3D(
+                    classifier.X_train[np.where(classifier.y_train == j), 0],
+                    classifier.X_train[np.where(classifier.y_train == j), 1],
+                    Y_true[np.where(
+                        classifier.y_train == j)],
+                    s=15, facecolors=colors[j], edgecolors='white')
+            plt.tight_layout()
+            fig.savefig("surface.png",
+                facecolor=fig.get_facecolor(), edgecolor='none')
+            plt.show()
+
+            # ax.set_xlim(x_lims)
+            # ax.set_ylim(y_lims)
+            # ax.set_ylim(0.0, 1.0)
+            # ax.set_xlabel(r"$x$", fontsize=16)
+            # ax.set_ylabel(r"$p(y|x, X, y)$", fontsize=16)
+            # ax.stackplot(x, Z.T,
+            #             labels=(
+            #                 r"$p(y=0|x, X, t)$",
+            #                 r"$p(y=1|x, X, t)$",
+            #                 r"$p(y=2|x, X, t)$"),
+            #             colors=(
+            #                 colors[0], colors[1], colors[2])
+            #             )
+            # plt.tight_layout()
+            # fig.savefig(
+            #     "Ordered Gibbs Cumulative distribution plot of class "
+            #     "distributions for x_new=[{}, {}].png".format(
+            #         x_lims[0], x_lims[1]))
+            # plt.show()
+            # plt.close()
+            def colorTriangle(r,g,b):
+                image = np.stack([r,g,b],axis=2)
+                return image/image.max(axis=2)[:,:,None]
+            ax.imshow(
+                colorTriangle(
+                    Z.T[0, :].reshape(N, N), Z.T[1, :].reshape(N, N),
+                    Z.T[2, :].reshape(N, N)),
+                    origin='lower',extent=(-4.0,6.0,-4.0,6.0))
+            fig.savefig("color_triangle.png",
+                facecolor=fig.get_facecolor(), edgecolor='none')
+            plt.show()
+            plt.close()
+    else:
+        x_lims = (-0.5, 1.5)
+        N = 1000
+        x = np.linspace(x_lims[0], x_lims[1], N)
+        X_new = x.reshape((N, classifier.D))
+        # Test
+        (Z,
+        posterior_predictive_m,
+        posterior_std) = classifier.predict(
+            X_new, cov, weights)
+        print(np.sum(Z, axis=1), 'sum')
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(BG_ALPHA)
+        ax.set_xlim(x_lims)
+        ax.set_ylim(0.0, 1.0)
+        ax.set_xlabel(r"$x$", fontsize=16)
+        ax.set_ylabel(r"$p(y_{*}={}|x, X, y)$", fontsize=16)
+        if classifier.J == 13:
+            plt.stackplot(x, Z.T,
+                            labels=(
+                            r"$p(y_{*}=0|x, X, y)$",
+                            r"$p(y_{*}=1|x, X, y)$",
+                            r"$p(y_{*}=2|x, X, y)$",
+                            r"$p(y_{*}=3|x, X, y)$",
+                            r"$p(y_{*}=4|x, X, y)$",
+                            r"$p(y_{*}=5|x, X, y)$",
+                            r"$p(y_{*}=6|x, X, y)$",
+                            r"$p(y_{*}=7|x, X, y)$",
+                            r"$p(y_{*}=8|x, X, y)$",
+                            r"$p(y_{*}=9|x, X, y)$",
+                            r"$p(y_{*}=10|x, X, y)$",
+                            r"$p(y_{*}=11|x, X, y)$",
+                            r"$p(y_{*}=12|x, X, y)$"),
+                        colors=colors
+                        )
+        else:
+            ax.stackplot(x, Z.T, colors=colors)
+        val = 0.5  # where the data lies on the y-axis.
+        for j in range(classifier.J):
+            ax.scatter(
+                classifier.X_train[np.where(classifier.y_train == j)],
+                np.zeros_like(
+                    classifier.X_train[np.where(
+                        classifier.y_train == j)]) + val,
+                        s=15, facecolors=colors[j],
+                    edgecolors='white')
+        fig.savefig(
+            "Ordered Gibbs Cumulative distribution plot of class "
+            "distributions for x_new=[{}, {}].png"
+                .format(x_lims[0], x_lims[1]),
+                facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.show()
+        plt.close()
+
+        np.savez(
+            "{}.npz".format(classifier.J),
+            x=X_new, y=posterior_predictive_m, s=posterior_std)
+        fig, ax = plt.subplots(1, 1)
+        fig.patch.set_facecolor('white')
+        fig.patch.set_alpha(BG_ALPHA)
+        ax.plot(X_new, posterior_predictive_m, 'r')
+        ax.fill_between(
+            X_new[:, 0], posterior_predictive_m - 2*posterior_std,
+            posterior_predictive_m + 2*posterior_std,
+            color='red', alpha=MG_ALPHA)
+        ax.scatter(X_true, Y_true, color='b', s=4)
+        ax.set_ylim(-2.2, 2.2)
+        ax.set_xlim(-0.5, 1.5)
+        for j in range(classifier.J):
+            ax.scatter(
+                classifier.X_train[np.where(classifier.y_train == j)],
+                np.zeros_like(classifier.X_train[np.where(classifier.y_train == j)]),
+                s=15,
+                facecolors=colors[j],
+                edgecolors='white')
+        ax.savefig("scatter_versus_posterior_mean.png",
+            facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.show()
+        plt.close()
+    return fx
 
 
 def plot_ordinal(X, y, g, X_show, f_show, J, D, N_show=None):
@@ -78,7 +351,7 @@ def plot_ordinal(X, y, g, X_show, f_show, J, D, N_show=None):
         pass
 
 
-def _grid_over_hyperparameters_initiate(
+def plot_helper(
         classifier, res, domain, trainables):
     """
     Initiate metadata and hyperparameters for plotting the objective
@@ -169,8 +442,6 @@ def _grid_over_hyperparameters_initiate(
         meshgrid_phi = np.meshgrid(phi_space[0], phi_space[1])
         phis = np.dstack(meshgrid_phi)
         phis = phis.reshape((len(space[0]) * len(space[1]), 2))
-        fxs = np.empty(len(phis))
-        gxs = np.empty((len(phis), 2))
         theta_0 = np.array(theta_0)
     elif index == 1:
         meshgrid_theta = (space[0], None)
@@ -179,8 +450,6 @@ def _grid_over_hyperparameters_initiate(
         axis_scale.append(None)
         label.append(None)
         phis = phi_space[0].reshape(-1, 1)
-        fxs = np.empty(len(phis))
-        gxs = np.empty(len(phis))
         theta_0 = theta_0[0]
     else:
         raise ValueError(
@@ -196,7 +465,7 @@ def _grid_over_hyperparameters_initiate(
         label[0], label[1],
         axis_scale[0], axis_scale[1],
         meshgrid_theta[0], meshgrid_theta[1],
-        phis, fxs, gxs, theta_0, phi_0)
+        phis, theta_0, phi_0)
 
 
 def generate_data(
@@ -375,34 +644,6 @@ def generate_data(
         X_show, f_show)
 
 
-#(get the probit_jax approximator)
-def get_approximator(
-        approximate_inference_method, N_train):
-    """Get approximator class
-
-    Args:
-        approximate_inference_method:
-    
-    """
-    if approximate_inference_method == "VB":
-        from probit_jax.approximators import VBGP
-        # steps is the number of fix point iterations until check convergence
-        steps = np.max([10, N_train//1000])
-        print("steps: ", steps)
-        Approximator = VBGP
-    elif approximate_inference_method == "LA":
-        from probit_jax.approximators import LaplaceGP
-        # steps is the number of Newton steps until check convergence
-        steps = np.max([2, N_train//1000])
-        Approximator = LaplaceGP
-    else:
-        raise ValueError(
-            "Approximator not found "
-            "(got {}, expected VB, LA)".format(
-                approximate_inference_method))
-    return Approximator, steps
-
-
 def main():
     """Conduct an approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
@@ -415,260 +656,159 @@ def main():
  
     J = 3
     D = 1
+    approximate_inference_method = "VB"
     method = "L-BFGS-B"
 
     # Generate data
-    from mlkernels import Matern52
+    noise_variance = 1.0
     kernel = 1.0 * Matern52().stretch(0.2)
     (N_show, N_total, X_js, g_js, X, f, g, y, cutpoints,
     X_train, g_train, y_train,
     X_test, y_test,
     X_show, f_show) = generate_data(
         N_train_per_class=10, N_test_per_class=100,
-        J=3, D=1, kernel=kernel, noise_variance=1.0,
+        J=3, D=1, kernel=kernel, noise_variance=noise_variance,
         N_show=1000, jitter=1e-6, seed=None)
 
     plot_ordinal(
         X, y, g, X_show, f_show, J, D, N_show=N_show) 
 
-    # Let the model be mispecified, using a kernel
+    if approximate_inference_method=="VB":
+        from probit_jax.approximators import VBGP as Approximator
+        # TODO: max steps?
+        # steps is the number of fix point iterations until check convergence
+        # steps = np.max([10, N_train//1000])
+    elif approximate_inference_method=="LA":
+        from probit_jax.approximators import LaplaceGP as Approximator
+        # steps = np.max([2, N_train//1000])
+
+    # Initiate a misspecified model, using a kernel
     # other than the one used to generate data
-
-    # approximate_inference_method is "LA" or "VB"
-    Approximator, steps = get_approximator(approximate_inference_method="VB", N_train=np.shape(y_train)[0])
-
-    from mlkernels import EQ, BaseKernel
-    # Initiate classifier
     def prior(prior_parameters):
         stretch = prior_parameters
         signal_variance = 1.0
-        # Here you can define the kernel that defines the Gaussian process model
+        # Here you can define the kernel that defines the Gaussian process
         kernel = signal_variance * EQ().stretch(stretch)
         # Make sure that model returns the kernel, cutpoints and noise_variance
         return kernel
 
-    # Check prior is valid
-    if not (isinstance(prior(prior_parameters=1.0), BaseKernel)):
-        raise InvalidKernel(prior(prior_parameters=1.0))
+    # Test prior
+    if not (isinstance(prior(1.0), BaseKernel)):
+        raise InvalidKernel(prior(1.0))
 
     print("cutpoints_0={}".format(cutpoints_0))
-    # Check cutpoints are valid
+    # check that the cutpoints are in the correct format
+    # for the number of classes, J
     cutpoints_0 = check_cutpoints(cutpoints_0, J)
     print("cutpoints_0={}".format(cutpoints_0))
 
-    # Initiate classifier
     classifier = Approximator(prior, log_probit_likelihood,
-        data=(X_train, y_train), single_precision=False)
+        single_precision=True,
+        # grad_log_likelihood=grad_log_probit_likelihood,
+        # hessian_log_likelihood=hessian_log_probit_likelihood,
+        data=(X, y))
 
+    # Notes: fwd_solver, newton_solver work, anderson solver has bug with vmap ValueError
     g = classifier.take_grad()
 
-    # hyperparameter domain and resolution
-    domain = ((-1, 2), None) # x-axis domain range
-    res = (30, None) # increments in domain
+    (x, _,
+    xlabel, _,
+    xscale, _,
+    _, _,
+    phis, theta_0, phi_0) = plot_helper(
+        res, domain)
 
-    (x1s, x2s,
-    xlabel, ylabel,
-    xscale, yscale,
-    xx, yy,
-    phis, fxs,
-    gxs, theta_0, phi_0) = _grid_over_hyperparameters_initiate(
-    _classifier, res, domain, trainables)
+    domain = ((-1, 2), None)
+    res = (30, None)
+    gs = np.empty(res[0])
+    fs = np.empty(res[0])
+    for i, phi in enumerate(phis):
+        theta = jnp.exp(phi)[0]
+        params = ((theta)), (jnp.sqrt(noise_variance), cutpoints)
+        fx, gx = g(params)
+        fs[i] = fx
+        gs[i] = gx[0] * 1./theta  # multiply by a Jacobian
 
-    # print("theta_0 outisde", theta_0)
-    # # get test for probit
-    # phi_test = phis[phis.shape[0]//2]
-    # theta_test = jnp.exp(phi_test)[0]
+    # Numerical derivatives: need to calculate them in the log domain
+    # if theta is in log domain
+    if xscale == "log":
+        log_x = np.log(x)
+        dfsxs = np.gradient(fs, log_x)
+    elif xscale == "linear":
+        dfsxs = np.gradient(fs, x)
+    idx_hat = np.argmin(fs)
 
-    # # get parameters for probit_jax
-    params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(noise_variance_0), cutpoints_0))
-    # params_test = ((jnp.sqrt(1./(2 * (theta_test)))), (jnp.sqrt(noise_variance_0), cutpoints_0))    
+    fig = plt.figure()
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(BG_ALPHA)
+    ax = fig.add_subplot(111)
+    ax.grid()
+    ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
+    ylim = ax.get_ylim()
+    ax.vlines(x[idx_hat], 0.99 * ylim[0], 0.99 * ylim[1], 'r',
+        alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
+    ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
+        alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
+    ax.set_xlabel(xlabel)
+    ax.set_xscale(xscale)
+    ax.set_ylabel(r"$\mathcal{F}$")
+    ax.legend()
+    fig.savefig("bound.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
+    plt.close()
 
-    # # probit_jax - latent variables
-    # fxp, gxp = g(params)
-    # fxp_test, gxp = g(params_test)
-    latent_jax = classifier.get_latents(params)
-    #latent_jax_test = classifier.get_latents(params_test)
+    fig = plt.figure()
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(BG_ALPHA)
+    ax = fig.add_subplot(111)
+    ax.grid()
+    ax.plot(
+        x, gs, 'g', alpha=0.4,
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff")
+    ax.set_ylim(ax.get_ylim())
+    ax.plot(
+        x, dfsxs, 'g--',
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff numeric")
+    ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+        alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
+    ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
+        alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
+    ax.set_xscale(xscale)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
+    ax.legend()
+    fig.savefig("grad.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
+    plt.close()
 
-    # # probit - latent variables
-    fx, gx, latent_probit, _ = _classifier.approximate_posterior(
-    phi_0, trainables, steps, verbose=False, return_reparameterised = True)
-    # # fx_test, gx_test, latent_probit_test, _ = _classifier.approximate_posterior(
-    # phi_test, trainables, steps, verbose=False, return_reparameterised = True)
-    
-    #print("model evidence difference: ", fx - fxp)
-    # probit - predictive distribution
-    #cov = noise_variance_0**2*jnp.identity(N_train) + _classifier.prior_coveriance # sigma^2I + K)^{-1}
-    #_, pred_mean, _ = _classifier.predict(
-    #X, cov, f, reparameterised=True, whitened=False)    
+    def calculate_metrics(y_test, t_test, Z, cutpoints):
+        t_pred = np.argmax(Z, axis=1)
+        grid = np.ogrid[0:len(t_test)]
+        # Other error
+        predictive_likelihood = Z[grid, t_test]
+        mean_absolute_error = np.sum(np.abs(t_pred - t_test)) / len(t_test)
+        root_mean_squared_error = np.sqrt(
+            np.sum(pow(t_pred - t_test, 2)) / len(t_test))
+        print("root_mean_squared_error", root_mean_squared_error)
+        print("mean_absolute_error ", mean_absolute_error)
+        log_predictive_probability = np.sum(np.log(predictive_likelihood))
+        print("log_pred_probability ", log_predictive_probability)
+        predictive_likelihood = np.sum(predictive_likelihood) / len(t_test)
+        print("predictive_likelihood ", predictive_likelihood)
+        print("av_prob_of_correct ", predictive_likelihood)
+        print(np.sum(t_pred != t_test), "sum incorrect")
+        mean_zero_one = np.sum(t_pred != t_test) / len(t_test)
+        print("mean_zero_one_error", mean_zero_one)
+        print(np.sum(t_pred == t_test), "sum correct")
+        mean_zero_one = np.sum(t_pred == t_test) / len(t_test)
+        print("mean_zero_one_correct", mean_zero_one)
+        return (
+            mean_zero_one,
+            root_mean_squared_error,
+            mean_absolute_error,
+            log_predictive_probability,
+            predictive_likelihood)
 
-    def _plot(title, probit, probit_jax):
-        x = [_[0] for _ in X]
-
-        #_x = jnp.linspace(0, len(latents)-1, len(latents))
-        fig = plt.figure()
-        fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(BG_ALPHA)
-        ax = fig.add_subplot(111)
-        ax.grid()
-        ax.plot(x, probit, c='b', marker="X", markersize=8, alpha=1, linestyle = "None", label=r"analytic")
-        ax.plot(x, probit_jax, c='g', marker ="o", alpha=0.7, linestyle = "None", label=r"autodiff")
-        ax.hlines(sum(probit)/len(probit), min(x), max(x), 'r', alpha=0.5, label=r"analytic mean")
-        ax.hlines(sum(probit_jax)/len(probit_jax), min(x), max(x), 'k',
-            alpha=0.5, label=r"autodiff mean")
-        ax.set_ylabel(r"Latent Variables")
-        ax.legend()
-        fig.savefig(title,
-            facecolor=fig.get_facecolor(), edgecolor='none')
-        plt.close()
-
-    #_plot("steps=100",latent_probit, latent_jax)
-    _plot("LA_newton_method_latents_new", latent_probit, latent_jax)
-
-    def plot_diff(phis, plot=True):
-        dfs = np.empty(res[0]) # list to store the differences of the likelihoods
-        fis = []
-        for i, phi in enumerate(phis):
-            theta = jnp.exp(phi)[0]
-            params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0)) # params[0]-->prior. params[1]-->likelihood
-            
-            fxp, gxp, weight, _ = _classifier.approximate_posterior(
-            phi, trainables, steps, verbose=False, return_reparameterised = True)
-            fx, gx = g(params) # g is a function. passing the arguments for the solver to perform fixed_point_interation
-            gs = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by the lengthscale Jacobian
-            
-            df = fxp - fx
-            dfs[i] = df
-            
-            if df <= 5:
-                fis.append(phi)
-        
-        if plot == True:
-            fig = plt.figure()
-            fig.patch.set_facecolor('white')
-            fig.patch.set_alpha(BG_ALPHA)
-            ax = fig.add_subplot(111)
-            ax.grid()
-            ax.plot(x1s, dfs, 'b',  label=r"Evidence diff")
-            ax.set_ylabel(r"Model evidence difference (probit-probit_jax)")
-            ax.set_xlabel(xlabel)
-            ax.set_xscale(xscale)
-            ax.legend()
-            fig.savefig("Difference_VB.png",
-                facecolor=fig.get_facecolor(), edgecolor='none')
-            plt.close()
-
-        return fis
-    
-    #plot_diff(phis)
-
-    if args.profile:
-        profile.disable()
-        s = StringIO()
-        stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
-        stats.print_stats(.05)
-        print(s.getvalue())
-
-    def plot_bound_grad(title1="bound_LA_1", title2="grad_LA_1"):
-        domain = ((-1, 2), None) # x-axis domain range
-        res = (30, None) # increments in domain
-        trainables = [0,0,0,0,1] # vary signal std 
-
-        (x1s, x2s,
-        xlabel, ylabel,
-        xscale, yscale,
-        xx, yy,
-        phis, fxs,
-        gxs, theta_0, phi_0) = _grid_over_hyperparameters_initiate(
-        _classifier, res, domain, trainables)
-        
-        print(phis)
-        print("theta_inside", theta_0)
-        print("phi_inside", phi_0)
-        
-        gs = np.empty(res[0])
-        fs = np.empty(res[0])
-
-        #outer loop for probit_jax
-        for i, phi in enumerate(phis):
-            theta = jnp.exp(phi)[0]
-            
-            params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0)) # params[0]-->prior. params[1]-->likelihood
-            fx, gx = g(params) # g is a function. passing the arguments for the solver to perform fixed_point_interation
-            gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by the lengthscale Jacobian
-            fs[i] = fx
-        
-        # outer loop for probit
-        for i, phi in enumerate(phis):
-            fx, gx, weight, _ = _classifier.approximate_posterior(
-                phi, trainables, steps, verbose=False, return_reparameterised = True)
-            
-            fxs[i] = fx
-            gxs[i] = gx
-
-        (fxs, gxs,
-        x, y,
-        xlabel, ylabel,
-        xscale, yscale) = (fxs, gxs, x1s, None, xlabel, ylabel, xscale, yscale)
-
-        
-        #Numerical derivatives: need to calculate them in the log domain if theta is in log domain
-        if xscale == "log":
-            log_x = np.log(x)
-            dfxs_ = np.gradient(fxs, log_x)
-            dfsxs = np.gradient(fs, log_x)
-        elif xscale == "linear":
-            dfxs_ = np.gradient(fxs, x)
-            dfsxs = np.gradient(fs, x)
-
-        idx_hat = np.argmin(fxs)
-
-        fig = plt.figure()
-        fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(BG_ALPHA)
-        ax = fig.add_subplot(111)
-        ax.grid()
-        ax.plot(x, fxs, 'b', marker="o", label=r"$\mathcal{F}}$ analytic")
-        ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
-        ylim = ax.get_ylim()
-        ax.vlines(x[idx_hat], 0.99 * ylim[0], 0.99 * ylim[1], 'r',
-            alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
-        ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
-            alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
-        ax.set_xlabel(xlabel)
-        ax.set_xscale(xscale)
-        ax.set_ylabel(r"$\mathcal{F}$")
-        ax.legend()
-        fig.savefig(title1,
-            facecolor=fig.get_facecolor(), edgecolor='none')
-        plt.close()
-
-        fig = plt.figure()
-        fig.patch.set_facecolor('white')
-        fig.patch.set_alpha(BG_ALPHA)
-        ax = fig.add_subplot(111)
-        ax.grid()
-        ax.plot(
-            x, dfxs_, 'b--', marker="o", 
-            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic numeric")
-        ax.set_ylim(ax.get_ylim())
-        ax.plot(
-            x, gxs, 'b', alpha=0.7, marker="o",
-            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
-        ax.plot(
-            x, gs, 'g',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff")
-        ax.plot(
-            x, dfsxs, 'g--',
-            label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff numeric")
-        ax.set_xscale(xscale)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
-        ax.legend()
-        fig.savefig(title2,
-            facecolor=fig.get_facecolor(), edgecolor='none')
-        plt.close()
-    
-    #plot_bound_grad("bound_LA_fwd", "grad_LA_fwd")
 
     if args.profile:
         profile.disable()
@@ -676,8 +816,27 @@ def main():
         stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
         stats.print_stats(.05)
         print(s.getvalue())
-    sys.stdout.close()
 
 
 if __name__ == "__main__":
     main()
+
+
+class TookTooLong(Warning):
+    pass
+
+
+class MinimizeStopper(object):
+    def __init__(self, max_sec=100):
+        self.max_sec = max_sec
+        self.start   = time.time()
+
+    def __call__(self, xk):
+        # callback to terminate if max_sec exceeded
+        elapsed = time.time() - self.start
+        if elapsed > self.max_sec:
+            warnings.warn("Terminating optimization: time limit reached",
+                          TookTooLong)
+        else:
+            # you might want to report other stuff here
+            print("Elapsed: %.3f sec" % elapsed)
