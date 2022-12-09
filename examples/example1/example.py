@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 import lab as B
-from mlkernels import BaseKernel, Matern52, EQ
+from mlkernels import Kernel, Matern52, EQ
 
 import warnings
 import time
@@ -693,7 +693,7 @@ def main():
         return kernel
 
     # Test prior
-    if not (isinstance(prior(1.0), BaseKernel)):
+    if not (isinstance(prior(1.0), Kernel)):
         raise InvalidKernel(prior(1.0))
 
     print("cutpoints_0={}".format(cutpoints_0))

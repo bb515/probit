@@ -3,6 +3,17 @@ import jax.numpy as jnp
 import warnings
 
 
+def check_data(data):
+    X_train, y_train = data
+    if y_train.dtype not in [int, jnp.int32]:
+        raise TypeError(
+            "t must contain only integer values (got {})".format(
+                y_train.dtype))
+    else:
+        y_train = y_train.astype(int)
+    return X_train, y_train
+
+
 def check_cutpoints(cutpoints, J):
     """
     Check that the cutpoints are compatible with this class.
