@@ -50,7 +50,7 @@ now = time.ctime()
 write_path = pathlib.Path()
 
 
-def train(classifier, method, trainables, verbose=True, steps=None, max_sec=5000):
+def train(g, phi, method, max_sec=5000):
     """
     Hyperparameter training via gradient descent of the objective function, a
     negative log marginal likelihood (or bound thereof).
@@ -70,13 +70,6 @@ def train(classifier, method, trainables, verbose=True, steps=None, max_sec=5000
     :rtype: tuple (
         :class:`numpy.ndarray`, float or :class:`numpy.ndarray`, float, float)
     """
-    minimize_stopper = MinimizeStopper(max_sec=max_sec)
-    phi = classifier.get_phi(trainables)
-    args = (trainables, steps, verbose)
-    res = minimize(
-        classifier.approximate_posterior, phi,
-        args, method=method, jac=True,
-        callback=minimize_stopper.__call__)
     return classifier
 
 
@@ -84,14 +77,9 @@ def plot_synthetic(
     classifier, dataset, X_true, Y_true, steps, colors=colors):
     """
     Plots for synthetic data.
-
-    TODO: needs generalizing to other datasets other than Chu.
     """
-    (fx, gx,
-    weights, (cov, is_reparametrised)
-    ) = classifier.approximate_posterior(
-            None, None, steps,
-            return_reparameterised=True, verbose=True)
+    weights, precision = classifier.approximate_posterior(
+            params)
 
     if classifier.J == 3:
         if classifier.D == 1:
@@ -174,10 +162,9 @@ def plot_synthetic(
             xx, yy = np.meshgrid(x, y)
             X_new = np.dstack([xx, yy]).reshape(-1, 2)
             # Test
-            (Z,
-            posterior_predictive_m,
-            posterior_std) = classifier.predict(
-                X_new, cov, weights)
+            posterior_mean, posteriod_std = classifier.predict(
+                X_new, weight, precision)
+            Z = probit_jax.implicit.utilities.probit_distributions(posterior_mean, posterior_std)
             fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
             surf = ax.plot_surface(
                 X_new[:, 0].reshape(N, N),
@@ -241,16 +228,17 @@ def plot_synthetic(
                 facecolor=fig.get_facecolor(), edgecolor='none')
             plt.show()
             plt.close()
-    else:
+
+
+    def plot_contour(weight, precision):
         x_lims = (-0.5, 1.5)
         N = 1000
         x = np.linspace(x_lims[0], x_lims[1], N)
         X_new = x.reshape((N, classifier.D))
         # Test
-        (Z,
-        posterior_predictive_m,
-        posterior_std) = classifier.predict(
-            X_new, cov, weights)
+        mean, std = classifier.predict(
+            X_new, weight, precision)
+        # TODO get predictions, Z
         print(np.sum(Z, axis=1), 'sum')
         fig, ax = plt.subplots(1, 1)
         fig.patch.set_facecolor('white')
@@ -296,6 +284,8 @@ def plot_synthetic(
         plt.show()
         plt.close()
 
+        posterior_mean, posterior_std = classifier.predict(
+            X_new, weight, precision)
         np.savez(
             "{}.npz".format(classifier.J),
             x=X_new, y=posterior_predictive_m, s=posterior_std)
@@ -321,7 +311,6 @@ def plot_synthetic(
             facecolor=fig.get_facecolor(), edgecolor='none')
         plt.show()
         plt.close()
-    return fx
 
 
 def plot_ordinal(X, y, g, X_show, f_show, J, D, N_show=None):
@@ -352,7 +341,7 @@ def plot_ordinal(X, y, g, X_show, f_show, J, D, N_show=None):
 
 
 def plot_helper(
-        classifier, res, domain, trainables):
+        res, domain, trainables=["lengthscale"]):
     """
     Initiate metadata and hyperparameters for plotting the objective
     function surface over hyperparameters.
@@ -370,11 +359,8 @@ def plot_helper(
     label = []
     axis_scale = []
     space = []
-    phi_space = []
-    phi_0 = classifier.get_phi(trainables)
-    
-    theta_0 = []
-    if trainables[0]:
+    phi_space = [] 
+    if "noise_std" in trainables:
         # Grid over noise_std
         label.append(r"$\sigma$")
         axis_scale.append("log")
@@ -382,60 +368,31 @@ def plot_helper(
         theta = np.logspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
         phi_space.append(np.log(theta))
-        theta_0.append(np.exp(phi_0[index]))
         index += 1
-    if trainables[1]:
+    if "cutpoints" in trainables:
         # Grid over b_1, the first cutpoint
         label.append(r"$b_{}$".format(1))
         axis_scale.append("linear")
         theta = np.linspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
         phi_space.append(theta)
-        theta_0.append(phi_0[index])
         index += 1
-    for j in range(2, classifier.J):
-        if trainables[j]:
-            # Grid over b_j - b_{j-1}, the differences between cutpoints
-            label.append(rf"$b_{ {j} } - b_{ {j-1} }$")
-            axis_scale.append("log")
-            theta = np.logspace(
-                domain[index][0], domain[index][1], res[index])
-            space.append(theta)
-            phi_space.append(np.log(theta))
-            theta_0.append(np.exp(phi_0[index]))
-            index += 1
-    if trainables[classifier.J]:
+    if "signal_variance" in trainables:
         # Grid over signal variance
         label.append(r"$\sigma_{\theta}^{ 2}$")
         axis_scale.append("log")
         theta = np.logspace(domain[index][0], domain[index][1], res[index])
         space.append(theta)
         phi_space.append(np.log(theta))
-        theta_0.append(np.exp(phi_0[index]))
         index += 1
-    if classifier.kernel._ARD is True:
-        # In this case, then there is a scale parameter,
-        #  the first cutpoint, the interval parameters,
-        # and lengthvariances parameter for each dimension and class
-        for d in range(classifier.D):
-            if trainables[classifier.J + 1][d]:
-                # Grid over kernel hyperparameter, theta in this dimension
-                label.append(r"$\theta_{}$".format(d))
-                axis_scale.append("log")
-                theta = np.logspace(domain[index][0], domain[index][1], res[index])
-                space.append(theta)
-                phi_space.append(np.log(theta))
-                theta_0.append(np.exp(phi_0[index]))
-                index += 1
     else:
-        if trainables[classifier.J + 1]:
+        if "lengthscale" in trainables:
             # Grid over only kernel hyperparameter, theta
             label.append(r"$\theta$")
             axis_scale.append("log")
             theta = np.logspace(domain[index][0], domain[index][1], res[index])
             space.append(theta)
             phi_space.append(np.log(theta))
-            theta_0.append(np.exp(phi_0[index]))
             index +=1
     if index == 2:
         meshgrid_theta = np.meshgrid(space[0], space[1])
@@ -450,7 +407,6 @@ def plot_helper(
         axis_scale.append(None)
         label.append(None)
         phis = phi_space[0].reshape(-1, 1)
-        theta_0 = theta_0[0]
     else:
         raise ValueError(
             "Too few or too many independent variables to plot objective over!"
@@ -465,7 +421,7 @@ def plot_helper(
         label[0], label[1],
         axis_scale[0], axis_scale[1],
         meshgrid_theta[0], meshgrid_theta[1],
-        phis, theta_0, phi_0)
+        phis)
 
 
 def generate_data(
@@ -531,7 +487,6 @@ def generate_data(
     epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
     g = epsilons + f
     g = g.flatten()
-
 
     # Sort the responses
     idx_sorted = np.argsort(g)
@@ -661,7 +616,9 @@ def main():
 
     # Generate data
     noise_variance = 1.0
-    kernel = 1.0 * Matern52().stretch(0.2)
+    signal_variance = 1.0
+    lengthscale = 1.0
+    kernel = signal_variance * Matern52().stretch(lengthscale)
     (N_show, N_total, X_js, g_js, X, f, g, y, cutpoints,
     X_train, g_train, y_train,
     X_test, y_test,
@@ -685,41 +642,36 @@ def main():
     # Initiate a misspecified model, using a kernel
     # other than the one used to generate data
     def prior(prior_parameters):
-        stretch = prior_parameters
-        signal_variance = 1.0
         # Here you can define the kernel that defines the Gaussian process
-        kernel = signal_variance * EQ().stretch(stretch)
-        # Make sure that model returns the kernel, cutpoints and noise_variance
-        return kernel
+        return signal_variance * EQ().stretch(prior_parameters)
 
     # Test prior
     if not (isinstance(prior(1.0), Kernel)):
         raise InvalidKernel(prior(1.0))
 
-    print("cutpoints_0={}".format(cutpoints_0))
+    print("cutpoints={}".format(cutpoints))
     # check that the cutpoints are in the correct format
     # for the number of classes, J
-    cutpoints_0 = check_cutpoints(cutpoints_0, J)
-    print("cutpoints_0={}".format(cutpoints_0))
+    cutpoints = check_cutpoints(cutpoints, J)
+    print("cutpoints={}".format(cutpoints))
 
-    classifier = Approximator(prior, log_probit_likelihood,
-        single_precision=True,
+    classifier = Approximator(data=(X, y), prior=prior,
+        log_likelihood=log_probit_likelihood,
         # grad_log_likelihood=grad_log_probit_likelihood,
         # hessian_log_likelihood=hessian_log_probit_likelihood,
-        data=(X, y))
+        single_precision=False)
 
-    # Notes: fwd_solver, newton_solver work, anderson solver has bug with vmap ValueError
     g = classifier.take_grad()
 
+    theta_0 = lengthscale
+    domain = ((-2, 2), None)
+    res = (50, None)
     (x, _,
     xlabel, _,
     xscale, _,
     _, _,
-    phis, theta_0, phi_0) = plot_helper(
+    phis) = plot_helper(
         res, domain)
-
-    domain = ((-1, 2), None)
-    res = (30, None)
     gs = np.empty(res[0])
     fs = np.empty(res[0])
     for i, phi in enumerate(phis):
@@ -727,7 +679,7 @@ def main():
         params = ((theta)), (jnp.sqrt(noise_variance), cutpoints)
         fx, gx = g(params)
         fs[i] = fx
-        gs[i] = gx[0] * 1./theta  # multiply by a Jacobian
+        gs[i] = gx[0] * theta  # multiply by a Jacobian
 
     # Numerical derivatives: need to calculate them in the log domain
     # if theta is in log domain
@@ -780,6 +732,12 @@ def main():
     fig.savefig("grad.png",
         facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
+
+    minimize_stopper = MinimizeStopper(max_sec=50)
+    res = minimize(
+        classifier.approximate_posterior, phi,
+        args, method=method, jac=True,
+        callback=minimize_stopper.__call__)
 
     def calculate_metrics(y_test, t_test, Z, cutpoints):
         t_pred = np.argmax(Z, axis=1)
