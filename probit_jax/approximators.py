@@ -148,10 +148,8 @@ class Approximator(ABC):
         This method should be implemented in every concrete Approximator.
         """
 
-    # TODO: this code could be quite confusing
-    def predict_reparameterised(
+    def predict(
         self,
-        distribution_fn,
         X_test,
         parameters,
         weight, precision):
@@ -177,8 +175,8 @@ class Approximator(ABC):
         :arg float noise_variance: The noise variance.
         :arg bool numerically_stable: Use matmul or triangular solve.
             Default `False`. 
-        :return: A Monte Carlo estimate of the class probabilities.
-        :rtype tuple: ((N_test, J), (N_test,), (N_test,))
+        :return: Gaussian process predictive mean and std array.
+        :rtype tuple: ((N_test,), (N_test,))
         """
         kernel = self.prior(parameters[0])
         Kss = B.dense(kernel*Delta()(X_test))
@@ -187,8 +185,7 @@ class Approximator(ABC):
         posterior_variance = Kss - B.einsum(
             'ij, ij -> j', Kfs, B.solve(Kff + B.diag(1. / precision), Kfs))
         posterior_mean = Kfs.T @ weight
-        return distribution_fn(
-            parameters[1], posterior_mean, posterior_variance)
+        return posterior_mean, posterior_variance
 
 
 class LaplaceGP(Approximator):
