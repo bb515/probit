@@ -26,6 +26,10 @@ hlpl = lambda f, y, lp: hessian_log_probit_likelihood(f, y, lp, single_precision
 fixed_point_layer.defvjp(
     fixed_point_layer_fwd, fixed_point_layer_bwd)
 
+def pytree_has_nans(tree):
+    flat, _ = tree_flatten(tree)
+    any_nans = any(jnp.any(jnp.isnan(x)) for x in flat)
+    return any_nans
 
 @pytest.fixture
 def ordinal_data():
@@ -84,8 +88,24 @@ class TestGlplAutodiff:
         fpi_sum = lambda p, pm: jnp.sum(fixed_point_iteration(p, pm))
         g = grad(fpi_sum)(theta, f)
         
-        grads_flat, _ = tree_flatten(g)
-        assert not np.isnan(grads_flat).any()
+        assert not pytree_has_nans(g)
+
+    def test_fixed_point_layer_diff_wrt_likelihood_parameters(self, lp, ordinal_data):
+        """Test the fixed point layer"""
+        N = jnp.shape(ordinal_data[1])
+
+        fixed_point_iteration = lambda parameters, posterior_mean: f_LA(
+            prior_parameters=parameters[0], likelihood_parameters=parameters[1],
+            prior=self.prior(), 
+            grad_log_likelihood=glpl,hessian_log_likelihood=hlpl,
+            posterior_mean=posterior_mean, data=ordinal_data)
+
+        lp = (lp[0], jnp.array(lp[1]))
+        theta = (self.prior_parameters, lp)
+
+        fpl_sum = lambda z_init, tol, solver, fpi, params: jnp.sum(fixed_point_layer(z_init, tol, solver, fpi, params))
+        g_fpl = grad(fpl_sum, argnums=4)(jnp.zeros(N), self.tolerance, newton_solver, fixed_point_iteration, theta)
+        assert not pytree_has_nans(g_fpl)
 
     def test_objective_diff_wrt_likelihood_parameters(self, lp, ordinal_data):
         N = jnp.shape(ordinal_data[1])
@@ -109,6 +129,4 @@ class TestGlplAutodiff:
 
         g = grad(obj)(theta)
         print(g)
-
-        grads_flat, _ = tree_flatten(g)
-        assert not np.isnan(grads_flat).any()
+        assert not pytree_has_nans(g)
