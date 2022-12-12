@@ -207,7 +207,6 @@ def main():
             kernel=kernel, J=J, data=(X, y), single_precision=True)
 
     # Notes: fwd_solver, newton_solver work, anderson solver has bug with vmap ValueError
-
     g = classifier.take_grad()
 
     trainables = [1] * (J + 2)
@@ -245,9 +244,6 @@ def main():
         # gs[i] = gx[1][0] * (0.5 * (theta) ** (1./2))  # multiply by the noise_std Jacobian
         print(fx)
         print(gx)
-        # print(gx[0])
-        # print(gx[1][0])
-        # print(gx[1][1])
 
     if args.profile:
         profile.disable()
@@ -305,21 +301,20 @@ def main():
     ax.plot(
         x, dfxs_, 'b--',
         label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic numeric")
-    #ax.set_ylim(ax.get_ylim())
+    ax.set_ylim(ax.get_ylim())
     ax.plot(
         x, gxs, 'b', alpha=0.7,
         label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
     ax.plot(
-        x, gs, 'g',
+        x, gs, 'g', alpha=0.4,
         label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff")
     ax.plot(
         x, dfsxs, 'g--',
         label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff numeric")
-    # ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-    # ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-    #     alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
-    # ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
-    #     alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
+    ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+        alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
+    ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
+        alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
     ax.set_xscale(xscale)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")

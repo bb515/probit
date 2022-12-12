@@ -810,6 +810,103 @@ def main():
             predictive_likelihood)
 
 
+    # Generate a dataset.
+    # X_train, y_train, cutpoints_0, noise_variance_0, signal_variance_0
+    # J, D, Kernel
+
+    from mlkernels import EQ
+    N_train = np.shape(y)[0]
+    Approximator, steps = get_approximator(approximation, N_train)
+    # Initiate classifier
+    def prior(prior_parameters):
+        stretch = prior_parameters
+        signal_variance = signal_variance_0
+        # Here you can define the kernel that defines the Gaussian process
+        kernel = signal_variance * EQ().stretch(stretch)
+        # Make sure that model returns the kernel, cutpoints and noise_variance
+        return kernel
+
+    # Test prior
+    if not (isinstance(prior(1.0), BaseKernel)):
+        raise InvalidKernel(prior(1.0))
+
+    # check that the cutpoints are in the correct format
+    # for the number of classes, J
+    cutpoints_0 = check_cutpoints(cutpoints_0, J)
+
+    classifier = Approximator(prior, log_probit_likelihood,
+        single_precision=True,
+        # grad_log_likelihood=grad_log_probit_likelihood,
+        # hessian_log_likelihood=hessian_log_probit_likelihood,
+        data=(X, y))
+
+    # Notes: fwd_solver, newton_solver work, anderson solver has bug with vmap ValueError
+    g = classifier.take_grad()
+
+    gs = np.empty(res[0])
+    fs = np.empty(res[0])
+    for i, phi in enumerate(phis):
+        theta = jnp.exp(phi)[0]
+        params = ((jnp.sqrt(1./(2 * theta))), (jnp.sqrt(noise_variance_0), cutpoints_0))
+        # params = ((jnp.sqrt(1./(2 * theta_0))), (jnp.sqrt(theta), cutpoints_0))
+        fx, gx = g(params)
+        fs[i] = fx
+        gs[i] = gx[0] * (- 0.5 * (2 * theta)**(-1./2))  # multiply by the lengthscale Jacobian
+        # gs[i] = gx[1][0] * (0.5 * (theta) ** (1./2))  # multiply by the noise_std Jacobian
+        print(fx)
+        print(gx)
+
+
+    fig = plt.figure()
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(BG_ALPHA)
+    ax = fig.add_subplot(111)
+    ax.grid()
+    ax.plot(x, fxs, 'b',  label=r"$\mathcal{F}}$ analytic")
+    ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
+    ylim = ax.get_ylim()
+    ax.vlines(x[idx_hat], 0.99 * ylim[0], 0.99 * ylim[1], 'r',
+        alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
+    ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
+        alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
+    ax.set_xlabel(xlabel)
+    ax.set_xscale(xscale)
+    ax.set_ylabel(r"$\mathcal{F}$")
+    ax.legend()
+    fig.savefig("bound.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
+    plt.close()
+
+    fig = plt.figure()
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(BG_ALPHA)
+    ax = fig.add_subplot(111)
+    ax.grid()
+    ax.plot(
+        x, dfxs_, 'b--',
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic numeric")
+    ax.set_ylim(ax.get_ylim())
+    ax.plot(
+        x, gxs, 'b', alpha=0.7,
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ analytic")
+    ax.plot(
+        x, gs, 'g', alpha=0.4,
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff")
+    ax.plot(
+        x, dfsxs, 'g--',
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ autodiff numeric")
+    ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+        alpha=0.5, label=r"'true' $\theta={:.2f}$".format(theta_0))
+    ax.vlines(x[idx_hat], 0.9 * ylim[0], 0.9 * ylim[1], 'r',
+        alpha=0.5, label=r"$\hat\theta={:.2f}$".format(x[idx_hat]))
+    ax.set_xscale(xscale)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
+    ax.legend()
+    fig.savefig("grad.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
+    plt.close()
+ 
     if args.profile:
         profile.disable()
         s = StringIO()

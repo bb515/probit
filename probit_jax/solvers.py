@@ -8,6 +8,7 @@ def fwd_solver(f, z_init, tolerance):
     """
     Using fix point iteration, return the latent variables at the fix
     point.
+    TODO isn't z_init always zero, can it be removed?
     """
     def cond_fun(carry):
         z_prev, z = carry

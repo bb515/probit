@@ -159,7 +159,6 @@ def main():
     # for the number of classes, J
     cutpoints_0 = check_cutpoints(cutpoints_0, J)
 
-
     grad_log_likelihood = lambda f, y, lp: grad_log_probit_likelihood(f, y, lp, single_precision=False)
     hessian_log_likelihood = lambda f, y, lp: hessian_log_probit_likelihood(f, y, lp, single_precision=False)
 

@@ -2,14 +2,10 @@
 import lab as B
 import jax
 import jax.numpy as jnp
-from jax import (vmap, grad, jit)
-import warnings
 from math import inf
-from functools import partial
-from jax.experimental.host_callback import id_print
+
 
 over_sqrt_2_pi = 1. / B.sqrt(2 * B.pi)
-log_over_sqrt_2_pi = -0.5 * B.log(2 * B.pi)
 sqrt_2 = B.sqrt(2)
 
 BOUNDS = {
@@ -21,35 +17,8 @@ def ndtr(z):
     return 0.5 * (1 + jax.lax.erf(z/sqrt_2))
 
 
-@partial(jax.jit, static_argnames=['N'])
-def matrix_inverse(matrix, N):
-    L_cov = B.cholesky(matrix)
-    L_covT_inv = B.triangular_solve(L_cov, B.eye(N), lower_a=True)
-    cov = B.triangular_solve(L_cov.T, L_covT_inv, lower_a=False)
-    return cov, L_cov
-
-
-@partial(jax.jit)
-def linear_solve(A, b):
-    L_cov = B.cholesky(A)
-    return B.cholesky_solve(L_cov, b)
-
-
-def return_prob_vector(b, cutpoints_t, cutpoints_tplus1, noise_std):
-    return ndtr((cutpoints_tplus1 - b) / noise_std) - ndtr(
-        (cutpoints_t - b) / noise_std)
-
-
-def posterior_covariance(K, cov, precision):
-    return K @ cov @ B.diag(1./precision)
-
-
 def norm_z_pdf(z):
     return over_sqrt_2_pi * jnp.exp(- 0.5 * z**2)
-
-
-def norm_z_logpdf(x):
-    return log_over_sqrt_2_pi - x**2 / 2.0
 
 
 def norm_pdf(x, loc=0.0, scale=1.0):
@@ -57,33 +26,10 @@ def norm_pdf(x, loc=0.0, scale=1.0):
     return norm_z_pdf(z) / scale
 
 
-def norm_logpdf(x, loc=0.0, scale=1.0):
-    z = (x - loc) / scale
-    return norm_z_logpdf(z) - B.log(scale)
-
-
 def norm_cdf(x):
     _x = jnp.where(jnp.isinf(x), 1., x)
     extrema = jnp.where(x == jnp.inf, 1., 0.)
     return jnp.where(jnp.isinf(x), extrema, ndtr(_x))
-
-
-def log_multivariate_normal_pdf(
-        x, cov_inv, half_log_det_cov, mean=None):
-    """Get the pdf of the multivariate normal distribution."""
-    if mean is not None:
-        x = x - mean
-    # log likelihood
-    return -0.5 * B.log(2 * B.pi) - half_log_det_cov - 0.5 * x.T @ cov_inv @ x 
-
-
-def log_multivariate_normal_pdf_vectorised(
-        xs, cov_inv, half_log_det_cov, mean=None):
-    """Get the pdf of the multivariate normal distribution."""
-    if mean is not None:
-        xs = xs - mean
-    return -0.5 * B.log(2 * B.pi) - half_log_det_cov - 0.5 * B.einsum(
-        'kj, kj -> k', B.einsum('ij, ki -> kj', cov_inv, xs), xs)
 
 
 def h(x):
@@ -107,6 +53,7 @@ def probit_likelihood(
 def log_probit_likelihood(
         f, y, likelihood_parameters):
     return jnp.log(probit_likelihood(f, y, likelihood_parameters) + 1e-10)
+
 
 def _Z_tails(z1, z2):
     """
@@ -145,6 +92,7 @@ def _safe_Z(f, y, likelihood_parameters,
     # at this point
     SAFE = 1.
 
+    # TODO: tidy up the below commented lines
     # _z1s = jnp.where(jnp.abs(z1s) < upper_bound, z1s, SAFE)
     # _z2s = jnp.where(jnp.abs(z2s) < upper_bound, z2s, SAFE+1)
     Z  = norm_cdf(z2s) - norm_cdf(z1s)
@@ -178,9 +126,8 @@ def _safe_Z(f, y, likelihood_parameters,
 def grad_log_probit_likelihood(
         f, y, likelihood_parameters,
         single_precision=True):
-
     upper_bound, upper_bound2, upper_bound3 = BOUNDS["single" if single_precision else "double"]
-    
+ 
     noise_std = likelihood_parameters[0]
     Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters,
         upper_bound, upper_bound2, upper_bound3)
@@ -192,7 +139,7 @@ def grad_log_probit_likelihood(
     E = (norm_pdf_z1s - norm_pdf_z2s) / Z
     E = jnp.where(z1s > upper_bound3, z1s, E)
     E = jnp.where(z2s < -upper_bound3, z2s, E)
-        
+
     return E / noise_std
 
 
@@ -203,7 +150,6 @@ def hessian_log_probit_likelihood(
     upper_bound, upper_bound2, upper_bound3 = BOUNDS["single" if single_precision else "double"]
 
     noise_std = likelihood_parameters[0]
-
     Z, z1s, z2s = _safe_Z(f, y, likelihood_parameters,
         upper_bound, upper_bound2, upper_bound3)
     norm_pdf_z1s = norm_pdf(z1s)
@@ -220,7 +166,6 @@ def hessian_log_probit_likelihood(
 
     V = jnp.where(z1s > upper_bound3, - noise_std ** -2, V)
     V = jnp.where(z2s < -upper_bound3, - noise_std ** -2, V)
-
     return V
 
 
@@ -247,7 +192,9 @@ def probit(
     :returns: Z
     :rtype: :class:`numpy.ndarray`
     """
-    # Otherwise
+    # NOTE this is removing infs before and after an operation so that
+    # the function can be automatically differentiated
+    # TODO: double check that this is absolutely needed
     safe_z1s = jnp.where(cutpoints_y == -jnp.inf, 0.0, (cutpoints_y - f))
     safe_z2s = jnp.where(cutpoints_yplus1 == jnp.inf, 0.0, (cutpoints_yplus1 - f))
     norm_cdf_z1s = jnp.where(cutpoints_y == -jnp.inf, 0.0, norm_cdf(safe_z1s / noise_std))
@@ -256,14 +203,18 @@ def probit(
     return Z
 
 
-def ordinal_predictive_distributions(
-        posterior_pred_mean, posterior_pred_std, N_test,
-        cutpoints):
+def probit_predictive_distributions(
+        likelihood_parameters,
+        posterior_mean, posterior_variance):
     """
     Return predictive distributions for the ordinal likelihood.
     """
+    N_test = posterior_mean.shape[0]
+    noise_std, cutpoints = likelihood_parameters
     J = B.size(cutpoints) - 1
     predictive_distributions = B.ones(N_test, J)
+    posterior_pred_std = jnp.sqrt(posterior_variance + noise_std**2)
+    posterior_pred_mean = posterior_mean
     for j in range(J):
         Z, *_ = probit(
                 posterior_pred_std,
@@ -272,60 +223,6 @@ def ordinal_predictive_distributions(
                 )
         predictive_distributions[:, j] = Z
     return predictive_distributions
-
-
-def predict_reparameterised(
-        Kss, Kfs, cov, weight, cutpoints, noise_variance):
-    """
-    Make posterior prediction over ordinal classes of X_test.
-
-    :arg X_test: The new data points, array like (N_test, D).
-    :arg cov: A covariance matrix used in calculation of posterior
-        predictions. (\sigma^2I + K)^{-1} Array like (N, N).
-    :type cov: :class:`numpy.ndarray`
-    :arg weight: The approximate inverse-covariance-posterior-mean.
-        .. math::
-            \nu = (\mathbf{K} + \sigma^{2}\mathbf{I})^{-1} \mathbf{y}
-            = \mathbf{K}^{-1} \mathbf{f}
-        Array like (N,).
-    :type weight: :class:`numpy.ndarray`
-    :arg cutpoints: (J + 1, ) array of the cutpoints.
-    :type cutpoints: :class:`numpy.ndarray`.
-    :arg float noise_variance: The noise variance.
-    :arg bool numerically_stable: Use matmul or triangular solve.
-        Default `False`. 
-    :return: A Monte Carlo estimate of the class probabilities.
-    :rtype tuple: ((N_test, J), (N_test,), (N_test,))
-    """
-    N_test = B.shape(Kss)[0]
-    temp = cov @ Kfs
-    posterior_variance = Kss - B.einsum(
-        'ij, ij -> j', Kfs, temp)
-    posterior_std = B.sqrt(posterior_variance)
-    posterior_pred_mean = Kfs.T @ weight
-    posterior_pred_variance = posterior_variance + noise_variance
-    posterior_pred_std = B.sqrt(posterior_pred_variance)
-    return (
-        ordinal_predictive_distributions(
-                posterior_pred_mean, posterior_pred_std, N_test, cutpoints,
-                ),
-            posterior_pred_mean, posterior_std)
-
-
-def sample_g(g, f, y_train, cutpoints, noise_std, N):
-    """TODO: Seems like this has to be done in numpy or numba."""
-    for i in range(N):
-        # Target class index
-        j_true = y_train[i]
-        g_i = -inf  # this is a trick for the next line
-        # Sample from the truncated Gaussian
-        while g_i > cutpoints[j_true + 1] or g_i <= cutpoints[j_true]:
-            # sample y
-            # TODO: test if this works
-            g_i = f[i] + (f[i] - B.randn(1)) / noise_std
-        # Add sample to the Y vector
-        g[i] = g_i
-    return g
 
 
 class CutpointValueError(Exception):
