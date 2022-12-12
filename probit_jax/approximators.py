@@ -156,10 +156,6 @@ class Approximator(ABC):
         """
         Make posterior prediction over ordinal classes of X_test.
 
-        :arg distribution_fn: A function that takes in a tuple of likelihood
-            parameters, posterior mean and posterior variance arrays,
-            and returns predictive probability distributions for each
-            datapoint.
         :arg X_test: The new data points, array like (N_test, D).
         :arg cov: A covariance matrix used in calculation of posterior
             predictions. (\sigma^2I + K)^{-1} Array like (N, N).
