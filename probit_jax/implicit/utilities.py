@@ -216,11 +216,11 @@ def probit_predictive_distributions(
     posterior_pred_std = jnp.sqrt(posterior_variance + noise_std**2)
     posterior_pred_mean = posterior_mean
     for j in range(J):
-        Z, *_ = probit(
-                posterior_pred_std,
-                cutpoints[j], cutpoints[j + 1],
-                posterior_pred_mean,
-                )
+        Z = probit(
+            posterior_pred_std,
+            cutpoints[j], cutpoints[j + 1],
+            posterior_pred_mean
+            )
         predictive_distributions[:, j] = Z
     return predictive_distributions
 

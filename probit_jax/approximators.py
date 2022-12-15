@@ -6,8 +6,6 @@ import jax.numpy as jnp
 import jax
 from jax import lax, grad, jit, vmap
 from mlkernels import Delta
-from probit_jax.implicit.utilities import (
-    predict_reparameterised)
 from probit_jax.solvers import (
     fwd_solver, newton_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
@@ -155,7 +153,7 @@ class Approximator(ABC):
         :rtype tuple: ((N_test,), (N_test,))
         """
         kernel = self.prior(parameters[0])
-        Kss = B.dense(kernel*Delta()(X_test))
+        Kss = B.flatten(B.dense(kernel.elwise(X_test, X_test)))
         Kfs = B.dense(kernel(self.data[0], X_test))
         Kff = B.dense(kernel(self.data[0]))
         posterior_variance = Kss - B.einsum(
@@ -207,7 +205,8 @@ class LaplaceGP(Approximator):
             weight=weight, data=self.data)
     
     def approximate_posterior(self, theta):
-        weight = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+        z = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+        weight = z[0]
         K = B.dense(self.prior(theta[0])(self.data[0]))
         posterior_mean = K @ weight
         precision = -self.hessian_log_likelihood(
@@ -260,7 +259,8 @@ class VBGP(Approximator):
             weight=weight, data=self.data)
 
     def approximate_posterior(self, theta):
-        weight = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+        z = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+        weight = z[0]
         precision = 1./ theta[1][0]**2
         return weight, precision
 
