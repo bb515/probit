@@ -11,6 +11,7 @@ from probit_jax.implicit.Laplace import objective_LA
 from probit_jax.implicit.utilities import (grad_log_probit_likelihood, norm_cdf, _Z_tails, _Z_far_tails, _safe_Z,
  hessian_log_probit_likelihood, h)
 
+
 def test_values_and_gradient_of_series_expansion():
     """Test the values and gradients of h(x) at typical and extreme values"""
     # TODO: should h(0) == -inf?
@@ -25,6 +26,7 @@ def test_values_and_gradient_of_series_expansion():
     assert grad(h_jit)(jnp.inf) == 0.
     assert grad(h_jit)(-jnp.inf) == 0.
 
+
 def test_values_and_gradient_of__Z_tails():
     """Test values and gradients of _Z_tails at extreme values.
     This function is not called for (z1, z2) \in [-3, 3], but these
@@ -34,6 +36,7 @@ def test_values_and_gradient_of__Z_tails():
     assert Z_jit(jnp.inf, jnp.inf) == 0.
     assert Z_jit(-jnp.inf, -jnp.inf) == 0.
     assert Z_jit(-jnp.inf, jnp.inf) == 1.
+
 
 @pytest.mark.parametrize("z1,z2", (
     (0., 0.),

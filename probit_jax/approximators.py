@@ -4,8 +4,7 @@ import jax
 import lab.jax as B
 import jax.numpy as jnp
 import jax
-from jax import lax, grad, jit, vmap
-from mlkernels import Delta
+from jax import grad, jit, vmap
 from probit_jax.solvers import (
     fwd_solver, newton_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)

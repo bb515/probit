@@ -1,7 +1,7 @@
-"""Ordinal regression concrete example. Approximate inference."""
-# Enable double precision
-from jax.config import config
-config.update("jax_enable_x64", True)
+"""Ordinal GP regression via approximate inference."""
+# Uncomment to enable double precision
+# from jax.config import config
+# config.update("jax_enable_x64", True)
 import argparse
 import cProfile
 from io import StringIO
@@ -10,8 +10,8 @@ import numpy as np
 import lab as B
 from mlkernels import Kernel, Matern12, EQ
 import pathlib
-from probit_jax.utilities import InvalidKernel, check_cutpoints
 from probit_jax.implicit.utilities import (
+    InvalidKernel, check_cutpoints,
     log_probit_likelihood, probit_predictive_distributions)
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -26,7 +26,8 @@ FG_ALPHA = 0.4
 write_path = pathlib.Path()
 
 
-def plot_contour(x, predictive_distributions, posterior_mean, posterior_variance, X_train, y_train, g_train, J, colors):
+def plot_contour(x, predictive_distributions, posterior_mean,
+        posterior_variance, X_train, y_train, g_train, J, colors):
     posterior_std = np.sqrt(posterior_variance)
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
@@ -127,7 +128,8 @@ def plot_helper(
         # Grid over noise_std
         label.append(r"$\sigma$")
         axis_scale.append("log")
-        theta = np.logspace(domain[index][0], domain[index][1], resolution[index])
+        theta = np.logspace(
+            domain[index][0], domain[index][1], resolution[index])
         space.append(theta)
         phi_space.append(np.log(theta))
         index += 1
@@ -135,7 +137,8 @@ def plot_helper(
         # Grid over b_1, the first cutpoint
         label.append(r"$b_{}$".format(1))
         axis_scale.append("linear")
-        theta = np.linspace(domain[index][0], domain[index][1], resolution[index])
+        theta = np.linspace(
+            domain[index][0], domain[index][1], resolution[index])
         space.append(theta)
         phi_space.append(theta)
         index += 1
@@ -143,7 +146,8 @@ def plot_helper(
         # Grid over signal variance
         label.append(r"$\sigma_{\theta}^{ 2}$")
         axis_scale.append("log")
-        theta = np.logspace(domain[index][0], domain[index][1], resolution[index])
+        theta = np.logspace(
+            domain[index][0], domain[index][1], resolution[index])
         space.append(theta)
         phi_space.append(np.log(theta))
         index += 1
@@ -152,7 +156,8 @@ def plot_helper(
             # Grid over only kernel hyperparameter, theta
             label.append(r"$\theta$")
             axis_scale.append("log")
-            theta = np.logspace(domain[index][0], domain[index][1], resolution[index])
+            theta = np.logspace(
+                domain[index][0], domain[index][1], resolution[index])
             space.append(theta)
             phi_space.append(np.log(theta))
             index +=1
@@ -354,8 +359,7 @@ def generate_data(
     assert np.shape(f) == (N_total,)
     assert np.shape(y) == (N_total,)
     return (
-        N_show, N_total, X_js, g_js, X, f, g, y, cutpoints,
-        X_train, g_train, y_train,
+        N_show, X, g, y, cutpoints,
         X_test, y_test,
         X_show, f_show)
 
@@ -382,7 +386,7 @@ def calculate_metrics(y_test, predictive_distributions):
  
 
 def main():
-    """Conduct an approximation to the posterior, and optimise hyperparameters."""
+    """Make an approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     # The --profile argument generates profiling information for the example
     parser.add_argument('--profile', action='store_const', const=True)
@@ -406,8 +410,7 @@ def main():
     lengthscale = 1.0
     kernel = signal_variance * Matern12().stretch(lengthscale)
 
-    (N_show, N_total, X_js, g_js, X, f, g_true, y, cutpoints,
-    X_train, g_train, y_train,
+    (N_show, X, g_true, y, cutpoints,
     X_test, y_test,
     X_show, f_show) = generate_data(
         N_train_per_class=10, N_test_per_class=100,
@@ -445,12 +448,13 @@ def main():
 
     g = classifier.take_grad()
 
-
     # Optimize ELBO
     params = ((lengthscale)), (np.sqrt(noise_variance), cutpoints)
     print("\nELBO and gradient of the hyper-parameters:")
     print(g(params))
-    fun = lambda x: (np.float64(g((((x)), (np.sqrt(noise_variance), cutpoints)))[0]), np.float64(g((((x)), (np.sqrt(noise_variance), cutpoints)))[1][0]))
+    fun = lambda x: (
+        np.float64(g((((x)), (np.sqrt(noise_variance), cutpoints)))[0]),
+        np.float64(g((((x)), (np.sqrt(noise_variance), cutpoints)))[1][0]))
     res = minimize(
         fun, lengthscale,
         method='BFGS', jac=True)
@@ -540,7 +544,8 @@ def main():
     predictive_distributions = probit_predictive_distributions(
         params[1],
         posterior_mean, posterior_variance)
-    plot_contour(X_show, predictive_distributions, posterior_mean, posterior_variance, X, y, g_true, J, colors)
+    plot_contour(X_show, predictive_distributions, posterior_mean,
+        posterior_variance, X, y, g_true, J, colors)
 
     # Evaluate model
     posterior_mean, posterior_variance = classifier.predict(

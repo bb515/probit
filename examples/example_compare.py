@@ -17,8 +17,8 @@ from probit.data.utilities import load_data_paper as load_data_paper_
 from probit.data.utilities import datasets as datasets_
 from probit_jax.data.utilities import datasets, load_data, load_data_synthetic, load_data_paper
 from mlkernels import Kernel as BaseKernel
-from probit_jax.utilities import InvalidKernel, check_cutpoints
 from probit_jax.implicit.utilities import (
+    InvalidKernel, check_cutpoints,
     log_probit_likelihood, grad_log_probit_likelihood, hessian_log_probit_likelihood)
 import sys
 import time
