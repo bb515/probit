@@ -444,7 +444,8 @@ def main():
         log_likelihood=log_probit_likelihood,
         # grad_log_likelihood=grad_log_probit_likelihood,
         # hessian_log_likelihood=hessian_log_probit_likelihood,
-        single_precision=False)
+        tolerance=1e-2  # tolerance for the jaxopt fixed-point resolution
+    )
 
     g = classifier.take_grad()
 
