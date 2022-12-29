@@ -10,7 +10,7 @@ import numpy as np
 import lab as B
 from mlkernels import Kernel, Matern12, EQ
 import pathlib
-from probit_jax.implicit.utilities import (
+from probit_jax.utilities import (
     InvalidKernel, check_cutpoints,
     log_probit_likelihood, probit_predictive_distributions)
 import matplotlib.pyplot as plt
@@ -397,7 +397,7 @@ def main():
  
     J = 3
     D = 1
-    approximate_inference_method = "LA"
+    approximate_inference_method = "Laplace"
 
     cmap = plt.cm.get_cmap('viridis', J)
     colors = []
@@ -420,9 +420,9 @@ def main():
     plot_ordinal(
         X, y, g_true, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
 
-    if approximate_inference_method=="VB":
+    if approximate_inference_method=="Variational Bayes":
         from probit_jax.approximators import VBGP as Approximator
-    elif approximate_inference_method=="LA":
+    elif approximate_inference_method=="Laplace":
         from probit_jax.approximators import LaplaceGP as Approximator
 
     # Initiate a misspecified model, using a kernel
@@ -444,7 +444,7 @@ def main():
         log_likelihood=log_probit_likelihood,
         # grad_log_likelihood=grad_log_probit_likelihood,
         # hessian_log_likelihood=hessian_log_probit_likelihood,
-        tolerance=1e-2  # tolerance for the jaxopt fixed-point resolution
+        tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
     )
 
     g = classifier.take_grad()

@@ -3,16 +3,12 @@ import pathlib
 import jax
 import lab.jax as B
 import jax.numpy as jnp
-import jax
 from jax import grad, jit, vmap
-from probit_jax.solvers import (
+from probit_jax.implicit.solvers import (
     fwd_solver, newton_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
-from probit_jax.implicit.Laplace import f_LA
-from probit_jax.implicit.Laplace import (
-    f_LA, objective_LA)
-from probit_jax.implicit.VB import (
-    f_VB, objective_VB)
+from probit_jax.implicit.Laplace import f_LA, objective_LA
+from probit_jax.implicit.VB import f_VB, objective_VB
 
 
 class Approximator(ABC):
@@ -203,7 +199,6 @@ class LaplaceGP(Approximator):
             prior_parameters=parameters[0],
             likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
-            hessian_log_likelihood=self.hessian_log_likelihood,
             weight=weight, data=self.data)
     
     def approximate_posterior(self, theta):
@@ -223,7 +218,6 @@ class LaplaceGP(Approximator):
                 theta[0], theta[1],
                 self.prior,
                 self.log_likelihood,
-                self.grad_log_likelihood,
                 self.hessian_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance,
                     newton_solver, self.construct(), theta),
@@ -278,7 +272,6 @@ class VBGP(Approximator):
                 theta[0], theta[1],
                 self.prior,
                 self.log_likelihood,
-                self.grad_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance,
                     fwd_solver, self.construct(), theta),
                 self.data)))

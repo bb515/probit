@@ -15,7 +15,7 @@ def f_VB(
 
 
 def objective_VB(prior_parameters, likelihood_parameters, prior,
-        log_likelihood, grad_log_likelihood, weight, data):
+        log_likelihood, weight, data):
     K = B.dense(prior(prior_parameters)(data[0]))
     posterior_mean = K @ weight
     N = B.shape(data[0])[0]
