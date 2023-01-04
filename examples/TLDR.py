@@ -10,7 +10,7 @@ import numpy as np
 import lab as B
 from mlkernels import Kernel, Matern12, EQ
 import pathlib
-from probit_jax.implicit.utilities import (
+from probit_jax.utilities import (
     InvalidKernel, check_cutpoints,
     log_probit_likelihood, probit_predictive_distributions)
 import matplotlib.pyplot as plt
@@ -24,84 +24,6 @@ MG_ALPHA = 0.2
 FG_ALPHA = 0.4
 
 write_path = pathlib.Path()
-
-
-def plot_contour(x, predictive_distributions, posterior_mean,
-        posterior_variance, X_train, y_train, g_train, J, colors):
-    posterior_std = np.sqrt(posterior_variance)
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.set_xlim((-0.5, 1.5))
-    ax.set_ylim(0.0, 1.0)
-    ax.set_xlabel(r"$x$", fontsize=16)
-    ax.set_ylabel(r"$p(y_{*}={}| \mathcal{D}, \theta)$", fontsize=16)
-    ax.stackplot(x[:, 0], predictive_distributions.T, colors=colors,
-        labels=(
-            r"$p(y=0|\mathcal{D}, \theta)$",
-            r"$p(y=1|\mathcal{D}, \theta)$",
-            r"$p(y=2|\mathcal{D}, \theta)$"))
-    val = 0.5  # where the data lies on the y-axis.
-    for j in range(J):
-        ax.scatter(
-            X_train[np.where(y_train == j)],
-            np.zeros_like(
-                X_train[np.where(
-                    y_train == j)]) + val,
-                    s=15, facecolors=colors[j],
-                edgecolors='white')
-    plt.tight_layout()
-    fig.savefig(
-            "contour.png",
-            facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(x[:, 0], posterior_mean, 'r')
-    ax.fill_between(
-        x[:, 0], posterior_mean - 2*posterior_std,
-        posterior_mean + 2*posterior_std,
-        color='red', alpha=MG_ALPHA)
-    ax.scatter(X_train, g_train, color='b', s=4)
-    ax.set_ylim(-2.2, 2.2)
-    ax.set_xlim(-0.5, 1.5)
-    for j in range(J):
-        ax.scatter(
-            X_train[np.where(y_train == j)],
-            np.zeros_like(X_train[np.where(y_train == j)]),
-            s=15,
-            facecolors=colors[j],
-            edgecolors='white')
-    plt.tight_layout()
-    fig.savefig("posterior_mean_posterior_variance.png",
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.show()
-    plt.close()
-
-
-def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, cmap, N_show=None):
-    if D==1:
-        fig, ax = plt.subplots()
-        ax.scatter(X, g, color=[colors[i] for i in y])
-        ax.plot(X_show, f_show, color='k', alpha=0.4)
-        fig.show()
-        fig.savefig("scatter.png")
-        plt.close()
-    elif D==2:
-        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-        ax.scatter3D(X[:, 0], X[:, 1], g[:], color=[colors[i] for i in y])
-        ax.plot_surface(
-            X_show[:, 0].reshape(N_show, N_show),
-            X_show[:, 1].reshape(N_show, N_show),
-            f_show.reshape(N_show, N_show), alpha=0.4)
-        fig.colorbar(cm.ScalarMappable(cmap=cmap))
-        plt.savefig("surface.png")
-        plt.show()
-        plt.close()
-    else:
-        pass
 
 
 def plot_helper(
@@ -397,7 +319,7 @@ def main():
  
     J = 3
     D = 1
-    approximate_inference_method = "LA"
+    approximate_inference_method = "Laplace"
 
     cmap = plt.cm.get_cmap('viridis', J)
     colors = []
@@ -420,9 +342,9 @@ def main():
     plot_ordinal(
         X, y, g_true, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
 
-    if approximate_inference_method=="VB":
+    if approximate_inference_method=="Variational Bayes":
         from probit_jax.approximators import VBGP as Approximator
-    elif approximate_inference_method=="LA":
+    elif approximate_inference_method=="Laplace":
         from probit_jax.approximators import LaplaceGP as Approximator
 
     # Initiate a misspecified model, using a kernel
@@ -444,7 +366,8 @@ def main():
         log_likelihood=log_probit_likelihood,
         # grad_log_likelihood=grad_log_probit_likelihood,
         # hessian_log_likelihood=hessian_log_probit_likelihood,
-        single_precision=False)
+        tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
+    )
 
     g = classifier.take_grad()
 
