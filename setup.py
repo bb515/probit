@@ -32,11 +32,10 @@ setup(
     install_requires=[
         'numpy',
         'scipy',
-        'backends==1.4.31',
-        'mlkernels==0.3.6',
-        'optax==0.1.4',
-        'jaxlib==0.1.73',
-        'jax==0.2.22',
-        'jaxopt==0.5.5'
+        'jaxlib>=0.4.1',
+        'jax>=0.4.1',
+        'backends>=1.4.32',
+        'mlkernels>=0.3.6',
+        'jaxopt>=0.5.5'
         ]
     )
