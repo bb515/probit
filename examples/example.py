@@ -77,7 +77,6 @@ def plot_contour(x, predictive_distributions, posterior_mean,
     plt.tight_layout()
     fig.savefig("posterior_mean_posterior_variance.png",
         facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.show()
     plt.close()
 
 
@@ -98,7 +97,6 @@ def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, cmap, N_show=None):
             f_show.reshape(N_show, N_show), alpha=0.4)
         fig.colorbar(cm.ScalarMappable(cmap=cmap))
         plt.savefig("surface.png")
-        plt.show()
         plt.close()
     else:
         pass
@@ -397,7 +395,7 @@ def main():
  
     J = 3
     D = 1
-    approximate_inference_method = "Laplace"
+    approximate_inference_method = "Variational Bayes"
 
     cmap = plt.cm.get_cmap('viridis', J)
     colors = []
