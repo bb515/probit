@@ -330,6 +330,7 @@ def generate_data(
     X_test = X_test_js.reshape(-1, X_test_js.shape[-1])
     y_test = y_test_js.flatten()
 
+    # TODO: tidy: why shuffled so often?
     data = np.c_[g_train, X_train, y_train]
     np.random.shuffle(data)
     g_train = data[:, :1].flatten()
@@ -347,6 +348,7 @@ def generate_data(
     X_test = np.array(X_test)
     y_test = np.array(y_test, dtype=int)
 
+    # TODO: why not return X_train, y_train
     assert np.shape(X_test) == (N_test, D)
     assert np.shape(X_train) == (N_train, D)
     assert np.shape(g_train) == (N_train,)

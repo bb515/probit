@@ -157,10 +157,6 @@ class LaplaceGP(Approximator):
 
     Inherits the Approximator ABC.
 
-    Evidence maximization algorithm as written in Appendix A
-    Chu, Wei & Ghahramani, Zoubin. (2005). Gaussian Processes for Ordinal
-    Regression.. Journal of Machine Learning Research. 6. 1019-1041.
-
     This class allows users to define a classification problem and get
     predictions using approximate Bayesian inference. It is for ordinal
     likelihood.

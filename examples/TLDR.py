@@ -1,4 +1,4 @@
-"""Ordinal GP regression via approximate inference."""
+"""GP regression."""
 # Uncomment to enable double precision
 # from jax.config import config
 # config.update("jax_enable_x64", True)
@@ -16,6 +16,7 @@ from probit_jax.utilities import (
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from scipy.optimize import minimize
+from probit_jax.approximators import LaplaceGP
 
 
 # For plotting
@@ -174,114 +175,32 @@ def generate_data(
     X = X_data
     f = f_data
     epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
-    g = epsilons + f
-    g = g.flatten()
+    y = epsilons + f
+    y = y.flatten()
 
-    # Sort the responses
-    idx_sorted = np.argsort(g)
-    g = g[idx_sorted]
-    f = f[idx_sorted]
-    X = X[idx_sorted]
-    X_js = []
-    g_js = []
-    f_js = []
-    y_js = []
-    cutpoints = np.empty(J + 1)
-    for j in range(J):
-        X_js.append(X[N_per_class * j:N_per_class * (j + 1), :D])
-        g_js.append(g[N_per_class * j:N_per_class * (j + 1)])
-        f_js.append(f[N_per_class * j:N_per_class * (j + 1)])
-        y_js.append(j * np.ones(N_per_class, dtype=int))
-
-    for j in range(1, J):
-        # Find the cutpoints
-        cutpoint_j_min = g_js[j - 1][-1]
-        cutpoint_j_max = g_js[j][0]
-        cutpoints[j] = np.average([cutpoint_j_max, cutpoint_j_min])
-    cutpoints[0] = -np.inf
-    cutpoints[-1] = np.inf
-    X_js = np.array(X_js)
-    g_js = np.array(g_js)
-    f_js = np.array(f_js)
-    y_js = np.array(y_js, dtype=int)
-    X = X.reshape(-1, X.shape[-1])
-    g = g_js.flatten()
-    f = f_js.flatten()
-    y = y_js.flatten()
     # Reshuffle
-    data = np.c_[g, X, y, f]
+    data = np.c_[y, X, f]
     np.random.shuffle(data)
-    g = data[:, :1].flatten()
+    y = data[:, :1].flatten()
     X = data[:, 1:D + 1]
-    y = data[:, D + 1].flatten()
-    y = np.array(y, dtype=int)
     f = data[:, -1].flatten()
 
-    g_train_js = []
-    X_train_js = []
-    y_train_js = []
-    X_test_js = []
-    y_test_js = []
-    for j in range(J):
-        data = np.c_[g_js[j], X_js[j], y_js[j]]
-        np.random.shuffle(data)
-        g_j = data[:, :1]
-        X_j = data[:, 1:D + 1]
-        y_j = data[:, -1]
-        # split train vs test/validate
-        g_train_j = g_j[:N_train_per_class]
-        X_train_j = X_j[:N_train_per_class]
-        y_train_j = y_j[:N_train_per_class]
-        X_j = X_j[N_train_per_class:]
-        y_j = y_j[N_train_per_class:]
-        X_train_js.append(X_train_j)
-        g_train_js.append(g_train_j)
-        y_train_js.append(y_train_j)
-        X_test_js.append(X_j)
-        y_test_js.append(y_j)
-
-    X_train_js = np.array(X_train_js)
-    g_train_js = np.array(g_train_js)
-    y_train_js = np.array(y_train_js, dtype=int)
-    X_test_js = np.array(X_test_js)
-    y_test_js = np.array(y_test_js, dtype=int)
-
-    X_train = X_train_js.reshape(-1, X_train_js.shape[-1])
-    g_train = g_train_js.flatten()
-    y_train = y_train_js.flatten()
-    X_test = X_test_js.reshape(-1, X_test_js.shape[-1])
-    y_test = y_test_js.flatten()
-
-    data = np.c_[g_train, X_train, y_train]
-    np.random.shuffle(data)
-    g_train = data[:, :1].flatten()
-    X_train = data[:, 1:D + 1]
-    y_train = data[:, -1]
-
-    data = np.c_[X_test, y_test]
-    np.random.shuffle(data)
-    X_test = data[:, 0:D]
-    y_test = data[:, -1]
-
-    g_train = np.array(g_train)
-    X_train = np.array(X_train)
-    y_train = np.array(y_train, dtype=int)
-    X_test = np.array(X_test)
-    y_test = np.array(y_test, dtype=int)
+    # split train vs test/validate
+    f_train = f[:N_train]
+    X_train = X[:N_train]
+    y_train = y[:N_train]
+    f_test = f[N_train:]
+    X_test = X[N_train:]
+    y_test = y_j[N_train:]
 
     assert np.shape(X_test) == (N_test, D)
     assert np.shape(X_train) == (N_train, D)
-    assert np.shape(g_train) == (N_train,)
     assert np.shape(y_test) == (N_test,)
     assert np.shape(y_train) == (N_train,)
-    assert np.shape(X_js) == (J, N_per_class, D)
-    assert np.shape(g_js) == (J, N_per_class)
-    assert np.shape(X) == (N_total, D)
-    assert np.shape(g) == (N_total,)
     assert np.shape(f) == (N_total,)
     assert np.shape(y) == (N_total,)
     return (
-        N_show, X, g, y, cutpoints,
+        N_show, X_train, y_train,
         X_test, y_test,
         X_show, f_show)
 
@@ -319,7 +238,6 @@ def main():
  
     J = 3
     D = 1
-    approximate_inference_method = "Laplace"
 
     cmap = plt.cm.get_cmap('viridis', J)
     colors = []
@@ -342,11 +260,6 @@ def main():
     plot_ordinal(
         X, y, g_true, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
 
-    if approximate_inference_method=="Variational Bayes":
-        from probit_jax.approximators import VBGP as Approximator
-    elif approximate_inference_method=="Laplace":
-        from probit_jax.approximators import LaplaceGP as Approximator
-
     # Initiate a misspecified model, using a kernel
     # other than the one used to generate data
     def prior(prior_parameters):
@@ -362,10 +275,8 @@ def main():
     cutpoints = check_cutpoints(cutpoints, J)
     print("cutpoints={}".format(cutpoints))
 
-    classifier = Approximator(data=(X, y), prior=prior,
-        log_likelihood=log_probit_likelihood,
-        # grad_log_likelihood=grad_log_probit_likelihood,
-        # hessian_log_likelihood=hessian_log_probit_likelihood,
+    gaussian_process = LaplaceGP(data=(X, y), prior=prior,
+        log_likelihood=log_gaussian_likelihood,
         tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
     )
 
