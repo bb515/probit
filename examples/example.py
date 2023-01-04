@@ -532,9 +532,7 @@ def main():
         facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
-
     params = ((res.x)), (np.sqrt(noise_variance), cutpoints)
-
     # Approximate posterior
     weight, precision = classifier.approximate_posterior(params)
     posterior_mean, posterior_variance = classifier.predict(

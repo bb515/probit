@@ -46,7 +46,7 @@ class Approximator(ABC):
     def __init__(
             self, data, prior, log_likelihood,
             grad_log_likelihood=None, hessian_log_likelihood=None,
-            read_path=None, tolerance=1e-5):
+            tolerance=1e-5):
         """
         Create an :class:`Approximator` object.
 
@@ -70,21 +70,11 @@ class Approximator(ABC):
         :arg hessian_log_likelihood: Optional argument supplying the
             (scalar) second derivative of the log_likelihood wrt to its first
             argument, the latent variables, f.
-        :arg str read_path: Read path for outputs. If no data is provided,
-            then it assumed that this is the path to the data and cached
-            prior covariance(s).
 
         :returns: A :class:`Approximator` object
         """
         self.tolerance = tolerance  # tolerance for the solvers
-        # Read/write
-        if read_path is None:
-            self.read_path = None
-        else:
-            self.read_path = pathlib.Path(read_path)
-
         self.prior = prior
-        # Maybe just best to let precision of likelihood be preset by the user
         if grad_log_likelihood is None:  # Try JAX grad
             grad_log_likelihood = grad(log_likelihood)
         if hessian_log_likelihood is None:  # Try JAX grad
@@ -94,6 +84,7 @@ class Approximator(ABC):
             log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.grad_log_likelihood = jit(vmap(
             grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
+        # TODO: define within LA?
         self.hessian_log_likelihood = jit(vmap(
             hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
 
@@ -201,26 +192,26 @@ class LaplaceGP(Approximator):
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             weight=weight, data=self.data)
     
-    def approximate_posterior(self, theta):
-        z = fixed_point_layer(jnp.zeros(self.N), self.tolerance,
-            newton_solver, self.construct(), theta),
-        weight = z[0]
-        print(weight)
-        K = B.dense(self.prior(theta[0])(self.data[0]))
+    def approximate_posterior(self, parameters):
+        f = self.construct()
+        z = newton_solver(lambda z: f(parameters, z),
+            jnp.zeros(self.N), self.tolerance)
+        weight = z
+        K = B.dense(self.prior(parameters[0])(self.data[0]))
         posterior_mean = K @ weight
         precision = -self.hessian_log_likelihood(
-            posterior_mean, self.data[1], theta[1])
+            posterior_mean, self.data[1], parameters[1])
         return weight, precision
 
     def take_grad(self):
         return jit(jax.value_and_grad(
-            lambda theta: objective_LA(
-                theta[0], theta[1],
+            lambda parameters: objective_LA(
+                parameters[0], parameters[1],
                 self.prior,
                 self.log_likelihood,
                 self.hessian_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance,
-                    newton_solver, self.construct(), theta),
+                    newton_solver, self.construct(), parameters),
                 self.data)))
     
 
@@ -258,20 +249,21 @@ class VBGP(Approximator):
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             weight=weight, data=self.data)
 
-    def approximate_posterior(self, theta):
-        z = fixed_point_layer(jnp.zeros(self.N), self.tolerance,
-            fwd_solver, self.construct(), theta),
-        weight = z[0]
-        precision = 1./ theta[1][0]**2 * jnp.ones(weight.shape[0])
+    def approximate_posterior(self, parameters):
+        f = self.construct()
+        z = fwd_solver(lambda z: f(parameters, z),
+            jnp.zeros(self.N), self.tolerance)
+        weight = z
+        precision = 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0])
         return weight, precision
 
     def take_grad(self):
         """Value and grad of the objective at the fix point."""
         return jit(jax.value_and_grad(
-            lambda theta: objective_VB(
-                theta[0], theta[1],
+            lambda parameters: objective_VB(
+                parameters[0], parameters[1],
                 self.prior,
                 self.log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance,
-                    fwd_solver, self.construct(), theta),
+                    fwd_solver, self.construct(), parameters),
                 self.data)))

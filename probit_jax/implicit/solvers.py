@@ -10,7 +10,7 @@ def fwd_solver(f, z_init, tolerance):
     (https://jaxopt.github.io/stable/fixed_point.html), return the latent
     variables at the fix-point.
     """
-    fpi = FixedPointIteration(fixed_point_fun=f, tol=tolerance)
+    fpi = FixedPointIteration(fixed_point_fun=f, tol=tolerance, verbose=True)  # TODO turn verbose off as it wont be jitted otherwise
     z_star, _ = fpi.run(z_init)
     return z_star
 
