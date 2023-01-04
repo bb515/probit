@@ -141,12 +141,13 @@ class Approximator(ABC):
         :rtype tuple: ((N_test,), (N_test,))
         """
         kernel = self.prior(parameters[0])
-        Kss = B.flatten(B.dense(kernel.elwise(X_test, X_test)))
-        Kfs = B.dense(kernel(self.data[0], X_test))
-        Kff = B.dense(kernel(self.data[0]))
+        Kss = B.flatten(kernel.elwise(X_test, X_test))
+        Kfs = kernel(self.data[0], X_test)
+        Kff = kernel(self.data[0])
+        K = Kff + B.diag(1. / precision)
         posterior_variance = Kss - B.einsum(
-            'ij, ij -> j', Kfs, B.solve(Kff + B.diag(1. / precision), Kfs))
-        posterior_mean = Kfs.T @ weight
+            'ij, ij -> j', B.dense(Kfs), B.solve(K, Kfs))
+        posterior_mean = B.flatten(Kfs.T @ weight)
         return posterior_mean, posterior_variance
 
 
