@@ -3,16 +3,12 @@ import pathlib
 import jax
 import lab.jax as B
 import jax.numpy as jnp
-import jax
 from jax import grad, jit, vmap
-from probit_jax.solvers import (
+from probit_jax.implicit.solvers import (
     fwd_solver, newton_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
-from probit_jax.implicit.Laplace import f_LA
-from probit_jax.implicit.Laplace import (
-    f_LA, objective_LA)
-from probit_jax.implicit.VB import (
-    f_VB, objective_VB)
+from probit_jax.implicit.Laplace import f_LA, objective_LA
+from probit_jax.implicit.VB import f_VB, objective_VB
 
 
 class Approximator(ABC):
@@ -31,8 +27,8 @@ class Approximator(ABC):
     All approximators must define a :meth:`approximate_posterior` that can be
         used to approximate the posterior and get ELBO gradients with respect
         to the hyperparameters.
-    All approximators must define a :meth:`_approximate_initiate` that is used to
-        initiate approximate.
+    All approximators must define a :meth:`_approximate_initiate` that is used
+        to initiate approximate.
     All approximators must define a :meth:`predict` can be used to make
         predictions given test data.
     """
@@ -50,59 +46,52 @@ class Approximator(ABC):
     def __init__(
             self, data, prior, log_likelihood,
             grad_log_likelihood=None, hessian_log_likelihood=None,
-            read_path=None, single_precision=True):
+            tolerance=1e-5):
         """
         Create an :class:`Approximator` object.
 
         This method should be implemented in every concrete Approximator.
 
-        :arg prior: method, when evaluated prior(*args, **kwargs)
-            returns the MLKernel class that is the kernel of the Gaussian Process.
+        :arg prior: method, when evaluated prior(*args, **kwargs) returns
+            a valid `:class:MLKernels.Kernel` object
+            that is the kernel of the Gaussian Process.
         :arg data: The data tuple. (X_train, y_train), where  
             X_train is the (N, D) The data vector and y_train (N, ) is the
             target vector. 
         :type data: (:class:`numpy.ndarray`, :class:`numpy.ndarray`)
-        :arg log_likelihood: method, when evaluated log_likelihood(*args, **kwargs)
-            returns the log likelihood. Takes in arguments as
-            log_likelihood(f, y, likelihood_parameters)
+        :arg log_likelihood: method, when evaluated
+            log_likelihood(*args, **kwargs) returns the log likelihood. Takes
+            in arguments as log_likelihood(f, y, likelihood_parameters)
             where likelihood_parameters are the (trainable) parameters
             of the likelihood, f is a latent variable and y is a datum.
         :arg grad_log_likelihood: Optional argument supplying the
             (scalar) gradient of the log_likelihood wrt to its first argument,
             the latent variables, f.
         :arg hessian_log_likelihood: Optional argument supplying the
-            (scalar) second derivative of the log_likelihood wrt to its first argument,
-            the latent variables, f.
-        :arg str read_path: Read path for outputs. If no data is provided,
-            then it assumed that this is the path to the data and cached
-            prior covariance(s).
+            (scalar) second derivative of the log_likelihood wrt to its first
+            argument, the latent variables, f.
 
         :returns: A :class:`Approximator` object
         """
-        self.tolerance = 1e-3  # tolerance for the solvers
-        # Read/write
-        if read_path is None:
-            self.read_path = None
-        else:
-            self.read_path = pathlib.Path(read_path)
-
-        # prior is a method that takes in prior_parameters and returns an `:class:MLKernels.Kernel` object
+        self.tolerance = tolerance  # tolerance for the solvers
         self.prior = prior
-        # Maybe just best to let precision of likelihood be preset by the user
         if grad_log_likelihood is None:  # Try JAX grad
             grad_log_likelihood = grad(log_likelihood)
         if hessian_log_likelihood is None:  # Try JAX grad
-            hessian_log_likelihood = grad(lambda f, y, x: grad(log_likelihood)(f, y, x))
-  
-        self.log_likelihood = jit(vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        self.grad_log_likelihood = jit(vmap(grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        self.hessian_log_likelihood = jit(vmap(hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        # Get data and calculate the prior
-        X_train, y_train = data
-        self.N = jnp.shape(X_train)[0]
+            hessian_log_likelihood = grad(
+                lambda f, y, x: grad(log_likelihood)(f, y, x))
+        self.log_likelihood = jit(vmap(
+            log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
+        self.grad_log_likelihood = jit(vmap(
+            grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
+        # TODO: define within LA?
+        self.hessian_log_likelihood = jit(vmap(
+            hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
 
+        # Get data and calculate the prior
+        X_train, _ = data
+        (self.N, self.D) = jnp.shape(X_train)
         self.data = data
-        self.D = jnp.shape(X_train)[1]
         # Set up a JAX-transformable function for a custom VJP rule definition
         fixed_point_layer.defvjp(
             fixed_point_layer_fwd, fixed_point_layer_bwd)
@@ -198,29 +187,31 @@ class LaplaceGP(Approximator):
     def construct(self):
         """Fixed point iteration function"""
         return lambda parameters, weight: f_LA(
-            prior_parameters=parameters[0], likelihood_parameters=parameters[1],
+            prior_parameters=parameters[0],
+            likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
-            hessian_log_likelihood=self.hessian_log_likelihood,
             weight=weight, data=self.data)
     
-    def approximate_posterior(self, theta):
-        z = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
-        weight = z[0]
-        K = B.dense(self.prior(theta[0])(self.data[0]))
+    def approximate_posterior(self, parameters):
+        f = self.construct()
+        z = newton_solver(lambda z: f(parameters, z),
+            jnp.zeros(self.N), self.tolerance)
+        weight = z
+        K = B.dense(self.prior(parameters[0])(self.data[0]))
         posterior_mean = K @ weight
         precision = -self.hessian_log_likelihood(
-            posterior_mean, self.data[1], theta[1])
+            posterior_mean, self.data[1], parameters[1])
         return weight, precision
 
     def take_grad(self):
         return jit(jax.value_and_grad(
-            lambda theta: objective_LA(
-                theta[0], theta[1],
+            lambda parameters: objective_LA(
+                parameters[0], parameters[1],
                 self.prior,
                 self.log_likelihood,
-                self.grad_log_likelihood,
                 self.hessian_log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+                fixed_point_layer(jnp.zeros(self.N), self.tolerance,
+                    newton_solver, self.construct(), parameters),
                 self.data)))
     
 
@@ -236,8 +227,8 @@ class VBGP(Approximator):
     """
     def __repr__(self):
         """
-        Return a string representation of this class, used to import the class from
-        the string.
+        Return a string representation of this class, used to import the class
+        from the string.
         """
         return "VBGP"
 
@@ -253,42 +244,26 @@ class VBGP(Approximator):
     def construct(self):
         """Fixed point iteration function"""
         return lambda parameters, weight: f_VB(
-            prior_parameters=parameters[0], likelihood_parameters=parameters[1],
+            prior_parameters=parameters[0],
+            likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             weight=weight, data=self.data)
 
-    def approximate_posterior(self, theta):
-        z = fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
-        weight = z[0]
-        precision = 1./ theta[1][0]**2
+    def approximate_posterior(self, parameters):
+        f = self.construct()
+        z = fwd_solver(lambda z: f(parameters, z),
+            jnp.zeros(self.N), self.tolerance)
+        weight = z
+        precision = 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0])
         return weight, precision
 
     def take_grad(self):
         """Value and grad of the objective at the fix point."""
         return jit(jax.value_and_grad(
-            lambda theta: objective_VB(
-                theta[0], theta[1],
+            lambda parameters: objective_VB(
+                parameters[0], parameters[1],
                 self.prior,
                 self.log_likelihood,
-                self.grad_log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance, newton_solver, self.construct(), theta),
+                fixed_point_layer(jnp.zeros(self.N), self.tolerance,
+                    fwd_solver, self.construct(), parameters),
                 self.data)))
-
-
-class InvalidApproximator(Exception):
-    """An invalid approximator has been passed to `PseudoMarginal`"""
-
-    def __init__(self, approximator):
-        """
-        Construct the exception.
-
-        :arg kernel: The object pass to :class:`PseudoMarginal` as the approximator
-            argument.
-        :rtype: :class:`InvalidApproximator`
-        """
-        message = (
-            f"{approximator} is not an instance of "
-            "probit.approximators.Approximator"
-        )
-
-        super().__init__(message)

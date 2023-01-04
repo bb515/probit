@@ -2,14 +2,14 @@ import lab.jax as B
 
 
 def f_LA(prior_parameters, likelihood_parameters, prior, grad_log_likelihood,
-        hessian_log_likelihood, weight, data):
+        weight, data):
     K = B.dense(prior(prior_parameters)(data[0]))
     posterior_mean = K @ weight
     return grad_log_likelihood(posterior_mean, data[1], likelihood_parameters)
 
 
 def objective_LA(prior_parameters, likelihood_parameters, prior,
-        log_likelihood, grad_log_likelihood, hessian_log_likelihood,
+        log_likelihood, hessian_log_likelihood,
         weight, data):
     K = B.dense(prior(prior_parameters)(data[0]))
     posterior_mean = K @ weight
