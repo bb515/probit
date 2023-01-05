@@ -8,15 +8,15 @@ from io import StringIO
 from pstats import Stats, SortKey
 import numpy as np
 import lab as B
-from mlkernels import Kernel, Matern12, EQ
+from mlkernels import Kernel, EQ
 import pathlib
 from probit_jax.utilities import (
-    InvalidKernel, check_cutpoints,
-    log_probit_likelihood, probit_predictive_distributions)
+    InvalidKernel,
+    log_gaussian_likelihood)
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from scipy.optimize import minimize
-from probit_jax.approximators import LaplaceGP
+from probit_jax.approximators import LaplaceGP as GP
 
 
 # For plotting
@@ -39,8 +39,6 @@ def plot_helper(
     :type domain:
     :arg trainables: Indicator array of the hyperparameters to sample over.
     :type trainables: :class:`numpy.ndarray`
-    :arg cutpoints: (J + 1, ) array of the cutpoints.
-    :type cutpoints: :class:`numpy.ndarray`.
     """
     index = 0
     label = []
@@ -55,15 +53,6 @@ def plot_helper(
             domain[index][0], domain[index][1], resolution[index])
         space.append(theta)
         phi_space.append(np.log(theta))
-        index += 1
-    if "cutpoints" in trainables:
-        # Grid over b_1, the first cutpoint
-        label.append(r"$b_{}$".format(1))
-        axis_scale.append("linear")
-        theta = np.linspace(
-            domain[index][0], domain[index][1], resolution[index])
-        space.append(theta)
-        phi_space.append(theta)
         index += 1
     if "signal_variance" in trainables:
         # Grid over signal variance
@@ -115,19 +104,18 @@ def plot_helper(
 
 
 def generate_data(
-        N_train_per_class, N_test_per_class,
-        J, D, kernel, noise_variance,
+        N_train, N_test,
+        D, kernel, noise_std,
         N_show, jitter=1e-6, seed=None):
     """
-    Generate data from the GP prior, and choose some cutpoints that
-    approximately divides data into equal bins.
+    Generate data from the GP prior.
 
     :arg int N_per_class: The number of data points per class.
     :arg splits:
     :arg int J: The number of bins/classes/quantiles.
     :arg int D: The number of data dimensions.
     :arg kernel: The GP prior.
-    :arg noise_variance: The noise variance.
+    :arg noise_std: The noise standard deviation.
     """
     if D==1:
         # Generate input data from a linear grid
@@ -142,10 +130,7 @@ def generate_data(
         # Pairs
         X_show = np.dstack([xx, yy]).reshape(-1, 2)
 
-    N_train = int(J * N_train_per_class)
-    N_test = int(J * N_test_per_class)
     N_total = N_train + N_test
-    N_per_class = N_train_per_class + N_test_per_class
 
     # Sample from the real line, uniformly
     if seed: np.random.seed(seed)  # set seed
@@ -174,7 +159,7 @@ def generate_data(
     # Generate the latent variables
     X = X_data
     f = f_data
-    epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
+    epsilons = np.random.normal(0, noise_std, N_total)
     y = epsilons + f
     y = y.flatten()
 
@@ -186,19 +171,11 @@ def generate_data(
     f = data[:, -1].flatten()
 
     # split train vs test/validate
-    f_train = f[:N_train]
     X_train = X[:N_train]
     y_train = y[:N_train]
-    f_test = f[N_train:]
     X_test = X[N_train:]
-    y_test = y_j[N_train:]
+    y_test = y[N_train:]
 
-    assert np.shape(X_test) == (N_test, D)
-    assert np.shape(X_train) == (N_train, D)
-    assert np.shape(y_test) == (N_test,)
-    assert np.shape(y_train) == (N_train,)
-    assert np.shape(f) == (N_total,)
-    assert np.shape(y) == (N_total,)
     return (
         N_show, X_train, y_train,
         X_test, y_test,
@@ -206,25 +183,18 @@ def generate_data(
 
 
 def calculate_metrics(y_test, predictive_distributions):
-    y_pred = np.argmax(predictive_distributions, axis=1)
-    grid = np.ogrid[0:len(y_test)]
-    predictive_likelihood = predictive_distributions[grid, y_test]
+    y_pred, y_var = predictive_distributions
     mean_absolute_error = np.sum(np.abs(y_pred - y_test)) / len(y_test)
-    print(np.sum(y_pred != y_test), "sum incorrect")
-    print(np.sum(y_pred == y_test), "sum correct")
     print("mean_absolute_error ", mean_absolute_error)
-    log_predictive_probability = np.sum(np.log(predictive_likelihood))
+    mean_squared_error = np.sum((y_pred - y_test)**2) / len(y_test)
+    print("mean_squared_error ", mean_squared_error)
+    log_predictive_probability = np.sum(log_gaussian_likelihood(y_pred, y_test, np.sqrt(y_var)))
     print("log_pred_probability ", log_predictive_probability)
-    predictive_likelihood = np.sum(predictive_likelihood) / len(y_test)
-    print("predictive_likelihood ", predictive_likelihood)
-    mean_zero_one = np.sum(y_pred != y_test) / len(y_test)
-    print("mean_zero_one_error", mean_zero_one)
     return (
-        mean_zero_one,
         mean_absolute_error,
-        log_predictive_probability,
-        predictive_likelihood)
- 
+        mean_squared_error,
+        log_predictive_probability)
+
 
 def main():
     """Make an approximation to the posterior, and optimise hyperparameters."""
@@ -236,66 +206,37 @@ def main():
         profile = cProfile.Profile()
         profile.enable()
  
-    J = 3
-    D = 1
-
-    cmap = plt.cm.get_cmap('viridis', J)
-    colors = []
-    for j in range(J):
-        colors.append(cmap((j + 0.5)/J))
-
-    # Generate data
-    noise_variance = 0.4
-    signal_variance = 1.0
-    lengthscale = 1.0
-    kernel = signal_variance * Matern12().stretch(lengthscale)
-
-    (N_show, X, g_true, y, cutpoints,
-    X_test, y_test,
-    X_show, f_show) = generate_data(
-        N_train_per_class=10, N_test_per_class=100,
-        J=3, D=1, kernel=kernel, noise_variance=noise_variance,
-        N_show=1000, jitter=1e-6, seed=None)
-
-    plot_ordinal(
-        X, y, g_true, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
-
     # Initiate a misspecified model, using a kernel
     # other than the one used to generate data
     def prior(prior_parameters):
+        lengthscale, signal_variance = prior_parameters
         # Here you can define the kernel that defines the Gaussian process
-        return signal_variance * EQ().stretch(prior_parameters)
+        return signal_variance * EQ().stretch(lengthscale).periodic(0.5)
 
-    # Test prior
-    if not (isinstance(prior(1.0), Kernel)):
-        raise InvalidKernel(prior(1.0))
+    # Generate data
+    (N_show, X, y,
+    X_test, y_test,
+    X_show, f_show) = generate_data(
+        N_train=20, N_test=100,
+        D=1, kernel=prior((1.0, 1.0)), noise_std=0.2,
+        N_show=1000, jitter=1e-6, seed=None)
 
-    # check that the cutpoints are in the correct format
-    # for the number of classes, J
-    cutpoints = check_cutpoints(cutpoints, J)
-    print("cutpoints={}".format(cutpoints))
+    gaussian_process = GP(data=(X, y), prior=prior,
+        log_likelihood=log_gaussian_likelihood)
 
-    gaussian_process = LaplaceGP(data=(X, y), prior=prior,
-        log_likelihood=log_gaussian_likelihood,
-        tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
-    )
-
-    g = classifier.take_grad()
+    g = gaussian_process.take_grad()
+    g_lengthscale = lambda theta: (g(((theta, 1.0), (0.2,))))
 
     # Optimize ELBO
-    params = ((lengthscale)), (np.sqrt(noise_variance), cutpoints)
-    print("\nELBO and gradient of the hyper-parameters:")
-    print(g(params))
     fun = lambda x: (
-        np.float64(g((((x)), (np.sqrt(noise_variance), cutpoints)))[0]),
-        np.float64(g((((x)), (np.sqrt(noise_variance), cutpoints)))[1][0]))
+        g_lengthscale(x)[0],
+        g_lengthscale(x)[1][0][0])
     res = minimize(
-        fun, lengthscale,
+        fun, 1.0,
         method='BFGS', jac=True)
     print("\nOptimization output:")
     print(res)
 
-    theta_0 = lengthscale
     domain = ((-2, 2), None)
     resolution = (50, None)
     (x, _,
@@ -308,10 +249,9 @@ def main():
     fs = np.empty(resolution[0])
     for i, phi in enumerate(phis):
         theta = np.exp(phi)[0]
-        params = ((theta)), (np.sqrt(noise_variance), cutpoints)
-        fx, gx = g(params)
+        fx, gx = g_lengthscale(theta)
         fs[i] = fx
-        gs[i] = gx[0] * theta  # multiply by a Jacobian
+        gs[i] = gx[0][0] * theta  # multiply by a Jacobian
 
     # Calculate numerical derivatives wrt domain of plot
     if xscale == "log":
@@ -330,8 +270,8 @@ def main():
     ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
     ax.vlines(np.float64(res.x), 0.99 * ylim[0], 0.99 * ylim[1], 'r',
         alpha=0.5, label=r"$\hat\theta={:.2f}$".format(np.float64(res.x)))
-    ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
-        alpha=0.5, label=r"$\theta={:.2f}$".format(theta_0))
+    ax.vlines(1.0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
+        alpha=0.5, label=r"$\theta={}$".format(1.0))
     ax.set_xlabel(xlabel)
     ax.set_xscale(xscale)
     ax.set_ylabel(r"$\mathcal{F}$")
@@ -353,8 +293,8 @@ def main():
     ax.plot(
         x, dfsxs, 'g--',
         label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical")
-    ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-        alpha=0.5, label=r"$\theta={:.2f}$".format(theta_0))
+    ax.vlines(1.0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+        alpha=0.5, label=r"$\theta={}$".format(1.0))
     ax.vlines(np.float64(res.x), 0.9 * ylim[0], 0.9 * ylim[1], 'r',
         alpha=0.5, label=r"$\hat\theta={:.2f}$".format(np.float64(res.x)))
     ax.set_xscale(xscale)
@@ -366,31 +306,33 @@ def main():
     plt.close()
 
 
-    params = ((res.x)), (np.sqrt(noise_variance), cutpoints)
+    params = (res.x, 1.0), (0.2,)
 
     # Approximate posterior
-    weight, precision = classifier.approximate_posterior(params)
-    posterior_mean, posterior_variance = classifier.predict(
+    weight, precision = gaussian_process.approximate_posterior(params)
+    mean, variance = gaussian_process.predict(
         X_show,
         params,
         weight, precision)
-    # Make predictions
-    predictive_distributions = probit_predictive_distributions(
-        params[1],
-        posterior_mean, posterior_variance)
-    plot_contour(X_show, predictive_distributions, posterior_mean,
-        posterior_variance, X, y, g_true, J, colors)
+
+    # Plot result.
+    plt.plot(X_show, f_show, label="True", color="orange")
+    plt.plot(X_show, mean, label="Prediction", linestyle="--", color="blue")
+    plt.scatter(X, y, label="Observations", color="black", s=20)
+    plt.fill_between(X_show.flatten(), mean - 2. * np.sqrt(variance), mean + 2. * np.sqrt(variance), alpha=0.3, color="blue")
+    plt.xlim((0.0, 1.0))
+    plt.legend()
+    plt.grid()
+    plt.savefig("readme_example1_simple_regression.png")
 
     # Evaluate model
-    posterior_mean, posterior_variance = classifier.predict(
+    mean, variance = gaussian_process.predict(
         X_test,
         params,
         weight, precision)
-    predictive_distributions = probit_predictive_distributions(
-        params[1],
-        posterior_mean, posterior_variance)
     print("\nEvaluation of model:")
-    calculate_metrics(y_test, predictive_distributions) 
+    calculate_metrics(y_test, (mean, variance))
+
 
     if args.profile:
         profile.disable()

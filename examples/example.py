@@ -366,8 +366,7 @@ def generate_data(
 
 def calculate_metrics(y_test, predictive_distributions):
     y_pred = np.argmax(predictive_distributions, axis=1)
-    grid = np.ogrid[0:len(y_test)]
-    predictive_likelihood = predictive_distributions[grid, y_test]
+    predictive_likelihood = predictive_distributions[:, y_test]
     mean_absolute_error = np.sum(np.abs(y_pred - y_test)) / len(y_test)
     print(np.sum(y_pred != y_test), "sum incorrect")
     print(np.sum(y_pred == y_test), "sum correct")
@@ -395,9 +394,11 @@ def main():
         profile = cProfile.Profile()
         profile.enable()
  
-    J = 3
-    D = 1
     approximate_inference_method = "Variational Bayes"
+    if approximate_inference_method=="Variational Bayes":
+        from probit_jax.approximators import VBGP as Approximator
+    elif approximate_inference_method=="Laplace":
+        from probit_jax.approximators import LaplaceGP as Approximator
 
     cmap = plt.cm.get_cmap('viridis', J)
     colors = []
@@ -419,11 +420,6 @@ def main():
 
     plot_ordinal(
         X, y, g_true, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
-
-    if approximate_inference_method=="Variational Bayes":
-        from probit_jax.approximators import VBGP as Approximator
-    elif approximate_inference_method=="Laplace":
-        from probit_jax.approximators import LaplaceGP as Approximator
 
     # Initiate a misspecified model, using a kernel
     # other than the one used to generate data
@@ -450,7 +446,7 @@ def main():
     g = classifier.take_grad()
 
     # Optimize ELBO
-    params = ((lengthscale)), (np.sqrt(noise_variance), cutpoints)
+    params = (lengthscale), (np.sqrt(noise_variance), cutpoints)
     print("\nELBO and gradient of the hyper-parameters:")
     print(g(params))
     fun = lambda x: (
