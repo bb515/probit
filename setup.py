@@ -21,7 +21,7 @@ extra_link_args = []
 setup(
     name="probit_jax",
     version="0.1.0",
-    description="A classification with GP priors package for python",
+    description="A simple and tidy Gaussian process package in Jax.",
     long_description=README,
     long_description_content_type="text/markdown",
     url="https://github.com/bb515/probit_jax",

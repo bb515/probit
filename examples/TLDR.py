@@ -104,7 +104,7 @@ def plot_helper(
 
 
 def generate_data(
-        N_train, N_test,
+        N_train,
         D, kernel, noise_std,
         N_show, jitter=1e-6, seed=None):
     """
@@ -130,14 +130,12 @@ def generate_data(
         # Pairs
         X_show = np.dstack([xx, yy]).reshape(-1, 2)
 
-    N_total = N_train + N_test
-
     # Sample from the real line, uniformly
     if seed: np.random.seed(seed)  # set seed
-    X_data = np.random.uniform(low=0.0, high=1.0, size=(N_total, D))
+    X_train = np.random.uniform(low=0.0, high=1.0, size=(N_train, D))
 
-    # Concatenate X_data and X_show
-    X = np.append(X_data, X_show, axis=0)
+    # Concatenate X_train and X_show
+    X = np.append(X_train, X_show, axis=0)
 
     # Sample from a multivariate normal
     K = B.dense(kernel(X))
@@ -147,53 +145,29 @@ def generate_data(
     # Generate normal samples for both sets of input data
     if seed: np.random.seed(seed)  # set seed
     z = np.random.normal(loc=0.0, scale=1.0,
-        size=np.shape(X_data)[0] + np.shape(X_show)[0])
+        size=X_train.shape[0] + X_show.shape[0])
     f = L_K @ z
 
     # Store f_show
-    f_data = f[:N_total]
-    f_show = f[N_total:]
+    f_train = f[:N_train]
+    f_show = f[N_train:]
 
     assert np.shape(f_show) == (np.shape(X_show)[0],)
 
     # Generate the latent variables
-    X = X_data
-    f = f_data
-    epsilons = np.random.normal(0, noise_std, N_total)
-    y = epsilons + f
-    y = y.flatten()
+    epsilons = np.random.normal(0, noise_std, N_train)
+    y_train = epsilons + f_train
+    y_train = y_train.flatten()
 
     # Reshuffle
-    data = np.c_[y, X, f]
+    data = np.c_[y_train, X_train, f_train]
     np.random.shuffle(data)
-    y = data[:, :1].flatten()
-    X = data[:, 1:D + 1]
-    f = data[:, -1].flatten()
-
-    # split train vs test/validate
-    X_train = X[:N_train]
-    y_train = y[:N_train]
-    X_test = X[N_train:]
-    y_test = y[N_train:]
+    y_train = data[:, :1].flatten()
+    X_train = data[:, 1:D + 1]
 
     return (
         N_show, X_train, y_train,
-        X_test, y_test,
         X_show, f_show)
-
-
-def calculate_metrics(y_test, predictive_distributions):
-    y_pred, y_var = predictive_distributions
-    mean_absolute_error = np.sum(np.abs(y_pred - y_test)) / len(y_test)
-    print("mean_absolute_error ", mean_absolute_error)
-    mean_squared_error = np.sum((y_pred - y_test)**2) / len(y_test)
-    print("mean_squared_error ", mean_squared_error)
-    log_predictive_probability = np.sum(log_gaussian_likelihood(y_pred, y_test, np.sqrt(y_var)))
-    print("log_pred_probability ", log_predictive_probability)
-    return (
-        mean_absolute_error,
-        mean_squared_error,
-        log_predictive_probability)
 
 
 def main():
@@ -214,18 +188,18 @@ def main():
         return signal_variance * EQ().stretch(lengthscale).periodic(0.5)
 
     # Generate data
+    noise_std = 0.2
     (N_show, X, y,
-    X_test, y_test,
     X_show, f_show) = generate_data(
-        N_train=20, N_test=100,
-        D=1, kernel=prior((1.0, 1.0)), noise_std=0.2,
-        N_show=1000, jitter=1e-6, seed=None)
+        N_train=20,
+        D=1, kernel=prior((1.0, 1.0)), noise_std=noise_std,
+        N_show=1000, jitter=1e-8, seed=None)
 
     gaussian_process = GP(data=(X, y), prior=prior,
         log_likelihood=log_gaussian_likelihood)
 
     g = gaussian_process.take_grad()
-    g_lengthscale = lambda theta: (g(((theta, 1.0), (0.2,))))
+    g_lengthscale = lambda theta: (g(((theta, 1.0), (noise_std,))))
 
     # Optimize ELBO
     fun = lambda x: (
@@ -306,7 +280,7 @@ def main():
     plt.close()
 
 
-    params = (res.x, 1.0), (0.2,)
+    params = (res.x, 1.0), (noise_std,)
 
     # Approximate posterior
     weight, precision = gaussian_process.approximate_posterior(params)
@@ -319,20 +293,11 @@ def main():
     plt.plot(X_show, f_show, label="True", color="orange")
     plt.plot(X_show, mean, label="Prediction", linestyle="--", color="blue")
     plt.scatter(X, y, label="Observations", color="black", s=20)
-    plt.fill_between(X_show.flatten(), mean - 2. * np.sqrt(variance), mean + 2. * np.sqrt(variance), alpha=0.3, color="blue")
+    plt.fill_between(X_show.flatten(), mean - 2. * np.sqrt(variance + noise_std**2), mean + 2. * np.sqrt(variance + noise_std**2), alpha=0.3, color="blue")
     plt.xlim((0.0, 1.0))
     plt.legend()
     plt.grid()
     plt.savefig("readme_example1_simple_regression.png")
-
-    # Evaluate model
-    mean, variance = gaussian_process.predict(
-        X_test,
-        params,
-        weight, precision)
-    print("\nEvaluation of model:")
-    calculate_metrics(y_test, (mean, variance))
-
 
     if args.profile:
         profile.disable()

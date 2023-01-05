@@ -1,1 +1,1 @@
-"""Classifier tests."""
+"""tests."""
