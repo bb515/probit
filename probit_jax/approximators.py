@@ -84,7 +84,6 @@ class Approximator(ABC):
             log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
         self.grad_log_likelihood = jit(vmap(
             grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        # TODO: define within LA?
         self.hessian_log_likelihood = jit(vmap(
             hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
 
