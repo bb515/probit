@@ -400,6 +400,8 @@ def main():
     elif approximate_inference_method=="Laplace":
         from probit_jax.approximators import LaplaceGP as Approximator
 
+    J = 3
+    D = 1
     cmap = plt.cm.get_cmap('viridis', J)
     colors = []
     for j in range(J):
@@ -415,7 +417,7 @@ def main():
     X_test, y_test,
     X_show, f_show) = generate_data(
         N_train_per_class=10, N_test_per_class=100,
-        J=3, D=1, kernel=kernel, noise_variance=noise_variance,
+        J=J, D=D, kernel=kernel, noise_variance=noise_variance,
         N_show=1000, jitter=1e-6, seed=None)
 
     plot_ordinal(

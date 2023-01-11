@@ -3,7 +3,7 @@ import pathlib
 import jax
 import lab.jax as B
 import jax.numpy as jnp
-from jax import grad, jit, vmap
+from jax import value_and_grad, grad, jit, vmap
 from probit_jax.implicit.solvers import (
     fwd_solver, newton_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
@@ -113,6 +113,22 @@ class Approximator(ABC):
         This method should be implemented in every concrete Approximator.
         """
 
+    @abstractmethod
+    def weight(self):
+        """
+        The weight, that is part of the solution of GP regression.
+
+        This method should be implemented in every concrete Approximator.
+        """
+
+    @abstractmethod
+    def precision(self):
+        """
+        The precision, that is part of the solution of GP regression.
+
+        This method should be implemented in every concrete Approximator.
+        """
+
     def predict(
         self,
         X_test,
@@ -144,10 +160,19 @@ class Approximator(ABC):
         Kfs = kernel(self.data[0], X_test)
         Kff = kernel(self.data[0])
         K = Kff + B.diag(1. / precision)
-        posterior_variance = Kss - B.einsum(
+        predictive_posterior_variance = Kss - B.einsum(
             'ij, ij -> j', B.dense(Kfs), B.solve(K, Kfs))
-        posterior_mean = B.flatten(Kfs.T @ weight)
-        return posterior_mean, posterior_variance
+        predictive_posterior_mean = B.flatten(Kfs.T @ weight)
+        return predictive_posterior_mean, predictive_posterior_variance
+
+    def posterior_mean(self, weight):
+        K = B.dense(self.prior(parameters[0])(self.data[0]))
+        return K @ weight
+
+    def approximate_posterior(self, parameters):
+        w = self.weight(parameters)
+        p, _ = self.precision(weight, parameters)
+        return w, p
 
 
 class LaplaceGP(Approximator):
@@ -187,20 +212,27 @@ class LaplaceGP(Approximator):
             likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             weight=weight, data=self.data)
-    
-    def approximate_posterior(self, parameters):
+
+    def weight(self, parameters):
+        """
+        :returns: A JAX array.
+        """
         f = self.construct()
-        z = newton_solver(lambda z: f(parameters, z),
+        return newton_solver(lambda z: f(parameters, z),
             jnp.zeros(self.N), self.tolerance)
-        weight = z
+
+    def precision(self, weight, parameters):
+        """
+        :returns: A JAX array.
+        """
         K = B.dense(self.prior(parameters[0])(self.data[0]))
         posterior_mean = K @ weight
         precision = -self.hessian_log_likelihood(
             posterior_mean, self.data[1], parameters[1])
-        return weight, precision
+        return precision, posterior_mean
 
     def take_grad(self):
-        return jit(jax.value_and_grad(
+        return jit(value_and_grad(
             lambda parameters: objective_LA(
                 parameters[0], parameters[1],
                 self.prior,
@@ -245,17 +277,23 @@ class VBGP(Approximator):
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             weight=weight, data=self.data)
 
-    def approximate_posterior(self, parameters):
+    def weight(self, parameters):
+        """
+        :returns: A JAX array.
+        """
         f = self.construct()
-        z = fwd_solver(lambda z: f(parameters, z),
+        return fwd_solver(lambda z: f(parameters, z),
             jnp.zeros(self.N), self.tolerance)
-        weight = z
-        precision = 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0])
-        return weight, precision
+
+    def precision(self, parameters, weight):
+        """
+        :returns: A JAX array.
+        """
+        return 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0])
 
     def take_grad(self):
         """Value and grad of the objective at the fix point."""
-        return jit(jax.value_and_grad(
+        return jit(value_and_grad(
             lambda parameters: objective_VB(
                 parameters[0], parameters[1],
                 self.prior,
