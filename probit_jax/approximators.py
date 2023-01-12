@@ -129,11 +129,7 @@ class Approximator(ABC):
         This method should be implemented in every concrete Approximator.
         """
 
-    def predict(
-        self,
-        X_test,
-        parameters,
-        weight, precision):
+    def predict(self, X_test, parameters, weight, precision):
         """
         Make posterior prediction over ordinal classes of X_test.
 
@@ -171,7 +167,7 @@ class Approximator(ABC):
 
     def approximate_posterior(self, parameters):
         w = self.weight(parameters)
-        p, _ = self.precision(weight, parameters)
+        p, _ = self.precision(w, parameters)
         return w, p
 
 
