@@ -1,16 +1,49 @@
-probit
-======
+# [probit](http://github.com/bb515/probit_jax)
+[![CI]]()
+[![Coverage Status]]()
+[![Latest Docs]]()
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)]()
 
-Please do not distribute this private repository. This is WIP until release - so some functionality may be temporarily broken and poorly documented.
+GP regression and classification in JAX in not many lines of code.
 
-probit, is an open-source python package for solving ordinal regression problems with Gaussian Processes. 
+Contents:
 
+- [Installation](#installation)
+- [Usage](#usage)
+- See [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
+- [Doesn't haves](#doesnthaves)
+
+Doesn't haves
+-------------
+- [Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/vgp_notes.html) or [Sparse Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/SGPR_notes.html).
+
+
+TLDR:
+(TODO)
+```python
+>>> from probit_jax import
+```
+
+
+Get started
+-----------
+
+### Building and Installation ###
+- The package requires Python 3.9+
+- Clone the repository `git clone git@github.com:bb515/probit.git`
+- Install using pip `pip install -e .` from the root directory of the repository (see the `setup.py` for the requirements that this command installs).
+
+### Running examples ###
+
+### Running the tests ###
+
+The tests for this project use [pytest](https://pytest.org/en/latest/).
 References
 ----------
 
 Most of the algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories
 
-Laplace approximation, Expectation Propagation http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html
+Laplace approximation http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html
 @article{Chu2005,
 author = {Chu, Wei and Ghahramani, Zoubin},
 year = {2005},
@@ -43,28 +76,4 @@ Variational inference via factorizing assumption and free form minimization
 }
 
 
-Features
---------
-- Supports MLKernels priors
-- Approximate inference with mean field Variational Bayes, Laplace approximation 
-- Type II maximum likelihood via manual and numerical gradients. A first version of autodiff is available on branch feature/implicit_layer
 
-Planned Features
---------
-- Make autodiff capabilities numerically stable
-- Complete documentation
-- Make faster than manual differentiation package, `probit`
-- Python Package index release
-
-Get started
------------
-
-### Building and Installation ###
-- The package requires Python 3.9+
-- TODO: include any autodiff and linear algebra backend dependencies
-
-### Running examples ###
-
-### Running the tests ###
-
-The tests for this project use [pytest](https://pytest.org/en/latest/).
