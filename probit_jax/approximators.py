@@ -171,7 +171,7 @@ class Approximator(ABC):
 
     def approximate_posterior(self, parameters):
         w = self.weight(parameters)
-        p, _ = self.precision(weight, parameters)
+        p, _ = self.precision(w, parameters)
         return w, p
 
 
