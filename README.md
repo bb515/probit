@@ -38,6 +38,7 @@ Get started
 ### Running the tests ###
 
 The tests for this project use [pytest](https://pytest.org/en/latest/).
+
 References
 ----------
 
