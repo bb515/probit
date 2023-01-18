@@ -48,16 +48,17 @@ class RFM(LaplaceGP):
         # weight = fixed_point_layer(jnp.zeros(N), self.tolerance,
             # newton_solver, self.construct(), parameters)
         # adhoc
-        weight = jnp.linalg.solve(B.dense(self.prior(parameters[0])(X, X)) + 1e-8 * jnp.eye(N), y)
-        print(weight.shape)
-        assert 0
+        weight = jnp.linalg.solve(B.dense(self.prior(parameters[0])(X, X)) + 1e-3 * jnp.eye(N), y)
         num_samples = 20000
         indices = np.random.randint(len(X), size=num_samples)
         if len(X) > len(indices):
             x = X[indices, :]
         else:
             x = X
-        C = 1  # (N, C) is shape of weight, C=1 unless output is multidimensional
+        if np.ndim(weight) == 1:
+            C = 1
+        else:
+            C = weight.shape[1]  # (N, C) is shape of weight, C=1 unless output is multidimensional
         M, D  = x.shape
         K = B.dense(self.prior(parameters[0])(X, x))
         dist = LaplaceM(parameters[0][0])._pw_dists2(X, x)
@@ -73,9 +74,9 @@ class RFM(LaplaceGP):
         step2 = K.T @ step1
         del step1
         step2 = step2.reshape(-1, C, D)
-        a2 = weight
-        step3 = (a2 @ K).T
-        del K, a2
+        weight2 = weight.T
+        step3 = (weight2 @ K).T  # ((C, N @ N, N))
+        del K, weight2
         step3 = step3.reshape(M, C, 1)
         x1 = (x @ parameters[0][0]).reshape(M, 1, D)
         step3 = step3 @ x1
@@ -110,5 +111,5 @@ class RFM(LaplaceGP):
                 del grad, gradT
             M /= train_size
             parameters[0][0] = M
+            print(i, M)
         return parameters
-
