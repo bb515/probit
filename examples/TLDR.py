@@ -105,34 +105,24 @@ def plot_helper(
 
 def generate_data(
         N_train,
-        D, kernel, noise_std,
+        kernel, noise_std,
         N_show, jitter=1e-6, seed=None):
     """
     Generate data from the GP prior.
 
-    :arg int N_per_class: The number of data points per class.
-    :arg splits:
-    :arg int J: The number of bins/classes/quantiles.
-    :arg int D: The number of data dimensions.
+    :arg int N_train: The number of data points.
     :arg kernel: The GP prior.
     :arg noise_std: The noise standard deviation.
+    :arg int N_show: The number of data points to plot.
     """
-    if D==1:
-        # Generate input data from a linear grid
-        X_show = np.linspace(-0.5, 1.5, N_show)
-        # reshape X to make it (n, D)
-        X_show = X_show[:, None]
-    elif D==2:
-        # Generate input data from a linear meshgrid
-        x = np.linspace(-0.5, 1.5, N_show)
-        y = np.linspace(-0.5, 1.5, N_show)
-        xx, yy = np.meshgrid(x, y)
-        # Pairs
-        X_show = np.dstack([xx, yy]).reshape(-1, 2)
+    # Generate input data from a linear grid
+    X_show = np.linspace(-0.5, 1.5, N_show)
+    X_show = X_show[:, None]  # (N, 1)
 
     # Sample from the real line, uniformly
     if seed: np.random.seed(seed)  # set seed
-    X_train = np.random.uniform(low=0.0, high=1.0, size=(N_train, D))
+    X_train = np.random.uniform(
+        low=0.0, high=1.0, size=(N_train, 1))
 
     # Concatenate X_train and X_show
     X = np.append(X_train, X_show, axis=0)
@@ -143,7 +133,6 @@ def generate_data(
     L_K = np.linalg.cholesky(K)
 
     # Generate normal samples for both sets of input data
-    if seed: np.random.seed(seed)  # set seed
     z = np.random.normal(loc=0.0, scale=1.0,
         size=X_train.shape[0] + X_show.shape[0])
     f = L_K @ z
@@ -152,22 +141,20 @@ def generate_data(
     f_train = f[:N_train]
     f_show = f[N_train:]
 
-    assert np.shape(f_show) == (np.shape(X_show)[0],)
-
     # Generate the latent variables
     epsilons = np.random.normal(0, noise_std, N_train)
     y_train = epsilons + f_train
     y_train = y_train.flatten()
 
     # Reshuffle
-    data = np.c_[y_train, X_train, f_train]
+    data = np.c_[y_train, X_train]
     np.random.shuffle(data)
     y_train = data[:, :1].flatten()
-    X_train = data[:, 1:D + 1]
+    X_train = data[:, 1:]
 
     return (
-        N_show, X_train, y_train,
-        X_show, f_show)
+        X_train, y_train,
+        X_show, f_show, N_show)
 
 
 def main():
@@ -189,10 +176,10 @@ def main():
 
     # Generate data
     noise_std = 0.2
-    (N_show, X, y,
-    X_show, f_show) = generate_data(
+    (X, y,
+     X_show, f_show, N_show) = generate_data(
         N_train=20,
-        D=1, kernel=prior((1.0, 1.0)), noise_std=noise_std,
+        kernel=prior((1.0, 1.0)), noise_std=noise_std,
         N_show=1000, jitter=1e-8, seed=None)
 
     gaussian_process = GP(data=(X, y), prior=prior,
@@ -289,7 +276,7 @@ def main():
         params,
         weight, precision)
 
-    # Plot result.
+    # Plot result
     plt.plot(X_show, f_show, label="True", color="orange")
     plt.plot(X_show, mean, label="Prediction", linestyle="--", color="blue")
     plt.scatter(X, y, label="Observations", color="black", s=20)
