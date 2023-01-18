@@ -22,12 +22,13 @@ TLDR:
 ```python
 >>> from probit.approximators import LaplaceGP as GP
 >>> from probit.utilities import log_gaussian_likelihood
+>>> from mlkernels import EQ
 >>>
 >>> def prior(prior_parameters):
 >>>     lengthscale, signal_variance = prior_parameters
 >>>     # Here you can define the kernel that defines the Gaussian process
 >>>     return signal_variance * EQ().stretch(lengthscale).periodic(0.5)
-
+>>>
 >>> gaussian_process = GP(data=(X, y), prior=prior, log_likelihood=log_gaussian_likelihood)
 >>> g = lambda theta: gaussian_process.take_grad()
 >>> likelihood_parameters = 1.0
