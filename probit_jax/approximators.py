@@ -142,21 +142,13 @@ class Approximator(ABC):
         Make posterior prediction over ordinal classes of X_test.
 
         :arg X_test: The new data points, array like (N_test, D).
-        :arg cov: A covariance matrix used in calculation of posterior
-            predictions. (\sigma^2I + K)^{-1} Array like (N, N).
-        :type cov: :class:`numpy.ndarray`
-        :arg weight: The approximate inverse-covariance-posterior-mean.
-            .. math::
-                \nu = (\mathbf{K} + \sigma^{2}\mathbf{I})^{-1} \mathbf{y}
-                = \mathbf{K}^{-1} \mathbf{f}
-            Array like (N,).
-        :type weight: :class:`numpy.ndarray`
-        :arg cutpoints: (J + 1, ) array of the cutpoints.
-        :type cutpoints: :class:`numpy.ndarray`.
-        :arg float noise_variance: The noise variance.
-        :arg bool numerically_stable: Use matmul or triangular solve.
-            Default `False`. 
-        :return: Gaussian process predictive mean and std array.
+        :arg weight: The solution of GP regression.
+        :type weight: Array like (N,)`
+        :arg precision: Solution of GP regression.
+            Precisions used in calculation of posterior
+            predictions. Array like (N,).
+        :type precision: :class:`numpy.ndarray`
+        :return: Gaussian process predictive mean and variance array.
         :rtype tuple: ((N_test,), (N_test,))
         """
         kernel = self.prior(parameters[0])
