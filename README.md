@@ -84,7 +84,7 @@ Run the regression example by typing `python example/regression.py`.
 >>> obs_variance = variance + noise_variance
 >>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_regression_before.png")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_before.png?token=GHSAT0AAAAAAB4PXHRWIHLOCRYBLRJFUCROY6JGPCQ)
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_regression_before.png?token=GHSAT0AAAAAAB4PXHRWC2TMIQ2GCWGL2HNAY6JQTGQ)
 ```python
 >>> print("Before optimization, \nparams={}".format(parameters))
 ```
@@ -106,7 +106,7 @@ params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Arr
 >>> obs_variance = variance + noise_variance
 >>> plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_regression_after.png")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_after.png?token=GHSAT0AAAAAAB4PXHRWTCD7D3GJNOAD2MGYY6JGKUQ)
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_regression_after.png?token=GHSAT0AAAAAAB4PXHRXJARY4MVFP62V6QLAY6JQTEQ)
 
 ### Ordinal regression and hyperparameter optimization
 Run the ordinal regression example by typing `python example/classification.py`.
