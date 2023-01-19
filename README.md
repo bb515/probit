@@ -11,9 +11,9 @@ Contents:
 - [Installation](#installation)
 - [Examples](#examples)
     - [Regression and hyperparameter optimization](#regression-and-hyperparameter-optimization)
-    - [Ordinal regression](#ordinal-regression)
+    - [Ordinal regression and hyperparameter optimization](#ordinal-regression-and-hyperparameter-optimization)
 - probit uses [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, see the available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
-- [Doesn't haves](#doesnthaves)
+- [Doesn't haves](#doesn't-haves)
 
 TLDR:
 ```python
@@ -37,8 +37,7 @@ TLDR:
 ```
 
 
-Installation
-------------
+## Installation
 `pip install probit`
 - The package requires Python 3.9+
 - Clone the repository `git clone git@github.com:bb515/probit.git`
