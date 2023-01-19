@@ -45,7 +45,10 @@ Get started
 
 ### Running examples ###
 
-### Regression and hyperparameter optimization
+- You can find examples of how to use the package under:`examples/`.
+
+## Regression and hyperparameter optimization
+- Run the first example by typing `python example/regression.py`.
 ```python
 >>> def prior(prior_parameters):
 >>>    lengthscale, signal_variance = prior_parameters
@@ -81,7 +84,7 @@ Get started
 >>> obs_variance = variance + noise_variance
 >>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_regression_before.png")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_before.png)
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_before.png?token=GHSAT0AAAAAAB4PXHRWIHLOCRYBLRJFUCROY6JGPCQ)
 ```python
 >>> print("Before optimization, \nparams={}".format(parameters))
 ```
@@ -103,10 +106,9 @@ params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Arr
 >>> obs_variance = variance + noise_variance
 >>> plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_regression_after.png")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_after.png)
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_after.png?token=GHSAT0AAAAAAB4PXHRWTCD7D3GJNOAD2MGYY6JGKUQ)
 
-
-### Ordinal regression and hyperparameter optimization
+## Ordinal regression and hyperparameter optimization
 
 ### Running the tests ###
 
