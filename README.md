@@ -10,18 +10,28 @@ Contents:
 
 - [Installation](#installation)
 - [Usage](#usage)
-- See [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
+- probit uses [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, see the available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
 - [Doesn't haves](#doesnthaves)
 
-Doesn't haves
--------------
-- [Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/vgp_notes.html) or [Sparse Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/SGPR_notes.html).
-
-
 TLDR:
-(TODO)
 ```python
->>> from probit_jax import
+>>> from probit.approximators import LaplaceGP as GP
+>>> from probit.utilities import log_gaussian_likelihood
+>>> from mlkernels import EQ
+>>>
+>>> def prior(prior_parameters):
+>>>     lengthscale, signal_variance = prior_parameters
+>>>     # Here you can define the kernel that defines the Gaussian process
+>>>     return signal_variance * EQ().stretch(lengthscale).periodic(0.5)
+>>>
+>>> gaussian_process = GP(data=(X, y), prior=prior, log_likelihood=log_gaussian_likelihood)
+>>> likelihood_parameters = 1.0
+>>> prior_parameters = (1.0, 1.0)
+>>> params = (likelihood_parameters, prior_parameters)
+>>> weight, precision = gaussian_process.approximate_posterior(params)
+>>> predictive_mean, predictive_variance = gaussian_process.predict(
+>>>     X_test,
+>>>     params, weight, precision)
 ```
 
 
@@ -38,6 +48,10 @@ Get started
 ### Running the tests ###
 
 The tests for this project use [pytest](https://pytest.org/en/latest/).
+
+Doesn't haves
+-------------
+- [Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/vgp_notes.html) or [Sparse Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/SGPR_notes.html).
 
 References
 ----------
