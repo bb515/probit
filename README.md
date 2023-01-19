@@ -47,7 +47,7 @@ You can find examples of how to use the package under:`examples/`.
 Run the regression example by typing `python example/regression.py`.
 ```python
 >>> def prior(prior_parameters):
->>>    lengthscale, signal_variance = prior_parameters
+>>>     lengthscale, signal_variance = prior_parameters
 >>>     # Here you can define the kernel that defines the Gaussian process
 >>>     return signal_variance * EQ().stretch(lengthscale).periodic(0.5)
 >>>
