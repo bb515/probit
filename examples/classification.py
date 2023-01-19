@@ -19,78 +19,112 @@ from pstats import Stats, SortKey
 import pathlib
 import matplotlib.cm as cm
 from scipy.optimize import minimize
-from jax import jit, vmap, grad, value_and_grad
-
+from jax import vmap, value_and_grad
 
 # For plotting
-BG_ALPHA = 1.0
-MG_ALPHA = 0.2
-FG_ALPHA = 0.4
+BG_ALPHA = 0.0
+MG_ALPHA = 1.0
+FG_ALPHA = 0.3
 
 write_path = pathlib.Path()
 
 
-def plot(x, predictive_distributions, posterior_mean,
-                 posterior_variance, X_train, y_train, g_train,
-                 J, colors, fname="plot"):
-    posterior_std = jnp.sqrt(posterior_variance)
+def plot(x, predictive_distributions, mean,
+         variance, X_show, f_show, X_train, y_train, g_train,
+         J, colors, fname="plot"):
+    posterior_std = jnp.sqrt(variance)
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
     fig.patch.set_alpha(BG_ALPHA)
     ax.set_xlim((-0.5, 1.5))
     ax.set_ylim(0.0, 1.0)
-    ax.set_xlabel(r"$x$", fontsize=16)
-    ax.set_ylabel(r"$p(y_{*}={}| \mathcal{D}, \theta)$", fontsize=16)
+    ax.set_xlabel(r"$x$", fontsize=10)
+    ax.set_ylabel("Cumulative probability", fontsize=10)
     ax.stackplot(x[:, 0], predictive_distributions.T, colors=colors,
         labels=(
             r"$p(y=0|\mathcal{D}, \theta)$",
             r"$p(y=1|\mathcal{D}, \theta)$",
             r"$p(y=2|\mathcal{D}, \theta)$"))
     val = 0.5  # where the data lies on the y-axis.
-    for j in range(J):
-        ax.scatter(
-            X_train[jnp.where(y_train == j)],
-            jnp.zeros_like(
-                X_train[jnp.where(
-                    y_train == j)]) + val,
-                    s=15, facecolors=colors[j],
-                edgecolors='white')
     plt.tight_layout()
+    ax.legend()
     fig.savefig(
-            "{}_contour.png".format(fname),
-            facecolor=fig.get_facecolor(), edgecolor='none')
+            "{}_contour.png".format(fname))
     plt.close()
 
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
     fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(x[:, 0], posterior_mean, 'r')
+    ax.plot(x[:, 0], mean, color='blue', label="Prediction", linestyle="--")
     ax.fill_between(
-        x[:, 0], posterior_mean - 2*posterior_std,
-        posterior_mean + 2*posterior_std,
-        color='red', alpha=MG_ALPHA)
-    ax.scatter(X_train, g_train, color='b', s=4)
+        x[:, 0], mean - 2*posterior_std,
+        mean + 2*posterior_std,
+        color='blue', alpha=FG_ALPHA)
     ax.set_ylim(-2.2, 2.2)
     ax.set_xlim(-0.5, 1.5)
-    for j in range(J):
-        ax.scatter(
-            X_train[jnp.where(y_train == j)],
-            jnp.zeros_like(X_train[jnp.where(y_train == j)]),
-            s=15,
-            facecolors=colors[j],
-            edgecolors='white')
+    ax.set_xlabel('x', fontsize=10)
+    ax.set_ylabel('y', fontsize=10)
+    ax.scatter(X_train, g_train, color=[colors[i] for i in y_train], s=4)
+    ax.plot(X_show, f_show, label="True", color='orange', alpha=FG_ALPHA)
+    ax.grid(visible=True, which='major', linestyle='-')
     plt.tight_layout()
-    fig.savefig("{}_posterior_mean_posterior_variance.png".format(fname),
+    fig.savefig("{}_mean_variance.png".format(fname),
         facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
 
-def plot_ordinal(X, y, g, X_show, f_show, J, colors, cmap, N_show=None):
-    fig, ax = plt.subplots()
-    ax.scatter(X, g, color=[colors[i] for i in y])
-    ax.plot(X_show, f_show, color='k', alpha=MG_ALPHA)
-    fig.show()
-    fig.savefig("scatter.png")
+def plot_obj(x_hat, x_0, x, fs, gs, domain, xlabel, xscale, fname="plot"):
+    # Calculate numerical derivatives wrt domain of plot
+    if xscale == "log":
+        log_x = jnp.log(x)
+        dfsx = np.gradient(fs, log_x)
+        gs *= x  # Jacobian
+    elif xscale == "linear":
+        dfsx = np.gradient(fs, x)
+    fig = plt.figure()
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(BG_ALPHA)
+    ax = fig.add_subplot(111)
+    ax.grid()
+    ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
+    ylim = ax.get_ylim()
+    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+    ax.set_ylim(ylim)
+    ax.vlines(x_hat, ylim[0], ylim[1], 'r',
+        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
+    ax.vlines(x_0, ylim[0], ylim[1], 'k',
+        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
+    ax.set_xlabel(xlabel, fontsize=10)
+    ax.set_xscale(xscale)
+    ax.set_ylabel(r"$\mathcal{F}$", fontsize=10)
+    ax.legend()
+    fig.savefig("readme_elbo.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
+    plt.close()
+
+    fig = plt.figure()
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(BG_ALPHA)
+    ax = fig.add_subplot(111)
+    ax.grid()
+    ax.plot(
+        x, gs, 'g', alpha=FG_ALPHA,
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ JAX autodiff")
+    ax.set_ylim(ax.get_ylim())
+    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+    ax.plot(
+        x, dfsx, 'g--',
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical")
+    ax.vlines(x_0, ax.get_ylim()[0], ax.get_ylim()[1], 'k',
+        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
+    ax.vlines(x_hat, ylim[0], ylim[1], 'r',
+        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
+    ax.set_xscale(xscale)
+    ax.set_xlabel(xlabel, fontsize=10)
+    ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$", fontsize=10)
+    ax.legend()
+    fig.savefig("readme_grad.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
 
@@ -102,11 +136,17 @@ def generate_data(
     Generate data from the GP prior, and choose some cutpoints that
     approximately divides data into equal bins.
 
-    :arg int N_per_class: The number of data points per class.
-    :arg splits:
+    :arg key: JAX random key, a random seed.
+    :arg int N_train_per_class: The number of data points per class.
+    :arg int N_test_per_class: The number of data points per class.
     :arg int J: The number of bins/classes/quantiles.
     :arg kernel: The GP prior.
     :arg noise_variance: The noise variance.
+    :arg int N_show: The number of data points to plot.
+    :arg jitter: For making Gram matrix better conditioned,
+        so that Cholesky decomposition can be performed.
+        Try 1e-5 for single precision or 1e-10 for double
+        precision.
     """
     # Generate input data from a linear grid
     X_show = jnp.linspace(-0.5, 1.5, N_show)
@@ -246,52 +286,6 @@ def calculate_metrics(y_test, predictive_distributions):
         mean_absolute_error,
         log_predictive_probability,
         predictive_likelihood)
- 
-def plot_obj(x_hat, x_0, x, fs, gs, dfsx, domain, xlabel, xscale, fname="plot"):
-    fig = plt.figure()
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax = fig.add_subplot(111)
-    ax.grid()
-    ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
-    ylim = ax.get_ylim()
-    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
-    ax.vlines(x_hat, 0.99 * ylim[0], 0.99 * ylim[1], 'r',
-        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
-    ax.vlines(x_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
-        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
-    ax.set_xlabel(xlabel)
-    ax.set_xscale(xscale)
-    ax.set_ylabel(r"$\mathcal{F}$")
-    ax.legend()
-    fig.savefig("bound.png",
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    fig = plt.figure()
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax = fig.add_subplot(111)
-    ax.grid()
-    ax.plot(
-        x, gs, 'g', alpha=MG_ALPHA,
-        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ JAX autodiff")
-    ax.set_ylim(ax.get_ylim())
-    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
-    ax.plot(
-        x, dfsx, 'g--',
-        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical")
-    ax.vlines(x_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
-    ax.vlines(x_hat, 0.9 * ylim[0], 0.9 * ylim[1], 'r',
-        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
-    ax.set_xscale(xscale)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
-    ax.legend()
-    fig.savefig("grad.png",
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
 
 
 def main():
@@ -311,10 +305,14 @@ def main():
         from probit_jax.approximators import LaplaceGP as Approximator
 
     J = 3
-    cmap = plt.cm.get_cmap('viridis', J)
+    cmap = plt.cm.get_cmap('PiYG', J)
     colors = []
+    mapping = []
     for j in range(J):
         colors.append(cmap((j + 0.5)/J))
+        mapping.append((j + 0.5)/J)
+    print(colors)
+    print(mapping)
 
     # Generate data
     key = random.PRNGKey(1)
@@ -328,9 +326,6 @@ def main():
         N_train_per_class=10, N_test_per_class=100,
         J=J, kernel=kernel, noise_variance=noise_variance,
         N_show=1000, jitter=1e-6)
-
-    plot_ordinal(
-        X, y, g_true, X_show, f_show, J, colors, cmap, N_show=N_show)
 
     # Initiate a misspecified model, using a kernel
     # other than the one used to generate data
@@ -352,7 +347,7 @@ def main():
         # grad_log_likelihood=grad_log_probit_likelihood,
         # hessian_log_likelihood=hessian_log_probit_likelihood,
         tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
-    )
+        )
     negative_evidence_lower_bound = classifier.objective()
 
     vs = Vars(jnp.float32)
@@ -377,17 +372,17 @@ def main():
         parameters[1],
         mean, variance)
     plot(X_show, predictive_distributions, mean,
-                 variance, X, y, g_true, J, colors,
-                 fname="before")
+        obs_variance, X_show, f_show, X, y, g_true,
+        J, colors, fname="readme_classification_before")
 
     # Evaluate model
-    posterior_mean, posterior_variance = classifier.predict(
+    mean, variance = classifier.predict(
         X_test,
         parameters,
         weight, precision)
     predictive_distributions = probit_predictive_distributions(
         parameters[1],
-        posterior_mean, posterior_variance)
+        mean, variance)
     print("\nEvaluation of model:")
     calculate_metrics(y_test, predictive_distributions)
 
@@ -403,22 +398,22 @@ def main():
         X_show,
         parameters,
         weight, precision)
-    obs_variance = variance + noise_variance
     predictive_distributions = probit_predictive_distributions(
         parameters[1],
         mean, variance)
     plot(X_show, predictive_distributions, mean,
-                 variance, X, y, g_true, J, colors,
-                 fname="after")
+        obs_variance, X_show, f_show, X, y, g_true,
+        J, colors, fname="readme_classification_after")
 
     # Evaluate model
-    posterior_mean, posterior_variance = classifier.predict(
+    mean, variance = classifier.predict(
         X_test,
         parameters,
         weight, precision)
+    obs_variance = variance + noise_variance
     predictive_distributions = probit_predictive_distributions(
         parameters[1],
-        posterior_mean, posterior_variance)
+        mean, variance)
     print("\nEvaluation of model:")
     calculate_metrics(y_test, predictive_distributions)
 
@@ -436,14 +431,7 @@ def main():
     fgs = fg(x)
     fs = fgs[0]
     gs = fgs[1]
-    # Calculate numerical derivatives wrt domain of plot
-    if xscale == "log":
-        log_x = jnp.log(x)
-        dfsx = np.gradient(fs, log_x)
-        gs *= x  # Jacobian
-    elif xscale == "linear":
-        dfsx = np.gradient(fs, x)
-    plot_obj(vs.struct.lengthscale(), lengthscale, x, fs, gs, dfsx, domain, xlabel, xscale)
+    plot_obj(vs.struct.lengthscale(), lengthscale, x, fs, gs, domain, xlabel, xscale)
 
     if args.profile:
         profile.disable()
