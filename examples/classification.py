@@ -2,18 +2,20 @@
 # Uncomment to enable double precision
 from jax.config import config
 config.update("jax_enable_x64", True)
+from probit_jax.utilities import (
+    InvalidKernel, check_cutpoints,
+    log_probit_likelihood, probit_predictive_distributions)
+import lab as B
+import jax.numpy as jnp
+import jax.random as random
+from mlkernels import Kernel, Matern12, EQ
+from varz import Vars, minimise_l_bfgs_b, parametrised, Positive
+import matplotlib.pyplot as plt
 import argparse
 import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
-import numpy as np
-import lab as B
-from mlkernels import Kernel, Matern12, EQ
 import pathlib
-from probit_jax.utilities import (
-    InvalidKernel, check_cutpoints,
-    log_probit_likelihood, probit_predictive_distributions)
-import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from scipy.optimize import minimize
 from jax import jit, vmap, grad, value_and_grad
@@ -27,9 +29,10 @@ FG_ALPHA = 0.4
 write_path = pathlib.Path()
 
 
-def plot_contour(x, predictive_distributions, posterior_mean,
-        posterior_variance, X_train, y_train, g_train, J, colors):
-    posterior_std = np.sqrt(posterior_variance)
+def plot(x, predictive_distributions, posterior_mean,
+                 posterior_variance, X_train, y_train, g_train,
+                 J, colors, fname="plot"):
+    posterior_std = jnp.sqrt(posterior_variance)
     fig, ax = plt.subplots(1, 1)
     fig.patch.set_facecolor('white')
     fig.patch.set_alpha(BG_ALPHA)
@@ -45,15 +48,15 @@ def plot_contour(x, predictive_distributions, posterior_mean,
     val = 0.5  # where the data lies on the y-axis.
     for j in range(J):
         ax.scatter(
-            X_train[np.where(y_train == j)],
-            np.zeros_like(
-                X_train[np.where(
+            X_train[jnp.where(y_train == j)],
+            jnp.zeros_like(
+                X_train[jnp.where(
                     y_train == j)]) + val,
                     s=15, facecolors=colors[j],
                 edgecolors='white')
     plt.tight_layout()
     fig.savefig(
-            "contour.png",
+            "{}_contour.png".format(fname),
             facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
@@ -70,37 +73,24 @@ def plot_contour(x, predictive_distributions, posterior_mean,
     ax.set_xlim(-0.5, 1.5)
     for j in range(J):
         ax.scatter(
-            X_train[np.where(y_train == j)],
-            np.zeros_like(X_train[np.where(y_train == j)]),
+            X_train[jnp.where(y_train == j)],
+            jnp.zeros_like(X_train[jnp.where(y_train == j)]),
             s=15,
             facecolors=colors[j],
             edgecolors='white')
     plt.tight_layout()
-    fig.savefig("posterior_mean_posterior_variance.png",
+    fig.savefig("{}_posterior_mean_posterior_variance.png".format(fname),
         facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
 
 def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, cmap, N_show=None):
-    if D==1:
-        fig, ax = plt.subplots()
-        ax.scatter(X, g, color=[colors[i] for i in y])
-        ax.plot(X_show, f_show, color='k', alpha=0.4)
-        fig.show()
-        fig.savefig("scatter.png")
-        plt.close()
-    elif D==2:
-        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-        ax.scatter3D(X[:, 0], X[:, 1], g[:], color=[colors[i] for i in y])
-        ax.plot_surface(
-            X_show[:, 0].reshape(N_show, N_show),
-            X_show[:, 1].reshape(N_show, N_show),
-            f_show.reshape(N_show, N_show), alpha=0.4)
-        fig.colorbar(cm.ScalarMappable(cmap=cmap))
-        plt.savefig("surface.png")
-        plt.close()
-    else:
-        pass
+    fig, ax = plt.subplots()
+    ax.scatter(X, g, color=[colors[i] for i in y])
+    ax.plot(X_show, f_show, color='k', alpha=MG_ALPHA)
+    fig.show()
+    fig.savefig("scatter.png")
+    plt.close()
 
 
 def plot_helper(
@@ -127,16 +117,16 @@ def plot_helper(
         # Grid over noise_std
         label.append(r"$\sigma$")
         axis_scale.append("log")
-        theta = np.logspace(
+        theta = jnp.logspace(
             domain[index][0], domain[index][1], resolution[index])
         space.append(theta)
-        phi_space.append(np.log(theta))
+        phi_space.append(jnp.log(theta))
         index += 1
     if "cutpoints" in trainables:
         # Grid over b_1, the first cutpoint
         label.append(r"$b_{}$".format(1))
         axis_scale.append("linear")
-        theta = np.linspace(
+        theta = jnp.linspace(
             domain[index][0], domain[index][1], resolution[index])
         space.append(theta)
         phi_space.append(theta)
@@ -145,27 +135,27 @@ def plot_helper(
         # Grid over signal variance
         label.append(r"$\sigma_{\theta}^{ 2}$")
         axis_scale.append("log")
-        theta = np.logspace(
+        theta = jnp.logspace(
             domain[index][0], domain[index][1], resolution[index])
         space.append(theta)
-        phi_space.append(np.log(theta))
+        phi_space.append(jnp.log(theta))
         index += 1
     else:
         if "lengthscale" in trainables:
             # Grid over only kernel hyperparameter, theta
             label.append(r"$\theta$")
             axis_scale.append("log")
-            theta = np.logspace(
+            theta = jnp.logspace(
                 domain[index][0], domain[index][1], resolution[index])
             space.append(theta)
-            phi_space.append(np.log(theta))
+            phi_space.append(jnp.log(theta))
             index +=1
     if index == 2:
-        meshgrid_theta = np.meshgrid(space[0], space[1])
-        meshgrid_phi = np.meshgrid(phi_space[0], phi_space[1])
-        phis = np.dstack(meshgrid_phi)
+        meshgrid_theta = jnp.meshgrid(space[0], space[1])
+        meshgrid_phi = jnp.meshgrid(phi_space[0], phi_space[1])
+        phis = jnp.dstack(meshgrid_phi)
         phis = phis.reshape((len(space[0]) * len(space[1]), 2))
-        theta_0 = np.array(theta_0)
+        theta_0 = jnp.array(theta_0)
     elif index == 1:
         meshgrid_theta = (space[0], None)
         space.append(None)
@@ -191,9 +181,9 @@ def plot_helper(
 
 
 def generate_data(
-        N_train_per_class, N_test_per_class,
+        key, N_train_per_class, N_test_per_class,
         J, D, kernel, noise_variance,
-        N_show, jitter=1e-6, seed=None):
+        N_show, jitter=1e-6):
     """
     Generate data from the GP prior, and choose some cutpoints that
     approximately divides data into equal bins.
@@ -207,16 +197,16 @@ def generate_data(
     """
     if D==1:
         # Generate input data from a linear grid
-        X_show = np.linspace(-0.5, 1.5, N_show)
+        X_show = jnp.linspace(-0.5, 1.5, N_show)
         # reshape X to make it (n, D)
         X_show = X_show[:, None]
     elif D==2:
         # Generate input data from a linear meshgrid
-        x = np.linspace(-0.5, 1.5, N_show)
-        y = np.linspace(-0.5, 1.5, N_show)
-        xx, yy = np.meshgrid(x, y)
+        x = jnp.linspace(-0.5, 1.5, N_show)
+        y = jnp.linspace(-0.5, 1.5, N_show)
+        xx, yy = jnp.meshgrid(x, y)
         # Pairs
-        X_show = np.dstack([xx, yy]).reshape(-1, 2)
+        X_show = jnp.dstack([xx, yy]).reshape(-1, 2)
 
     N_train = int(J * N_train_per_class)
     N_test = int(J * N_test_per_class)
@@ -224,38 +214,39 @@ def generate_data(
     N_per_class = N_train_per_class + N_test_per_class
 
     # Sample from the real line, uniformly
-    if seed: np.random.seed(seed)  # set seed
-    X_data = np.random.uniform(low=0.0, high=1.0, size=(N_total, D))
+    key, step_key = random.split(key, 2)
+    X_data = random.uniform(key, minval=0.0, maxval=1.0, shape=(N_total, D))
 
     # Concatenate X_data and X_show
-    X = np.append(X_data, X_show, axis=0)
+    X = jnp.append(X_data, X_show, axis=0)
 
     # Sample from a multivariate normal
     K = B.dense(kernel(X))
-    K = K + jitter * np.identity(np.shape(X)[0])
-    L_K = np.linalg.cholesky(K)
+    K = K + jitter * jnp.identity(jnp.shape(X)[0])
+    L_K = jnp.linalg.cholesky(K)
 
     # Generate normal samples for both sets of input data
-    if seed: np.random.seed(seed)  # set seed
-    z = np.random.normal(loc=0.0, scale=1.0,
-        size=np.shape(X_data)[0] + np.shape(X_show)[0])
+    key, step_key = random.split(key, 2)
+    z = random.normal(key,
+        shape=(jnp.shape(X_data)[0] + jnp.shape(X_show)[0],))
     f = L_K @ z
 
     # Store f_show
     f_data = f[:N_total]
     f_show = f[N_total:]
 
-    assert np.shape(f_show) == (np.shape(X_show)[0],)
+    assert jnp.shape(f_show) == (jnp.shape(X_show)[0],)
 
     # Generate the latent variables
     X = X_data
     f = f_data
-    epsilons = np.random.normal(0, np.sqrt(noise_variance), N_total)
+    key, step_key = random.split(key, 2)
+    epsilons = jnp.sqrt(noise_variance) * random.normal(key, shape=(N_total,))
     g = epsilons + f
     g = g.flatten()
 
     # Sort the responses
-    idx_sorted = np.argsort(g)
+    idx_sorted = jnp.argsort(g)
     g = g[idx_sorted]
     f = f[idx_sorted]
     X = X[idx_sorted]
@@ -263,35 +254,36 @@ def generate_data(
     g_js = []
     f_js = []
     y_js = []
-    cutpoints = np.empty(J + 1)
+    cutpoints = jnp.empty(J + 1)
     for j in range(J):
         X_js.append(X[N_per_class * j:N_per_class * (j + 1), :D])
         g_js.append(g[N_per_class * j:N_per_class * (j + 1)])
         f_js.append(f[N_per_class * j:N_per_class * (j + 1)])
-        y_js.append(j * np.ones(N_per_class, dtype=int))
+        y_js.append(j * jnp.ones(N_per_class, dtype=int))
 
     for j in range(1, J):
         # Find the cutpoints
         cutpoint_j_min = g_js[j - 1][-1]
         cutpoint_j_max = g_js[j][0]
-        cutpoints[j] = np.average([cutpoint_j_max, cutpoint_j_min])
-    cutpoints[0] = -np.inf
-    cutpoints[-1] = np.inf
-    X_js = np.array(X_js)
-    g_js = np.array(g_js)
-    f_js = np.array(f_js)
-    y_js = np.array(y_js, dtype=int)
+        cutpoints = cutpoints.at[j].set(jnp.mean(jnp.array([cutpoint_j_max, cutpoint_j_min])))
+    cutpoints = cutpoints.at[0].set(-jnp.inf)
+    cutpoints = cutpoints.at[-1].set(jnp.inf)
+    X_js = jnp.array(X_js)
+    g_js = jnp.array(g_js)
+    f_js = jnp.array(f_js)
+    y_js = jnp.array(y_js, dtype=int)
     X = X.reshape(-1, X.shape[-1])
     g = g_js.flatten()
     f = f_js.flatten()
     y = y_js.flatten()
     # Reshuffle
-    data = np.c_[g, X, y, f]
-    np.random.shuffle(data)
+    data = jnp.c_[g, X, y, f]
+    key, step_key = random.split(key, 2)
+    random.shuffle(key, data)
     g = data[:, :1].flatten()
     X = data[:, 1:D + 1]
     y = data[:, D + 1].flatten()
-    y = np.array(y, dtype=int)
+    y = jnp.array(y, dtype=int)
     f = data[:, -1].flatten()
 
     g_train_js = []
@@ -300,8 +292,9 @@ def generate_data(
     X_test_js = []
     y_test_js = []
     for j in range(J):
-        data = np.c_[g_js[j], X_js[j], y_js[j]]
-        np.random.shuffle(data)
+        data = jnp.c_[g_js[j], X_js[j], y_js[j]]
+        key, step_key = random.split(key, 2)
+        random.shuffle(key, data)
         g_j = data[:, :1]
         X_j = data[:, 1:D + 1]
         y_j = data[:, -1]
@@ -317,11 +310,11 @@ def generate_data(
         X_test_js.append(X_j)
         y_test_js.append(y_j)
 
-    X_train_js = np.array(X_train_js)
-    g_train_js = np.array(g_train_js)
-    y_train_js = np.array(y_train_js, dtype=int)
-    X_test_js = np.array(X_test_js)
-    y_test_js = np.array(y_test_js, dtype=int)
+    X_train_js = jnp.array(X_train_js)
+    g_train_js = jnp.array(g_train_js)
+    y_train_js = jnp.array(y_train_js, dtype=int)
+    X_test_js = jnp.array(X_test_js)
+    y_test_js = jnp.array(y_test_js, dtype=int)
 
     X_train = X_train_js.reshape(-1, X_train_js.shape[-1])
     g_train = g_train_js.flatten()
@@ -330,35 +323,37 @@ def generate_data(
     y_test = y_test_js.flatten()
 
     # TODO: tidy: why shuffled so often?
-    data = np.c_[g_train, X_train, y_train]
-    np.random.shuffle(data)
+    data = jnp.c_[g_train, X_train, y_train]
+    key, step_key = random.split(key, 2)
+    random.shuffle(key, data)
     g_train = data[:, :1].flatten()
     X_train = data[:, 1:D + 1]
     y_train = data[:, -1]
 
-    data = np.c_[X_test, y_test]
-    np.random.shuffle(data)
+    data = jnp.c_[X_test, y_test]
+    key, step_key = random.split(key, 2)
+    random.shuffle(key, data)
     X_test = data[:, 0:D]
     y_test = data[:, -1]
 
-    g_train = np.array(g_train)
-    X_train = np.array(X_train)
-    y_train = np.array(y_train, dtype=int)
-    X_test = np.array(X_test)
-    y_test = np.array(y_test, dtype=int)
+    g_train = jnp.array(g_train)
+    X_train = jnp.array(X_train)
+    y_train = jnp.array(y_train, dtype=int)
+    X_test = jnp.array(X_test)
+    y_test = jnp.array(y_test, dtype=int)
 
     # TODO: why not return X_train, y_train
-    assert np.shape(X_test) == (N_test, D)
-    assert np.shape(X_train) == (N_train, D)
-    assert np.shape(g_train) == (N_train,)
-    assert np.shape(y_test) == (N_test,)
-    assert np.shape(y_train) == (N_train,)
-    assert np.shape(X_js) == (J, N_per_class, D)
-    assert np.shape(g_js) == (J, N_per_class)
-    assert np.shape(X) == (N_total, D)
-    assert np.shape(g) == (N_total,)
-    assert np.shape(f) == (N_total,)
-    assert np.shape(y) == (N_total,)
+    assert jnp.shape(X_test) == (N_test, D)
+    assert jnp.shape(X_train) == (N_train, D)
+    assert jnp.shape(g_train) == (N_train,)
+    assert jnp.shape(y_test) == (N_test,)
+    assert jnp.shape(y_train) == (N_train,)
+    assert jnp.shape(X_js) == (J, N_per_class, D)
+    assert jnp.shape(g_js) == (J, N_per_class)
+    assert jnp.shape(X) == (N_total, D)
+    assert jnp.shape(g) == (N_total,)
+    assert jnp.shape(f) == (N_total,)
+    assert jnp.shape(y) == (N_total,)
     return (
         N_show, X, g, y, cutpoints,
         X_test, y_test,
@@ -366,17 +361,17 @@ def generate_data(
 
 
 def calculate_metrics(y_test, predictive_distributions):
-    y_pred = np.argmax(predictive_distributions, axis=1)
+    y_pred = jnp.argmax(predictive_distributions, axis=1)
     predictive_likelihood = predictive_distributions[:, y_test]
-    mean_absolute_error = np.sum(np.abs(y_pred - y_test)) / len(y_test)
-    print(np.sum(y_pred != y_test), "sum incorrect")
-    print(np.sum(y_pred == y_test), "sum correct")
+    mean_absolute_error = jnp.sum(jnp.abs(y_pred - y_test)) / len(y_test)
+    print(jnp.sum(y_pred != y_test), "sum incorrect")
+    print(jnp.sum(y_pred == y_test), "sum correct")
     print("mean_absolute_error ", mean_absolute_error)
-    log_predictive_probability = np.sum(np.log(predictive_likelihood))
+    log_predictive_probability = jnp.sum(jnp.log(predictive_likelihood))
     print("log_pred_probability ", log_predictive_probability)
-    predictive_likelihood = np.sum(predictive_likelihood) / len(y_test)
+    predictive_likelihood = jnp.sum(predictive_likelihood) / len(y_test)
     print("predictive_likelihood ", predictive_likelihood)
-    mean_zero_one = np.sum(y_pred != y_test) / len(y_test)
+    mean_zero_one = jnp.sum(y_pred != y_test) / len(y_test)
     print("mean_zero_one_error", mean_zero_one)
     return (
         mean_zero_one,
@@ -384,6 +379,52 @@ def calculate_metrics(y_test, predictive_distributions):
         log_predictive_probability,
         predictive_likelihood)
  
+def plot_obj(x, fs, gs, mean, variance, fname="plot.png"):
+    fig = plt.figure()
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(BG_ALPHA)
+    ax = fig.add_subplot(111)
+    ax.grid()
+    ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
+    ylim = ax.get_ylim()
+    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+    ax.vlines(jnp.float64(res.x), 0.99 * ylim[0], 0.99 * ylim[1], 'r',
+        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(jnp.float64(res.x)))
+    ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
+        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(theta_0))
+    ax.set_xlabel(xlabel)
+    ax.set_xscale(xscale)
+    ax.set_ylabel(r"$\mathcal{F}$")
+    ax.legend()
+    fig.savefig("bound.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
+    plt.close()
+
+    fig = plt.figure()
+    fig.patch.set_facecolor('white')
+    fig.patch.set_alpha(BG_ALPHA)
+    ax = fig.add_subplot(111)
+    ax.grid()
+    ax.plot(
+        x, gs, 'g', alpha=MG_ALPHA,
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ JAX autodiff")
+    ax.set_ylim(ax.get_ylim())
+    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+    ax.plot(
+        x, dfsxs, 'g--',
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical")
+    ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(theta_0))
+    ax.vlines(jnp.float64(res.x), 0.9 * ylim[0], 0.9 * ylim[1], 'r',
+        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(jnp.float64(res.x)))
+    ax.set_xscale(xscale)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
+    ax.legend()
+    fig.savefig("grad.png",
+        facecolor=fig.get_facecolor(), edgecolor='none')
+    plt.close()
+
 
 def main():
     """Make an approximation to the posterior, and optimise hyperparameters."""
@@ -409,17 +450,17 @@ def main():
         colors.append(cmap((j + 0.5)/J))
 
     # Generate data
+    key = random.PRNGKey(1)
     noise_variance = 0.4
     signal_variance = 1.0
     lengthscale = 1.0
     kernel = signal_variance * Matern12().stretch(lengthscale)
-
     (N_show, X, g_true, y, cutpoints,
     X_test, y_test,
-    X_show, f_show) = generate_data(
+    X_show, f_show) = generate_data(key,
         N_train_per_class=10, N_test_per_class=100,
         J=J, D=D, kernel=kernel, noise_variance=noise_variance,
-        N_show=1000, jitter=1e-6, seed=None)
+        N_show=1000, jitter=1e-6)
 
     plot_ordinal(
         X, y, g_true, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
@@ -445,24 +486,82 @@ def main():
         # hessian_log_likelihood=hessian_log_probit_likelihood,
         tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
     )
+    negative_evidence_lower_bound = classifier.objective()
 
-    # Optimize ELBO
-    params = (lengthscale), (np.sqrt(noise_variance), cutpoints)
-    e = classifier.objective()
+    vs = Vars(jnp.float32)
 
-    g = classifier.value_and_grad()
+    def model(vs):
+        p = vs.struct
+        noise_std = jnp.sqrt(noise_variance)
+        return (p.lengthscale.positive(1.2)), (noise_std, cutpoints)
 
-    print("\nELBO and gradient of the hyper-parameters:")
-    print(g(params))
-    fun = lambda x: (
-        np.float64(g((((x)), (np.sqrt(noise_variance), cutpoints)))[0]),
-        np.float64(g((((x)), (np.sqrt(noise_variance), cutpoints)))[1][0]))
-    res = minimize(
-        fun, lengthscale,
-        method='BFGS', jac=True)
-    print("\nOptimization output:")
-    print(res)
+    def objective(vs):
+        return negative_evidence_lower_bound(model(vs))
 
+    # Approximate posterior
+    parameters = model(vs)
+    weight, precision = classifier.approximate_posterior(parameters)
+    mean, variance = classifier.predict(
+        X_show,
+        parameters,
+        weight, precision)
+    obs_variance = variance + noise_variance
+    predictive_distributions = probit_predictive_distributions(
+        parameters[1],
+        mean, variance)
+    plot(X_show, predictive_distributions, mean,
+                 variance, X, y, g_true, J, colors,
+                 fname="before")
+
+    # Evaluate model
+    posterior_mean, posterior_variance = classifier.predict(
+        X_test,
+        parameters,
+        weight, precision)
+    predictive_distributions = probit_predictive_distributions(
+        parameters[1],
+        posterior_mean, posterior_variance)
+    print("\nEvaluation of model:")
+    calculate_metrics(y_test, predictive_distributions)
+    print("\nEvaluation of model:")
+    calculate_metrics(y_test, predictive_distributions)
+
+    print("Before optimization, \nparameters={}".format(parameters))
+    minimise_l_bfgs_b(objective, vs)
+    parameters = model(vs)
+    print("After optimization, \nparameters={}".format(model(vs)))
+
+    # Approximate posterior
+    parameters = model(vs)
+    weight, precision = classifier.approximate_posterior(parameters)
+    mean, variance = classifier.predict(
+        X_show,
+        parameters,
+        weight, precision)
+    obs_variance = variance + noise_variance
+    predictive_distributions = probit_predictive_distributions(
+        parameters[1],
+        mean, variance)
+    plot(X_show, predictive_distributions, mean,
+                 variance, X, y, g_true, J, colors,
+                 fname="after")
+
+    # Evaluate model
+    posterior_mean, posterior_variance = classifier.predict(
+        X_test,
+        parameters,
+        weight, precision)
+    predictive_distributions = probit_predictive_distributions(
+        parameters[1],
+        posterior_mean, posterior_variance)
+    print("\nEvaluation of model:")
+    calculate_metrics(y_test, predictive_distributions)
+    print("\nEvaluation of model:")
+    calculate_metrics(y_test, predictive_distributions)
+
+    assert 0
+
+    # TODO do this with heatmap
     theta_0 = lengthscale
     domain = ((-2, 2), None)
     resolution = (50, None)
@@ -472,68 +571,24 @@ def main():
     _, _,
     phis) = plot_helper(
         resolution, domain)
-    gs = np.empty(resolution[0])
-    fs = np.empty(resolution[0])
+    gs = jnp.empty(resolution[0])
+    fs = jnp.empty(resolution[0])
     for i, phi in enumerate(phis):
-        theta = np.exp(phi)[0]
-        params = ((theta)), (np.sqrt(noise_variance), cutpoints)
+        theta = jnp.exp(phi)[0]
+        params = ((theta)), (jnp.sqrt(noise_variance), cutpoints)
         fx, gx = g(params)
         fs[i] = fx
         gs[i] = gx[0] * theta  # multiply by a Jacobian
 
     # Calculate numerical derivatives wrt domain of plot
     if xscale == "log":
-        log_x = np.log(x)
-        dfsxs = np.gradient(fs, log_x)
+        log_x = jnp.log(x)
+        dfsxs = jnp.gradient(fs, log_x)
     elif xscale == "linear":
-        dfsxs = np.gradient(fs, x)
+        dfsxs = jnp.gradient(fs, x)
 
-    fig = plt.figure()
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax = fig.add_subplot(111)
-    ax.grid()
-    ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
-    ylim = ax.get_ylim()
-    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
-    ax.vlines(np.float64(res.x), 0.99 * ylim[0], 0.99 * ylim[1], 'r',
-        alpha=0.5, label=r"$\hat\theta={:.2f}$".format(np.float64(res.x)))
-    ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
-        alpha=0.5, label=r"$\theta={:.2f}$".format(theta_0))
-    ax.set_xlabel(xlabel)
-    ax.set_xscale(xscale)
-    ax.set_ylabel(r"$\mathcal{F}$")
-    ax.legend()
-    fig.savefig("bound.png",
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
 
-    fig = plt.figure()
-    fig.patch.set_facecolor('white')
-    fig.patch.set_alpha(BG_ALPHA)
-    ax = fig.add_subplot(111)
-    ax.grid()
-    ax.plot(
-        x, gs, 'g', alpha=0.4,
-        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ JAX autodiff")
-    ax.set_ylim(ax.get_ylim())
-    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
-    ax.plot(
-        x, dfsxs, 'g--',
-        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical")
-    ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-        alpha=0.5, label=r"$\theta={:.2f}$".format(theta_0))
-    ax.vlines(np.float64(res.x), 0.9 * ylim[0], 0.9 * ylim[1], 'r',
-        alpha=0.5, label=r"$\hat\theta={:.2f}$".format(np.float64(res.x)))
-    ax.set_xscale(xscale)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
-    ax.legend()
-    fig.savefig("grad.png",
-        facecolor=fig.get_facecolor(), edgecolor='none')
-    plt.close()
-
-    params = ((res.x)), (np.sqrt(noise_variance), cutpoints)
+    params = ((res.x)), (jnp.sqrt(noise_variance), cutpoints)
     # Approximate posterior
     weight, precision = classifier.approximate_posterior(params)
     posterior_mean, posterior_variance = classifier.predict(
@@ -544,7 +599,7 @@ def main():
     predictive_distributions = probit_predictive_distributions(
         params[1],
         posterior_mean, posterior_variance)
-    plot_contour(X_show, predictive_distributions, posterior_mean,
+    plot(X_show, predictive_distributions, posterior_mean,
         posterior_variance, X, y, g_true, J, colors)
 
     # Evaluate model

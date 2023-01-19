@@ -8,8 +8,8 @@ import lab as B
 import jax.numpy as jnp
 import jax.random as random
 from mlkernels import EQ
-import matplotlib.pyplot as plt
 from varz import Vars, minimise_l_bfgs_b, parametrised, Positive
+import matplotlib.pyplot as plt
 import argparse
 import cProfile
 from io import StringIO
