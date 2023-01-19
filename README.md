@@ -61,12 +61,8 @@ Get started
 >>>     return signal_variance * EQ().stretch(lengthscale).periodic(0.5)
 >>>
 >>> # Generate data
->>> key = random.PRNGKey(2023)
 >>> noise_std = 0.2
->>> (X, y, X_show, f_show, N_show) = generate_data(
->>>     key, N_train=20,
->>>     kernel=prior((1.0, 1.0)), noise_std=noise_std,
->>>     N_show=1000)
+>>> (X, y, X_show, f_show, N_show) = generate_data(noise_std)
 >>>
 >>> gaussian_process = GP(data=(X, y), prior=prior,
 >>>     log_likelihood=log_gaussian_likelihood)
@@ -76,7 +72,7 @@ Get started
 >>>
 >>> def model(vs):
 >>>     p = vs.struct
->>>     return (p.scale.positive(), p.variance.positive()), (p.variance.positive(),)
+>>>     return (p.lengthscale.positive(), p.signal_variance.positive()), (p.noise_variance.positive(),)
 >>>
 >>> def objective(vs):
 >>>     return evidence(model(vs))
@@ -90,9 +86,12 @@ Get started
 >>>     X_show,
 >>>     parameters,
 >>>     weight, precision)
->>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_simple_regression_before.png")
+>>>     noise_variance = parameters[1][0]**2
+>>> obs_variance = variance + noise_variance
+>>> plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_simple_regression_before.png")
 >>> print("Before optimization, evidence={},\nparams={}".format(objective(vs), parameters))
 ```
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression.png)
 
 ```python
 >>> # Optimize
@@ -106,7 +105,8 @@ Get started
 >>>     X_show,
 >>>     parameters,
 >>>     weight, precision)
->>>
+>>> noise_variance = parameters[1][0]**2
+>>> obs_variance = variance + noise_variance
 >>> variance = variance + noise_std**2
 >>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_simple_regression_after.png")
 ```
