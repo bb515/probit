@@ -8,17 +8,13 @@ import lab as B
 import jax.numpy as jnp
 import jax.random as random
 from mlkernels import EQ
-import matplotlib.pyplot as plt
 from varz import Vars, minimise_l_bfgs_b, parametrised, Positive
+import matplotlib.pyplot as plt
 import argparse
 import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 
-from jax import grad, jit, vmap
-import seaborn as sns
-sns.set_style("darkgrid")
-cm = sns.color_palette("mako_r", as_cmap=True)
 
 # For plotting
 BG_ALPHA = 0.0
@@ -101,7 +97,9 @@ def plot(train_data, test_data, mean, variance,
         X_show.flatten(), mean - 2. * jnp.sqrt(variance),
         mean + 2. * jnp.sqrt(variance), alpha=FG_ALPHA, color="blue")
     ax.set_xlim((0.0, 1.0))
-    ax.grid(b=True, which='major', linestyle='-')
+    ax.grid(visible=True, which='major', linestyle='-')
+    ax.set_xlabel('x', fontsize=10)
+    ax.set_ylabel('y', fontsize=10)
     fig.patch.set_facecolor('white')
     fig.patch.set_alpha(BG_ALPHA)
     ax.patch.set_alpha(MG_ALPHA)
@@ -137,7 +135,7 @@ def main():
 
     gaussian_process = GP(data=(X, y), prior=prior,
         log_likelihood=log_gaussian_likelihood)
-    evidence = gaussian_process.objective()
+    negative_evidence = gaussian_process.objective()
 
     vs = Vars(jnp.float32)
 
@@ -146,7 +144,7 @@ def main():
         return (p.lengthscale.positive(), p.signal_variance.positive()), (p.noise_std.positive(),)
 
     def objective(vs):
-        return evidence(model(vs))
+        return negative_evidence(model(vs))
 
     # Approximate posterior
     parameters = model(vs)
