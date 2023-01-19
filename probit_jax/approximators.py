@@ -105,13 +105,17 @@ class Approximator(ABC):
         """
 
     @abstractmethod
-    def take_grad(self):
+    def objective(self):
         """
         The parameterized function, which takes in parameters, that is the
-        function in fixed point iteration.
+        objective function, such as a model evidence or lower bound thereof.
 
         This method should be implemented in every concrete Approximator.
         """
+
+    def value_and_grad(self):
+        """Value and grad of the objective at the fix point."""
+        return jit(value_and_grad(self.objective))
 
     @abstractmethod
     def weight(self):
@@ -231,16 +235,15 @@ class LaplaceGP(Approximator):
             posterior_mean, self.data[1], parameters[1])
         return precision, posterior_mean
 
-    def take_grad(self):
-        return jit(value_and_grad(
-            lambda parameters: objective_LA(
+    def objective(self):
+        return lambda parameters: objective_LA(
                 parameters[0], parameters[1],
                 self.prior,
                 self.log_likelihood,
                 self.hessian_log_likelihood,
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance,
                     newton_solver, self.construct(), parameters),
-                self.data)))
+                self.data)
     
 
 class VBGP(Approximator):
@@ -291,13 +294,12 @@ class VBGP(Approximator):
         """
         return 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0])
 
-    def take_grad(self):
-        """Value and grad of the objective at the fix point."""
-        return jit(value_and_grad(
-            lambda parameters: objective_VB(
-                parameters[0], parameters[1],
-                self.prior,
-                self.log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance,
-                    fwd_solver, self.construct(), parameters),
-                self.data)))
+    def objective(self):
+        lambda parameters: objective_VB(
+            parameters[0], parameters[1],
+            self.prior,
+            self.log_likelihood,
+            fixed_point_layer(jnp.zeros(self.N), self.tolerance,
+                fwd_solver, self.construct(), parameters),
+            self.data)
+
