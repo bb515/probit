@@ -5,6 +5,7 @@ config.update("jax_enable_x64", True)
 from probit_jax.utilities import (
     InvalidKernel, check_cutpoints,
     log_probit_likelihood, probit_predictive_distributions)
+import numpy as np
 import lab as B
 import jax.numpy as jnp
 import jax.random as random
@@ -84,7 +85,7 @@ def plot(x, predictive_distributions, posterior_mean,
     plt.close()
 
 
-def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, cmap, N_show=None):
+def plot_ordinal(X, y, g, X_show, f_show, J, colors, cmap, N_show=None):
     fig, ax = plt.subplots()
     ax.scatter(X, g, color=[colors[i] for i in y])
     ax.plot(X_show, f_show, color='k', alpha=MG_ALPHA)
@@ -93,96 +94,9 @@ def plot_ordinal(X, y, g, X_show, f_show, J, D, colors, cmap, N_show=None):
     plt.close()
 
 
-def plot_helper(
-        resolution, domain, trainables=["lengthscale"]):
-    """
-    Initiate metadata and hyperparameters for plotting the objective
-    function surface over hyperparameters.
-
-    :arg int resolution:
-    :arg domain: ((2,)tuple, (2.)tuple) of the start/stop in the domain to
-        grid over, for each axis, like: ((start, stop), (start, stop)).
-    :type domain:
-    :arg trainables: Indicator array of the hyperparameters to sample over.
-    :type trainables: :class:`numpy.ndarray`
-    :arg cutpoints: (J + 1, ) array of the cutpoints.
-    :type cutpoints: :class:`numpy.ndarray`.
-    """
-    index = 0
-    label = []
-    axis_scale = []
-    space = []
-    phi_space = [] 
-    if "noise_std" in trainables:
-        # Grid over noise_std
-        label.append(r"$\sigma$")
-        axis_scale.append("log")
-        theta = jnp.logspace(
-            domain[index][0], domain[index][1], resolution[index])
-        space.append(theta)
-        phi_space.append(jnp.log(theta))
-        index += 1
-    if "cutpoints" in trainables:
-        # Grid over b_1, the first cutpoint
-        label.append(r"$b_{}$".format(1))
-        axis_scale.append("linear")
-        theta = jnp.linspace(
-            domain[index][0], domain[index][1], resolution[index])
-        space.append(theta)
-        phi_space.append(theta)
-        index += 1
-    if "signal_variance" in trainables:
-        # Grid over signal variance
-        label.append(r"$\sigma_{\theta}^{ 2}$")
-        axis_scale.append("log")
-        theta = jnp.logspace(
-            domain[index][0], domain[index][1], resolution[index])
-        space.append(theta)
-        phi_space.append(jnp.log(theta))
-        index += 1
-    else:
-        if "lengthscale" in trainables:
-            # Grid over only kernel hyperparameter, theta
-            label.append(r"$\theta$")
-            axis_scale.append("log")
-            theta = jnp.logspace(
-                domain[index][0], domain[index][1], resolution[index])
-            space.append(theta)
-            phi_space.append(jnp.log(theta))
-            index +=1
-    if index == 2:
-        meshgrid_theta = jnp.meshgrid(space[0], space[1])
-        meshgrid_phi = jnp.meshgrid(phi_space[0], phi_space[1])
-        phis = jnp.dstack(meshgrid_phi)
-        phis = phis.reshape((len(space[0]) * len(space[1]), 2))
-        theta_0 = jnp.array(theta_0)
-    elif index == 1:
-        meshgrid_theta = (space[0], None)
-        space.append(None)
-        phi_space.append(None)
-        axis_scale.append(None)
-        label.append(None)
-        phis = phi_space[0].reshape(-1, 1)
-    else:
-        raise ValueError(
-            "Too few or too many independent variables to plot objective over!"
-            " (got {}, expected {})".format(
-            index, "1, or 2"))
-    assert len(axis_scale) == 2
-    assert len(meshgrid_theta) == 2
-    assert len(space) ==  2
-    assert len(label) == 2
-    return (
-        space[0], space[1],
-        label[0], label[1],
-        axis_scale[0], axis_scale[1],
-        meshgrid_theta[0], meshgrid_theta[1],
-        phis)
-
-
 def generate_data(
         key, N_train_per_class, N_test_per_class,
-        J, D, kernel, noise_variance,
+        J, kernel, noise_variance,
         N_show, jitter=1e-6):
     """
     Generate data from the GP prior, and choose some cutpoints that
@@ -191,22 +105,13 @@ def generate_data(
     :arg int N_per_class: The number of data points per class.
     :arg splits:
     :arg int J: The number of bins/classes/quantiles.
-    :arg int D: The number of data dimensions.
     :arg kernel: The GP prior.
     :arg noise_variance: The noise variance.
     """
-    if D==1:
-        # Generate input data from a linear grid
-        X_show = jnp.linspace(-0.5, 1.5, N_show)
-        # reshape X to make it (n, D)
-        X_show = X_show[:, None]
-    elif D==2:
-        # Generate input data from a linear meshgrid
-        x = jnp.linspace(-0.5, 1.5, N_show)
-        y = jnp.linspace(-0.5, 1.5, N_show)
-        xx, yy = jnp.meshgrid(x, y)
-        # Pairs
-        X_show = jnp.dstack([xx, yy]).reshape(-1, 2)
+    # Generate input data from a linear grid
+    X_show = jnp.linspace(-0.5, 1.5, N_show)
+    # reshape X to make it (n, 1)
+    X_show = X_show[:, None]
 
     N_train = int(J * N_train_per_class)
     N_test = int(J * N_test_per_class)
@@ -215,7 +120,7 @@ def generate_data(
 
     # Sample from the real line, uniformly
     key, step_key = random.split(key, 2)
-    X_data = random.uniform(key, minval=0.0, maxval=1.0, shape=(N_total, D))
+    X_data = random.uniform(key, minval=0.0, maxval=1.0, shape=(N_total, 1))
 
     # Concatenate X_data and X_show
     X = jnp.append(X_data, X_show, axis=0)
@@ -256,7 +161,7 @@ def generate_data(
     y_js = []
     cutpoints = jnp.empty(J + 1)
     for j in range(J):
-        X_js.append(X[N_per_class * j:N_per_class * (j + 1), :D])
+        X_js.append(X[N_per_class * j:N_per_class * (j + 1), :1])
         g_js.append(g[N_per_class * j:N_per_class * (j + 1)])
         f_js.append(f[N_per_class * j:N_per_class * (j + 1)])
         y_js.append(j * jnp.ones(N_per_class, dtype=int))
@@ -276,15 +181,7 @@ def generate_data(
     g = g_js.flatten()
     f = f_js.flatten()
     y = y_js.flatten()
-    # Reshuffle
-    data = jnp.c_[g, X, y, f]
-    key, step_key = random.split(key, 2)
-    random.shuffle(key, data)
-    g = data[:, :1].flatten()
-    X = data[:, 1:D + 1]
-    y = data[:, D + 1].flatten()
     y = jnp.array(y, dtype=int)
-    f = data[:, -1].flatten()
 
     g_train_js = []
     X_train_js = []
@@ -296,7 +193,7 @@ def generate_data(
         key, step_key = random.split(key, 2)
         random.shuffle(key, data)
         g_j = data[:, :1]
-        X_j = data[:, 1:D + 1]
+        X_j = data[:, 1:1 + 1]
         y_j = data[:, -1]
         # split train vs test/validate
         g_train_j = g_j[:N_train_per_class]
@@ -322,38 +219,9 @@ def generate_data(
     X_test = X_test_js.reshape(-1, X_test_js.shape[-1])
     y_test = y_test_js.flatten()
 
-    # TODO: tidy: why shuffled so often?
-    data = jnp.c_[g_train, X_train, y_train]
-    key, step_key = random.split(key, 2)
-    random.shuffle(key, data)
-    g_train = data[:, :1].flatten()
-    X_train = data[:, 1:D + 1]
-    y_train = data[:, -1]
-
-    data = jnp.c_[X_test, y_test]
-    key, step_key = random.split(key, 2)
-    random.shuffle(key, data)
-    X_test = data[:, 0:D]
-    y_test = data[:, -1]
-
-    g_train = jnp.array(g_train)
-    X_train = jnp.array(X_train)
     y_train = jnp.array(y_train, dtype=int)
-    X_test = jnp.array(X_test)
     y_test = jnp.array(y_test, dtype=int)
 
-    # TODO: why not return X_train, y_train
-    assert jnp.shape(X_test) == (N_test, D)
-    assert jnp.shape(X_train) == (N_train, D)
-    assert jnp.shape(g_train) == (N_train,)
-    assert jnp.shape(y_test) == (N_test,)
-    assert jnp.shape(y_train) == (N_train,)
-    assert jnp.shape(X_js) == (J, N_per_class, D)
-    assert jnp.shape(g_js) == (J, N_per_class)
-    assert jnp.shape(X) == (N_total, D)
-    assert jnp.shape(g) == (N_total,)
-    assert jnp.shape(f) == (N_total,)
-    assert jnp.shape(y) == (N_total,)
     return (
         N_show, X, g, y, cutpoints,
         X_test, y_test,
@@ -379,7 +247,7 @@ def calculate_metrics(y_test, predictive_distributions):
         log_predictive_probability,
         predictive_likelihood)
  
-def plot_obj(x, fs, gs, mean, variance, fname="plot.png"):
+def plot_obj(x_hat, x_0, x, fs, gs, dfsx, domain, xlabel, xscale, fname="plot"):
     fig = plt.figure()
     fig.patch.set_facecolor('white')
     fig.patch.set_alpha(BG_ALPHA)
@@ -388,10 +256,10 @@ def plot_obj(x, fs, gs, mean, variance, fname="plot.png"):
     ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
     ylim = ax.get_ylim()
     ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
-    ax.vlines(jnp.float64(res.x), 0.99 * ylim[0], 0.99 * ylim[1], 'r',
-        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(jnp.float64(res.x)))
-    ax.vlines(theta_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
-        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(theta_0))
+    ax.vlines(x_hat, 0.99 * ylim[0], 0.99 * ylim[1], 'r',
+        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
+    ax.vlines(x_0, 0.99 * ylim[0], 0.99 * ylim[1], 'k',
+        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
     ax.set_xlabel(xlabel)
     ax.set_xscale(xscale)
     ax.set_ylabel(r"$\mathcal{F}$")
@@ -411,12 +279,12 @@ def plot_obj(x, fs, gs, mean, variance, fname="plot.png"):
     ax.set_ylim(ax.get_ylim())
     ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
     ax.plot(
-        x, dfsxs, 'g--',
+        x, dfsx, 'g--',
         label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical")
-    ax.vlines(theta_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
-        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(theta_0))
-    ax.vlines(jnp.float64(res.x), 0.9 * ylim[0], 0.9 * ylim[1], 'r',
-        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(jnp.float64(res.x)))
+    ax.vlines(x_0, 0.9 * ax.get_ylim()[0], 0.9 * ax.get_ylim()[1], 'k',
+        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
+    ax.vlines(x_hat, 0.9 * ylim[0], 0.9 * ylim[1], 'r',
+        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
     ax.set_xscale(xscale)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$")
@@ -443,7 +311,6 @@ def main():
         from probit_jax.approximators import LaplaceGP as Approximator
 
     J = 3
-    D = 1
     cmap = plt.cm.get_cmap('viridis', J)
     colors = []
     for j in range(J):
@@ -459,11 +326,11 @@ def main():
     X_test, y_test,
     X_show, f_show) = generate_data(key,
         N_train_per_class=10, N_test_per_class=100,
-        J=J, D=D, kernel=kernel, noise_variance=noise_variance,
+        J=J, kernel=kernel, noise_variance=noise_variance,
         N_show=1000, jitter=1e-6)
 
     plot_ordinal(
-        X, y, g_true, X_show, f_show, J, D, colors, cmap, N_show=N_show) 
+        X, y, g_true, X_show, f_show, J, colors, cmap, N_show=N_show)
 
     # Initiate a misspecified model, using a kernel
     # other than the one used to generate data
@@ -523,8 +390,6 @@ def main():
         posterior_mean, posterior_variance)
     print("\nEvaluation of model:")
     calculate_metrics(y_test, predictive_distributions)
-    print("\nEvaluation of model:")
-    calculate_metrics(y_test, predictive_distributions)
 
     print("Before optimization, \nparameters={}".format(parameters))
     minimise_l_bfgs_b(objective, vs)
@@ -556,62 +421,29 @@ def main():
         posterior_mean, posterior_variance)
     print("\nEvaluation of model:")
     calculate_metrics(y_test, predictive_distributions)
-    print("\nEvaluation of model:")
-    calculate_metrics(y_test, predictive_distributions)
 
-    assert 0
+    nelbo = lambda x : negative_evidence_lower_bound(((x), (jnp.sqrt(noise_variance), cutpoints)))
+    fg = vmap(value_and_grad(nelbo))
 
-    # TODO do this with heatmap
-    theta_0 = lengthscale
     domain = ((-2, 2), None)
     resolution = (50, None)
-    (x, _,
-    xlabel, _,
-    xscale, _,
-    _, _,
-    phis) = plot_helper(
-        resolution, domain)
-    gs = jnp.empty(resolution[0])
-    fs = jnp.empty(resolution[0])
-    for i, phi in enumerate(phis):
-        theta = jnp.exp(phi)[0]
-        params = ((theta)), (jnp.sqrt(noise_variance), cutpoints)
-        fx, gx = g(params)
-        fs[i] = fx
-        gs[i] = gx[0] * theta  # multiply by a Jacobian
+    x = jnp.logspace(
+        domain[0][0], domain[0][1], resolution[0])
+    xlabel = r"lengthscale, $\ell$"
+    xscale = "log"
+    phis = jnp.log(x)
 
+    fgs = fg(x)
+    fs = fgs[0]
+    gs = fgs[1]
     # Calculate numerical derivatives wrt domain of plot
     if xscale == "log":
         log_x = jnp.log(x)
-        dfsxs = jnp.gradient(fs, log_x)
+        dfsx = np.gradient(fs, log_x)
+        gs *= x  # Jacobian
     elif xscale == "linear":
-        dfsxs = jnp.gradient(fs, x)
-
-
-    params = ((res.x)), (jnp.sqrt(noise_variance), cutpoints)
-    # Approximate posterior
-    weight, precision = classifier.approximate_posterior(params)
-    posterior_mean, posterior_variance = classifier.predict(
-        X_show,
-        params,
-        weight, precision)
-    # Make predictions
-    predictive_distributions = probit_predictive_distributions(
-        params[1],
-        posterior_mean, posterior_variance)
-    plot(X_show, predictive_distributions, posterior_mean,
-        posterior_variance, X, y, g_true, J, colors)
-
-    # Evaluate model
-    posterior_mean, posterior_variance = classifier.predict(
-        X_test,
-        params,
-        weight, precision)
-    predictive_distributions = probit_predictive_distributions(
-        params[1],
-        posterior_mean, posterior_variance)
-    print("\nEvaluation of model:")
-    calculate_metrics(y_test, predictive_distributions) 
+        dfsx = np.gradient(fs, x)
+    plot_obj(vs.struct.lengthscale(), lengthscale, x, fs, gs, dfsx, domain, xlabel, xscale)
 
     if args.profile:
         profile.disable()
