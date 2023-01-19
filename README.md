@@ -47,69 +47,65 @@ Get started
 
 ### Regression and hyperparameter optimization
 ```python
->>> from probit_jax.utilities import log_gaussian_likelihood
->>> from probit_jax.approximators import LaplaceGP as GP
->>> import jax.numpy as jnp
->>> import jax.random as random
->>> from mlkernels import EQ
->>> from varz import Vars, minimise_l_bfgs_b, parametrised, Positive
->>>
->>>
 >>> def prior(prior_parameters):
->>>     lengthscale, signal_variance = prior_parameters
+>>>    lengthscale, signal_variance = prior_parameters
 >>>     # Here you can define the kernel that defines the Gaussian process
 >>>     return signal_variance * EQ().stretch(lengthscale).periodic(0.5)
 >>>
 >>> # Generate data
+>>> key = random.PRNGKey(0)
 >>> noise_std = 0.2
->>> (X, y, X_show, f_show, N_show) = generate_data(noise_std)
+>>> (X, y, X_show, f_show, N_show) = generate_data(
+>>>     key, N_train=20,
+>>>     kernel=prior((1.0, 1.0)), noise_std=noise_std,
+>>>     N_show=1000)
 >>>
->>> gaussian_process = GP(data=(X, y), prior=prior,
->>>     log_likelihood=log_gaussian_likelihood)
+>>> gaussian_process = GP(data=(X, y), prior=prior, log_likelihood=log_gaussian_likelihood)
 >>> evidence = gaussian_process.objective()
 >>>
 >>> vs = Vars(jnp.float32)
 >>>
 >>> def model(vs):
 >>>     p = vs.struct
->>>     return (p.lengthscale.positive(), p.signal_variance.positive()), (p.noise_variance.positive(),)
+>>>     return (p.lengthscale.positive(), p.signal_variance.positive()), (p.noise_std.positive(),)
 >>>
 >>> def objective(vs):
 >>>     return evidence(model(vs))
 >>>
->>> # Initiate parameters
->>> parameters = model(vs)
->>>
 >>> # Approximate posterior
+>>> parameters = model(vs)
 >>> weight, precision = gaussian_process.approximate_posterior(parameters)
 >>> mean, variance = gaussian_process.predict(
->>>     X_show,
->>>     parameters,
->>>     weight, precision)
->>>     noise_variance = parameters[1][0]**2
+>>>     X_show, parameters, weight, precision)
+>>> noise_variance = vs.struct.noise_std()**2
 >>> obs_variance = variance + noise_variance
->>> plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_simple_regression_before.png")
->>> print("Before optimization, evidence={},\nparams={}".format(objective(vs), parameters))
+>>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_regression_before.png")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression.png)
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_before.png)
 
-```python
->>> # Optimize
+python```
+>>> print("Before optimization, \nparams={}".format(parameters))
+```
+Before optimization, 
+params=((Array(0.10536897, dtype=float32), Array(0.2787192, dtype=float32)), (Array(0.6866876, dtype=float32),))
+python```
 >>> minimise_l_bfgs_b(objective, vs)
 >>> parameters = model(vs)
->>> print("After optimization, evidence={},\nparams={}".format(objective(vs), model(vs)))
->>>
+>>> print("After optimization, \nparams={}".format(model(vs)))
+```
+After optimization, 
+params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Array(0.1484054, dtype=float32),))
+python```
 >>> # Approximate posterior
 >>> weight, precision = gaussian_process.approximate_posterior(parameters)
 >>> mean, variance = gaussian_process.predict(
->>>     X_show,
->>>     parameters,
->>>     weight, precision)
->>> noise_variance = parameters[1][0]**2
+>>>     X_show, parameters, weight, precision)
+>>> noise_variance = vs.struct.noise_std()**2
 >>> obs_variance = variance + noise_variance
->>> variance = variance + noise_std**2
->>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_simple_regression_after.png")
+>>> plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_regression_after.png")
 ```
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_after.png)
+
 
 ### Ordinal regression and hyperparameter optimization
 
