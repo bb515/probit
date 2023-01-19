@@ -93,7 +93,7 @@ params=((Array(0.10536897, dtype=float32), Array(0.2787192, dtype=float32)), (Ar
 ```python
 >>> minimise_l_bfgs_b(objective, vs)
 >>> parameters = model(vs)
->>> print("After optimization, \nparams={}".format(model(vs)))
+>>> print("After optimization, \nparams={}".format(parameters))
 ```
 After optimization, 
 params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Array(0.1484054, dtype=float32),))
