@@ -544,8 +544,9 @@ def main():
     predictive_distributions = probit_predictive_distributions(
         params[1],
         posterior_mean, posterior_variance)
+    obs_variance = posterior_variance + noise_variance
     plot_contour(X_show, predictive_distributions, posterior_mean,
-        posterior_variance, X, y, g_true, J, colors)
+                 obs_variance, X, y, g_true, J, colors)
 
     # Evaluate model
     posterior_mean, posterior_variance = classifier.predict(
