@@ -15,12 +15,41 @@ import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 
+from jax import grad, jit, vmap
+import seaborn as sns
+sns.set_style("darkgrid")
+cm = sns.color_palette("mako_r", as_cmap=True)
 
 # For plotting
 BG_ALPHA = 1.0
 MG_ALPHA = 0.2
 FG_ALPHA = 0.4
 
+def plot_kernel_heatmap(function, res, area_min=-2, area_max=2, fname="plot_kernel"):
+    # this helper function is here so that we can jit it.
+    # We can not jit the whole function since plt.quiver cannot
+    # be jitted
+
+    # @partial(jit, static_argnums=[0,])
+    def helper(area_min, area_max):
+        x = jnp.linspace(area_min, area_max, res)
+        x, y = jnp.meshgrid(x, x)
+        grid = jnp.stack([x.flatten(), y.flatten()], axis=1)
+        K = function(grid)
+        return grid, K
+
+    grid, hm = helper(area_min, area_max)
+    x_0 = jnp.argmin(hm)
+    x_0 = grid[x_0]
+    print(jnp.exp(x_0), "min")
+    hm = hm.reshape(res, res)
+    extent = [area_min, area_max, area_max, area_min]
+    plt.scatter(x_0[0], x_0[1])
+    plt.imshow(hm, cmap=cm, interpolation='nearest', extent=extent)
+    ax = plt.gca()
+    ax.invert_yaxis()
+    plt.savefig(fname)
+    plt.close()
 
 def generate_data(
         key,
@@ -155,6 +184,14 @@ def main():
     minimise_l_bfgs_b(objective, vs)
     parameters = model(vs)
     print("After optimization, \nparams={}".format(model(vs)))
+    g = grad(evidence)
+    print(g(model(vs)))
+    print(parameters)
+    x = [0.0, 0.0]
+    e = lambda x: evidence(((jnp.exp(x[0]), jnp.exp(x[1])), parameters[1]))
+    e = vmap(e)
+    plot_kernel_heatmap(e, res=64)
+    assert 0
 
     # Approximate posterior
     weight, precision = gaussian_process.approximate_posterior(parameters)
@@ -165,6 +202,7 @@ def main():
     noise_variance = parameters[1][0]**2
     obs_variance = variance + noise_variance
     plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_simple_regression_after.png")
+    assert 0
 
     if args.profile:
         profile.disable()
