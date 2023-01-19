@@ -118,7 +118,7 @@ def main():
         return signal_variance * EQ().stretch(lengthscale).periodic(0.5)
 
     # Generate data
-    key = random.PRNGKey(2023)
+    key = random.PRNGKey(0)
     noise_std = 0.2
     (X, y,
      X_show, f_show, N_show) = generate_data(
@@ -135,7 +135,7 @@ def main():
 
     def model(vs):
         p = vs.struct
-        return (p.scale.positive(), p.variance.positive()), (p.variance.positive(),)
+        return (p.lengthscale.positive(), p.signal_variance.positive()), (p.noise_std.positive(),)
 
     def objective(vs):
         return evidence(model(vs))
@@ -147,12 +147,14 @@ def main():
         X_show,
         parameters,
         weight, precision)
+    noise_variance = parameters[1][0]**2
+    obs_variance = variance + noise_variance
     plot((X, y), (X_show, f_show), mean, variance, fname="readme_simple_regression_before.png")
 
-    print("Before optimization, evidence={},\nparams={}".format(objective(vs), parameters))
+    print("Before optimization, \nparams={}".format(parameters))
     minimise_l_bfgs_b(objective, vs)
     parameters = model(vs)
-    print("After optimization, evidence={},\nparams={}".format(objective(vs), model(vs)))
+    print("After optimization, \nparams={}".format(model(vs)))
 
     # Approximate posterior
     weight, precision = gaussian_process.approximate_posterior(parameters)
@@ -160,8 +162,9 @@ def main():
         X_show,
         parameters,
         weight, precision)
-    variance = variance + noise_std**2
-    plot((X, y), (X_show, f_show), mean, variance, fname="readme_simple_regression_after.png")
+    noise_variance = parameters[1][0]**2
+    obs_variance = variance + noise_variance
+    plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_simple_regression_after.png")
 
     if args.profile:
         profile.disable()
@@ -173,3 +176,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
