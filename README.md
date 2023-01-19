@@ -38,10 +38,9 @@ TLDR:
 
 
 ## Installation
-`pip install probit`
-- The package requires Python 3.9+
+`pip install probit`, or for developers,
 - Clone the repository `git clone git@github.com:bb515/probit.git`
-- For developers, install using pip `pip install -e .` from the root directory of the repository (see the `setup.py` for the requirements that this command installs)
+- Install using pip `pip install -e .` from the root directory of the repository (see the `setup.py` for the requirements that this command installs)
 
 ## Examples
 You can find examples of how to use the package under:`examples/`.
