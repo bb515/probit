@@ -82,8 +82,7 @@ Get started
 >>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_regression_before.png")
 ```
 ![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_before.png)
-
-python```
+```python
 >>> print("Before optimization, \nparams={}".format(parameters))
 ```
 Before optimization, 
@@ -95,7 +94,7 @@ python```
 ```
 After optimization, 
 params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Array(0.1484054, dtype=float32),))
-python```
+```python
 >>> # Approximate posterior
 >>> weight, precision = gaussian_process.approximate_posterior(parameters)
 >>> mean, variance = gaussian_process.predict(
