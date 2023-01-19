@@ -45,7 +45,7 @@ Get started
 
 ### Running examples ###
 
-
+### Regression and hyperparameter optimization
 ```python
 >>> from probit_jax.utilities import log_gaussian_likelihood
 >>> from probit_jax.approximators import LaplaceGP as GP
@@ -110,6 +110,8 @@ Get started
 >>> variance = variance + noise_std**2
 >>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_simple_regression_after.png")
 ```
+
+### Ordinal regression and hyperparameter optimization
 
 ### Running the tests ###
 
