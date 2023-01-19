@@ -48,7 +48,7 @@ Installation
 You can find examples of how to use the package under:`examples/`.
 
 ### Regression and hyperparameter optimization
-Run the first example by typing `python example/regression.py`.
+Run the regression example by typing `python example/regression.py`.
 ```python
 >>> def prior(prior_parameters):
 >>>    lengthscale, signal_variance = prior_parameters
@@ -109,6 +109,150 @@ params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Arr
 ![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_after.png?token=GHSAT0AAAAAAB4PXHRWTCD7D3GJNOAD2MGYY6JGKUQ)
 
 ### Ordinal regression and hyperparameter optimization
+Run the ordinal regression example by typing `python example/classification.py`.
+
+```python
+>>> # Generate data
+>>> key = random.PRNGKey(1)
+>>> noise_variance = 0.4
+>>> signal_variance = 1.0
+>>> lengthscale = 1.0
+>>> kernel = signal_variance * Matern12().stretch(lengthscale)
+>>> (N_show, X, g_true, y, cutpoints,
+>>> X_test, y_test,
+>>> X_show, f_show) = generate_data(key,
+>>>     N_train_per_class=10, N_test_per_class=100,
+>>>     J=J, kernel=kernel, noise_variance=noise_variance,
+>>>     N_show=1000, jitter=1e-6)
+>>>
+>>> # Initiate a misspecified model, using a kernel
+>>> # other than the one used to generate data
+>>> def prior(prior_parameters):
+>>>     # Here you can define the kernel that defines the Gaussian process
+>>>     return signal_variance * EQ().stretch(prior_parameters)
+>>>
+>>> classifier = Approximator(data=(X, y), prior=prior,
+>>>     log_likelihood=log_probit_likelihood,
+>>>     tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
+>>>     )
+>>> negative_evidence_lower_bound = classifier.objective()
+>>>
+>>> vs = Vars(jnp.float32)
+>>>
+>>> def model(vs):
+>>>     p = vs.struct
+>>>     noise_std = jnp.sqrt(noise_variance)
+>>>     return (p.lengthscale.positive(1.2)), (noise_std, cutpoints)
+>>>
+>>> def objective(vs):
+>>>     return negative_evidence_lower_bound(model(vs))
+>>>
+>>> # Approximate posterior
+>>> parameters = model(vs)
+>>> weight, precision = classifier.approximate_posterior(parameters)
+>>> mean, variance = classifier.predict(
+>>>     X_show,
+>>>     parameters,
+>>>     weight, precision)
+>>> obs_variance = variance + noise_variance
+>>> predictive_distributions = probit_predictive_distributions(
+>>>     parameters[1],
+>>>     mean, variance)
+>>> plot(X_show, predictive_distributions, mean,
+>>>     obs_variance, X_show, f_show, X, y, g_true,
+>>>     J, colors, fname="readme_classification_before")
+```
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_classification_before_contour.png?token=GHSAT0AAAAAAB4PXHRXJGKZUMUCKFU3L436Y6JQQYQ)
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_classification_before_mean_variance.png?token=GHSAT0AAAAAAB4PXHRWWHHG7RBRX2OKYFWMY6JQPSA)
+
+```python
+>>>
+>>> # Evaluate model
+>>> mean, variance = classifier.predict(
+>>>     X_test,
+>>>     parameters,
+>>>     weight, precision)
+>>> predictive_distributions = probit_predictive_distributions(
+>>>     parameters[1],
+>>>     mean, variance)
+>>> print("\nEvaluation of model:")
+>>> calculate_metrics(y_test, predictive_distributions)
+>>> print("Before optimization, \nparameters={}".format(parameters))
+```
+Evaluation of model:
+116 sum incorrect
+184 sum correct
+mean_absolute_error  0.41333333333333333
+log_pred_probability  -140986.54014247668
+predictive_likelihood  99.99999999999983
+mean_zero_one_error 0.38666666666666666
+Before optimization, 
+parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
+```python
+>>>
+>>> minimise_l_bfgs_b(objective, vs)
+>>> parameters = model(vs)
+>>> print("After optimization, \nparameters={}".format(model(vs)))
+```
+After optimization, 
+parameters=(Array(0.07389855, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
+```python
+>>>
+>>> # Approximate posterior
+>>> parameters = model(vs)
+>>> weight, precision = classifier.approximate_posterior(parameters)
+>>> mean, variance = classifier.predict(
+>>>     X_show,
+>>>     parameters,
+>>>     weight, precision)
+>>> predictive_distributions = probit_predictive_distributions(
+>>>     parameters[1],
+>>>     mean, variance)
+>>> plot(X_show, predictive_distributions, mean,
+>>>     obs_variance, X_show, f_show, X, y, g_true,
+>>>     J, colors, fname="readme_classification_after")
+```
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_classification_after_contour.png?token=GHSAT0AAAAAAB4PXHRXMLB3P4PXNQ2XJZSWY6JQOKQ)
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_classification_after_mean_variance.png?token=GHSAT0AAAAAAB4PXHRX7PCEVUSCLD5AL3U6Y6JQPWQ)
+```python
+>>> # Evaluate model
+>>> mean, variance = classifier.predict(
+>>>     X_test,
+>>>     parameters,
+>>>     weight, precision)
+>>> obs_variance = variance + noise_variance
+>>> predictive_distributions = probit_predictive_distributions(
+>>>     parameters[1],
+>>>     mean, variance)
+>>> print("\nEvaluation of model:")
+>>> calculate_metrics(y_test, predictive_distributions)
+```
+Evaluation of model:
+106 sum incorrect
+194 sum correct
+mean_absolute_error  0.36
+log_pred_probability  -161267.4884241588
+predictive_likelihood  100.00000000000009
+mean_zero_one_error 0.35333333333333333
+```python
+>>> nelbo = lambda x : negative_evidence_lower_bound(((x), (jnp.sqrt(noise_variance), cutpoints)))
+>>> fg = vmap(value_and_grad(nelbo))
+>>>
+>>> domain = ((-2, 2), None)
+>>> resolution = (50, None)
+>>> x = jnp.logspace(
+>>>     domain[0][0], domain[0][1], resolution[0])
+>>> xlabel = r"lengthscale, $\ell$"
+>>> xscale = "log"
+>>> phis = jnp.log(x)
+>>>
+>>> fgs = fg(x)
+>>> fs = fgs[0]
+>>> gs = fgs[1]
+>>> plot_obj(vs.struct.lengthscale(), lengthscale, x, fs, gs, domain, xlabel, xscale)
+```
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_elbo.png?token=GHSAT0AAAAAAB4PXHRWR6AMBOBQHBZ66STSY6JQPZA)
+![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_grad.png?token=GHSAT0AAAAAAB4PXHRW22BBHHGYJZKVZWL4Y6JQP4Q)
 
 ## Running the tests
 
