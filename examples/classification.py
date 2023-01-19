@@ -1,7 +1,7 @@
 """Ordinal GP regression via approximate inference."""
 # Uncomment to enable double precision
-# from jax.config import config
-# config.update("jax_enable_x64", True)
+from jax.config import config
+config.update("jax_enable_x64", True)
 import argparse
 import cProfile
 from io import StringIO
@@ -16,6 +16,7 @@ from probit_jax.utilities import (
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from scipy.optimize import minimize
+from jax import jit, vmap, grad, value_and_grad
 
 
 # For plotting
@@ -394,7 +395,7 @@ def main():
         profile = cProfile.Profile()
         profile.enable()
  
-    approximate_inference_method = "Variational Bayes"
+    approximate_inference_method = "Laplace"
     if approximate_inference_method=="Variational Bayes":
         from probit_jax.approximators import VBGP as Approximator
     elif approximate_inference_method=="Laplace":
@@ -445,10 +446,12 @@ def main():
         tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
     )
 
-    g = classifier.take_grad()
-
     # Optimize ELBO
     params = (lengthscale), (np.sqrt(noise_variance), cutpoints)
+    e = classifier.objective()
+
+    g = classifier.value_and_grad()
+
     print("\nELBO and gradient of the hyper-parameters:")
     print(g(params))
     fun = lambda x: (

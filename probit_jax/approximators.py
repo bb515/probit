@@ -115,7 +115,7 @@ class Approximator(ABC):
 
     def value_and_grad(self):
         """Value and grad of the objective at the fix point."""
-        return jit(value_and_grad(self.objective))
+        return jit(value_and_grad(self.objective()))
 
     @abstractmethod
     def weight(self):
@@ -280,14 +280,16 @@ class VBGP(Approximator):
         return fwd_solver(lambda z: f(parameters, z),
             jnp.zeros(self.N), self.tolerance)
 
-    def precision(self, parameters, weight):
+    def precision(self, weight, parameters):
         """
         :returns: A JAX array.
         """
-        return 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0])
+        K = B.dense(self.prior(parameters[0])(self.data[0]))
+        posterior_mean = K @ weight
+        return 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0]), posterior_mean
 
     def objective(self):
-        lambda parameters: objective_VB(
+        return lambda parameters: objective_VB(
             parameters[0], parameters[1],
             self.prior,
             self.log_likelihood,
