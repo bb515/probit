@@ -9,7 +9,9 @@ GP regression and classification in JAX in not many lines of code.
 Contents:
 
 - [Installation](#installation)
-- [Usage](#usage)
+- [Examples](#examples)
+    - [Regression and hyperparameter optimization](#regression-and-hyperparameter-optimization)
+    - [Ordinal regression](#ordinal-regression)
 - probit uses [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, see the available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
 - [Doesn't haves](#doesnthaves)
 
@@ -39,14 +41,15 @@ Installation
 ------------
 - The package requires Python 3.9+
 - Clone the repository `git clone git@github.com:bb515/probit.git`
-- Install using pip `pip install -e .` from the root directory of the repository (see the `setup.py` for the requirements that this command installs).
+- For developers, install using pip `pip install -e .` from the root directory of the repository (see the `setup.py` for the requirements that this command installs)
 
-Usage
------
-- You can find examples of how to use the package under:`examples/`.
+or just `pip install probit`.
 
-## Regression and hyperparameter optimization
-- Run the first example by typing `python example/regression.py`.
+## Examples
+You can find examples of how to use the package under:`examples/`.
+
+### Regression and hyperparameter optimization
+Run the first example by typing `python example/regression.py`.
 ```python
 >>> def prior(prior_parameters):
 >>>    lengthscale, signal_variance = prior_parameters
@@ -106,19 +109,16 @@ params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Arr
 ```
 ![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/master/readme_regression_after.png?token=GHSAT0AAAAAAB4PXHRWTCD7D3GJNOAD2MGYY6JGKUQ)
 
-## Ordinal regression and hyperparameter optimization
+### Ordinal regression and hyperparameter optimization
 
-### Running the tests ###
+## Running the tests
 
 The tests for this project use [pytest](https://pytest.org/en/latest/).
 
-Doesn't haves
--------------
+## Doesn't haves
 - [Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/vgp_notes.html) or [Sparse Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/SGPR_notes.html).
 
-References
-----------
-
+## References
 Most of the algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories
 
 Laplace approximation http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html
