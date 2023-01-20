@@ -17,7 +17,7 @@ from pstats import Stats, SortKey
 
 
 # For plotting
-BG_ALPHA = 0.0
+BG_ALPHA = 1.0
 MG_ALPHA = 1.0
 FG_ALPHA = 0.3
 

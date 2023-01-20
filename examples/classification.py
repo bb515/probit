@@ -22,7 +22,7 @@ from scipy.optimize import minimize
 from jax import vmap, value_and_grad
 
 # For plotting
-BG_ALPHA = 0.0
+BG_ALPHA = 1.0
 MG_ALPHA = 1.0
 FG_ALPHA = 0.3
 
