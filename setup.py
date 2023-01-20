@@ -1,8 +1,8 @@
 """
-Setup script for probit_jax.
+Setup script for probit.
 
 This setup is required or else
-    >> ModuleNotFoundError: No module named 'probit_jax'
+    >> ModuleNotFoundError: No module named 'probit'
 will occur.
 """
 from setuptools import setup, find_packages
@@ -19,12 +19,12 @@ extra_link_args = []
 
 
 setup(
-    name="probit_jax",
+    name="probit",
     version="0.1.0",
     description="A simple and tidy Gaussian process package in Jax.",
     long_description=README,
     long_description_content_type="text/markdown",
-    url="https://github.com/bb515/probit_jax",
+    url="https://github.com/bb515/probit",
     author="Benjamin Boys, Toby Boyne, Ieronymos Maxoutis",
     license="MIT",
     packages=find_packages(exclude=['*.test']),
