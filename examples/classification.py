@@ -22,7 +22,7 @@ from scipy.optimize import minimize
 from jax import vmap, value_and_grad
 
 # For plotting
-BG_ALPHA = 0.0
+BG_ALPHA = 1.0
 MG_ALPHA = 1.0
 FG_ALPHA = 0.3
 
@@ -369,19 +369,11 @@ def main():
         weight, precision)
     obs_variance = variance + noise_variance
     predictive_distributions = probit_predictive_distributions(
-<<<<<<< HEAD
-        params[1],
-        posterior_mean, posterior_variance)
-    obs_variance = posterior_variance + noise_variance
-    plot_contour(X_show, predictive_distributions, posterior_mean,
-                 obs_variance, X, y, g_true, J, colors)
-=======
         parameters[1],
         mean, variance)
     plot(X_show, predictive_distributions, mean,
         obs_variance, X_show, f_show, X, y, g_true,
         J, colors, fname="readme_classification_before")
->>>>>>> develop
 
     # Evaluate model
     mean, variance = classifier.predict(
