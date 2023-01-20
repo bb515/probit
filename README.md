@@ -27,11 +27,11 @@ TLDR:
 >>> gaussian_process = GP(data=(X, y), prior=prior, log_likelihood=log_gaussian_likelihood)
 >>> likelihood_parameters = 1.0
 >>> prior_parameters = (1.0, 1.0)
->>> params = (likelihood_parameters, prior_parameters)
->>> weight, precision = gaussian_process.approximate_posterior(params)
+>>> parameters = (likelihood_parameters, prior_parameters)
+>>> weight, precision = gaussian_process.approximate_posterior(parameters)
 >>> predictive_mean, predictive_variance = gaussian_process.predict(
 >>>     X_test,
->>>     params, weight, precision)
+>>>     parameters, weight, precision)
 ```
 
 
