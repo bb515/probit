@@ -80,7 +80,7 @@ Run the regression example by typing `python example/regression.py`.
 >>> obs_variance = variance + noise_variance
 >>> plot((X, y), (X_show, f_show), mean, variance, fname="readme_regression_before.png")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_regression_before.png?token=GHSAT0AAAAAAB4PXHRWC2TMIQ2GCWGL2HNAY6JQTGQ)
+![Prediction](readme_regression_before.png)
 ```python
 >>> print("Before optimization, \nparams={}".format(parameters))
 ```
@@ -102,7 +102,7 @@ params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Arr
 >>> obs_variance = variance + noise_variance
 >>> plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_regression_after.png")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_regression_after.png?token=GHSAT0AAAAAAB4PXHRXJARY4MVFP62V6QLAY6JQTEQ)
+![Prediction](readme_regression_after.png)
 
 ### Ordinal regression and hyperparameter optimization
 Run the ordinal regression example by typing `python example/classification.py`.
@@ -158,8 +158,8 @@ Run the ordinal regression example by typing `python example/classification.py`.
 >>>     obs_variance, X_show, f_show, X, y, g_true,
 >>>     J, colors, fname="readme_classification_before")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_classification_before_contour.png?token=GHSAT0AAAAAAB4PXHRXJGKZUMUCKFU3L436Y6JQQYQ)
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_classification_before_mean_variance.png?token=GHSAT0AAAAAAB4PXHRWWHHG7RBRX2OKYFWMY6JQPSA)
+![Prediction](readme_classification_before_contour.png)
+![Prediction](readme_classification_before_mean_variance.png)
 
 ```python
 >>>
@@ -208,8 +208,8 @@ parameters=(Array(0.07389855, dtype=float32), (Array(0.63245553, dtype=float64, 
 >>>     obs_variance, X_show, f_show, X, y, g_true,
 >>>     J, colors, fname="readme_classification_after")
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_classification_after_contour.png?token=GHSAT0AAAAAAB4PXHRXMLB3P4PXNQ2XJZSWY6JQOKQ)
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_classification_after_mean_variance.png?token=GHSAT0AAAAAAB4PXHRX7PCEVUSCLD5AL3U6Y6JQPWQ)
+![Prediction](readme_classification_after_contour.png)
+![Prediction](readme_classification_after_mean_variance.png)
 ```python
 >>> # Evaluate model
 >>> mean, variance = classifier.predict(
@@ -247,8 +247,8 @@ mean_zero_one_error 0.35333333333333333
 >>> gs = fgs[1]
 >>> plot_obj(vs.struct.lengthscale(), lengthscale, x, fs, gs, domain, xlabel, xscale)
 ```
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_elbo.png?token=GHSAT0AAAAAAB4PXHRWR6AMBOBQHBZ66STSY6JQPZA)
-![Prediction](https://raw.githubusercontent.com/bb515/probit_jax/develop/readme_grad.png?token=GHSAT0AAAAAAB4PXHRW22BBHHGYJZKVZWL4Y6JQP4Q)
+![Prediction](readme_elbo.png)
+![Prediction](readme_grad.png)
 
 ## Running the tests
 
