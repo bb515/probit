@@ -288,6 +288,6 @@ Variational inference via factorizing assumption and free form minimization\
   number = {CS-05-06},\
   url = 	 {http://inverseprobability.com/publications/king-ppa05.html}}
 
-(Implicit functions tutorial)[http://implicit-layers-tutorial.org/implicit_functions/] was used to define the fixed-point layer.
+An [implicit functions tutorial](http://implicit-layers-tutorial.org/implicit_functions/) was used to define the fixed-point layer.
 
 
