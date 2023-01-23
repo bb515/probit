@@ -178,12 +178,12 @@ Run the ordinal regression example by typing `python example/classification.py`.
 Evaluation of model:
 116 sum incorrect
 184 sum correct
-mean_absolute_error  0.41333333333333333
-log_pred_probability  -140986.54014247668
-predictive_likelihood  99.99999999999983
-mean_zero_one_error 0.38666666666666666
+mean_absolute_error=0.41
+log_pred_probability=-140986.54
+mean_zero_one_error=0.39
+
 Before optimization, 
-parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
+parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], 
 ```python
 >>>
 >>> minimise_l_bfgs_b(objective, vs)
@@ -226,10 +226,9 @@ parameters=(Array(0.07389855, dtype=float32), (Array(0.63245553, dtype=float64, 
 Evaluation of model:
 106 sum incorrect
 194 sum correct
-mean_absolute_error  0.36
-log_pred_probability  -161267.4884241588
-predictive_likelihood  100.00000000000009
-mean_zero_one_error 0.35333333333333333
+mean_absolute_error=0.36
+log_pred_probability=-161267.49
+mean_zero_one_error=0.35
 ```python
 >>> nelbo = lambda x : negative_evidence_lower_bound(((x), (jnp.sqrt(noise_variance), cutpoints)))
 >>> fg = vmap(value_and_grad(nelbo))
@@ -247,7 +246,7 @@ mean_zero_one_error 0.35333333333333333
 >>> gs = fgs[1]
 >>> plot_obj(vs.struct.lengthscale(), lengthscale, x, fs, gs, domain, xlabel, xscale)
 ```
-![Prediction](readme_elbo.png)
+![Prediction](readme_objective.png)
 ![Prediction](readme_grad.png)
 
 ## Running the tests
