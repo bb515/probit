@@ -4,14 +4,16 @@
 
 A simple and accessible Gaussian process package in Jax.
 
+probit uses [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, see the available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
+
 Contents:
 
 - [Installation](#installation)
 - [Examples](#examples)
     - [Regression and hyperparameter optimization](#regression-and-hyperparameter-optimization)
     - [Ordinal regression and hyperparameter optimization](#ordinal-regression-and-hyperparameter-optimization)
-- probit uses [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, see the available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
 - [Doesn't haves](#doesnt-haves)
+- [References](#references)
 
 TLDR:
 ```python
@@ -254,7 +256,7 @@ mean_zero_one_error=0.35
 - [Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/vgp_notes.html) or [Sparse Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/SGPR_notes.html).
 
 ## References
-Algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories
+Algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories:
 
 Laplace approximation http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html\
 @article{Chu2005,\
