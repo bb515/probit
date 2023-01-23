@@ -183,7 +183,7 @@ log_pred_probability=-140986.54
 mean_zero_one_error=0.39
 
 Before optimization, 
-parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], 
+parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
 ```python
 >>>
 >>> minimise_l_bfgs_b(objective, vs)
