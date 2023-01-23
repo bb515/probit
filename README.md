@@ -250,10 +250,6 @@ mean_zero_one_error 0.35333333333333333
 ![Prediction](readme_elbo.png)
 ![Prediction](readme_grad.png)
 
-## Running the tests
-
-The tests for this project use [pytest](https://pytest.org/en/latest/).
-
 ## Doesn't haves
 - [Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/vgp_notes.html) or [Sparse Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/SGPR_notes.html).
 
