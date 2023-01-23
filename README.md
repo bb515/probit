@@ -36,7 +36,7 @@ TLDR:
 
 
 ## Installation
-`pip install probit`, or for developers,
+`pip install probit` or for developers,
 - Clone the repository `git clone git@github.com:bb515/probit.git`
 - Install using pip `pip install -e .` from the root directory of the repository (see the `setup.py` for the requirements that this command installs)
 
