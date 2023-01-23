@@ -99,8 +99,9 @@ def plot_obj(x_hat, x_0, x, fs, gs, domain, xlabel, xscale, fname="plot"):
     ax.set_xlabel(xlabel, fontsize=10)
     ax.set_xscale(xscale)
     ax.set_ylabel(r"$\mathcal{F}$", fontsize=10)
+    ax.set_title('Hyper-parameter optimisation objective')
     ax.legend()
-    fig.savefig("readme_elbo.png",
+    fig.savefig("readme_objective.png",
         facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close()
 
@@ -117,13 +118,15 @@ def plot_obj(x_hat, x_0, x, fs, gs, domain, xlabel, xscale, fname="plot"):
     ax.plot(
         x, dfsx, 'g--',
         label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical")
-    ax.vlines(x_0, ax.get_ylim()[0], ax.get_ylim()[1], 'k',
-        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
+    ylim = ax.get_ylim()
     ax.vlines(x_hat, ylim[0], ylim[1], 'r',
         alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
+    ax.vlines(x_0, ylim[0], ylim[1], 'k',
+        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
     ax.set_xscale(xscale)
     ax.set_xlabel(xlabel, fontsize=10)
     ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$", fontsize=10)
+    ax.set_title('Hyper-parameter optimisation gradient')
     ax.legend()
     fig.savefig("readme_grad.png",
         facecolor=fig.get_facecolor(), edgecolor='none')
@@ -276,13 +279,11 @@ def calculate_metrics(y_test, predictive_distributions):
     mean_absolute_error = jnp.sum(jnp.abs(y_pred - y_test)) / len(y_test)
     print(jnp.sum(y_pred != y_test), "sum incorrect")
     print(jnp.sum(y_pred == y_test), "sum correct")
-    print("mean_absolute_error ", mean_absolute_error)
+    print("mean_absolute_error={:.2f}".format(mean_absolute_error))
     log_predictive_probability = jnp.sum(jnp.log(predictive_likelihood))
-    print("log_pred_probability ", log_predictive_probability)
-    predictive_likelihood = jnp.sum(predictive_likelihood) / len(y_test)
-    print("predictive_likelihood ", predictive_likelihood)
+    print("log_pred_probability={:.2f}".format(log_predictive_probability))
     mean_zero_one = jnp.sum(y_pred != y_test) / len(y_test)
-    print("mean_zero_one_error", mean_zero_one)
+    print("mean_zero_one_error={:.2f}".format(mean_zero_one))
     return (
         mean_zero_one,
         mean_absolute_error,
