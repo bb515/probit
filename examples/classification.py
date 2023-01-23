@@ -2,7 +2,8 @@
 # Uncomment to enable double precision
 from jax.config import config
 config.update("jax_enable_x64", True)
-from probit_jax.utilities import (
+
+from probit.utilities import (
     InvalidKernel, check_cutpoints,
     log_probit_likelihood, probit_predictive_distributions)
 import numpy as np
@@ -64,9 +65,10 @@ def plot(x, predictive_distributions, mean,
     ax.set_xlim(-0.5, 1.5)
     ax.set_xlabel('x', fontsize=10)
     ax.set_ylabel('y', fontsize=10)
-    ax.scatter(X_train, g_train, color=[colors[i] for i in y_train], s=4)
+    ax.scatter(X_train, g_train, color=[colors[i] for i in y_train], s=4, label="Observations")
     ax.plot(X_show, f_show, label="True", color='orange', alpha=FG_ALPHA)
     ax.grid(visible=True, which='major', linestyle='-')
+    ax.legend()
     plt.tight_layout()
     fig.savefig("{}_mean_variance.png".format(fname),
         facecolor=fig.get_facecolor(), edgecolor='none')
@@ -300,9 +302,9 @@ def main():
  
     approximate_inference_method = "Laplace"
     if approximate_inference_method=="Variational Bayes":
-        from probit_jax.approximators import VBGP as Approximator
+        from probit.approximators import VBGP as Approximator
     elif approximate_inference_method=="Laplace":
-        from probit_jax.approximators import LaplaceGP as Approximator
+        from probit.approximators import LaplaceGP as Approximator
 
     J = 3
     cmap = plt.cm.get_cmap('PiYG', J)

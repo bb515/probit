@@ -4,33 +4,40 @@ import jax
 import lab.jax as B
 import jax.numpy as jnp
 from jax import value_and_grad, grad, jit, vmap
-from probit_jax.implicit.solvers import (
+from probit.implicit.solvers import (
     fwd_solver, newton_solver,
     fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
-from probit_jax.implicit.Laplace import f_LA, objective_LA
-from probit_jax.implicit.VB import f_VB, objective_VB
+from probit.implicit.Laplace import f_LA, objective_LA
+from probit.implicit.VB import f_VB, objective_VB
 
 
 class Approximator(ABC):
     """
-    Base class for GP classification approximators.
+    Base class for GP regression/classification approximators.
 
-    This class allows users to define a classification problem,
+    This class allows users to define a regression/classification problem,
     get predictions using an approximate Bayesian inference. Here, N is the
-    number of training datapoints, D is the data input dimensions, J is the
-    number of ordinal classes, N_test is the number of testing datapoints.
+    number of training datapoints, D is the data input dimensions, N_test
+    is the number of testing datapoints.
 
+    All approximators must define a repr method.
     All approximators must define an init method, which may or may not
         inherit Sampler as a parent class using `super()`.
-    All approximators that inherit Approximator define a number of methods that
-        return the approximate posterior.
-    All approximators must define a :meth:`approximate_posterior` that can be
-        used to approximate the posterior and get ELBO gradients with respect
-        to the hyperparameters.
-    All approximators must define a :meth:`_approximate_initiate` that is used
-        to initiate approximate.
-    All approximators must define a :meth:`predict` can be used to make
-        predictions given test data.
+    All approximators that inherit Approximator define a number of methods
+        that return the approximate posterior.
+    All approximators must define a :meth:`construct` that can be
+        used to define an implicit layer that is differentiable,
+        in the spirit of
+        (this)[http://implicit-layers-tutorial.org/implicit_functions/].
+    All approximators must define a :meth:`objective` that can be
+        used to define a type-II maximum likelihood objective for
+        hyper-parameter optimization, e.g. (negative) log marginal
+        likelihood or (negative) ELBO.
+    All approximators must define a :meth:`weight` that can be
+        used to define the first moment of an approximate posterior.
+    All approximators must define a :meth:`precision` that takes in
+        `weights` and `parameters` and can be used to define the
+        second moment of an approximate posterior.
     """
 
     @abstractmethod
@@ -91,6 +98,7 @@ class Approximator(ABC):
         X_train, _ = data
         (self.N, self.D) = jnp.shape(X_train)
         self.data = data
+
         # Set up a JAX-transformable function for a custom VJP rule definition
         fixed_point_layer.defvjp(
             fixed_point_layer_fwd, fixed_point_layer_bwd)
@@ -99,7 +107,7 @@ class Approximator(ABC):
     def construct(self):
         """
         The parameterized function, which takes in parameters, that is the
-        function in fixed point iteration.
+        implicit function to be satisfied by fixed point iteration.
 
         This method should be implemented in every concrete Approximator.
         """
@@ -123,6 +131,7 @@ class Approximator(ABC):
         The weight, that is part of the solution of GP regression.
 
         This method should be implemented in every concrete Approximator.
+        Returns: A (N,) JAX array.
         """
 
     @abstractmethod
@@ -131,6 +140,7 @@ class Approximator(ABC):
         The precision, that is part of the solution of GP regression.
 
         This method should be implemented in every concrete Approximator.
+        Returns: A (N,) JAX array.
         """
 
     def predict(
@@ -139,15 +149,18 @@ class Approximator(ABC):
         parameters,
         weight, precision):
         """
-        Make posterior prediction over ordinal classes of X_test.
+        Make posterior predictions given test data, X_test.
 
         :arg X_test: The new data points, array like (N_test, D).
-        :arg weight: The solution of GP regression.
+        :arg parameters: The GP hyper-parameters like
+            ((tuple), (tuple)).
+        :arg weight: The solution of GP regression. Used to calculate
+            the first moment of the posterior predictions.
         :type weight: Array like (N,)`
-        :arg precision: Solution of GP regression.
-            Precisions used in calculation of posterior
-            predictions. Array like (N,).
-        :type precision: :class:`numpy.ndarray`
+        :arg precision: Solution of GP regression. Used to calculate
+            the second moment of the posterior predictions. Array
+            like (N,).
+        :type precision: Array like (N,)`
         :return: Gaussian process predictive mean and variance array.
         :rtype tuple: ((N_test,), (N_test,))
         """
@@ -162,10 +175,14 @@ class Approximator(ABC):
         return predictive_posterior_mean, predictive_posterior_variance
 
     def posterior_mean(self, weight):
+        """Returns a Gaussian Process mean."""
         K = B.dense(self.prior(parameters[0])(self.data[0]))
         return K @ weight
 
     def approximate_posterior(self, parameters):
+        """Returns weights and precisions that can be used to
+        calculate the first and second moments of an
+        approximate posterior."""
         w = self.weight(parameters)
         p, _ = self.precision(w, parameters)
         return w, p
@@ -197,35 +214,16 @@ class LaplaceGP(Approximator):
         """
         Create an :class:`LaplaceGP` Approximator object.
 
-        :returns: An :class:`EPGP` object.
+        :returns: An :class:`LaplaceGP` object.
         """
         super().__init__(*args, **kwargs)
 
     def construct(self):
-        """Fixed point iteration function"""
         return lambda parameters, weight: f_LA(
             prior_parameters=parameters[0],
             likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             weight=weight, data=self.data)
-
-    def weight(self, parameters):
-        """
-        :returns: A JAX array.
-        """
-        f = self.construct()
-        return newton_solver(lambda z: f(parameters, z),
-            jnp.zeros(self.N), self.tolerance)
-
-    def precision(self, weight, parameters):
-        """
-        :returns: A JAX array.
-        """
-        K = B.dense(self.prior(parameters[0])(self.data[0]))
-        posterior_mean = K @ weight
-        precision = -self.hessian_log_likelihood(
-            posterior_mean, self.data[1], parameters[1])
-        return precision, posterior_mean
 
     def objective(self):
         return lambda parameters: objective_LA(
@@ -236,7 +234,19 @@ class LaplaceGP(Approximator):
                 fixed_point_layer(jnp.zeros(self.N), self.tolerance,
                     newton_solver, self.construct(), parameters),
                 self.data)
-    
+
+    def weight(self, parameters):
+        f = self.construct()
+        return newton_solver(lambda z: f(parameters, z),
+            jnp.zeros(self.N), self.tolerance)
+
+    def precision(self, weight, parameters):
+        K = B.dense(self.prior(parameters[0])(self.data[0]))
+        posterior_mean = K @ weight
+        precision = -self.hessian_log_likelihood(
+            posterior_mean, self.data[1], parameters[1])
+        return precision, posterior_mean
+
 
 class VBGP(Approximator):
     """
@@ -265,28 +275,11 @@ class VBGP(Approximator):
         super().__init__(*args, **kwargs)
 
     def construct(self):
-        """Fixed point iteration function"""
         return lambda parameters, weight: f_VB(
             prior_parameters=parameters[0],
             likelihood_parameters=parameters[1],
             prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
             weight=weight, data=self.data)
-
-    def weight(self, parameters):
-        """
-        :returns: A JAX array.
-        """
-        f = self.construct()
-        return fwd_solver(lambda z: f(parameters, z),
-            jnp.zeros(self.N), self.tolerance)
-
-    def precision(self, weight, parameters):
-        """
-        :returns: A JAX array.
-        """
-        K = B.dense(self.prior(parameters[0])(self.data[0]))
-        posterior_mean = K @ weight
-        return 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0]), posterior_mean
 
     def objective(self):
         return lambda parameters: objective_VB(
@@ -297,3 +290,12 @@ class VBGP(Approximator):
                 fwd_solver, self.construct(), parameters),
             self.data)
 
+    def weight(self, parameters):
+        f = self.construct()
+        return fwd_solver(lambda z: f(parameters, z),
+            jnp.zeros(self.N), self.tolerance)
+
+    def precision(self, weight, parameters):
+        K = B.dense(self.prior(parameters[0])(self.data[0]))
+        posterior_mean = K @ weight
+        return 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0]), posterior_mean

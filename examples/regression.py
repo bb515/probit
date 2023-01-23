@@ -2,6 +2,7 @@
 # Uncomment to enable double precision
 from jax.config import config
 config.update("jax_enable_x64", True)
+
 from probit_jax.utilities import log_gaussian_likelihood
 from probit_jax.approximators import LaplaceGP as GP
 import lab as B
