@@ -268,8 +268,7 @@ pages = {1019-1041},\
 title = {Gaussian Processes for Ordinal Regression.},\
 volume = {6},\
 journal = {Journal of Machine Learning Research},\
-howpublished = {\url{http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html}},\
-}\
+howpublished = {\url{http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html}}}
 
 Variational inference via factorizing assumption and free form minimization\
 @article{Girolami2005,\
@@ -279,16 +278,14 @@ Variational inference via factorizing assumption and free form minimization\
   year="2006",\
   volume="18",\
   number="8",\
-  pages="1790-1817"\
- }\
+  pages="1790-1817"}\
  and\
  @Misc{King2005,\
   title = 	 {Variational Inference in <span>G</span>aussian Processes via Probabilistic Point Assimilation},\
   author = 	 {King, Nathaniel J. and Lawrence, Neil D.},\
   year = 	 {2005},\
   number = {CS-05-06},\
-  url = 	 {http://inverseprobability.com/publications/king-ppa05.html},\
-}
+  url = 	 {http://inverseprobability.com/publications/king-ppa05.html}}
 
 
 
