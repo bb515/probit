@@ -180,7 +180,7 @@ Evaluation of model:\
 184 sum correct\
 mean_absolute_error=0.41\
 log_pred_probability=-140986.54\
-mean_zero_one_error=0.39\
+mean_zero_one_error=0.39
 
 Before optimization, 
 parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
@@ -228,7 +228,7 @@ Evaluation of model:\
 194 sum correct\
 mean_absolute_error=0.36\
 log_pred_probability=-161267.49\
-mean_zero_one_error=0.35\
+mean_zero_one_error=0.35
 ```python
 >>> nelbo = lambda x : negative_evidence_lower_bound(((x), (jnp.sqrt(noise_variance), cutpoints)))
 >>> fg = vmap(value_and_grad(nelbo))
