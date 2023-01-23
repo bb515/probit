@@ -13,10 +13,10 @@ from mlkernels import EQ
 
 config.update("jax_enable_x64", True)
 
-from probit_jax.implicit.Laplace import objective_LA, f_LA
-from probit_jax.implicit.utilities import (log_probit_likelihood, 
+from probit.implicit.Laplace import objective_LA, f_LA
+from probit.implicit.utilities import (log_probit_likelihood, 
     grad_log_probit_likelihood, hessian_log_probit_likelihood)
-from probit_jax.solvers import (fixed_point_layer, newton_solver, 
+from probit.solvers import (fixed_point_layer, newton_solver, 
     fixed_point_layer_fwd, fixed_point_layer_bwd)
 
 lpl = log_probit_likelihood
