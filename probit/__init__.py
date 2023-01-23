@@ -1,7 +1,5 @@
 """
 Probit.
 
-A module for multinomial probit regression with GP priors.
+A simple and tidy Gaussian process package in Jax.
 """
-
-__all__ = ["estimators", "kernels", "samplers", "utilities"]

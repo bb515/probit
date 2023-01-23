@@ -10,6 +10,7 @@ over_sqrt_2_pi = 1. / B.sqrt(2 * B.pi)
 log_over_sqrt_2_pi = jnp.log(over_sqrt_2_pi)
 sqrt_2 = B.sqrt(2)
 
+
 BOUNDS = {
     "single": [1.3, 1.8, 2.3],
     "double": [2.3, 3.6, 4.8]
