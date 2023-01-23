@@ -175,12 +175,12 @@ Run the ordinal regression example by typing `python example/classification.py`.
 >>> calculate_metrics(y_test, predictive_distributions)
 >>> print("Before optimization, \nparameters={}".format(parameters))
 ```
-Evaluation of model:
-116 sum incorrect
-184 sum correct
-mean_absolute_error=0.41
-log_pred_probability=-140986.54
-mean_zero_one_error=0.39
+Evaluation of model:\
+116 sum incorrect\
+184 sum correct\
+mean_absolute_error=0.41\
+log_pred_probability=-140986.54\
+mean_zero_one_error=0.39\
 
 Before optimization, 
 parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
@@ -223,12 +223,12 @@ parameters=(Array(0.07389855, dtype=float32), (Array(0.63245553, dtype=float64, 
 >>> print("\nEvaluation of model:")
 >>> calculate_metrics(y_test, predictive_distributions)
 ```
-Evaluation of model:
-106 sum incorrect
-194 sum correct
-mean_absolute_error=0.36
-log_pred_probability=-161267.49
-mean_zero_one_error=0.35
+Evaluation of model:\
+106 sum incorrect\
+194 sum correct\
+mean_absolute_error=0.36\
+log_pred_probability=-161267.49\
+mean_zero_one_error=0.35\
 ```python
 >>> nelbo = lambda x : negative_evidence_lower_bound(((x), (jnp.sqrt(noise_variance), cutpoints)))
 >>> fg = vmap(value_and_grad(nelbo))
@@ -259,36 +259,35 @@ The tests for this project use [pytest](https://pytest.org/en/latest/).
 ## References
 Most of the algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories
 
-Laplace approximation http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html
-@article{Chu2005,
-author = {Chu, Wei and Ghahramani, Zoubin},
-year = {2005},
-month = {07},
-pages = {1019-1041},
-title = {Gaussian Processes for Ordinal Regression.},
-volume = {6},
-journal = {Journal of Machine Learning Research},
-howpublished = {\url{http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html}},
-}
+Laplace approximation http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html\
+@article{Chu2005,\
+author = {Chu, Wei and Ghahramani, Zoubin},\
+year = {2005},\
+month = {07},\
+pages = {1019-1041},\
+title = {Gaussian Processes for Ordinal Regression.},\
+volume = {6},\
+journal = {Journal of Machine Learning Research},\
+howpublished = {\url{http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html}},\
+}\
 
-Variational inference via factorizing assumption and free form minimization
-@article{Girolami2005,
-  author="M. Girolami and S. Rogers",
-  journal="Neural Computation", 
-  title="Variational Bayesian Multinomial Probit Regression with Gaussian Process Priors", 
-  year="2006",
-  volume="18",
-  number="8",
-  pages="1790-1817"
- }
- and
- @Misc{King2005,
-  title = 	 {Variational Inference in <span>G</span>aussian Processes via Probabilistic Point Assimilation},
-  author = 	 {King, Nathaniel J. and Lawrence, Neil D.},
-  year = 	 {2005},
-  number = {CS-05-06},
-  url = 	 {http://inverseprobability.com/publications/king-ppa05.html},
-  abstract = 	 {We introduce a novel variational approach for approximate inference in Gaussian process (GP) models. The key advantages of our approach are the ease with which different noise models can be incorporated and improved speed of convergence. We refer to the algorithm as probabilistic point assimilation (PPA). We introduce the algorithm firstly using the ‘weight space’ view and then through its Gaussian process formulation. We illustrate the approach on several benchmark data sets.}
+Variational inference via factorizing assumption and free form minimization\
+@article{Girolami2005,\
+  author="M. Girolami and S. Rogers",\
+  journal="Neural Computation",\
+  title="Variational Bayesian Multinomial Probit Regression with Gaussian Process Priors",\
+  year="2006",\
+  volume="18",\
+  number="8",\
+  pages="1790-1817"\
+ }\
+ and\
+ @Misc{King2005,\
+  title = 	 {Variational Inference in <span>G</span>aussian Processes via Probabilistic Point Assimilation},\
+  author = 	 {King, Nathaniel J. and Lawrence, Neil D.},\
+  year = 	 {2005},\
+  number = {CS-05-06},\
+  url = 	 {http://inverseprobability.com/publications/king-ppa05.html},\
 }
 
 
