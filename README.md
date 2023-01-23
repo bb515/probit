@@ -2,7 +2,7 @@
 [![CI]]()
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)]()
 
-GP regression and classification in JAX in not many lines of code.
+A simple and tidy Gaussian process package in Jax.
 
 Contents:
 
