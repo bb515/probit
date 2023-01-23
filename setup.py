@@ -1,8 +1,8 @@
 """
-Setup script for probit_jax.
+Setup script for probit.
 
 This setup is required or else
-    >> ModuleNotFoundError: No module named 'probit_jax'
+    >> ModuleNotFoundError: No module named 'probit'
 will occur.
 """
 from setuptools import setup, find_packages
@@ -17,44 +17,25 @@ README = (HERE / "README.md").read_text()
 extra_compile_args = ['-O3']
 extra_link_args = []
 
-arguments = [
-    "abalone",
-    "Auto-Mpg",
-    "bostonhousing",
-    "Diabetes",
-    "machinecpu",
-    "pyrimidines",
-    "stocksdomain",
-    "triazines",
-    "wisconsin",
-    "false"
-]
-data_list = []
-for argument in arguments:
-    data_list.append('data/{}/*.npz'.format(argument))
-    data_list.append('data/{}/5bins/*.npz'.format(argument))
-    data_list.append('data/{}/10bins/*.npz'.format(argument))
-
 
 setup(
-    name="probit_jax",
+    name="probit",
     version="0.1.0",
-    description="A fast ordinal regression with GP priors package for python",
+    description="A simple and accessible Gaussian process package in Jax.",
     long_description=README,
     long_description_content_type="text/markdown",
-    url="https://github.com/bb515/VariationalBayesianMultinomialProbitRegressionwithGaussianProcessPriors",
-    author="Benjamin Boys",
+    url="https://github.com/bb515/probit",
+    author="Benjamin Boys, Toby Boyne, Ieronymos Maxoutis",
     license="MIT",
     packages=find_packages(exclude=['*.test']),
-    package_data={'': data_list},
     include_package_data=True,
     install_requires=[
-        'backends',
-        'mlkernels',
         'numpy',
         'scipy',
-        'tqdm',
-        'h5py',
-        'matplotlib',
+        'jaxlib>=0.4.1',
+        'jax>=0.4.1',
+        'jaxopt>=0.5.5'
+        'backends>=1.4.32',
+        'mlkernels>=0.3.6',
         ]
     )
