@@ -109,6 +109,7 @@ Run the ordinal regression example by typing `python example/classification.py`.
 
 ```python
 >>> # Generate data
+>>> J = 3  # use a value of J=2 for GP binary classification
 >>> key = random.PRNGKey(1)
 >>> noise_variance = 0.4
 >>> signal_variance = 1.0
