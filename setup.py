@@ -21,7 +21,7 @@ extra_link_args = []
 setup(
     name="probit",
     version="0.1.0",
-    description="A simple and tidy Gaussian process package in Jax.",
+    description="A simple and accessible Gaussian process package in Jax.",
     long_description=README,
     long_description_content_type="text/markdown",
     url="https://github.com/bb515/probit",

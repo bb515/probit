@@ -2,7 +2,7 @@
 [![CI]]()
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)]()
 
-A simple and tidy Gaussian process package in Jax.
+A simple and accessible Gaussian process package in Jax.
 
 Contents:
 
@@ -109,6 +109,7 @@ Run the ordinal regression example by typing `python example/classification.py`.
 
 ```python
 >>> # Generate data
+>>> J = 3  # use a value of J=2 for GP binary classification
 >>> key = random.PRNGKey(1)
 >>> noise_variance = 0.4
 >>> signal_variance = 1.0
@@ -253,7 +254,7 @@ mean_zero_one_error=0.35
 - [Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/vgp_notes.html) or [Sparse Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/SGPR_notes.html).
 
 ## References
-Most of the algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories
+Algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories
 
 Laplace approximation http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html\
 @article{Chu2005,\
@@ -283,5 +284,6 @@ Variational inference via factorizing assumption and free form minimization\
   number = {CS-05-06},\
   url = 	 {http://inverseprobability.com/publications/king-ppa05.html}}
 
+An [implicit functions tutorial](http://implicit-layers-tutorial.org/implicit_functions/) was used to define the fixed-point layer.
 
 
