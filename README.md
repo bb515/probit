@@ -258,7 +258,7 @@ The tests for this project use [pytest](https://pytest.org/en/latest/).
 - [Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/vgp_notes.html) or [Sparse Variational Gaussian Process](https://gpflow.readthedocs.io/en/v1.5.1-docs/notebooks/theory/SGPR_notes.html).
 
 ## References
-Most of the algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories
+Algorithms in this package were ported from pre-existing code. In particular, the code was ported from the following papers and repositories
 
 Laplace approximation http://www.gatsby.ucl.ac.uk/~chuwei/ordinalregression.html\
 @article{Chu2005,\
@@ -288,5 +288,6 @@ Variational inference via factorizing assumption and free form minimization\
   number = {CS-05-06},\
   url = 	 {http://inverseprobability.com/publications/king-ppa05.html}}
 
+(Implicit functions tutorial)[http://implicit-layers-tutorial.org/implicit_functions/] was used to define the fixed-point layer.
 
 
