@@ -10,8 +10,7 @@ import subprocess
 import pathlib
 
 
-cf_remote_version = subprocess.run(['git', 'describe', '--tags'], stdout=subprocess.PIPE).stdout.decod("utf-8").strip()
-
+version = subprocess.run(['git', 'describe', '--tags'], stdout=subprocess.PIPE).stdout.decod("utf-8").strip()
 
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
@@ -25,13 +24,15 @@ extra_link_args = []
 
 setup(
     name="probit",
-    version=cf_remote_version,
+    version=version,
+    python_requires=">=3.6",
     description="A simple and accessible Gaussian process package in Jax.",
     long_description=README,
     long_description_content_type="text/markdown",
     url="https://github.com/bb515/probit",
     author="Benjamin Boys, Toby Boyne, Ieronymos Maxoutis",
     license="MIT",
+    license_file=LICENSE.rst,
     packages=find_packages(exclude=['*.test']),
     include_package_data=True,
     install_requires=[
