@@ -1,4 +1,4 @@
-# [probit](http://github.com/bb515/probit_jax)
+# [probit](http://github.com/bb515/probit)
 [![CI]]()
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)]()
 
@@ -36,7 +36,7 @@ TLDR:
 
 
 ## Installation
-`pip install probit`, or for developers,
+`pip install probit` or for developers,
 - Clone the repository `git clone git@github.com:bb515/probit.git`
 - Install using pip `pip install -e .` from the root directory of the repository (see the `setup.py` for the requirements that this command installs)
 
