@@ -6,7 +6,12 @@ This setup is required or else
 will occur.
 """
 from setuptools import setup, find_packages
+import subprocess
 import pathlib
+
+
+cf_remote_version = subprocess.run(['git', 'describe', '--tags'], stdout=subprocess.PIPE).stdout.decod("utf-8").strip()
+
 
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
@@ -20,7 +25,7 @@ extra_link_args = []
 
 setup(
     name="probit",
-    version="0.1.0",
+    version=cf_remote_version,
     description="A simple and accessible Gaussian process package in Jax.",
     long_description=README,
     long_description_content_type="text/markdown",
