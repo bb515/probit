@@ -28,7 +28,7 @@ setup(
     url="https://github.com/bb515/probit",
     author="Benjamin Boys, Toby Boyne, Ieronymos Maxoutis",
     license="MIT",
-    license_file=LICENSE.rst,
+    license_file=LICENSE,
     packages=find_packages(exclude=['*.test']),
     include_package_data=True,
     install_requires=[
