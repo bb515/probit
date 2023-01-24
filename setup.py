@@ -6,11 +6,8 @@ This setup is required or else
 will occur.
 """
 from setuptools import setup, find_packages
-import subprocess
 import pathlib
 
-
-version = subprocess.run(['git', 'describe', '--tags'], stdout=subprocess.PIPE).stdout.decod("utf-8").strip()
 
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
@@ -18,15 +15,15 @@ HERE = pathlib.Path(__file__).parent
 # The text of the README file
 README = (HERE / "README.md").read_text()
 
-extra_compile_args = ['-O3']
-extra_link_args = []
+# The text of the README file
+LICENSE = (HERE / "LICENSE.rst").read_text()
 
 
 setup(
     name="probit",
     version=version,
-    python_requires=">=3.6",
-    description="A simple and accessible Gaussian process package in Jax.",
+    python_requires=">=3.8",
+    description="probit is a simple and accessible Gaussian process implementation in Jax.",
     long_description=README,
     long_description_content_type="text/markdown",
     url="https://github.com/bb515/probit",
