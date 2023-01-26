@@ -166,7 +166,6 @@ Run the ordinal regression example by typing `python example/classification.py`.
 ![Prediction](readme_classification_before_mean_variance.png)
 
 ```python
->>>
 >>> # Evaluate model
 >>> mean, variance = classifier.predict(
 >>>     X_test,
@@ -197,7 +196,6 @@ parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_ty
 After optimization, 
 parameters=(Array(0.07389855, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
 ```python
->>>
 >>> # Approximate posterior
 >>> parameters = model(vs)
 >>> weight, precision = classifier.approximate_posterior(parameters)
