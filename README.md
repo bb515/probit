@@ -15,6 +15,7 @@ Contents:
     - [Ordinal regression and hyperparameter optimization](#ordinal-regression-and-hyperparameter-optimization)
 - [Doesn't haves](#doesnt-haves)
 - [References](#references)
+- [Acknowledgements](#acknowledgements)
 
 TLDR:
 ```python
@@ -290,5 +291,5 @@ Variational inference via factorizing assumption and free form minimization\
 An [implicit functions tutorial](http://implicit-layers-tutorial.org/implicit_functions/) was used to define the fixed-point layer.
 
 ## Acknowledgements
-Thank you to [nPlan](nPlan.io) who are supporting this project.
+Thank you to [nPlan](https://www.nplan.io/) who are supporting this project.
 
