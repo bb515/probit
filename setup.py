@@ -12,11 +12,18 @@ import pathlib
 # The directory containing this file
 HERE = pathlib.Path(__file__).parent
 
+
 # The text of the README file
 README = (HERE / "README.md").read_text()
 
+
 # The text of the README file
 LICENSE = (HERE / "LICENSE.rst").read_text()
+
+
+EXTRAS = {
+    "cuda": ["jax[cuda]"],
+}
 
 
 setup(
@@ -39,5 +46,6 @@ setup(
         'jaxopt>=0.5.5',
         'backends>=1.4.32',
         'mlkernels>=0.3.6',
-        ]
+        ],
+    extras_require=EXTRAS,
     )
