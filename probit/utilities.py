@@ -230,7 +230,7 @@ def probit_predictive_distributions(
     N_test = posterior_mean.shape[0]
     noise_std, cutpoints = likelihood_parameters
     J = B.size(cutpoints) - 1
-    predictive_distributions = B.ones(N_test, J)
+    predictive_distributions = jnp.ones((N_test, J))
     posterior_pred_std = jnp.sqrt(posterior_variance + noise_std**2)
     posterior_pred_mean = posterior_mean
     for j in range(J):
@@ -239,7 +239,7 @@ def probit_predictive_distributions(
             cutpoints[j], cutpoints[j + 1],
             posterior_pred_mean
             )
-        predictive_distributions[:, j] = Z
+        predictive_distributions.at[:, j].set(Z)
     return predictive_distributions
 
 
