@@ -190,17 +190,12 @@ class Approximator(ABC):
 
 class LaplaceGP(Approximator):
     """
-    A GP classifier for ordinal likelihood using the Laplace
-    approximation.
+    A GP posterior approximation using the Laplace approximation.
 
     Inherits the Approximator ABC.
 
-    This class allows users to define a classification problem and get
-    predictions using approximate Bayesian inference. It is for ordinal
-    likelihood.
-
-    For this a :class:`probit.kernels.Kernel` is required for the Gaussian
-    Process.
+    This class allows users to define a regression/classification problem
+    and get predictions using approximate Bayesian inference.
     """
     def __repr__(self):
         """
@@ -250,13 +245,13 @@ class LaplaceGP(Approximator):
 
 class VBGP(Approximator):
     """
-    A GP classifier for ordinal likelihood using the Variational Bayes (VB)
+    A GP posterior approximation using the Variational Bayes (VB)
     approximation.
- 
-    Inherits the Approximator ABC. This class allows users to define a
-    classification problem, get predictions using approximate Bayesian
-    inference. It is for the ordinal likelihood. For this a
-    :class:`probit.kernels.Kernel` is required for the Gaussian Process.
+
+    Inherits the Approximator ABC.
+
+    This class allows users to define a regression/classification problem
+    and get predictions using approximate Bayesian inference.
     """
     def __repr__(self):
         """

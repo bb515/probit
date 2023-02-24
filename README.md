@@ -1,8 +1,9 @@
 # [probit](http://github.com/bb515/probit)
-[![CI]]()
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)]()
+[![CI](https://github.com/bb515/diffusionjax/actions/workflows/CI.yml/badge.svg)](https://github.com/bb515/diffusionjax/actions/workflows/CI.yml)
+[![Coverage Status](https://coveralls.io/repos/github/bb515/diffusionjax/badge.svg?branch=master)](https://coveralls.io/github/bb515/diffusionjax?branch=master)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-A simple and accessible Gaussian process package in Jax.
+probit is a simple and accessible Gaussian process package in JAX.
 
 probit uses [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, see the available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
 
@@ -14,6 +15,7 @@ Contents:
     - [Ordinal regression and hyperparameter optimization](#ordinal-regression-and-hyperparameter-optimization)
 - [Doesn't haves](#doesnt-haves)
 - [References](#references)
+- [Acknowledgements](#acknowledgements)
 
 TLDR:
 ```python
@@ -165,7 +167,6 @@ Run the ordinal regression example by typing `python example/classification.py`.
 ![Prediction](readme_classification_before_mean_variance.png)
 
 ```python
->>>
 >>> # Evaluate model
 >>> mean, variance = classifier.predict(
 >>>     X_test,
@@ -188,7 +189,6 @@ mean_zero_one_error=0.39
 Before optimization, 
 parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
 ```python
->>>
 >>> minimise_l_bfgs_b(objective, vs)
 >>> parameters = model(vs)
 >>> print("After optimization, \nparameters={}".format(model(vs)))
@@ -196,7 +196,6 @@ parameters=(Array(1.2, dtype=float32), (Array(0.63245553, dtype=float64, weak_ty
 After optimization, 
 parameters=(Array(0.07389855, dtype=float32), (Array(0.63245553, dtype=float64, weak_type=True), Array([       -inf, -0.54599167,  0.50296235,         inf], dtype=float64)))
 ```python
->>>
 >>> # Approximate posterior
 >>> parameters = model(vs)
 >>> weight, precision = classifier.approximate_posterior(parameters)
@@ -288,4 +287,6 @@ Variational inference via factorizing assumption and free form minimization\
 
 An [implicit functions tutorial](http://implicit-layers-tutorial.org/implicit_functions/) was used to define the fixed-point layer.
 
+## Acknowledgements
+Thank you to [nPlan](https://www.nplan.io/) who are supporting this project.
 
