@@ -1,4 +1,4 @@
-import jax
+from jax import jacobian, custom_vjp, vjp
 from functools import partial
 import jax.numpy as jnp
 from jaxopt import FixedPointIteration
@@ -21,11 +21,11 @@ def newton_solver(f, z_init, tolerance):
     variables at the fix-point.
     """
     f_root = lambda z: f(z) - z
-    g = lambda z: z - jnp.linalg.solve(jax.jacobian(f_root)(z), f_root(z))
+    g = lambda z: z - jnp.linalg.solve(jacobian(f_root)(z), f_root(z))
     return fwd_solver(g, z_init, tolerance)
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(2, 3))
+@partial(custom_vjp, nondiff_argnums=(2, 3))
 def fixed_point_layer(z_init, tolerance, solver, f, params):
     """
     Following the tutorial, Chapter 2 of
@@ -52,8 +52,9 @@ def fixed_point_layer_fwd(z_init, tolerance, solver, f, params):
 
 def fixed_point_layer_bwd(solver, f, res, z_star_bar):
     z_init, tolerance, params, z_star = res
-    _, vjp_a = jax.vjp(lambda params: f(params, z_star), params)
-    _, vjp_z = jax.vjp(lambda z: f(params, z), z_star)
+    _, vjp_a = vjp(lambda params: f(params, z_star), params)
+    _, vjp_z = vjp(lambda z: f(params, z), z_star)
     return (None, None, 
-        *vjp_a(solver(lambda u: vjp_z(u)[0] + z_star_bar, z_init=z_init, tolerance=tolerance))
-        )
+        *vjp_a(solver(
+            lambda u: vjp_z(u)[0] + z_star_bar,
+            z_init=z_init, tolerance=tolerance)))
