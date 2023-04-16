@@ -110,6 +110,71 @@ def elwise(k: LaplaceM, x: B.Numeric, y: B.Numeric):
     ew_dists2 = k._ew_dists2(x, y)
     return k._compute(ew_dists2)
 
+
+class CosineM(Kernel):
+    """Sharpened Cosine kernel.
+
+    Args:
+        degree (int): Power to which the cosine similarity is raised.
+        M (array): Weight matrix of the weighted Laplace kernel.
+    """
+
+    def __init__(self, M, degree=1):
+        self.degree = degree
+        self.M = M
+
+    def _scs(self, dotproduct, norms):
+        # This computes the kernel given squared distances. We use `B` to provide a
+        # backend-agnostic implementation.
+        cs = B.divide(dotproduct, norms + 1e-8)
+        return B.sign(dotproduct) * B.abs(cs) ** self.degree
+
+    def render(self, formatter):
+        # This method determines how the kernel is displayed.
+        return f"Polynomial({formatter(self.degree)})"
+
+    @property
+    def _stationary(self):
+        # This method can be defined to return `True` to indicate that the kernel is
+        # stationary. By default, kernels are assumed to not be stationary.
+        return False
+
+    @dispatch
+    def __eq__(self, other: "CosineM"):
+        # If `other` is also a `SharpenedCosine`, then this method checks whether 
+        # `self` and `other` can be treated as identical for the purpose of 
+        # algebraic simplifications. In this case, `self` and `other` are identical 
+        # for the purpose of algebraic simplification if `self.scale` and
+        # `other.scale` are. We use `algebra.util.identical` to check this condition.
+        return identical(self.degree, other.degree)
+
+def uprank(x):
+    """Custom uprank - the lab uprank inserts dimension at the end,
+    we want (N, D) matrices"""
+    if B.rank(x) < 2:
+        x = B.expand_dims(x, axis=0)
+    return x
+
+# It remains to implement pairwise and element-wise computation of the kernel.
+@pairwise.dispatch
+def pairwise(k: CosineM, x: B.Numeric, y: B.Numeric):
+    x, y = uprank(x), uprank(y)
+    L = B.cholesky(k.M)
+    x, y = x @ L.T, y @ L.T
+    dotproduct = B.matmul(x, y, tr_b=True)
+    norms = B.sqrt(B.outer(B.sum(x ** 2, axis=1), B.sum(y ** 2, axis=1)))
+    return B.Dense(k._scs(dotproduct, norms))
+
+
+@elwise.dispatch
+def elwise(k: CosineM, x: B.Numeric, y: B.Numeric):
+    L = B.cholesky(k.M)
+    x, y = x @ L.T, y @ L.T
+    dotproduct = B.sum(B.multiply(x, y), axis=-1)
+    norms = B.sqrt(B.multiply(B.sum(x ** 2, axis=1), B.sum(y ** 2, axis=1)))
+    return B.expand_dims(k._scs(dotproduct, norms), axis=-1)
+
+
 class RFM(LaplaceGP):
 
     def __init__(
@@ -181,6 +246,47 @@ class RFM(LaplaceGP):
         step3 = step3 @ x1
         G = (step2 - step3) * -1. / parameters[0][1]
         return G
+
+    def get_grads_cosine(self, parameters):
+        """Get the gradient for the cosine kernel"""
+        M = parameters[0][0]
+        X, y = self.data
+        N = self.N
+
+        # alpha is the `weights` vector for the GP
+        # \alpha = K^-1 y
+        K_train = self.prior(parameters[0])(X, X)
+        alpha = jnp.linalg.solve(K_train + 1e-3 * jnp.eye(N), y)
+
+        num_samples = 10_000
+        indices = np.random.randint(len(X), size=num_samples)
+        if len(X) > len(indices):
+            x = X[indices, :]
+        else:
+            x = X
+
+        # K taken at samples to reduce computation
+        K = B.dense(self.prior(parameters[0])(X, x))
+
+        # For the sake of readability, X and x are rewritten as
+        # (D, N) matrices
+
+        L = B.cholesky(M)
+        # M = L @ L.T
+        Lx = L @ x
+        LX = L @ X
+        normLx2 = B.sum(Lx ** 2, axis=0)
+        norms = B.sqrt(B.outer(B.sum(LX ** 2, axis=0), normLx2))
+
+        G1 = M @ X
+        G2 = x.T @ M @ X @ M @ x
+        G2 /= normLx2
+
+        G = G1 - G2
+        G /= norms
+        return G
+
+
 
     def train(
             self, parameters, step_rng, num_epochs=10, batch_size=4):
