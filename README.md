@@ -4,6 +4,7 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 ![nPlan](readme_nplan.png)
+
 Thank you to [nPlan](https://www.nplan.io/), who are supporting this project.
 
 probit is a simple and accessible Gaussian process package in JAX.
