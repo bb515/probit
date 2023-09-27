@@ -5,9 +5,7 @@
 
 ![nPlan](readme_nplan.png)
 
-Thank you to [nPlan](https://www.nplan.io/), who are supporting this project.
-
-probit is a simple and accessible Gaussian process package in JAX.
+probit is a simple and accessible Gaussian process package in JAX. Thank you to [nPlan](https://www.nplan.io/), who are supporting this project.
 
 probit uses [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, see the available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
 
@@ -19,7 +17,6 @@ Contents:
     - [Ordinal regression and hyperparameter optimization](#ordinal-regression-and-hyperparameter-optimization)
 - [Doesn't haves](#doesnt-haves)
 - [References](#references)
-- [Acknowledgements](#acknowledgements)
 
 TLDR:
 ```python
