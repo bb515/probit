@@ -21,11 +21,6 @@ README = (HERE / "README.md").read_text()
 LICENSE = (HERE / "LICENSE.rst").read_text()
 
 
-EXTRAS = {
-    "cuda": ["jax[cuda]"],
-}
-
-
 setup(
     name="probit",
     python_requires=">=3.8",
@@ -41,11 +36,8 @@ setup(
     install_requires=[
         'numpy',
         'scipy',
-        'jaxlib>=0.4.1',
-        'jax>=0.4.1',
         'jaxopt>=0.5.5',
         'backends>=1.4.32',
         'mlkernels>=0.3.6',
         ],
-    extras_require=EXTRAS,
     )

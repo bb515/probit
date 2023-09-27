@@ -31,7 +31,7 @@ def fixed_point_layer(z_init, tolerance, solver, f, params):
     Following the tutorial, Chapter 2 of
     http://implicit-layers-tutorial.org/implicit_functions/
 
-    A wrapper function for the parameterized fixed point sovler.
+    A wrapper function for the parameterized fixed point solver.
 
     :arg solver: Root finding numerical solver
     :arg params: Parameters for the non-linear set of equations that must

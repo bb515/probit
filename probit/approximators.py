@@ -43,7 +43,7 @@ class Approximator(ABC):
     @abstractmethod
     def __repr__(self):
         """
-        Return a string representation of this class, used to import the class
+        Returns a string representation of this class, used to import the class
         from the string.
 
         This method should be implemented in every concrete Approximator.
@@ -67,7 +67,7 @@ class Approximator(ABC):
             target vector. 
         :type data: (:class:`numpy.ndarray`, :class:`numpy.ndarray`)
         :arg log_likelihood: method, when evaluated
-            log_likelihood(*args, **kwargs) returns the log likelihood. Takes
+            log_likelihood(*args, **kwargs) return the log likelihood. Takes
             in arguments as log_likelihood(f, y, likelihood_parameters)
             where likelihood_parameters are the (trainable) parameters
             of the likelihood, f is a latent variable and y is a datum.
@@ -78,7 +78,7 @@ class Approximator(ABC):
             (scalar) second derivative of the log_likelihood wrt to its first
             argument, the latent variables, f.
 
-        :returns: A :class:`Approximator` object
+        :return: A :class:`Approximator` object
         """
         self.tolerance = tolerance  # tolerance for the solvers
         self.prior = prior
@@ -131,7 +131,7 @@ class Approximator(ABC):
         The weight, that is part of the solution of GP regression.
 
         This method should be implemented in every concrete Approximator.
-        Returns: A (N,) JAX array.
+        :return: A (N,) JAX array.
         """
 
     @abstractmethod
@@ -140,7 +140,7 @@ class Approximator(ABC):
         The precision, that is part of the solution of GP regression.
 
         This method should be implemented in every concrete Approximator.
-        Returns: A (N,) JAX array.
+        :return: A (N,) JAX array.
         """
 
     def predict(
@@ -161,8 +161,8 @@ class Approximator(ABC):
             the second moment of the posterior predictions. Array
             like (N,).
         :type precision: Array like (N,)`
-        :return: Gaussian process predictive mean and variance array.
-        :rtype tuple: ((N_test,), (N_test,))
+        :return: Gaussian process predictive mean and variance JAX
+            array ((N_test,), (N_test,)).
         """
         kernel = self.prior(parameters[0])
         Kss = B.flatten(kernel.elwise(X_test, X_test))
@@ -173,6 +173,27 @@ class Approximator(ABC):
             'ij, ij -> j', B.dense(Kfs), B.solve(K, Kfs))
         predictive_posterior_mean = B.flatten(Kfs.T @ weight)
         return predictive_posterior_mean, predictive_posterior_variance
+
+    def predict_covariance(
+        self,
+        X_test,
+        parameters,
+        weight, precision):
+        """
+        Make posterior predictive covariance given test data, X_test.
+
+        Args are the same as for `:meth:predict`.
+
+        :return: Gaussian process predictive covariance array.
+        :rtype array: (N_test, N_test)
+        """
+        kernel = self.prior(parameters[0])
+        Kss = B.dense(kernel(X_test, X_test))
+        Kfs = B.dense(kernel(self.data[0], X_test))
+        Kff = kernel(self.data[0])
+        K = Kff + B.diag(1. / precision)
+        predictive_posterior_covariance = Kss - Kfs.T @ B.solve(K, Kfs)
+        return predictive_posterior_covariance
 
     def posterior_mean(self, weight):
         """Returns a Gaussian Process mean."""
@@ -199,7 +220,7 @@ class LaplaceGP(Approximator):
     """
     def __repr__(self):
         """
-        Return a string representation of this class, used to import the class
+        Returns a string representation of this class, used to import the class
         from the string.
         """
         return "LaplaceGP"
@@ -209,7 +230,7 @@ class LaplaceGP(Approximator):
         """
         Create an :class:`LaplaceGP` Approximator object.
 
-        :returns: An :class:`LaplaceGP` object.
+        :return: An :class:`LaplaceGP` object.
         """
         super().__init__(*args, **kwargs)
 
@@ -255,7 +276,7 @@ class VBGP(Approximator):
     """
     def __repr__(self):
         """
-        Return a string representation of this class, used to import the class
+        Returns a string representation of this class, used to import the class
         from the string.
         """
         return "VBGP"
@@ -265,7 +286,7 @@ class VBGP(Approximator):
         """
         Create an :class:`VBGP` Approximator object.
 
-        :returns: A :class:`VBGP` object.
+        :return: A :class:`VBGP` object.
         """
         super().__init__(*args, **kwargs)
 
