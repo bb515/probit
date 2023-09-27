@@ -23,7 +23,7 @@ LICENSE = (HERE / "LICENSE.rst").read_text()
 
 setup(
     name="probit",
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     description="probit is a simple and accessible Gaussian process implementation in Jax",
     long_description=README,
     long_description_content_type="text/markdown",

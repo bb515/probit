@@ -42,7 +42,7 @@ TLDR:
 ```
 
 ## Installation
-The package requires Python 3.7+. First, it is recommended to [create a new python virtual environment](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-with-commands). 
+The package requires Python 3.8+. First, it is recommended to [create a new python virtual environment](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-with-commands). 
 probit depends on JAX. Because the JAX installation is different depending on your CUDA version, probit does not list JAX as a dependency in `setup.py`.
 First, [follow these instructions](https://github.com/google/jax#installation) to install JAX with the relevant accelerator support.
 Then, `pip install probit` or for developers,
