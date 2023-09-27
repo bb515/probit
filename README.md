@@ -3,6 +3,9 @@
 [![Coverage Status](https://coveralls.io/repos/github/bb515/diffusionjax/badge.svg?branch=master)](https://coveralls.io/github/bb515/diffusionjax?branch=master)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
+![nPlan](readme_nPlan.png)
+Thank you to [nPlan](https://www.nplan.io/), who are supporting this project.
+
 probit is a simple and accessible Gaussian process package in JAX.
 
 probit uses [MLKernels](https://github.com/wesselb/mlkernels) for the GP prior, see the available [means](https://github.com/wesselb/mlkernels#available-means) and [kernels](https://github.com/wesselb/mlkernels#available-kernels) with [compositional design](https://github.com/wesselb/mlkernels#compositional-design).
@@ -38,9 +41,11 @@ TLDR:
 >>>     parameters, weight, precision)
 ```
 
-
 ## Installation
-`pip install probit` or for developers,
+The package requires Python 3.7+. First, it is recommended to [create a new python virtual environment](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-with-commands). 
+probit depends on JAX. Because the JAX installation is different depending on your CUDA version, probit does not list JAX as a dependency in `setup.py`.
+First, [follow these instructions](https://github.com/google/jax#installation) to install JAX with the relevant accelerator support.
+Then, `pip install probit` or for developers,
 - Clone the repository `git clone git@github.com:bb515/probit.git`
 - Install using pip `pip install -e .` from the root directory of the repository (see the `setup.py` for the requirements that this command installs)
 
@@ -286,7 +291,4 @@ Variational inference via factorizing assumption and free form minimization\
   url = 	 {http://inverseprobability.com/publications/king-ppa05.html}}
 
 An [implicit functions tutorial](http://implicit-layers-tutorial.org/implicit_functions/) was used to define the fixed-point layer.
-
-## Acknowledgements
-Thank you to [nPlan](https://www.nplan.io/) who are supporting this project.
 

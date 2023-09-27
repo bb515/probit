@@ -21,14 +21,9 @@ README = (HERE / "README.md").read_text()
 LICENSE = (HERE / "LICENSE.rst").read_text()
 
 
-EXTRAS = {
-    "cuda": ["jax[cuda]"],
-}
-
-
 setup(
     name="probit",
-    python_requires=">=3.8",
+    python_requires=">=3.7",
     description="probit is a simple and accessible Gaussian process implementation in Jax",
     long_description=README,
     long_description_content_type="text/markdown",
@@ -41,11 +36,8 @@ setup(
     install_requires=[
         'numpy',
         'scipy',
-        'jaxlib>=0.4.1',
-        'jax>=0.4.1',
         'jaxopt>=0.5.5',
         'backends>=1.4.32',
         'mlkernels>=0.3.6',
         ],
-    extras_require=EXTRAS,
     )
