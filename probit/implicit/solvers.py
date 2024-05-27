@@ -40,9 +40,8 @@ def fixed_point_layer(z_init, tolerance, solver, f, params):
             z = f(a, z)
         where :math:`a` are parameters and :math:`z` are the latent
         variables, and :math:`f` is a non-linear function.
-    """ 
-    return solver(
-        lambda z: f(params, z), z_init=z_init, tolerance=tolerance)
+    """
+    return solver(lambda z: f(params, z), z_init=z_init, tolerance=tolerance)
 
 
 def fixed_point_layer_fwd(z_init, tolerance, solver, f, params):
@@ -54,7 +53,12 @@ def fixed_point_layer_bwd(solver, f, res, z_star_bar):
     z_init, tolerance, params, z_star = res
     _, vjp_a = vjp(lambda params: f(params, z_star), params)
     _, vjp_z = vjp(lambda z: f(params, z), z_star)
-    return (None, None, 
-        *vjp_a(solver(
-            lambda u: vjp_z(u)[0] + z_star_bar,
-            z_init=z_init, tolerance=tolerance)))
+    return (
+        None,
+        None,
+        *vjp_a(
+            solver(
+                lambda u: vjp_z(u)[0] + z_star_bar, z_init=z_init, tolerance=tolerance
+            )
+        ),
+    )

@@ -1,25 +1,28 @@
 """Ordinal GP regression via approximate inference."""
+
 # Uncomment to enable double precision
 from jax.config import config
+
 config.update("jax_enable_x64", True)
 
 from probit.utilities import (
-    InvalidKernel, check_cutpoints,
-    log_probit_likelihood, probit_predictive_distributions)
+    InvalidKernel,
+    check_cutpoints,
+    log_probit_likelihood,
+    probit_predictive_distributions,
+)
 import numpy as np
 import lab as B
 import jax.numpy as jnp
 import jax.random as random
 from mlkernels import Kernel, Matern12, EQ
-from varz import Vars, minimise_l_bfgs_b, parametrised, Positive
+from varz import Vars, minimise_l_bfgs_b
 import matplotlib.pyplot as plt
 import argparse
 import cProfile
 from io import StringIO
 from pstats import Stats, SortKey
 import pathlib
-import matplotlib.cm as cm
-from scipy.optimize import minimize
 from jax import vmap, value_and_grad
 
 # For plotting
@@ -30,48 +33,71 @@ FG_ALPHA = 0.3
 write_path = pathlib.Path()
 
 
-def plot(x, predictive_distributions, mean,
-         variance, X_show, f_show, X_train, y_train, g_train,
-         J, colors, fname="plot"):
+def plot(
+    x,
+    predictive_distributions,
+    mean,
+    variance,
+    X_show,
+    f_show,
+    X_train,
+    y_train,
+    g_train,
+    J,
+    colors,
+    fname="plot",
+):
     posterior_std = jnp.sqrt(variance)
     fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
+    fig.patch.set_facecolor("white")
     fig.patch.set_alpha(BG_ALPHA)
     ax.set_xlim((-0.5, 1.5))
     ax.set_ylim(0.0, 1.0)
     ax.set_xlabel(r"$x$", fontsize=10)
     ax.set_ylabel("Cumulative probability", fontsize=10)
-    ax.stackplot(x[:, 0], predictive_distributions.T, colors=colors,
+    ax.stackplot(
+        x[:, 0],
+        predictive_distributions.T,
+        colors=colors,
         labels=(
             r"$p(y=0|\mathcal{D}, \theta)$",
             r"$p(y=1|\mathcal{D}, \theta)$",
-            r"$p(y=2|\mathcal{D}, \theta)$"))
+            r"$p(y=2|\mathcal{D}, \theta)$",
+        ),
+    )
     val = 0.5  # where the data lies on the y-axis.
     plt.tight_layout()
     ax.legend()
-    fig.savefig(
-            "{}_contour.png".format(fname))
+    fig.savefig("{}_contour.png".format(fname))
     plt.close()
 
     fig, ax = plt.subplots(1, 1)
-    fig.patch.set_facecolor('white')
+    fig.patch.set_facecolor("white")
     fig.patch.set_alpha(BG_ALPHA)
-    ax.plot(x[:, 0], mean, color='blue', label="Prediction", linestyle="--")
+    ax.plot(x[:, 0], mean, color="blue", label="Prediction", linestyle="--")
     ax.fill_between(
-        x[:, 0], mean - 2*posterior_std,
-        mean + 2*posterior_std,
-        color='blue', alpha=FG_ALPHA)
+        x[:, 0],
+        mean - 2 * posterior_std,
+        mean + 2 * posterior_std,
+        color="blue",
+        alpha=FG_ALPHA,
+    )
     ax.set_ylim(-2.2, 2.2)
     ax.set_xlim(-0.5, 1.5)
-    ax.set_xlabel('x', fontsize=10)
-    ax.set_ylabel('y', fontsize=10)
-    ax.scatter(X_train, g_train, color=[colors[i] for i in y_train], s=4, label="Observations")
-    ax.plot(X_show, f_show, label="True", color='orange', alpha=FG_ALPHA)
-    ax.grid(visible=True, which='major', linestyle='-')
+    ax.set_xlabel("x", fontsize=10)
+    ax.set_ylabel("y", fontsize=10)
+    ax.scatter(
+        X_train, g_train, color=[colors[i] for i in y_train], s=4, label="Observations"
+    )
+    ax.plot(X_show, f_show, label="True", color="orange", alpha=FG_ALPHA)
+    ax.grid(visible=True, which="major", linestyle="-")
     ax.legend()
     plt.tight_layout()
-    fig.savefig("{}_mean_variance.png".format(fname),
-        facecolor=fig.get_facecolor(), edgecolor='none')
+    fig.savefig(
+        "{}_mean_variance.png".format(fname),
+        facecolor=fig.get_facecolor(),
+        edgecolor="none",
+    )
     plt.close()
 
 
@@ -84,59 +110,84 @@ def plot_obj(x_hat, x_0, x, fs, gs, domain, xlabel, xscale, fname="plot"):
     elif xscale == "linear":
         dfsx = np.gradient(fs, x)
     fig = plt.figure()
-    fig.patch.set_facecolor('white')
+    fig.patch.set_facecolor("white")
     fig.patch.set_alpha(BG_ALPHA)
     ax = fig.add_subplot(111)
     ax.grid()
-    ax.plot(x, fs, 'g', label=r"$\mathcal{F}$ autodiff")
+    ax.plot(x, fs, "g", label=r"$\mathcal{F}$ autodiff")
     ylim = ax.get_ylim()
-    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+    ax.set_xlim((10 ** domain[0][0], 10 ** domain[0][1]))
     ax.set_ylim(ylim)
-    ax.vlines(x_hat, ylim[0], ylim[1], 'r',
-        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
-    ax.vlines(x_0, ylim[0], ylim[1], 'k',
-        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
+    ax.vlines(
+        x_hat,
+        ylim[0],
+        ylim[1],
+        "r",
+        alpha=MG_ALPHA,
+        label=r"$\hat\theta={:.2f}$".format(x_hat),
+    )
+    ax.vlines(
+        x_0, ylim[0], ylim[1], "k", alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0)
+    )
     ax.set_xlabel(xlabel, fontsize=10)
     ax.set_xscale(xscale)
     ax.set_ylabel(r"$\mathcal{F}$", fontsize=10)
-    ax.set_title('Hyper-parameter optimisation objective')
+    ax.set_title("Hyper-parameter optimisation objective")
     ax.legend()
-    fig.savefig("readme_objective.png",
-        facecolor=fig.get_facecolor(), edgecolor='none')
+    fig.savefig("readme_objective.png", facecolor=fig.get_facecolor(), edgecolor="none")
     plt.close()
 
     fig = plt.figure()
-    fig.patch.set_facecolor('white')
+    fig.patch.set_facecolor("white")
     fig.patch.set_alpha(BG_ALPHA)
     ax = fig.add_subplot(111)
     ax.grid()
     ax.plot(
-        x, gs, 'g', alpha=FG_ALPHA,
-        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ JAX autodiff")
+        x,
+        gs,
+        "g",
+        alpha=FG_ALPHA,
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ JAX autodiff",
+    )
     ax.set_ylim(ax.get_ylim())
-    ax.set_xlim((10**domain[0][0], 10**domain[0][1]))
+    ax.set_xlim((10 ** domain[0][0], 10 ** domain[0][1]))
     ax.plot(
-        x, dfsx, 'g--',
-        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical")
+        x,
+        dfsx,
+        "g--",
+        label=r"$\frac{\partial \mathcal{F}}{\partial \theta}$ numerical",
+    )
     ylim = ax.get_ylim()
-    ax.vlines(x_hat, ylim[0], ylim[1], 'r',
-        alpha=MG_ALPHA, label=r"$\hat\theta={:.2f}$".format(x_hat))
-    ax.vlines(x_0, ylim[0], ylim[1], 'k',
-        alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0))
+    ax.vlines(
+        x_hat,
+        ylim[0],
+        ylim[1],
+        "r",
+        alpha=MG_ALPHA,
+        label=r"$\hat\theta={:.2f}$".format(x_hat),
+    )
+    ax.vlines(
+        x_0, ylim[0], ylim[1], "k", alpha=MG_ALPHA, label=r"$\theta={:.2f}$".format(x_0)
+    )
     ax.set_xscale(xscale)
     ax.set_xlabel(xlabel, fontsize=10)
     ax.set_ylabel(r"$\frac{\partial \mathcal{F}}{\partial \theta}$", fontsize=10)
-    ax.set_title('Hyper-parameter optimisation gradient')
+    ax.set_title("Hyper-parameter optimisation gradient")
     ax.legend()
-    fig.savefig("readme_grad.png",
-        facecolor=fig.get_facecolor(), edgecolor='none')
+    fig.savefig("readme_grad.png", facecolor=fig.get_facecolor(), edgecolor="none")
     plt.close()
 
 
 def generate_data(
-        key, N_train_per_class, N_test_per_class,
-        J, kernel, noise_variance,
-        N_show, jitter=1e-6):
+    key,
+    N_train_per_class,
+    N_test_per_class,
+    J,
+    kernel,
+    noise_variance,
+    N_show,
+    jitter=1e-6,
+):
     """
     Generate data from the GP prior, and choose some cutpoints that
     approximately divides data into equal bins.
@@ -177,8 +228,7 @@ def generate_data(
 
     # Generate normal samples for both sets of input data
     key, step_key = random.split(key, 2)
-    z = random.normal(key,
-        shape=(jnp.shape(X_data)[0] + jnp.shape(X_show)[0],))
+    z = random.normal(key, shape=(jnp.shape(X_data)[0] + jnp.shape(X_show)[0],))
     f = L_K @ z
 
     # Store f_show
@@ -206,16 +256,18 @@ def generate_data(
     y_js = []
     cutpoints = jnp.empty(J + 1)
     for j in range(J):
-        X_js.append(X[N_per_class * j:N_per_class * (j + 1), :1])
-        g_js.append(g[N_per_class * j:N_per_class * (j + 1)])
-        f_js.append(f[N_per_class * j:N_per_class * (j + 1)])
+        X_js.append(X[N_per_class * j : N_per_class * (j + 1), :1])
+        g_js.append(g[N_per_class * j : N_per_class * (j + 1)])
+        f_js.append(f[N_per_class * j : N_per_class * (j + 1)])
         y_js.append(j * jnp.ones(N_per_class, dtype=int))
 
     for j in range(1, J):
         # Find the cutpoints
         cutpoint_j_min = g_js[j - 1][-1]
         cutpoint_j_max = g_js[j][0]
-        cutpoints = cutpoints.at[j].set(jnp.mean(jnp.array([cutpoint_j_max, cutpoint_j_min])))
+        cutpoints = cutpoints.at[j].set(
+            jnp.mean(jnp.array([cutpoint_j_max, cutpoint_j_min]))
+        )
     cutpoints = cutpoints.at[0].set(-jnp.inf)
     cutpoints = cutpoints.at[-1].set(jnp.inf)
     X_js = jnp.array(X_js)
@@ -238,7 +290,7 @@ def generate_data(
         key, step_key = random.split(key, 2)
         random.shuffle(key, data)
         g_j = data[:, :1]
-        X_j = data[:, 1:1 + 1]
+        X_j = data[:, 1 : 1 + 1]
         y_j = data[:, -1]
         # split train vs test/validate
         g_train_j = g_j[:N_train_per_class]
@@ -267,10 +319,7 @@ def generate_data(
     y_train = jnp.array(y_train, dtype=int)
     y_test = jnp.array(y_test, dtype=int)
 
-    return (
-        N_show, X, g, y, cutpoints,
-        X_test, y_test,
-        X_show, f_show)
+    return (N_show, X, g, y, cutpoints, X_test, y_test, X_show, f_show)
 
 
 def calculate_metrics(y_test, predictive_distributions):
@@ -288,32 +337,33 @@ def calculate_metrics(y_test, predictive_distributions):
         mean_zero_one,
         mean_absolute_error,
         log_predictive_probability,
-        predictive_likelihood)
+        predictive_likelihood,
+    )
 
 
 def main():
     """Make an approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     # The --profile argument generates profiling information for the example
-    parser.add_argument('--profile', action='store_const', const=True)
+    parser.add_argument("--profile", action="store_const", const=True)
     args = parser.parse_args()
     if args.profile:
         profile = cProfile.Profile()
         profile.enable()
- 
+
     approximate_inference_method = "Laplace"
-    if approximate_inference_method=="Variational Bayes":
+    if approximate_inference_method == "Variational Bayes":
         from probit.approximators import VBGP as Approximator
-    elif approximate_inference_method=="Laplace":
+    elif approximate_inference_method == "Laplace":
         from probit.approximators import LaplaceGP as Approximator
 
     J = 3
-    cmap = plt.cm.get_cmap('PiYG', J)
+    cmap = plt.cm.get_cmap("PiYG", J)
     colors = []
     mapping = []
     for j in range(J):
-        colors.append(cmap((j + 0.5)/J))
-        mapping.append((j + 0.5)/J)
+        colors.append(cmap((j + 0.5) / J))
+        mapping.append((j + 0.5) / J)
     print(colors)
     print(mapping)
 
@@ -323,12 +373,16 @@ def main():
     signal_variance = 1.0
     lengthscale = 1.0
     kernel = signal_variance * Matern12().stretch(lengthscale)
-    (N_show, X, g_true, y, cutpoints,
-    X_test, y_test,
-    X_show, f_show) = generate_data(key,
-        N_train_per_class=10, N_test_per_class=100,
-        J=J, kernel=kernel, noise_variance=noise_variance,
-        N_show=1000, jitter=1e-6)
+    (N_show, X, g_true, y, cutpoints, X_test, y_test, X_show, f_show) = generate_data(
+        key,
+        N_train_per_class=10,
+        N_test_per_class=100,
+        J=J,
+        kernel=kernel,
+        noise_variance=noise_variance,
+        N_show=1000,
+        jitter=1e-6,
+    )
 
     # Initiate a misspecified model, using a kernel
     # other than the one used to generate data
@@ -345,12 +399,14 @@ def main():
     cutpoints = check_cutpoints(cutpoints, J)
     print("cutpoints={}".format(cutpoints))
 
-    classifier = Approximator(data=(X, y), prior=prior,
+    classifier = Approximator(
+        data=(X, y),
+        prior=prior,
         log_likelihood=log_probit_likelihood,
         # grad_log_likelihood=grad_log_probit_likelihood,
         # hessian_log_likelihood=hessian_log_probit_likelihood,
-        tolerance=1e-5  # tolerance for the jaxopt fixed-point resolution
-        )
+        tolerance=1e-5,  # tolerance for the jaxopt fixed-point resolution
+    )
     negative_evidence_lower_bound = classifier.objective()
 
     vs = Vars(jnp.float32)
@@ -366,26 +422,31 @@ def main():
     # Approximate posterior
     parameters = model(vs)
     weight, precision = classifier.approximate_posterior(parameters)
-    mean, variance = classifier.predict(
-        X_show,
-        parameters,
-        weight, precision)
+    mean, variance = classifier.predict(X_show, parameters, weight, precision)
     obs_variance = variance + noise_variance
     predictive_distributions = probit_predictive_distributions(
-        parameters[1],
-        mean, variance)
-    plot(X_show, predictive_distributions, mean,
-        obs_variance, X_show, f_show, X, y, g_true,
-        J, colors, fname="readme_classification_before")
+        parameters[1], mean, variance
+    )
+    plot(
+        X_show,
+        predictive_distributions,
+        mean,
+        obs_variance,
+        X_show,
+        f_show,
+        X,
+        y,
+        g_true,
+        J,
+        colors,
+        fname="readme_classification_before",
+    )
 
     # Evaluate model
-    mean, variance = classifier.predict(
-        X_test,
-        parameters,
-        weight, precision)
+    mean, variance = classifier.predict(X_test, parameters, weight, precision)
     predictive_distributions = probit_predictive_distributions(
-        parameters[1],
-        mean, variance)
+        parameters[1], mean, variance
+    )
     print("\nEvaluation of model:")
     calculate_metrics(y_test, predictive_distributions)
 
@@ -397,36 +458,42 @@ def main():
     # Approximate posterior
     parameters = model(vs)
     weight, precision = classifier.approximate_posterior(parameters)
-    mean, variance = classifier.predict(
-        X_show,
-        parameters,
-        weight, precision)
+    mean, variance = classifier.predict(X_show, parameters, weight, precision)
     predictive_distributions = probit_predictive_distributions(
-        parameters[1],
-        mean, variance)
-    plot(X_show, predictive_distributions, mean,
-        obs_variance, X_show, f_show, X, y, g_true,
-        J, colors, fname="readme_classification_after")
+        parameters[1], mean, variance
+    )
+    plot(
+        X_show,
+        predictive_distributions,
+        mean,
+        obs_variance,
+        X_show,
+        f_show,
+        X,
+        y,
+        g_true,
+        J,
+        colors,
+        fname="readme_classification_after",
+    )
 
     # Evaluate model
-    mean, variance = classifier.predict(
-        X_test,
-        parameters,
-        weight, precision)
+    mean, variance = classifier.predict(X_test, parameters, weight, precision)
     obs_variance = variance + noise_variance
     predictive_distributions = probit_predictive_distributions(
-        parameters[1],
-        mean, variance)
+        parameters[1], mean, variance
+    )
     print("\nEvaluation of model:")
     calculate_metrics(y_test, predictive_distributions)
 
-    nelbo = lambda x : negative_evidence_lower_bound(((x), (jnp.sqrt(noise_variance), cutpoints)))
+    nelbo = lambda x: negative_evidence_lower_bound(
+        ((x), (jnp.sqrt(noise_variance), cutpoints))
+    )
     fg = vmap(value_and_grad(nelbo))
 
     domain = ((-2, 2), None)
     resolution = (50, None)
-    x = jnp.logspace(
-        domain[0][0], domain[0][1], resolution[0])
+    x = jnp.logspace(domain[0][0], domain[0][1], resolution[0])
     xlabel = r"lengthscale, $\ell$"
     xscale = "log"
     phis = jnp.log(x)
@@ -440,10 +507,9 @@ def main():
         profile.disable()
         s = StringIO()
         stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
-        stats.print_stats(.05)
+        stats.print_stats(0.05)
         print(s.getvalue())
 
 
 if __name__ == "__main__":
     main()
-

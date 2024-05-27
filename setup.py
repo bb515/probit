@@ -5,6 +5,7 @@ This setup is required or else
     >> ModuleNotFoundError: No module named 'probit'
 will occur.
 """
+
 from setuptools import setup, find_packages
 import pathlib
 
@@ -31,13 +32,13 @@ setup(
     author="Benjamin Boys, Toby Boyne, Ieronymos Maxoutis",
     license="MIT",
     license_file=LICENSE,
-    packages=find_packages(exclude=['*.test']),
+    packages=find_packages(exclude=["*.test"]),
     include_package_data=True,
     install_requires=[
-        'numpy',
-        'scipy',
-        'jaxopt>=0.5.5',
-        'backends>=1.4.32',
-        'mlkernels>=0.3.6',
-        ],
-    )
+        "numpy",
+        "scipy",
+        "jaxopt>=0.5.5",
+        "backends>=1.4.32",
+        "mlkernels>=0.3.6",
+    ],
+)

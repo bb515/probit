@@ -1,6 +1,8 @@
 """GP regression."""
+
 # Uncomment to enable double precision
 from jax.config import config
+
 config.update("jax_enable_x64", True)
 
 from probit.utilities import log_gaussian_likelihood
@@ -9,7 +11,7 @@ import lab as B
 import jax.numpy as jnp
 import jax.random as random
 from mlkernels import EQ
-from varz import Vars, minimise_l_bfgs_b, parametrised, Positive
+from varz import Vars, minimise_l_bfgs_b
 import matplotlib.pyplot as plt
 import argparse
 import cProfile
@@ -23,11 +25,7 @@ MG_ALPHA = 1.0
 FG_ALPHA = 0.3
 
 
-def generate_data(
-        key,
-        N_train,
-        kernel, noise_std,
-        N_show, jitter=1e-10):
+def generate_data(key, N_train, kernel, noise_std, N_show, jitter=1e-10):
     """
     Generate data from the GP prior.
 
@@ -59,8 +57,7 @@ def generate_data(
 
     # Generate normal samples for both sets of input data
     key, step_key = random.split(key, 2)
-    z = random.normal(key,
-        shape=(X_train.shape[0] + X_show.shape[0],))
+    z = random.normal(key, shape=(X_train.shape[0] + X_show.shape[0],))
     f = L_K @ z
 
     # Store f_show
@@ -80,13 +77,10 @@ def generate_data(
     y_train = data[:, :1].flatten()
     X_train = data[:, 1:]
 
-    return (
-        X_train, y_train,
-        X_show, f_show, N_show)
+    return (X_train, y_train, X_show, f_show, N_show)
 
 
-def plot(train_data, test_data, mean, variance,
-         fname="plot.png"):
+def plot(train_data, test_data, mean, variance, fname="plot.png"):
     X, y = train_data
     X_show, f_show = test_data
     # Plot result
@@ -95,13 +89,17 @@ def plot(train_data, test_data, mean, variance,
     ax.plot(X_show, mean, label="Prediction", linestyle="--", color="blue")
     ax.scatter(X, y, label="Observations", color="black", s=20)
     ax.fill_between(
-        X_show.flatten(), mean - 2. * jnp.sqrt(variance),
-        mean + 2. * jnp.sqrt(variance), alpha=FG_ALPHA, color="blue")
+        X_show.flatten(),
+        mean - 2.0 * jnp.sqrt(variance),
+        mean + 2.0 * jnp.sqrt(variance),
+        alpha=FG_ALPHA,
+        color="blue",
+    )
     ax.set_xlim((0.0, 1.0))
-    ax.grid(visible=True, which='major', linestyle='-')
-    ax.set_xlabel('x', fontsize=10)
-    ax.set_ylabel('y', fontsize=10)
-    fig.patch.set_facecolor('white')
+    ax.grid(visible=True, which="major", linestyle="-")
+    ax.set_xlabel("x", fontsize=10)
+    ax.set_ylabel("y", fontsize=10)
+    fig.patch.set_facecolor("white")
     fig.patch.set_alpha(BG_ALPHA)
     ax.patch.set_alpha(MG_ALPHA)
     ax.legend()
@@ -113,12 +111,12 @@ def main():
     """Make an approximation to the posterior, and optimise hyperparameters."""
     parser = argparse.ArgumentParser()
     # The --profile argument generates profiling information for the example
-    parser.add_argument('--profile', action='store_const', const=True)
+    parser.add_argument("--profile", action="store_const", const=True)
     args = parser.parse_args()
     if args.profile:
         profile = cProfile.Profile()
         profile.enable()
- 
+
     def prior(prior_parameters):
         lengthscale, signal_variance = prior_parameters
         # Here you can define the kernel that defines the Gaussian process
@@ -127,22 +125,22 @@ def main():
     # Generate data
     key = random.PRNGKey(0)
     noise_std = 0.2
-    (X, y,
-     X_show, f_show, N_show) = generate_data(
-         key,
-         N_train=20,
-         kernel=prior((1.0, 1.0)), noise_std=noise_std,
-         N_show=1000)
+    (X, y, X_show, f_show, N_show) = generate_data(
+        key, N_train=20, kernel=prior((1.0, 1.0)), noise_std=noise_std, N_show=1000
+    )
 
-    gaussian_process = GP(data=(X, y), prior=prior,
-        log_likelihood=log_gaussian_likelihood)
+    gaussian_process = GP(
+        data=(X, y), prior=prior, log_likelihood=log_gaussian_likelihood
+    )
     negative_evidence = gaussian_process.objective()
 
     vs = Vars(jnp.float32)
 
     def model(vs):
         p = vs.struct
-        return (p.lengthscale.positive(), p.signal_variance.positive()), (p.noise_std.positive(),)
+        return (p.lengthscale.positive(), p.signal_variance.positive()), (
+            p.noise_std.positive(),
+        )
 
     def objective(vs):
         return negative_evidence(model(vs))
@@ -150,11 +148,8 @@ def main():
     # Approximate posterior
     parameters = model(vs)
     weight, precision = gaussian_process.approximate_posterior(parameters)
-    mean, variance = gaussian_process.predict(
-        X_show,
-        parameters,
-        weight, precision)
-    noise_variance = vs.struct.noise_std()**2
+    mean, variance = gaussian_process.predict(X_show, parameters, weight, precision)
+    noise_variance = vs.struct.noise_std() ** 2
     obs_variance = variance + noise_variance
     plot((X, y), (X_show, f_show), mean, variance, fname="readme_regression_before.png")
 
@@ -165,19 +160,22 @@ def main():
 
     # Approximate posterior
     weight, precision = gaussian_process.approximate_posterior(parameters)
-    mean, variance = gaussian_process.predict(
-        X_show,
-        parameters,
-        weight, precision)
-    noise_variance = vs.struct.noise_std()**2
+    mean, variance = gaussian_process.predict(X_show, parameters, weight, precision)
+    noise_variance = vs.struct.noise_std() ** 2
     obs_variance = variance + noise_variance
-    plot((X, y), (X_show, f_show), mean, obs_variance, fname="readme_regression_after.png")
+    plot(
+        (X, y),
+        (X_show, f_show),
+        mean,
+        obs_variance,
+        fname="readme_regression_after.png",
+    )
 
     if args.profile:
         profile.disable()
         s = StringIO()
         stats = Stats(profile, stream=s).sort_stats(SortKey.CUMULATIVE)
-        stats.print_stats(.05)
+        stats.print_stats(0.05)
         print(s.getvalue())
 
 

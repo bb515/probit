@@ -51,7 +51,7 @@ Then, `pip install probit` or for developers,
 You can find examples of how to use the package under:`examples/`.
 
 ### Regression and hyperparameter optimization
-Run the regression example by typing `python example/regression.py`.
+Run the regression example by typing `python examples/regression.py`.
 ```python
 >>> def prior(prior_parameters):
 >>>     lengthscale, signal_variance = prior_parameters
@@ -112,7 +112,7 @@ params=((Array(1.354531, dtype=float32), Array(0.48594338, dtype=float32)), (Arr
 ![Prediction](readme_regression_after.png)
 
 ### Ordinal regression and hyperparameter optimization
-Run the ordinal regression example by typing `python example/classification.py`.
+Run the ordinal regression example by typing `python examples/classification.py`.
 
 ```python
 >>> # Generate data

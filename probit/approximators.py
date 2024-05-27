@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
-import pathlib
-import jax
 import lab.jax as B
 import jax.numpy as jnp
 from jax import value_and_grad, grad, jit, vmap
 from probit.implicit.solvers import (
-    fwd_solver, newton_solver,
-    fixed_point_layer, fixed_point_layer_fwd, fixed_point_layer_bwd)
+    fwd_solver,
+    newton_solver,
+    fixed_point_layer,
+    fixed_point_layer_fwd,
+    fixed_point_layer_bwd,
+)
 from probit.implicit.Laplace import f_LA, objective_LA
 from probit.implicit.VB import f_VB, objective_VB
 
@@ -51,9 +53,14 @@ class Approximator(ABC):
 
     @abstractmethod
     def __init__(
-            self, data, prior, log_likelihood,
-            grad_log_likelihood=None, hessian_log_likelihood=None,
-            tolerance=1e-5):
+        self,
+        data,
+        prior,
+        log_likelihood,
+        grad_log_likelihood=None,
+        hessian_log_likelihood=None,
+        tolerance=1e-5,
+    ):
         """
         Create an :class:`Approximator` object.
 
@@ -62,9 +69,9 @@ class Approximator(ABC):
         :arg prior: method, when evaluated prior(*args, **kwargs) returns
             a valid `:class:MLKernels.Kernel` object
             that is the kernel of the Gaussian Process.
-        :arg data: The data tuple. (X_train, y_train), where  
+        :arg data: The data tuple. (X_train, y_train), where
             X_train is the (N, D) The data vector and y_train (N, ) is the
-            target vector. 
+            target vector.
         :type data: (:class:`numpy.ndarray`, :class:`numpy.ndarray`)
         :arg log_likelihood: method, when evaluated
             log_likelihood(*args, **kwargs) return the log likelihood. Takes
@@ -85,14 +92,16 @@ class Approximator(ABC):
         if grad_log_likelihood is None:  # Try JAX grad
             grad_log_likelihood = grad(log_likelihood)
         if hessian_log_likelihood is None:  # Try JAX grad
-            hessian_log_likelihood = grad(
-                lambda f, y, x: grad(log_likelihood)(f, y, x))
-        self.log_likelihood = jit(vmap(
-            log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        self.grad_log_likelihood = jit(vmap(
-            grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
-        self.hessian_log_likelihood = jit(vmap(
-            hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0)))
+            hessian_log_likelihood = grad(lambda f, y, x: grad(log_likelihood)(f, y, x))
+        self.log_likelihood = jit(
+            vmap(log_likelihood, in_axes=(0, 0, None), out_axes=(0))
+        )
+        self.grad_log_likelihood = jit(
+            vmap(grad_log_likelihood, in_axes=(0, 0, None), out_axes=(0))
+        )
+        self.hessian_log_likelihood = jit(
+            vmap(hessian_log_likelihood, in_axes=(0, 0, None), out_axes=(0))
+        )
 
         # Get data and calculate the prior
         X_train, _ = data
@@ -100,8 +109,7 @@ class Approximator(ABC):
         self.data = data
 
         # Set up a JAX-transformable function for a custom VJP rule definition
-        fixed_point_layer.defvjp(
-            fixed_point_layer_fwd, fixed_point_layer_bwd)
+        fixed_point_layer.defvjp(fixed_point_layer_fwd, fixed_point_layer_bwd)
 
     @abstractmethod
     def construct(self):
@@ -143,11 +151,7 @@ class Approximator(ABC):
         :return: A (N,) JAX array.
         """
 
-    def predict(
-        self,
-        X_test,
-        parameters,
-        weight, precision):
+    def predict(self, X_test, parameters, weight, precision):
         """
         Make posterior predictions given test data, X_test.
 
@@ -168,17 +172,14 @@ class Approximator(ABC):
         Kss = B.flatten(kernel.elwise(X_test, X_test))
         Kfs = kernel(self.data[0], X_test)
         Kff = kernel(self.data[0])
-        K = Kff + B.diag(1. / precision)
+        K = Kff + B.diag(1.0 / precision)
         predictive_posterior_variance = Kss - B.einsum(
-            'ij, ij -> j', B.dense(Kfs), B.solve(K, Kfs))
+            "ij, ij -> j", B.dense(Kfs), B.solve(K, Kfs)
+        )
         predictive_posterior_mean = B.flatten(Kfs.T @ weight)
         return predictive_posterior_mean, predictive_posterior_variance
 
-    def predict_covariance(
-        self,
-        X_test,
-        parameters,
-        weight, precision):
+    def predict_covariance(self, X_test, parameters, weight, precision):
         """
         Make posterior predictive covariance given test data, X_test.
 
@@ -191,7 +192,7 @@ class Approximator(ABC):
         Kss = B.dense(kernel(X_test, X_test))
         Kfs = B.dense(kernel(self.data[0], X_test))
         Kff = kernel(self.data[0])
-        K = Kff + B.diag(1. / precision)
+        K = Kff + B.diag(1.0 / precision)
         predictive_posterior_covariance = Kss - Kfs.T @ B.solve(K, Kfs)
         return predictive_posterior_covariance
 
@@ -218,6 +219,7 @@ class LaplaceGP(Approximator):
     This class allows users to define a regression/classification problem
     and get predictions using approximate Bayesian inference.
     """
+
     def __repr__(self):
         """
         Returns a string representation of this class, used to import the class
@@ -225,8 +227,7 @@ class LaplaceGP(Approximator):
         """
         return "LaplaceGP"
 
-    def __init__(
-            self, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         """
         Create an :class:`LaplaceGP` Approximator object.
 
@@ -238,29 +239,41 @@ class LaplaceGP(Approximator):
         return lambda parameters, weight: f_LA(
             prior_parameters=parameters[0],
             likelihood_parameters=parameters[1],
-            prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
-            weight=weight, data=self.data)
+            prior=self.prior,
+            grad_log_likelihood=self.grad_log_likelihood,
+            weight=weight,
+            data=self.data,
+        )
 
     def objective(self):
         return lambda parameters: objective_LA(
-                parameters[0], parameters[1],
-                self.prior,
-                self.log_likelihood,
-                self.hessian_log_likelihood,
-                fixed_point_layer(jnp.zeros(self.N), self.tolerance,
-                    newton_solver, self.construct(), parameters),
-                self.data)
+            parameters[0],
+            parameters[1],
+            self.prior,
+            self.log_likelihood,
+            self.hessian_log_likelihood,
+            fixed_point_layer(
+                jnp.zeros(self.N),
+                self.tolerance,
+                newton_solver,
+                self.construct(),
+                parameters,
+            ),
+            self.data,
+        )
 
     def weight(self, parameters):
         f = self.construct()
-        return newton_solver(lambda z: f(parameters, z),
-            jnp.zeros(self.N), self.tolerance)
+        return newton_solver(
+            lambda z: f(parameters, z), jnp.zeros(self.N), self.tolerance
+        )
 
     def precision(self, weight, parameters):
         K = B.dense(self.prior(parameters[0])(self.data[0]))
         posterior_mean = K @ weight
         precision = -self.hessian_log_likelihood(
-            posterior_mean, self.data[1], parameters[1])
+            posterior_mean, self.data[1], parameters[1]
+        )
         return precision, posterior_mean
 
 
@@ -274,6 +287,7 @@ class VBGP(Approximator):
     This class allows users to define a regression/classification problem
     and get predictions using approximate Bayesian inference.
     """
+
     def __repr__(self):
         """
         Returns a string representation of this class, used to import the class
@@ -281,8 +295,7 @@ class VBGP(Approximator):
         """
         return "VBGP"
 
-    def __init__(
-            self, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         """
         Create an :class:`VBGP` Approximator object.
 
@@ -294,24 +307,33 @@ class VBGP(Approximator):
         return lambda parameters, weight: f_VB(
             prior_parameters=parameters[0],
             likelihood_parameters=parameters[1],
-            prior=self.prior, grad_log_likelihood=self.grad_log_likelihood,
-            weight=weight, data=self.data)
+            prior=self.prior,
+            grad_log_likelihood=self.grad_log_likelihood,
+            weight=weight,
+            data=self.data,
+        )
 
     def objective(self):
         return lambda parameters: objective_VB(
-            parameters[0], parameters[1],
+            parameters[0],
+            parameters[1],
             self.prior,
             self.log_likelihood,
-            fixed_point_layer(jnp.zeros(self.N), self.tolerance,
-                fwd_solver, self.construct(), parameters),
-            self.data)
+            fixed_point_layer(
+                jnp.zeros(self.N),
+                self.tolerance,
+                fwd_solver,
+                self.construct(),
+                parameters,
+            ),
+            self.data,
+        )
 
     def weight(self, parameters):
         f = self.construct()
-        return fwd_solver(lambda z: f(parameters, z),
-            jnp.zeros(self.N), self.tolerance)
+        return fwd_solver(lambda z: f(parameters, z), jnp.zeros(self.N), self.tolerance)
 
     def precision(self, weight, parameters):
         K = B.dense(self.prior(parameters[0])(self.data[0]))
         posterior_mean = K @ weight
-        return 1./ parameters[1][0]**2 * jnp.ones(weight.shape[0]), posterior_mean
+        return 1.0 / parameters[1][0] ** 2 * jnp.ones(weight.shape[0]), posterior_mean

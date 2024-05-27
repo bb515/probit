@@ -1,5 +1,5 @@
 """
 Probit.
 
-A simple and tidy Gaussian process package in Jax.
+A simple and accessible Gaussian process package in Jax.
 """
